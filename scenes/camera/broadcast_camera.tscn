@@ -1,0 +1,22 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/camera/broadcast_camera.gd" id="1_cam"]
+
+[node name="BroadcastCamera" type="Node3D"]
+script = ExtResource("1_cam")
+
+[node name="Yaw" type="Node3D" parent="."]
+
+[node name="Pitch" type="Node3D" parent="Yaw"]
+transform = Transform3D(1, 0, 0, 0, 0.970296, -0.241922, 0, 0.241922, 0.970296, 0, 0, 0)
+
+[node name="SpringArm3D" type="SpringArm3D" parent="Yaw/Pitch"]
+collision_mask = 1
+spring_length = 7.5
+margin = 0.3
+
+[node name="Camera3D" type="Camera3D" parent="Yaw/Pitch/SpringArm3D"]
+fov = 68.0
+near = 0.1
+far = 500.0
+current = true

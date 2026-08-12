@@ -1,0 +1,30 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/ball/ball.gd" id="1_ball"]
+
+[sub_resource type="StandardMaterial3D" id="Mat_ball"]
+albedo_color = Color(0.541, 0.353, 0.208, 1)
+roughness = 0.72
+metallic_specular = 0.35
+
+[sub_resource type="SphereMesh" id="Mesh_ball"]
+material = SubResource("Mat_ball")
+radius = 0.0875
+height = 0.175
+radial_segments = 24
+rings = 12
+
+[sub_resource type="SphereShape3D" id="Shape_placeholder"]
+radius = 0.0875
+
+[node name="Ball" type="RigidBody3D"]
+collision_layer = 4
+collision_mask = 3
+mass = 0.475
+script = ExtResource("1_ball")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("Mesh_ball")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("Shape_placeholder")

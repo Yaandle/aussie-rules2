@@ -1,0 +1,28 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/field/field.gd" id="1_field"]
+[ext_resource type="Shader" path="res://assets/shaders/turf.gdshader" id="2_turf"]
+
+[sub_resource type="ShaderMaterial" id="Mat_turf"]
+shader = ExtResource("2_turf")
+
+[sub_resource type="PlaneMesh" id="Mesh_ground"]
+size = Vector2(215, 185)
+
+[sub_resource type="BoxShape3D" id="Shape_ground"]
+size = Vector3(215, 2, 185)
+
+[node name="Field" type="Node3D"]
+script = ExtResource("1_field")
+
+[node name="Ground" type="StaticBody3D" parent="."]
+collision_layer = 1
+collision_mask = 0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Ground"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1, 0)
+shape = SubResource("Shape_ground")
+
+[node name="Turf" type="MeshInstance3D" parent="Ground"]
+material_override = SubResource("Mat_turf")
+mesh = SubResource("Mesh_ground")

@@ -1,0 +1,55 @@
+[gd_scene format=3 uid="uid://dq2cntr7w24ec"]
+
+[ext_resource type="Script" uid="uid://ng04xa56cs2j" path="res://scripts/main.gd" id="1_main"]
+[ext_resource type="PackedScene" path="res://scenes/field/field.tscn" id="2_field"]
+[ext_resource type="PackedScene" path="res://scenes/ball/ball.tscn" id="3_ball"]
+[ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="4_player"]
+[ext_resource type="PackedScene" path="res://scenes/camera/broadcast_camera.tscn" id="5_camera"]
+[ext_resource type="PackedScene" path="res://scenes/ui/debug_hud.tscn" id="6_hud"]
+
+[sub_resource type="ProceduralSkyMaterial" id="Sky_material"]
+sky_top_color = Color(0.32, 0.5, 0.76, 1)
+sky_horizon_color = Color(0.72, 0.78, 0.8, 1)
+ground_bottom_color = Color(0.27, 0.31, 0.26, 1)
+ground_horizon_color = Color(0.55, 0.6, 0.52, 1)
+sun_angle_max = 26.0
+sun_curve = 0.12
+
+[sub_resource type="Sky" id="Sky"]
+sky_material = SubResource("Sky_material")
+
+[sub_resource type="Environment" id="Environment"]
+background_mode = 2
+sky = SubResource("Sky")
+ambient_light_source = 3
+reflected_light_source = 2
+tonemap_mode = 3
+tonemap_white = 6.0
+ssao_enabled = true
+fog_enabled = true
+fog_light_color = Color(0.71, 0.77, 0.8, 1)
+fog_density = 0.0008
+
+[node name="Main" type="Node3D" unique_id=885742140]
+script = ExtResource("1_main")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=2115172144]
+environment = SubResource("Environment")
+
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=464142346]
+transform = Transform3D(0.81915, 0, 0.57358, 0.43938, 0.64279, -0.62751, -0.36868, 0.76604, 0.52654, 0, 40, 0)
+light_energy = 1.15
+shadow_enabled = true
+directional_shadow_max_distance = 120.0
+
+[node name="Field" parent="." unique_id=1385961451 instance=ExtResource("2_field")]
+
+[node name="Ball" parent="." unique_id=186247320 instance=ExtResource("3_ball")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
+
+[node name="Player" parent="." unique_id=439208560 instance=ExtResource("4_player")]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, -13.149438, 3.9761136, 3.609085)
+
+[node name="BroadcastCamera" parent="." unique_id=451003639 instance=ExtResource("5_camera")]
+
+[node name="DebugHud" parent="." unique_id=830489535 instance=ExtResource("6_hud")]
