@@ -108,6 +108,7 @@ func _physics_process(delta: float) -> void:
 	var before := global_position
 	move_and_slide()
 	_push_rigid_bodies()
+	_contain_to_field()
 
 	_update_facing(delta)
 	_track_carry_distance(before)
@@ -212,6 +213,27 @@ func _push_rigid_bodies() -> void:
 		body.apply_impulse(
 			push.normalized() * strength,
 			collision.get_position() - body.global_position)
+
+
+## Nothing about CharacterBody3D's collision stops it walking off the
+## ground slab's edge into the void — the slab is finite (Field.SURROUND_
+## MARGIN past the oval boundary) but there is no wall there. Keep every
+## player (human or AI) inside that slab, a small buffer short of its
+## true edge. AI never deliberately paths past the boundary, but a chase
+## or a plant-and-pivot can carry it there anyway, so this is enforced for
+## both brains in one place rather than trusted to AI target selection.
+const FIELD_CONTAINMENT_BUFFER := 1.5   # m short of the slab's true edge
+
+func _contain_to_field() -> void:
+	var limit_x := Tuning.FIELD_HALF_LENGTH + Field.SURROUND_MARGIN - FIELD_CONTAINMENT_BUFFER
+	var limit_z := Tuning.FIELD_HALF_WIDTH + Field.SURROUND_MARGIN - FIELD_CONTAINMENT_BUFFER
+	var pos := global_position
+	var nx := pos.x / limit_x
+	var nz := pos.z / limit_z
+	var radial := sqrt(nx * nx + nz * nz)
+	if radial > 1.0:
+		global_position.x = pos.x / radial
+		global_position.z = pos.z / radial
 
 
 # ── Possession ───────────────────────────────────────────────────────

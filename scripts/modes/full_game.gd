@@ -67,6 +67,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_switch_human_player()
 	elif event.is_action_pressed(&"pause"):
 		get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn")
+	elif event.is_action_pressed(&"debug_reset"):
+		_reset_ball()
 
 
 # ── Setup ────────────────────────────────────────────────────────────
@@ -90,10 +92,29 @@ func _spawn_team(team: Tuning.Team, attack_direction: float) -> Array[PlayerCont
 		# Set before add_child(), so PlaceholderRig._ready() builds with
 		# the right kit colour the first time round.
 		(instance.get_node("Rig") as PlaceholderRig).away_kit = team == Tuning.Team.AWAY
-		add_child(instance)
 
+		# Position before add_child(), not after. A CharacterBody3D that
+		# joins the tree registers its collision body with the physics
+		# server at whatever transform it already has — the scene's
+		# authored origin — and that registration isn't visible to script
+		# as "wrong" but does not retroactively move once add_child()
+		# returns: the physics server only picks up a transform set
+		# afterward on its next flush, one full physics tick later. With
+		# TEAM_SIZE*2 players all instantiated at the origin and moved to
+		# their kickoff slot only after add_child(), every one of them sat
+		# on top of the ball (also at the origin) for that first tick —
+		# eight overlapping capsules and a ball resolved by the solver in
+		# one step threw the ball across the map at thousands of m/s
+		# before the match even started. Setting the transform first means
+		# the body is created already at its slot; there is no origin to
+		# flash through.
+		# `position`, not `global_position` — the node isn't in the tree
+		# yet, so there's no parent transform to resolve a global position
+		# against. FullGame itself sits at identity, so the two are the
+		# same value once this becomes its child.
 		var slot := _kickoff_slot(i, attack_direction)
-		instance.global_position = slot
+		instance.position = slot
+		add_child(instance)
 
 		var brain := AIBrain.new()
 		brain.ball = _ball
@@ -195,16 +216,42 @@ func _start_pause(duration: float, on_complete: Callable) -> void:
 # at roughly the point it left and stays live, contestable by whoever's
 # nearest.
 
+## How far below the ground the ball has to fall before it counts as lost
+## rather than merely airborne. Mirrors scripts/main.gd's BALL_LOST_BELOW
+## safety net, which Full Game never had one of.
+const BALL_LOST_BELOW := -5.0
+
 func _check_out_of_bounds() -> void:
-	if _ball.is_held or not _ball.is_settled():
+	if _ball.is_held:
 		return
 	var pos := _ball.global_position
-	if _field.is_inside_oval(pos):
+
+	# Catches a ball that has fallen through geometry or been knocked clean
+	# off the ground slab's finite extent. Checked unconditionally — a
+	# ball in freefall past the edge of the world never settles (gravity
+	# keeps accelerating it), so gating this on is_settled() like the
+	# in-bounds case below would mean it's never caught.
+	if pos.y < BALL_LOST_BELOW \
+			or absf(pos.x) > Tuning.FIELD_HALF_LENGTH + Field.SURROUND_MARGIN \
+			or absf(pos.z) > Tuning.FIELD_HALF_WIDTH + Field.SURROUND_MARGIN:
+		_reset_ball()
+		return
+
+	if not _ball.is_settled() or _field.is_inside_oval(pos):
 		return
 	var radial := sqrt(pow(pos.x / Tuning.FIELD_HALF_LENGTH, 2.0)
 		+ pow(pos.z / Tuning.FIELD_HALF_WIDTH, 2.0))
 	var scale := 0.97 / maxf(radial, 0.001)
 	_ball.reset_at(Vector3(pos.x * scale, 0.3, pos.z * scale))
+
+
+## Manual safety net (bound to "debug_reset", same key as the milestone-1
+## sandbox's R) — brings the ball back to the centre if it ever ends up
+## somewhere _check_out_of_bounds can't reason about.
+func _reset_ball() -> void:
+	for player in _home_players + _away_players:
+		player.drop_ball()
+	_ball.reset_at(_field.centre())
 
 
 # ── Human control ────────────────────────────────────────────────────
