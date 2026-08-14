@@ -46,8 +46,6 @@ func _ready() -> void:
 
 	_ball.reset_at(_field.centre())
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
-	if OS.get_cmdline_user_args().has("--smoke"):
-		_smoke_test.call_deferred()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -76,51 +74,6 @@ func _reset_ball() -> void:
 func _on_ball_disposed(action: Tuning.Action) -> void:
 	if action == Tuning.Action.KICK:
 		_camera.punch(Tuning.CAM_PUNCH_KICK)
-
-
-func _smoke_test() -> void:
-	var tree := get_node("Player/AnimationTree") as AnimationTree
-	var ap := get_node("Player/AnimationPlayer") as AnimationPlayer
-	print("TREE active=", tree.active, " root=", tree.tree_root)
-	print("CLIPS ", ap.get_animation_list())
-	var sm := tree.tree_root as AnimationNodeStateMachine
-	print("STATES ", sm.get_node_list() if sm else "NO STATE MACHINE")
-	var bs := sm.get_node(&"locomotion") as AnimationNodeBlendSpace2D
-	print("BLEND POINTS ", bs.get_blend_point_count() if bs else -1)
-	print("RIG deep node ", _player.get_node_or_null("Rig/Hips/HipL/KneeL/AnkleL"))
-	var hull := _ball.get_node("CollisionShape3D").shape
-	print("BALL shape=", hull.get_class(), " pts=",
-		hull.points.size() if hull is ConvexPolygonShape3D else 0)
-	var marks := _field.get_node_or_null("Markings") as MeshInstance3D
-	print("MARKINGS verts=", marks.mesh.surface_get_array_len(0) if marks else -1)
-	print("GOAL POSTS ", _field.get_node("Goals").get_child_count())
-
-	await get_tree().create_timer(0.5).timeout
-	print("SETTLED player_y=%.3f on_floor=%s ball_y=%.3f anim=%s" % [
-		_player.global_position.y, _player.is_on_floor(),
-		_ball.global_position.y, _player.animation_state()])
-
-	# Drive the disposal path directly: gather, then kick at full charge.
-	_ball.reset_at(_player.global_position - _player.global_transform.basis.z * 0.6
-		+ Vector3.UP * 0.2)
-	await get_tree().physics_frame
-	await get_tree().physics_frame
-	print("GATHERED ", _player.is_carrying())
-	_player.set("_kick_charge", 1.0)
-	_player.call("_begin", Tuning.Action.KICK)
-	var peak := 0.0
-	var flight := 0.0
-	var start := _ball.global_position
-	for i in 260:
-		await get_tree().physics_frame
-		peak = maxf(peak, _ball.global_position.y)
-		if _ball.global_position.y > 0.3:
-			flight += 1.0 / 60.0
-	var travel := Vector2(_ball.global_position.x - start.x,
-		_ball.global_position.z - start.z).length()
-	print("KICK peak=%.1fm hang=%.2fs travel=%.1fm anim=%s" % [
-		peak, flight, travel, _player.animation_state()])
-	get_tree().quit()
 
 
 func _toggle_mouse_capture() -> void:

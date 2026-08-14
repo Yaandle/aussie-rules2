@@ -149,6 +149,13 @@ func detach() -> void:
 	sleeping = false
 
 
+## The current carrier, or null if the ball is loose. Distinct from
+## `_carrier` staying set through the release-grace window after a
+## disposal — this only reports a live hold.
+func holder() -> Node3D:
+	return _carrier if is_held else null
+
+
 func is_airborne() -> bool:
 	return not is_held and global_position.y > Tuning.BALL_SEMI_MINOR * 2.5
 

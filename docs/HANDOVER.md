@@ -12,20 +12,27 @@ Sources read: `PROTOTYPE2_DESIGN.md` (the brief), and Prototype 1 at
 No Prototype 1 code was ported. Its rule numbers were translated into real
 metres and recorded in [RULES_REFERENCE.md](RULES_REFERENCE.md).
 
-## Critical caveat
+## Verification status
 
-**None of this has been run.** Godot was not installed on the machine during
-the session, so every file was authored as text and verified only by static
-checks:
+The project **loads and runs clean**:
 
-- all `[ext_resource]` paths resolve to real files
-- every `$NodePath` in a script exists in the scene that owns the script
-- every cross-class member reference (`Tuning.X`, `Ball.y`, …) is defined
-- indentation is tabs-only throughout (GDScript rejects mixed indentation)
+```
+godot --headless --path . --quit-after 300   →  exit 0, no output
+```
 
-What that does **not** cover: GDScript compile errors, runtime API
-mismatches, and — the highest-risk area — whether the AnimationTree graph
-actually assembles. First run is the real test.
+Five seconds of the real main scene with no errors clears script parsing,
+scene loading, autoloads, the rig build, animation-library generation,
+AnimationTree assembly, the ball's runtime-built convex hull and the field
+mesh generation — all of which push errors or throw on failure.
+
+One real bug was found this way and fixed: a partial rename left
+`field.gd:_stripe` calling `tool.*` on a parameter renamed to `surface`,
+which took the whole Field script out.
+
+**Not yet verified: anything requiring input or a human eye.** Nobody has
+driven the player, so the weight model, the blend-space output, kick arcs and
+camera behaviour are all unobserved. The most likely remaining failure is
+cosmetic rather than structural — see risk 1 below.
 
 ## The four design decisions worth knowing
 
@@ -63,20 +70,16 @@ already match what the real version uses.
 
 ## Known risks, highest first
 
-1. **AnimationTree assembly** (`player_animation.gd:_build_state_machine`).
-   Most API surface, zero validation. If the rig T-poses, the graph built but
-   the clips are not driving it; if the console reports missing animations,
-   the library names and blend point names disagree.
-2. **`_gait_pose` sign conventions** (`placeholder_animations.gd`). Limbs
+1. **`_gait_pose` sign conventions** (`placeholder_animations.gd`). Limbs
    hang along -Y, the torso runs along +Y, so a positive X rotation swings a
-   limb *forward* and the torso *backward*. If the run cycle looks like it is
-   moonwalking or leaning back, a sign is flipped — the physics is fine.
-3. **Jolt setting string.** `project.godot` sets
-   `physics/3d/physics_engine="JoltPhysics3D"`. Jolt is the 4.6 default
-   anyway, so if that value is rejected, just delete the line.
-4. **Ball hull vs. gather.** `Ball._build_hull()` replaces the placeholder
-   `SphereShape3D` at `_ready`. If the ball behaves like a sphere, that
-   replacement did not happen.
+   limb *forward* and the torso *backward*. If the run cycle moonwalks or
+   leans the wrong way, a sign is flipped — the physics underneath is fine
+   and nothing outside that one function needs touching.
+2. **Feel tuning.** Every number in `tuning.gd` is a first guess made without
+   playing it. `TURN_RATE_SPRINT`, `ACCELERATION`/`BRAKING` and
+   `KICK_MIN/MAX_SPEED` are the ones most likely to want moving.
+3. **Gather ergonomics.** `GATHER_RADIUS = 0.85` m with a 14 m/s speed cap may
+   make picking the ball up fiddlier than it should be.
 
 ## What was NOT built, and why
 

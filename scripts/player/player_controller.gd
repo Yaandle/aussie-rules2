@@ -41,6 +41,15 @@ var camera: Node3D = null
 @onready var _boot_point: Marker3D = $BootPoint
 @onready var _gather_zone: Area3D = $GatherZone
 
+## Defaults to a HumanBrain so a bare instance (the milestone-1 sandbox,
+## scenes/main.tscn) behaves exactly as it always did. Full Game assigns
+## AIBrain to everyone but the one human-controlled player.
+var _brain: PlayerBrain = HumanBrain.new()
+
+## Seconds left unable to move or act after being tackled. Zero the rest
+## of the time.
+var _stun_timer := 0.0
+
 ## Unit XZ direction the body is actually travelling. Kept as state
 ## rather than re-derived from velocity every frame so it survives a
 ## complete stop — you keep facing where you were going.
@@ -61,6 +70,8 @@ var _charging := false
 
 
 func _ready() -> void:
+	add_to_group(&"players")
+
 	_facing_yaw = rotation.y
 	_heading = -global_transform.basis.z
 	_heading.y = 0.0
@@ -74,8 +85,15 @@ func _ready() -> void:
 	($GatherZone/CollisionShape3D as CollisionShape3D).shape = reach
 
 
+func set_brain(brain: PlayerBrain) -> void:
+	_brain = brain
+
+
 func _physics_process(delta: float) -> void:
+	_brain.update(self, delta)
+
 	_gather_cooldown = maxf(0.0, _gather_cooldown - delta)
+	_stun_timer = maxf(0.0, _stun_timer - delta)
 
 	_update_charge(delta)
 	_update_action(delta)
@@ -94,6 +112,7 @@ func _physics_process(delta: float) -> void:
 	_update_facing(delta)
 	_track_carry_distance(before)
 	_try_gather()
+	_try_tackle()
 
 	_animation.drive(locomotion_blend(), delta)
 
@@ -101,8 +120,8 @@ func _physics_process(delta: float) -> void:
 # ── Locomotion ───────────────────────────────────────────────────────
 
 func _update_locomotion(delta: float) -> void:
-	var wish := _camera_relative(InputManager.get_move_vector())
-	var gait := InputManager.get_gait()
+	var wish := _brain.wish_direction(self)
+	var gait := 0.0 if _stun_timer > 0.0 else _brain.gait()
 
 	var horizontal := Vector3(velocity.x, 0.0, velocity.z)
 	_speed = horizontal.length()
@@ -171,18 +190,6 @@ func locomotion_blend() -> Vector2:
 	return Vector2(
 		clampf(right.dot(horizontal) / Tuning.SPRINT_SPEED, -1.0, 1.0),
 		clampf(forward.dot(horizontal) / Tuning.SPRINT_SPEED, -1.0, 1.0))
-
-
-func _camera_relative(input: Vector2) -> Vector3:
-	var forward := Vector3.FORWARD
-	var right := Vector3.RIGHT
-	if is_instance_valid(camera):
-		var flat := -camera.global_transform.basis.z
-		flat.y = 0.0
-		if flat.length_squared() > 0.000001:
-			forward = flat.normalized()
-			right = Vector3(-forward.z, 0.0, forward.x)
-	return right * input.x + forward * input.y
 
 
 ## CharacterBody3D does not shove rigid bodies on its own. Running
@@ -266,7 +273,8 @@ func _track_carry_distance(previous_position: Vector3) -> void:
 
 
 func _try_gather() -> void:
-	if is_carrying() or _gather_cooldown > 0.0 or _action != Tuning.Action.NONE:
+	if is_carrying() or _gather_cooldown > 0.0 or _action != Tuning.Action.NONE \
+			or _stun_timer > 0.0:
 		return
 	for body in _gather_zone.get_overlapping_bodies():
 		if not (body is Ball):
@@ -280,17 +288,56 @@ func _try_gather() -> void:
 		_carried_ball = ball
 		_carry_distance = 0.0
 		MatchState.possession = team
-		InputManager.rumble(Tuning.RUMBLE_GATHER)
+		if _brain is HumanBrain:
+			InputManager.rumble(Tuning.RUMBLE_GATHER)
 		ball_gathered.emit(ball)
 		return
+
+
+# ── Contests ─────────────────────────────────────────────────────────
+# Design doc §5: a tackle is decided by getting into range and timing it,
+# not by a dice roll. No holding-the-ball adjudication yet (free kick vs
+# ball-up) — see RULES_REFERENCE.md §4 — a successful tackle always spills
+# the ball loose for a fresh contest.
+
+func _try_tackle() -> void:
+	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE:
+		return
+	if not _brain.wants_tackle():
+		return
+	for node in get_tree().get_nodes_in_group(&"players"):
+		var other := node as PlayerController
+		if other == null or other == self or other.team == team:
+			continue
+		if not other.is_carrying():
+			continue
+		if global_position.distance_to(other.global_position) > Tuning.TACKLE_RADIUS:
+			continue
+		other._get_tackled(self)
+		return
+
+
+## Called on the tackled player, by the tackler.
+func _get_tackled(by: PlayerController) -> void:
+	var ball := _carried_ball
+	drop_ball()
+	_stun_timer = Tuning.TACKLE_STUN_DURATION
+	_action = Tuning.Action.NONE
+	_action_elapsed = 0.0
+	_action_fired = false
+	if is_instance_valid(ball):
+		var scatter := global_position - by.global_position
+		scatter.y = 0.0
+		scatter = scatter.normalized() if scatter.length_squared() > 0.0001 else Vector3.FORWARD
+		ball.apply_central_impulse(scatter * Tuning.TACKLE_SPILL_SPEED * ball.mass)
 
 
 # ── Disposal ─────────────────────────────────────────────────────────
 
 func _update_charge(delta: float) -> void:
-	if _action != Tuning.Action.NONE:
+	if _action != Tuning.Action.NONE or _stun_timer > 0.0:
 		return
-	if Input.is_action_pressed(&"kick") and is_carrying():
+	if _brain.wants_kick() and is_carrying():
 		_charging = true
 		_kick_charge = minf(1.0, _kick_charge + delta / Tuning.KICK_CHARGE_TIME)
 	elif _charging:
@@ -300,9 +347,9 @@ func _update_charge(delta: float) -> void:
 		else:
 			_kick_charge = 0.0
 
-	if Input.is_action_just_pressed(&"handball") and is_carrying():
+	if _brain.wants_handball() and is_carrying():
 		_begin(Tuning.Action.HANDBALL)
-	elif Input.is_action_just_pressed(&"bounce") and is_carrying():
+	elif _brain.wants_bounce() and is_carrying():
 		_begin(Tuning.Action.BOUNCE)
 
 
@@ -395,6 +442,7 @@ func _dispose() -> void:
 	_gather_cooldown = Tuning.GATHER_COOLDOWN
 	if _action != Tuning.Action.BOUNCE:
 		MatchState.possession = Tuning.Team.NONE
-	InputManager.rumble(Tuning.RUMBLE_KICK)
+	if _brain is HumanBrain:
+		InputManager.rumble(Tuning.RUMBLE_KICK)
 	ball_disposed.emit(_action)
 	_kick_charge = 0.0

@@ -13,6 +13,11 @@ extends Node3D
 ## 16:9 diorama camera. A 3D camera has no such constraint, so these are
 ## real AFL proportions and real metres.
 
+## Emitted when the ball enters a goal or behind zone (see
+## _build_score_zones). The scoring team is whichever side attacks this
+## end — HOME attacks +X per Tuning.gd's documented axis convention.
+signal scored(team: Tuning.Team, is_goal: bool)
+
 const MARKING_HEIGHT := 0.012      ## m above the turf, to beat z-fighting
 const ELLIPSE_SEGMENTS := 160
 const CIRCLE_SEGMENTS := 48
@@ -232,6 +237,7 @@ func _build_goals() -> void:
 			post_material, base_material)
 		_post(goals, Vector3(x, 0.0, behind_z), Tuning.BEHIND_POST_HEIGHT,
 			post_material, base_material)
+		_build_score_zones(goals, direction, x, goal_z, behind_z)
 
 
 func _post(parent: Node3D, base: Vector3, height: float,
@@ -273,3 +279,43 @@ func _post(parent: Node3D, base: Vector3, height: float,
 	band_node.material_override = base_material
 	band_node.position = Vector3(0.0, 0.25, 0.0)
 	body.add_child(band_node)
+
+
+# ── Scoring ──────────────────────────────────────────────────────────
+# Three Area3D triggers per end: one goal-mouth box between the goal
+# posts, two behind boxes either side of it out to the behind posts. No
+# post-hit or crossing-height distinction (design doc scope for the Full
+# Game milestone) — whichever box the ball enters decides the outcome.
+
+const SCORE_ZONE_DEPTH := 4.0      ## m, how far past the goal line the trigger reaches
+const SCORE_ZONE_HEIGHT := 12.0    ## m, tall enough that no realistic kick clears it
+
+func _build_score_zones(parent: Node3D, direction: int, line_x: float,
+		goal_z: float, behind_z: float) -> void:
+	var team := Tuning.Team.HOME if direction > 0 else Tuning.Team.AWAY
+	var centre_x := line_x + float(direction) * SCORE_ZONE_DEPTH * 0.5
+	_score_zone(parent, "GoalMouth%d" % direction, centre_x, 0.0, goal_z * 2.0, team, true)
+	_score_zone(parent, "BehindA%d" % direction, centre_x, (goal_z + behind_z) * 0.5,
+		behind_z - goal_z, team, false)
+	_score_zone(parent, "BehindB%d" % direction, centre_x, -(goal_z + behind_z) * 0.5,
+		behind_z - goal_z, team, false)
+
+
+func _score_zone(parent: Node3D, zone_name: String, centre_x: float, centre_z: float,
+		width: float, team: Tuning.Team, is_goal: bool) -> void:
+	var area := Area3D.new()
+	area.name = zone_name
+	area.collision_layer = 0
+	area.collision_mask = 4   # "ball", per project.godot's [layer_names]
+	area.position = Vector3(centre_x, SCORE_ZONE_HEIGHT * 0.5, centre_z)
+	parent.add_child(area)
+
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(SCORE_ZONE_DEPTH, SCORE_ZONE_HEIGHT, width)
+	var collision := CollisionShape3D.new()
+	collision.shape = shape
+	area.add_child(collision)
+
+	area.body_entered.connect(func(body: Node3D) -> void:
+		if body is Ball:
+			scored.emit(team, is_goal))

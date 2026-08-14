@@ -52,7 +52,7 @@ The rule is right; Prototype 1's value was compressed to fit its grid.
 |---|---|---|---|
 | Scoring arc | `SCORING_ARC_RADIUS = 40` | `Tuning.SCORING_ARC_RADIUS = 50.0` m | P1's own comment calls it "the 50m arc"; 40 was the compressed value |
 | Ground size | 166 × 88 units | 165 × 135 m | 88 wide was a 16:9 framing choice, not an aspect ratio any oval has |
-| Quarter length | `QUARTER_LENGTH = 180.0` s | `MatchState.QUARTER_LENGTH = 180.0` s | Kept as-is for now; a real quarter is 20 min plus time-on, and this becomes a decision when Full Game exists |
+| Quarter length | `QUARTER_LENGTH = 180.0` s | `Tuning.QUARTER_LENGTH = 120.0` s | Full Game exists now; 120s is a deliberately short default for one-sitting testing, not a ruling on what a real quarter should be — `QUARTERS_PER_MATCH` stays at the real 4 |
 
 ## 3. Rules whose *resolution* changes — the actual point of Prototype 2
 

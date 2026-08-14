@@ -1,159 +1,104 @@
 # Aussie Rules 2
 
-Realistic-leaning 3D Aussie Rules football in **Godot 4.6** (Jolt physics).
-Controller-first, keyboard at full parity. Contests resolve physically, not
+Realistic-leaning 3D Aussie Rules football. **Godot 4.6**, Jolt physics,
+controller-first with full keyboard parity. Contests resolve physically, not
 by dice roll.
 
-The brief is `PROTOTYPE2_DESIGN.md`. Prototype 1 — the Python/Pygame AFL
-prototype at `E:\aussie-rules_game` — stays intact as the canonical rules
-reference; see [docs/RULES_REFERENCE.md](docs/RULES_REFERENCE.md) for the
-translation of its rule numbers into this project's real metres.
+Brief: `PROTOTYPE2_DESIGN.md`. Prototype 1 (`E:\aussie-rules_game`) stays the
+canonical rules reference — see [docs/RULES_REFERENCE.md](docs/RULES_REFERENCE.md).
 
-## Status: milestone 1
+**Status:** design doc §7 priority 1 — Full Game. A small-sided match
+(`Tuning.TEAM_SIZE` a side) with AI on every player you're not driving,
+tackling and marking resolved physically, goal/behind scoring, and a real
+clock with quarters (2 minutes by default — `Tuning.QUARTER_LENGTH`, easy
+to change). No menus or audio yet, and several real AFL rules are
+deliberately simplified for this milestone — see docs/RULES_REFERENCE.md
+and `scripts/modes/full_game.gd`'s header for exactly which.
 
-Design doc §11's first milestone, and only that:
+Milestone 1's single-player sandbox (weighted locomotion, blend-space
+animation) still lives at `scenes/main.tscn` for isolating movement/kick
+feel — open it directly in the editor.
 
-> one `CharacterBody3D` player with blend-space locomotion and a physically
-> simulated ball, feeling "weighty" to move and kick — before AI, a second
-> team, or match rules.
+## Run
 
-**Done:** the oval, the player and its weight model, the blend-space
-animation pipeline, the ball as a real rigid body, the broadcast camera,
-controller/keyboard parity, a debug HUD.
+Open `project.godot` in Godot 4.6+ and press **F5** to play a match. No
+build step, no asset import — every model, animation and texture is
+generated in code.
 
-**Deliberately absent:** AI, a second player, a second team, tackling,
-marking, scoring, the match clock, menus, audio. Empty directories from §10
-(`scripts/mechanics`, `scripts/ai`, `scenes/modes`, `data/scenarios`) are
-placeholders for the milestones that own them.
-
-## Running it
-
-Requires Godot 4.6+. There is no build step and no asset import — every
-model, animation and texture in the project is generated in code.
-
-1. Open the Godot editor, **Import**, and select `project.godot`.
-2. Press **F5**.
-
-Keyboard alone is enough to test everything; a controller is never required.
-That is a hard requirement carried over from Prototype 1, not a nice-to-have.
+Verified: `godot --headless --path . --quit-after 300` exits 0 with no errors.
 
 ## Controls
 
-Every action is an Input Map action bound to both a key and a controller
-input. No code branches on device type.
-
-| Action | Keyboard | Controller |
+| Action | Key | Pad |
 |---|---|---|
-| Move | `WASD` | Left stick |
-| Walk / sprint | `Ctrl` / `Shift` | Left stick click / right trigger |
-| Camera | Arrow keys, mouse | Right stick |
-| Recentre camera | `C` | Right stick click |
+| Move / walk / sprint | `WASD` / `Ctrl` / `Shift` | Stick / L3 / RT |
+| Camera / recentre | Arrows, mouse / `C` | Right stick / R3 |
 | Kick (hold to charge) | `K` | A |
-| Handball | `Q` | X |
-| Bounce | `Space` | B |
-| Mark / contest | `E` | Y |
-| Switch player | `Tab` | LB |
-| Release mouse | `Esc` | Start |
-| Reset ball to your feet | `R` | Back |
-| Toggle debug HUD | `F3` | D-pad up |
+| Handball · Bounce · Mark | `Q` · `Space` · `E` | X · B · Y |
+| Switch player · Pause | `Tab` · `Esc` | LB · Start |
+| Reset ball · Debug HUD | `R` · `F3` | Back · D-pad up |
 
-Mark/contest and switch-player are bound but have nothing to do yet.
+Mark/contest and switch-player now do something: switch-player cycles which
+of your own team's players you're driving, and mark/contest attempts a
+tackle when you're close enough to an opposing carrier. The keyboard's three
+gait tiers hit the same values an analog stick reaches, so it is a real
+input path, not a degraded one.
 
-The keyboard's `Ctrl` / nothing / `Shift` tiers hit exactly the same gait
-values an analog stick reaches, so the keyboard is a real input path rather
-than a degraded one.
-
-## What to look for
-
-The milestone is a feel question, so it needs to be judged by feel:
-
-- **Sprint flat out, then demand a 180.** The player should plant, bleed the
-  speed, come round in an arc and rebuild. Turn rate falls as speed rises,
-  and running against your own momentum drives target speed to zero — the
-  plant-and-pivot is those two rules interacting, not a special case.
-- **Watch the strafe axis on the HUD during a hard turn.** The rig's facing
-  turns faster than the velocity heading does, so velocity spends a moment
-  pointing off to one side of the body and the blend space genuinely
-  interpolates lateral animation. The animation is reporting the physics.
-- **Hold `K` to full charge and let go.** The ball should climb lazily and
-  come down steeply. That asymmetry is quadratic air drag; a scripted flight
-  path cannot produce it.
-- **Kick on the run vs. standing.** Momentum transfers into the ball.
-- **Run onto a stationary ball at pace.** It should be knocked on.
-- **Bounce while running** (`Space`) and run onto the rebound.
-
-## Layout
-
-Design doc §10, plus two additions noted below.
+## Files
 
 ```
-project.godot            input map, autoloads, physics engine, layers
-scenes/
-  main.tscn              the milestone-1 harness
-  player/player.tscn     CharacterBody3D + rig + AnimationTree
-  ball/ball.tscn         RigidBody3D
-  field/field.tscn       turf slab; markings and posts are generated
-  camera/broadcast_camera.tscn
-  ui/debug_hud.tscn
-  modes/                 empty — §7's Full Game / Scenario / Goal Kicking
+project.godot                       162  input map, autoloads, physics, layers
+
 scripts/
-  tuning.gd              ADDITION: every tunable, plus the shared enums
-  main.gd
+  tuning.gd                         294  every tunable + shared enums (P1's settings.py)
+  main.gd                            83  milestone-1 sandbox harness (scenes/main.tscn)
   autoload/
-    input_manager.gd     device abstraction, deadzones, curves, haptics
-    game_state.gd        mode + phase
-    match_state.gd       score, clock, possession
+    input_manager.gd                145  device abstraction, radial deadzones, curves, haptics
+    game_state.gd                    60  mode + phase singleton
+    match_state.gd                  105  score, clock, quarters, possession
   player/
-    player_controller.gd the weight model
-    player_animation.gd  BlendSpace2D + state machine
-    placeholder_rig.gd       PLACEHOLDER — deleted when Mixamo lands
-    placeholder_animations.gd PLACEHOLDER — deleted when Mixamo lands
-  ball/ball.gd
-  camera/broadcast_camera.gd
-  field/field.gd         ADDITION: generates markings and goals
-  ui/debug_hud.gd
-  mechanics/, ai/        empty — later milestones
-assets/shaders/turf.gdshader
-data/scenarios/          empty — §7 priority 2
-docs/RULES_REFERENCE.md
+    player_controller.gd            446  weight model, brain-driven input, tackling
+    player_animation.gd             173  builds the BlendSpace2D + action state machine
+    placeholder_rig.gd              143  PLACEHOLDER blocked-out 1.85m humanoid (has home/away kit)
+    placeholder_animations.gd       293  PLACEHOLDER parametric gait + action clips
+  mechanics/
+    player_brain.gd                  49  the human-vs-AI control interface
+    human_brain.gd                   47  reads InputManager/Input — the default brain
+    ai_brain.gd                     171  chase/support/press/dispose — the Full Game AI
+  modes/
+    full_game.gd                    230  match state machine: kickoff, scoring, quarters, AI wiring
+  ball/ball.gd                      205  RigidBody3D: spheroid hull, drag, Magnus, carry/launch
+  camera/broadcast_camera.gd        134  spring-arm rig, look-ahead, ball focus, dynamic FOV
+  field/field.gd                    321  oval markings, posts, and goal/behind scoring triggers
+  ui/
+    debug_hud.gd                     77  speed, blend position, anim state, carry distance
+    scoreboard.gd                    50  always-on score/clock/quarter readout
+
+scenes/
+  main.tscn                          55  milestone-1 sandbox: one player, one ball, one oval
+  modes/full_game.tscn               54  the scene F5 actually launches
+  player/player.tscn                 47  CharacterBody3D + rig + AnimationPlayer/Tree + markers
+  ball/ball.tscn                     30  RigidBody3D + mesh (hull built at runtime)
+  field/field.tscn                   28  turf slab + collision (markings built at runtime)
+  camera/broadcast_camera.tscn       22  Yaw > Pitch > SpringArm3D > Camera3D
+  ui/
+    debug_hud.tscn                   16  one outlined Label, toggled with F3
+    scoreboard.tscn                  20  one centred Label, always on
+
+assets/shaders/turf.gdshader         51  mowing bands, oval boundary and surrounds, analytic
+
+docs/
+  RULES_REFERENCE.md                104  P1's rule numbers translated to metres, by category
 ```
 
-Two departures from §10, both deliberate:
-
-- **`scripts/tuning.gd`** is the direct descendant of Prototype 1's
-  `settings.py` — one file holding every number that governs feel. §10 did
-  not list it, but the pattern is one P1 proved and is worth keeping. It
-  also holds the two shared enums (`Team`, `Action`), because it is the one
-  module everything depends on, so a shared type can live there without
-  creating a dependency cycle.
-- **`scripts/field/`** was not in §10. The oval is not decoration here: you
-  cannot judge whether movement feels heavy or a kick feels long without a
-  50m arc and a mown band every 9m to measure against.
+Empty by design, waiting on later milestones: `scripts/ai/` (higher-level
+tactics, if `ai_brain.gd`'s baseline needs replacing), `data/scenarios/`,
+`assets/models|animations|textures|audio/`.
 
 ## Placeholder art
 
-Design doc §9 says start on placeholder humanoids and Mixamo animation before
-investing in art. There are no assets yet, so the player is a blocked-out
-1.85m figure built in code and its animation clips are sampled from a
-parametric gait function. They are not good animation and are not trying to
-be — they exist so the BlendSpace2D has real, differently-shaped clips to
-interpolate, which is the only way to prove the locomotion pipeline before
-there is art.
-
-**The swap:** import a Mixamo `.glb`, delete `placeholder_rig.gd` and
-`placeholder_animations.gd`, and stop calling `build_library()` in
-`player_animation.gd`. The blend point layout, the state names, the
-parameter paths and everything in `player_controller.gd` already match what
-the real version will use.
-
-## Next
-
-In the brief's order (§7, §11):
-
-1. Contest mechanics — a second player, tackling and marking resolved by
-   collision and momentum. This is where `root_motion_track` gets wired, per
-   §5: root motion for impacts, code-driven locomotion.
-2. Small-sided Full Game (3v3 or 6v6) with AI, then match rules from
-   `docs/RULES_REFERENCE.md` §4.
-3. Scenarios as data-driven resources.
-4. Goal Kicking as a harness around the same ball physics.
+Design doc §9: prove the system before buying art. `placeholder_rig.gd` and
+`placeholder_animations.gd` are marked for deletion — import a Mixamo `.glb`,
+delete both, and stop calling `build_library()` in `player_animation.gd`. The
+blend point layout, state names, parameter paths and all of
+`player_controller.gd` already match what the real version uses.

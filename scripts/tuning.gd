@@ -237,6 +237,50 @@ const RUMBLE_KICK := Vector3(0.35, 0.55, 0.18)     # (weak, strong, duration)
 const RUMBLE_GATHER := Vector3(0.12, 0.0, 0.08)
 
 
+# ── Match structure ──────────────────────────────────────────────────
+# Full Game mode (design doc §7 priority 1). Small-sided rather than the
+# real 18-a-side — enough bodies to make contests and support play mean
+# something without turning the pitch into a crowd.
+const TEAM_SIZE := 4                   # players per side
+
+# A real AFL quarter is 20 minutes plus time-on. 120s is a deliberately
+# short default so a full 4-quarter match is playable in one sitting while
+# this is being tuned by feel; QUARTERS_PER_MATCH stays at the real 4.
+const QUARTER_LENGTH := 120.0          # s
+const QUARTERS_PER_MATCH := 4
+const QUARTER_BREAK_DURATION := 4.0    # s, paused between quarters
+const SCORE_PAUSE_DURATION := 3.0      # s, paused after a goal/behind
+const CENTRE_BOUNCE_DELAY := 1.0       # s from formation-set to the bounce
+
+
+# ── Contests ─────────────────────────────────────────────────────────
+# A tackle within reach always spills the ball loose (design doc §5:
+# physical, not a probability table). Holding-the-ball adjudication
+# (free kick vs ball-up) is not modelled yet — see RULES_REFERENCE.md §4.
+const TACKLE_RADIUS := 1.4             # m, more generous than GATHER_RADIUS
+const TACKLE_STUN_DURATION := 0.5      # s the tackled player can't act
+const TACKLE_SPILL_SPEED := 3.0        # m/s the loose ball scatters at
+
+
+# ── AI ───────────────────────────────────────────────────────────────
+# Deliberately simple: chase the loose ball, run the carry toward goal,
+# press the opposing carrier, otherwise drift toward a kickoff slot. Not
+# a tactics system — a baseline to prove the match loop, tuned by feel
+# from here.
+const AI_KICK_RANGE := 45.0            # m from goal at which a carrier shoots
+const AI_PRESSURE_RADIUS := 4.0        # m opponent proximity that forces a quick disposal
+const AI_SUPPORT_PULL := 0.35          # 0..1, how far off-ball players drift toward the ball
+
+# A human notices a loose ball and starts moving with a beat of reaction
+# time; an AI polling ball.holder() every frame does not. Without this, AI
+# wins effectively every race to a loose ball (it also defaults to sprint
+# gait, see _think_loose_ball) and the human can end up never touching the
+# ball in a full match. Randomised per player so a whole team doesn't react
+# in lockstep.
+const AI_LOOSE_BALL_REACTION_MIN := 0.15   # s
+const AI_LOOSE_BALL_REACTION_MAX := 0.40   # s
+
+
 ## Maps a 0..1 gait scalar onto the three named speeds, so WALK_SPEED,
 ## JOG_SPEED and SPRINT_SPEED stay meaningful tunables rather than being
 ## smeared into one linear ramp.
