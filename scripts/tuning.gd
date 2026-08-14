@@ -262,6 +262,30 @@ const TACKLE_STUN_DURATION := 0.5      # s the tackled player can't act
 const TACKLE_SPILL_SPEED := 3.0        # m/s the loose ball scatters at
 
 
+# ── Character screen ─────────────────────────────────────────────────
+# Ported from Prototype 1's character_state.py / character_render.py: a
+# live attributes screen with two adjustable stats (Speed, Height) and a
+# pixel-wipe entry/exit. P1's CHARACTER_SPEED_MIN/MAX (12..26) were
+# abstract logical units/s on its diorama grid; here Speed is the
+# player's effective SPRINT_SPEED in real m/s, so PLAYER_CONTROLLER's
+# speed_scale (speed / CHARACTER_SPEED_DEFAULT) multiplies WALK/JOG/
+# SPRINT uniformly. Height stays real centimetres — PlaceholderRig's
+# proportions already assume a 185cm baseline, so CHARACTER_HEIGHT_
+# DEFAULT matches it exactly and height_scale becomes a uniform rig
+# scale rather than a re-derived skeleton.
+const CHARACTER_SPEED_MIN := 6.0        # m/s
+const CHARACTER_SPEED_MAX := 11.0       # m/s
+const CHARACTER_SPEED_STEP := 0.25      # m/s per Left/Right nudge
+const CHARACTER_SPEED_DEFAULT := SPRINT_SPEED
+
+const CHARACTER_HEIGHT_MIN := 165.0     # cm
+const CHARACTER_HEIGHT_MAX := 205.0     # cm
+const CHARACTER_HEIGHT_STEP := 1.0      # cm per Left/Right nudge
+const CHARACTER_HEIGHT_DEFAULT := 185.0 # matches PlaceholderRig's HIP_HEIGHT rig
+
+const CHARACTER_TRANSITION_TIME := 0.3  # s, pixel-wipe cover/reveal duration
+
+
 # ── AI ───────────────────────────────────────────────────────────────
 # Deliberately simple: chase the loose ball, run the carry toward goal,
 # press the opposing carrier, otherwise drift toward a kickoff slot. Not

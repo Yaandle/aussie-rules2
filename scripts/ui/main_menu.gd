@@ -50,7 +50,9 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up"):
+	if event.is_action_pressed(&"character_menu"):
+		SceneWipe.change_scene("res://scenes/ui/character_screen.tscn")
+	elif event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up"):
 		_move(-1)
 	elif event.is_action_pressed(&"move_back") or event.is_action_pressed(&"ui_down"):
 		_move(1)
@@ -87,5 +89,6 @@ func _refresh() -> void:
 			var subtitle := entry.subtitle if entry.unlocked else "Not built yet"
 			lines.append("[color=#%s]    %s[/color]" % [COLOUR_HINT, subtitle])
 	lines.append("")
-	lines.append("[color=#%s]W/S or arrows to choose   Enter to select[/color]" % COLOUR_HINT)
+	lines.append("[color=#%s]W/S or arrows to choose   Enter to select   C for character[/color]"
+		% COLOUR_HINT)
 	_label.text = "\n".join(lines)

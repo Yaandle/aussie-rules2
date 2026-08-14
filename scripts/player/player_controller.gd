@@ -31,6 +31,12 @@ signal ball_disposed(action: Tuning.Action)
 
 @export var team: Tuning.Team = Tuning.Team.HOME
 
+## Uniform multiplier over WALK/JOG/SPRINT_SPEED — 1.0 leaves Full Game
+## and the sandbox exactly as tuned. The character screen's SPEED stat
+## (CharacterProfile.speed_scale()) is the only thing that sets this to
+## anything else, on whichever player it hands off to.
+var speed_scale := 1.0
+
 ## Set by whatever owns the view — movement is camera-relative, as every
 ## third-person game's is. Left null the player still works, just in
 ## world axes, which keeps this node testable headless.
@@ -144,7 +150,7 @@ func _update_locomotion(delta: float) -> void:
 		# current momentum it is. Dead ahead is full, square across is
 		# half, straight back is REVERSE_SPEED_SCALE.
 		var alignment := _heading.dot(_wish_dir)
-		target_speed = Tuning.speed_for_gait(gait) \
+		target_speed = Tuning.speed_for_gait(gait) * speed_scale \
 			* remap(alignment, -1.0, 1.0, Tuning.REVERSE_SPEED_SCALE, 1.0)
 
 		var speed_ratio := clampf(_speed / Tuning.SPRINT_SPEED, 0.0, 1.0)

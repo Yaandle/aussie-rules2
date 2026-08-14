@@ -21,6 +21,7 @@ enum Mode {
 	FULL_GAME,    ## §7 priority 1
 	SCENARIO,     ## §7 priority 2
 	GOAL_KICKING, ## §7 priority 4
+	KICK_TO_KICK, ## solo free-roam practice, reached via the character screen
 }
 
 enum Phase {
