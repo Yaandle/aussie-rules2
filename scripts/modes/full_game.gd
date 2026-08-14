@@ -65,6 +65,8 @@ func _physics_process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"switch_player"):
 		_switch_human_player()
+	elif event.is_action_pressed(&"pause"):
+		get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn")
 
 
 # ── Setup ────────────────────────────────────────────────────────────

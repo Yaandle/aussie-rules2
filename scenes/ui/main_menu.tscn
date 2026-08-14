@@ -1,17 +1,32 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/main_menu.gd" id="1_menu"]
+[ext_resource type="PackedScene" path="res://scenes/ui/menu_backdrop.tscn" id="2_backdrop"]
 
 [node name="MainMenu" type="CanvasLayer"]
 script = ExtResource("1_menu")
 
-[node name="Backdrop" type="ColorRect" parent="."]
+[node name="BackdropContainer" type="SubViewportContainer" parent="."]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-color = Color(0.09, 0.12, 0.09, 1)
+stretch = true
+
+[node name="SubViewport" type="SubViewport" parent="BackdropContainer"]
+handle_input_locally = false
+size = Vector2i(1280, 720)
+
+[node name="MenuBackdrop" parent="BackdropContainer/SubViewport" instance=ExtResource("2_backdrop")]
+
+[node name="Scrim" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.05, 0.06, 0.05, 0.45)
 
 [node name="Label" type="RichTextLabel" parent="."]
 anchors_preset = 8
