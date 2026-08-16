@@ -615,3 +615,195 @@ these can be built:
 - **Hit-out (RB, ruck stoppage only)**: needs a ruck/stoppage phase to
   exist first; `GameState.Phase.STOPPAGE` exists but nothing currently
   enters it for a ball-up the way it will need to.
+
+---
+
+## Handover — playtest fixes + kicking coach (Agent: mechanics/engine)
+
+First real playtest of the kick-stance/execute work above happened in the
+gap between sessions (commit `aa34a6a`) — this pass is the fixes that
+playtest surfaced, plus the kicking-coach mini-game.
+
+### 1. Kick was going ~100m at max power, wanted ~60m+
+
+`Tuning.KICK_MAX_SPEED` (30 m/s) was never actually simulated when it was
+picked — the old comment's "55-60m" was a hand estimate. Numerically
+stepped the real drag+gravity model this time (matching
+`KickTrajectory._simulate`'s own integration): 30 m/s at 40° comes out to
+~65m of *flight* standing, ~75m kicking on the run, before any bounce/
+roll-out is added on top — consistent with "~100m" once a real landing's
+bounce and roll are included. Dropped `KICK_MAX_SPEED` to 24.0 (~46m
+flight standing, ~55m on the run), leaving room for roll-out to land the
+*total* travelled distance around 60-70m instead of 100m+. `KICK_MIN_SPEED`
+untouched — only the top end was reported as too far.
+
+### 2. Kick charge could only ramp up, never back down
+
+The charge model was pure hold-duration (`_kick_charge += delta /
+KICK_CHARGE_TIME` while LT held, reset to 0 on release) — an Xbox
+trigger's actual pull depth was never read, so there was no way to ease
+power back down short of fully releasing and re-charging from zero, which
+is what got reported as "I can move direction but not the power back and
+forth."
+
+Added `InputManager.kick_stance_strength()`: returns the trigger's real
+analog pull (`Input.get_action_strength`) on a gamepad, or a negative
+sentinel on keyboard (K has no pull depth to read — nothing analog to
+fall back to there). New `PlayerBrain.kick_charge_override()` — negative
+by default (AI and keyboard both keep the old time-ramp), `HumanBrain`
+returns the live trigger read. `PlayerController._update_charge()` uses
+the override directly as `_kick_charge` whenever one's available, instead
+of accumulating. Also dropped `kick_stance`'s InputMap deadzone 0.5→0.2
+(matching `MOVE_DEADZONE`) — at 0.5 half the trigger's travel was dead
+zone, leaving almost no usable analog range once it *was* being read.
+
+### 3. Character appears to move backward when running forward
+
+Investigated but **not fixed here** — re-derived and hand-verified the
+entire movement/facing pipeline in `player_controller.gd` (camera-relative
+input → `_heading` → `_facing_yaw`/`rotation.y` → `locomotion_blend()`)
+and confirmed it's mathematically correct; also checked every `Transform3D`
+literal in `player.tscn` for the row/column transpose bug this project has
+hit before (§7 above) and found none carry a non-identity rotation to even
+be vulnerable to it. That rules out this agent's own code. Most likely
+remaining suspect is `placeholder_animations.gd`'s `_gait_pose` — exactly
+the risk this project's own milestone-1 notes predicted — or something in
+the rig/animation wiring; both are character-model/animation, outside
+this agent's ownership. Flagged with the full diagnostic trail as a
+spawned task rather than guessing blind edits into files this agent
+doesn't own.
+
+### 4. Ball read as floating away from the carried hand
+
+`CarryPoint` (`player.tscn`) was still at the offset (`0.26, 1.02, -0.3`)
+it was presumably tuned at before the visual pass narrowed the torso
+(pelvis 0.30→0.23m, chest 0.36→0.32m — see §3 in the visual-pass section
+above). Checked it against the *current* rig geometry in
+`placeholder_rig.gd`: at carry height (~hip level), the only nearby
+geometry is the Pelvis box, half-width 0.115m — 0.26 sits more than
+double that width out, past everything. Moved it to `(0.16, 1.20, -0.22)`,
+which lines up with the SidePanel boxes (offset `0.17, 0.15` from torso,
+added in the same visual pass) — carried at the ribs, snug against
+existing geometry instead of floating past all of it. Not visually
+verified (see the environment note below) — likely still wants a final
+eyeball-and-nudge pass in-editor.
+
+### 5. Kicking coach + target-practice mini-game (kick_to_kick only)
+
+New: walk up to a coach standing on the field, `X`/interact to talk,
+`Y`/`confirm` to accept a kick-at-the-target challenge, camera does a
+two-shot for the conversation and pans back out behind the player for the
+challenge, 5 kicks at a downfield ring, hit/miss tracked. Scoped to
+`kick_to_kick.tscn` only and to the kicking coach only — a marking coach
+and a tackling coach, and wiring any of this into Full Game, are next per
+the brief, once this one's been played.
+
+**New, mine**: `scripts/mechanics/coach_npc.gd` + `scenes/mechanics/
+coach_npc.tscn` (proximity trigger + a bare instance of the existing
+placeholder rig as a stand-in body — no `PlayerController`, so it can't
+gather a loose ball or take a tackle just by existing on the field).
+`scripts/mechanics/kick_challenge.gd` + `scenes/mechanics/
+kick_challenge.tscn` (the mini-game: target ring is a mechanics-owned
+gizmo — `Area3D` + unshaded `TorusMesh`, the same category of thing
+`KickTrajectory`'s landing ring already is, not a modelled prop — hit/miss/
+attempts state machine, signals for the rest to hook). Kept deliberately
+separate from `kick_to_kick.gd`'s own body rather than folded in, since
+what actually ends up shared once the marking/tackling coaches exist isn't
+knowable yet — that's a refactor for when there are three of these, not a
+shape to guess at with one.
+
+**`broadcast_camera.gd`**: added `enter_dialogue(left, right)` /
+`exit_dialogue()` — a fixed side-on two-shot (position off to the side of
+the left↔right line, spring arm collapsed to ~0, yaw/pitch aimed at the
+midpoint) as a genuinely different composition from the follow-cam's
+spring-arm-behind-one-target model, not a variation of it. `exit_dialogue()`
+is just `recenter()` — which now also restores `spring_length`/`fov`, since
+dialogue framing is the first thing that ever moved them and nothing was
+putting them back. New `CAM_DIALOGUE_*` constants in `tuning.gd`.
+
+**`kick_to_kick.gd`**: owns the state machine (`NONE → PROMPT → DIALOGUE →
+CHALLENGE`), reads new `interact`/`confirm`/`decline` actions directly
+(same pattern it already used for `pause`/`debug_reset`), freezes movement
+during dialogue via the existing `InputManager.gameplay_input_enabled`
+gate (already built for exactly this — menus/dialogue owning input — see
+`input_manager.gd`'s own docstring), re-offers the prompt immediately on
+decline if still in range, and polls once a frame for "was carrying when
+I walked up, not carrying anymore" so the prompt doesn't get stuck
+withheld until the player leaves and re-enters the coach's radius.
+
+**Placeholder UI, clearly fenced**: a bare `Label` in a `CanvasLayer`,
+built in code inside `kick_to_kick.gd` (not a scene file, not styled)
+stands in for the real chat-bubble dialogue the brief describes. This is
+UI, out of this agent's ownership — built only as a rough, load-bearing
+placeholder so the feature is actually testable end to end right now,
+exactly the same "prove it before it's pretty" posture this whole project
+already takes with `PlaceholderRig`. **For whoever owns UI**: replace
+`kick_to_kick.gd`'s `_build_placeholder_prompt()`/`_set_hint_text()` with
+the real coach-left/bubble-right presentation; the hook is `hint_changed`
+off `KickChallenge` plus the four state-transition points in
+`kick_to_kick.gd` (`_on_coach_range_entered`, `_begin_dialogue`,
+`_accept_challenge`, `_on_challenge_ended`) — none of that needs to
+change shape, just what renders it.
+
+**New input actions**: `interact` (`Q`/X — physically shared with
+`handball`, same "one physical control, two logical actions, game state
+picks which" pattern as everywhere else in this input map; only matters
+while not carrying, so no real collision with handball), `confirm`
+(`Y`/A — A freed up last session when marking hadn't claimed it yet),
+`decline` (`N`/B — shared with `bounce`/`tackle`, a third context on an
+already phase-remapped button).
+
+**Input actions verified**: while writing this pass I re-derived and
+cross-checked every physical keycode against ASCII (Y=89, N=78 — matches
+the same convention every other letter key in this file already uses) and
+pattern-matched the new `project.godot` blocks character-for-character
+against existing verified blocks of the same event type, same discipline
+as last session's input-map work.
+
+### Bug caught and fixed before it shipped
+
+`kick_to_kick.gd` originally connected both `KickChallenge.target_hit`
+(2 args: hits, attempts_used) and `target_missed` (1 arg: attempts_used)
+to the same two-parameter handler. That would have thrown the first time
+a kick actually missed — not caught by any static read-through, only by
+tracing what each signal actually emits against what its handler
+declares. Removed the handler entirely; both signals' only real consumer
+was already `hint_changed`, which is correctly wired.
+
+### Verification, and its limits (same gap as last session)
+
+Still no Godot binary available in this environment — same limitation as
+last time, see §6 there. Everything above was checked by full re-reads of
+every touched/new file, tracing the coach/dialogue/challenge state machine
+by hand for the whole flow (approach → prompt → accept/decline → re-prompt
+→ challenge → hit/miss/out-of-bounds → end), and specifically auditing
+every new signal `.connect()` call's parameter count against what the
+corresponding `signal` declaration actually emits (which is what caught
+the bug above — worth calling out as a category, since it's exactly the
+kind of thing that reads fine top-to-bottom and only breaks at the moment
+a particular signal actually fires). The kick-distance fix was checked
+numerically (a standalone script stepping the same drag+gravity model
+`KickTrajectory` uses), not just eyeballed. None of this substitutes for
+an actual playtest — that's still the next real step, same as last time.
+
+No RULES_REFERENCE.md numbers were relied on for any of this pass — kick
+distance is tuned by feel/observation against the brief's own "usually
+60+ metres," not an AFL rule number, and the coach/challenge system is
+new mechanics of this project's own design, not a P1 rule being ported.
+
+**Addendum, same session**: the verification gap above is now closed. The
+user surfaced the Godot binary path
+(`C:\Users\Bozzy\Downloads\Godot_v4.6-stable_win64.exe\Godot_v4.6-
+stable_win64_console.exe`) via a real launch that hit `Could not find
+type "CoachNPC"/"KickChallenge" in the current scope` — not a code bug,
+a stale `.godot/global_script_class_cache.cfg` from before those two
+scripts existed, which a plain game/headless launch trusts rather than
+rescanning. Fixed with `--headless --editor --quit`, which forces the
+scan and registers new global classes without needing a GUI. With that
+done, actually ran headless: the project's own documented smoke test
+clean, plus `kick_to_kick.tscn` and `full_game.tscn` each booted directly
+(`--headless --path . "res://scenes/modes/X.tscn" --quit-after 180`) with
+zero errors — the first real (not just static) verification this agent
+has been able to do this project. Binary path and the exact incantations
+are saved to this agent's memory so future sessions don't have to
+rediscover them.

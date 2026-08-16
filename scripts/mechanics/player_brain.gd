@@ -44,6 +44,15 @@ func wants_kick_execute() -> bool:
 	return false
 
 
+## Direct 0..1 override for kick charge, or a negative sentinel to mean
+## "no override — ramp charge over hold duration instead" (see
+## PlayerController._update_charge). Only a human on a gamepad has a real
+## analog trigger to report here; keyboard and AI always fall through to
+## the ramp.
+func kick_charge_override() -> float:
+	return -1.0
+
+
 ## Edge-triggered: true for the one frame the action should fire.
 func wants_handball() -> bool:
 	return false

@@ -54,6 +54,12 @@ still unbound or reserved for them. The keyboard's three gait tiers hit the
 same values an analog stick reaches, so it is a real input path, not a
 degraded one.
 
+**Kicking coach** (`kick_to_kick.tscn` only, first of three planned):
+walk up to the coach on the field, `Q`/X to talk, `Y`/A to accept a
+5-kick target-practice challenge, `N`/B to decline. First of three coaches
+planned (marking and tackling next); the dialogue text is a placeholder
+`Label`, not the real chat-bubble UI yet.
+
 ## Files
 
 ```

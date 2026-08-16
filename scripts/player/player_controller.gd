@@ -406,7 +406,14 @@ func _update_charge(delta: float) -> void:
 		if not _charging:
 			_charging = true
 			_kick_aim_yaw = _facing_yaw
-		_kick_charge = minf(1.0, _kick_charge + delta / Tuning.KICK_CHARGE_TIME)
+		var override := _brain.kick_charge_override()
+		if override >= 0.0:
+			# A gamepad's LT reports real pull depth — track it directly so
+			# power can be eased back down, not just ramped up with no way
+			# back short of a full release-and-recancel.
+			_kick_charge = override
+		else:
+			_kick_charge = minf(1.0, _kick_charge + delta / Tuning.KICK_CHARGE_TIME)
 		_update_kick_aim(delta)
 		if _brain.wants_kick_execute():
 			_charging = false

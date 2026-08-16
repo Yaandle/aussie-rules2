@@ -39,6 +39,10 @@ func wants_kick_execute() -> bool:
 	return Input.is_action_just_pressed(&"kick_execute")
 
 
+func kick_charge_override() -> float:
+	return InputManager.kick_stance_strength()
+
+
 func wants_handball() -> bool:
 	return Input.is_action_just_pressed(&"handball")
 

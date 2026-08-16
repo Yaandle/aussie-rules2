@@ -138,13 +138,19 @@ const BALL_SLEEP_SPEED := 0.12         # m/s below which a resting ball is allow
 
 # ── Disposal ─────────────────────────────────────────────────────────
 # Launch speeds, not distances — the ball's flight is simulated, so range
-# is an outcome rather than an input. 30 m/s at 40 degrees lands around
-# 55-60m with drag applied, which matches a long AFL drop punt.
+# is an outcome rather than an input. Numerically simulated against the
+# actual drag+gravity model (matching KickTrajectory's own stepping),
+# not hand-estimated: 24 m/s at 40 degrees carries ~46m in the air
+# standing, ~55m kicking on the run, which lands the *total* travelled
+# distance (including bounce/roll-out) around 60-70m once it's down —
+# a real long AFL punt, not a 100m bomb. The first tuned value (30 m/s)
+# measured out to ~65m flight / ~100m+ total once roll-out was included,
+# confirmed too far by playtesting.
 # (P1: KICK_MAX_RANGE = 88 logical units, BALL_FLIGHT_SPEED = 95 — both
 # scripted-flight parameters with no physical meaning here.)
 const KICK_CHARGE_TIME := 0.85         # seconds held to reach full power
 const KICK_MIN_SPEED := 13.0           # m/s, a tapped stab pass
-const KICK_MAX_SPEED := 30.0           # m/s, a full-blooded drop punt
+const KICK_MAX_SPEED := 24.0           # m/s, a full-blooded drop punt
 const KICK_MIN_ANGLE := 22.0           # deg elevation at zero charge (flat, fast)
 const KICK_MAX_ANGLE := 40.0           # deg elevation at full charge (long, high)
 const KICK_BACKSPIN := 26.0            # rad/s end-over-end, the drop punt signature
@@ -232,6 +238,16 @@ const CAM_BALL_FOCUS_MAX := 0.55       # max weight the ball takes of the focus 
 const CAM_BALL_FOCUS_MIN_HEIGHT := 1.6 # m, ball must be above this to pull focus
 const CAM_BALL_FOCUS_RATE := 3.0
 const CAM_MAX_FRAMING_DISTANCE := 45.0 # m, beyond which the ball stops pulling harder
+
+# Two-shot conversation framing for the training-coach dialogue (see the
+# Training coaches section below) — a deliberately different composition
+# from the follow-cam above (a fixed side-on view of both parties rather
+# than a spring arm behind one target), so it gets its own small set of
+# constants rather than overloading the follow-cam's.
+const CAM_DIALOGUE_DISTANCE := 3.2     # m to the side of the coach<->player line
+const CAM_DIALOGUE_HEIGHT := 1.7       # m
+const CAM_DIALOGUE_PITCH := -6.0       # deg
+const CAM_DIALOGUE_FOV := 42.0         # deg, tighter for an intimate two-shot
 
 
 # ── Input feel ───────────────────────────────────────────────────────
@@ -336,6 +352,19 @@ const AI_SUPPORT_PULL := 0.35          # 0..1, how far off-ball players drift to
 # in lockstep.
 const AI_LOOSE_BALL_REACTION_MIN := 0.15   # s
 const AI_LOOSE_BALL_REACTION_MAX := 0.40   # s
+
+
+# ── Training coaches ────────────────────────────────────────────────
+# First of three (design brief): a kicking coach now, a marking coach and
+# a tackling coach later, all meant to share this same proximity-trigger /
+# dialogue / challenge shape once they exist. Kick_to_kick only for
+# now — wiring any of this into Full Game is explicitly later work.
+const COACH_INTERACT_RADIUS := 2.5             # m, proximity that shows the prompt
+const COACH_STAND_OFFSET := Vector3(18.0, 0.0, 10.0)   # from field centre, kick_to_kick only
+
+const KICK_CHALLENGE_TARGET_DISTANCE := 40.0   # m downfield of the player when accepted
+const KICK_CHALLENGE_TARGET_RADIUS := 3.0      # m, hit tolerance
+const KICK_CHALLENGE_ATTEMPTS := 5
 
 
 ## Maps a 0..1 gait scalar onto the three named speeds, so WALK_SPEED,

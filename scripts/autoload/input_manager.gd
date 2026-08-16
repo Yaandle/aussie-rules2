@@ -120,6 +120,17 @@ func get_gait() -> float:
 	return Tuning.GAIT_JOG
 
 
+## Raw pull depth on the kick stance trigger, 0..1, or a negative sentinel
+## when there's nothing analog to read (keyboard's K is just on/off) — see
+## PlayerBrain.kick_charge_override, the one thing that actually consumes
+## this. A gamepad's LT can push charge up AND down in real time this way,
+## not just ramp up over hold duration with no way back.
+func kick_stance_strength() -> float:
+	if not gameplay_input_enabled or device != Device.GAMEPAD:
+		return -1.0
+	return Input.get_action_strength(&"kick_stance")
+
+
 func rumble(profile: Vector3) -> void:
 	if device != Device.GAMEPAD:
 		return

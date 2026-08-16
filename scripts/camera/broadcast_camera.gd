@@ -34,6 +34,13 @@ var _focus := Vector3.ZERO
 var _ball_weight := 0.0
 var _punch := 0.0
 
+## Training-coach two-shot (see Tuning's "Training coaches" section): a
+## fixed side-on framing of two parties instead of the follow-cam's spring
+## arm behind one target, entered/exited explicitly rather than falling
+## out of the normal focus/rotation update.
+var _dialogue_left: Node3D = null
+var _dialogue_right: Node3D = null
+
 
 func _ready() -> void:
 	_arm.spring_length = distance
@@ -44,9 +51,30 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if not is_instance_valid(target):
 		return
+	if is_instance_valid(_dialogue_left) and is_instance_valid(_dialogue_right):
+		_update_dialogue_framing(delta)
+		return
 	_update_rotation(delta)
 	_update_focus(delta)
 	_update_fov(delta)
+
+
+## Side-on two-shot of `left` and `right` (design brief: coach on one side,
+## player on the other, a chat bubble's worth of space between them) —
+## called by kick_to_kick.gd when a coach conversation starts.
+func enter_dialogue(left: Node3D, right: Node3D) -> void:
+	_dialogue_left = left
+	_dialogue_right = right
+
+
+## Drops straight back to the normal follow-cam behind `target` — the
+## brief's "pans the camera back out behind the player" is just this: stop
+## framing the conversation and recentre on the player like any other time
+## the rig snaps back to them.
+func exit_dialogue() -> void:
+	_dialogue_left = null
+	_dialogue_right = null
+	recenter()
 
 
 ## Snap the view round to look where the player is looking, and drop the
@@ -62,6 +90,12 @@ func recenter() -> void:
 	global_position = _focus
 	_yaw_pivot.rotation.y = _yaw
 	_pitch_pivot.rotation.x = _pitch
+	# Undoes the dialogue framing's collapsed arm/tightened FOV, if either
+	# was left mid-lerp — recenter() is the one path every camera state
+	# funnels back through (exit_dialogue included), so it's the one place
+	# that has to restore both rather than just rotation/focus.
+	_arm.spring_length = distance
+	_camera.fov = Tuning.CAM_FOV_BASE
 
 
 ## A transient FOV nudge on a key moment — §6's "tightens on contests and
@@ -103,6 +137,41 @@ func _update_rotation(delta: float) -> void:
 
 func _is_target_aiming() -> bool:
 	return target is PlayerController and (target as PlayerController).is_kick_aiming()
+
+
+## Positions the rig off to the side of the left<->right line, level with
+## both faces, and points the whole yaw/pitch/spring-arm chain at the
+## midpoint between them — with the arm collapsed to ~0, the camera ends
+## up sitting essentially at that side position looking at the midpoint,
+## which is the two-shot the follow-cam's own spring-arm parameterisation
+## has no way to express (it only ever frames one target from behind).
+func _update_dialogue_framing(delta: float) -> void:
+	var a := _dialogue_left.global_position + Vector3.UP * Tuning.CAM_FOCUS_HEIGHT
+	var b := _dialogue_right.global_position + Vector3.UP * Tuning.CAM_FOCUS_HEIGHT
+	var mid := (a + b) * 0.5
+	var along := b - a
+	along.y = 0.0
+	along = along.normalized() if along.length_squared() > 0.0001 else Vector3.FORWARD
+	var side := Vector3(along.z, 0.0, -along.x)
+
+	var desired_pos := mid + side * Tuning.CAM_DIALOGUE_DISTANCE \
+		+ Vector3.UP * Tuning.CAM_DIALOGUE_HEIGHT
+	var rate := 1.0 - exp(-Tuning.CAM_FOLLOW_RATE * delta)
+	_focus = _focus.lerp(desired_pos, rate)
+	global_position = _focus
+
+	var to_mid := mid - global_position
+	to_mid.y = 0.0
+	var desired_yaw := _yaw
+	if to_mid.length_squared() > 0.0001:
+		desired_yaw = atan2(-to_mid.x, -to_mid.z)
+	_yaw = lerp_angle(_yaw, desired_yaw, rate)
+	_pitch = deg_to_rad(Tuning.CAM_DIALOGUE_PITCH)
+	_yaw_pivot.rotation.y = _yaw
+	_pitch_pivot.rotation.x = lerpf(_pitch_pivot.rotation.x, _pitch, rate)
+
+	_arm.spring_length = lerpf(_arm.spring_length, 0.05, rate)
+	_camera.fov = lerpf(_camera.fov, Tuning.CAM_DIALOGUE_FOV, rate)
 
 
 func _update_focus(delta: float) -> void:
