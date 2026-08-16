@@ -177,10 +177,36 @@ const ACTION_SPEED_SCALE := 0.4
 const KICK_STANCE_SPEED_SCALE := 0.55
 
 # deg/s the right stick/mouse swings the kick aim while in stance — a
-# separate dial from CAM_YAW_SPEED (below) even though it starts at the
-# same value, because aim precision and camera smoothing are different
-# concerns that will want to diverge once this has been played.
-const KICK_AIM_YAW_SPEED := 180.0
+# separate dial from CAM_YAW_SPEED, deliberately slower than camera-look
+# (180) for precision control once actually aiming. Dropped from the
+# first pass's 180 after playtesting read it as too twitchy to line up a
+# kick with — P1's equivalent (a velocity-driven aim cursor, not a raw
+# yaw rate) had the same "controlled, not snappy" quality; this is the
+# simplest lever toward that without porting its cursor/projection system
+# wholesale.
+const KICK_AIM_YAW_SPEED := 100.0
+
+# RT tapped without ever holding LT first — a hip-fired kick: whatever
+# the body's facing, fixed middling power (there was no stance to charge
+# through), extra random spread on top of KICK_ACCURACY_MAX_SPREAD_DEG's
+# skill-based scatter. P1 itself has no hip-fire (every kick there goes
+# through its aim-cursor pipeline) — this pairing is this project's own
+# addition, modelled on ADS-vs-hip-fire in a shooter per the design
+# brief's own CONTROLS section framing.
+const KICK_HIP_FIRE_CHARGE := 0.55
+const KICK_HIP_FIRE_SPREAD_DEG := 20.0
+
+# Soft pull toward a nearby teammate while aiming — not a lock-on, a
+# per-frame blend, same shape as P1's apply_aim_assist/AIM_ASSIST_STRENGTH
+# (ported directly: the formula is a dimensionless k=min(1,STRENGTH*dt)
+# blend fraction, so the same constant works whether what's being blended
+# is P1's 2D screen cursor or this project's 1D aim yaw). CONE/RANGE have
+# no P1 equivalent to port — P1's version worked in screen-space pixels
+# around a 2D cursor, which doesn't translate to a world-space yaw system,
+# so these are this project's own first pass at the same idea.
+const KICK_AIM_ASSIST_STRENGTH := 6.0
+const KICK_AIM_ASSIST_CONE_DEG := 18.0
+const KICK_AIM_ASSIST_RANGE := 60.0
 
 # Action timing, indexed by Action. CONTACT is when the ball actually
 # leaves — partway through the swing, not at either end of it.

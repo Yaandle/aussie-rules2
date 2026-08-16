@@ -130,7 +130,12 @@ func _setup_coach() -> void:
 	# spawning players: KickToKick sits at identity, so .position and
 	# .global_position agree, and the coach never exists at the origin for
 	# even one physics tick before landing where it belongs.
-	_coach.position = _field.centre() + Tuning.COACH_STAND_OFFSET
+	# X/Z only from centre() — its Y (0.5) is tuned for resting a ball
+	# there, not for a standing rig whose own origin already means "feet
+	# on the ground"; reusing it wholesale floated the coach half a metre up.
+	var stand := _field.centre()
+	stand.y = 0.0
+	_coach.position = stand + Tuning.COACH_STAND_OFFSET
 	add_child(_coach)
 	_coach.face_toward(_field.centre())
 	_coach.player_entered_range.connect(_on_coach_range_entered)
@@ -181,6 +186,11 @@ func _accept_challenge() -> void:
 	_coach_state = CoachState.CHALLENGE
 	InputManager.gameplay_input_enabled = true
 	_camera.exit_dialogue()
+	# Coach interaction only ever triggers while not carrying (see
+	# _on_coach_range_entered), so the player is guaranteed empty-handed
+	# right here — nothing to kick unless a fresh ball is put in their
+	# hands, same placement _reset_ball()'s safety net already uses.
+	_reset_ball()
 	_challenge.begin(_ball, _pick_target_position())
 
 

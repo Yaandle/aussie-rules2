@@ -31,28 +31,39 @@ Verified: `godot --headless --path . --quit-after 300` exits 0 with no errors.
 
 | Action | Key | Pad |
 |---|---|---|
-| Move / walk / sprint | `WASD` / `Ctrl` / `Shift` | Stick / L3 / RT |
+| Move / walk / sprint | `WASD` / `Ctrl` / `Shift` | Stick / — / L3 (click) |
 | Camera / recentre | Arrows, mouse / `C` | Right stick / R3 |
-| Kick stance (hold, aim, charge) | `K` | LT |
-| Kick (execute, while in stance) | `F` | RT |
+| Kick stance — ADS (hold, aim, charge) | `K` | LT |
+| Kick execute — aimed, while in stance | `F` | RT (while LT held) |
+| Kick hip-fire — quick, imprecise | `F` | RT (LT not held) |
 | Handball (toward move direction) | `Q` | X |
 | Bounce (in possession) · Tackle (not) | `Space` · `E` | B · B |
 | Switch player · Pause | `Tab` · `Esc` | LB · Start |
 | Reset ball · Debug HUD | `R` · `F3` | Back · D-pad up |
 
-Kick is two-stage: hold K/LT to enter a slowed aiming stance — the right
-stick or mouse swings the kick's aim independently of which way the body is
-facing, same as the on-screen trajectory preview — then tap F/RT to strike
-at whatever power/aim you've built up. Releasing K/LT without ever tapping
-F/RT cancels the kick outright rather than firing it. Handball aims wherever
-the left stick/WASD is held at the moment of the press, also independent of
-facing. B is context-sensitive like a lot of sports games' off-ball buttons:
-Bounce while you're carrying, Tackle (hold, not tap — it fires the instant
-you're in range of an opposing carrier) once you're not. Marking, smothering,
-spoiling and the hit-out aren't built yet — A/X off the ball and Y/RB/LB are
-still unbound or reserved for them. The keyboard's three gait tiers hit the
-same values an analog stick reaches, so it is a real input path, not a
-degraded one.
+Kick is two ways to fire, both off the same trigger. Hold K/LT to enter a
+slowed ADS stance — the right stick or mouse swings the kick's aim
+independently of which way the body is facing, same as the on-screen
+trajectory preview, at a deliberately unhurried turn rate for precision —
+then tap F/RT to strike at whatever power/aim you've built up. Releasing
+K/LT without ever tapping F/RT cancels outright rather than firing. Tap
+F/RT **without** ever holding K/LT and you hip-fire instead: an instant
+kick wherever the body's currently facing, fixed middling power, no charge,
+and noticeably less accurate — the "didn't aim down sights" option, for
+when there's no time to line one up. On a pad, aiming also gets a soft
+pull toward the nearest teammate roughly in the aim direction (not a
+lock-on) — ported from Prototype 1's own aim-assist, confirmed to be a
+real, deliberate system there and not something invented for this port.
+Handball aims wherever the left stick/WASD is held at the moment of the
+press, also independent of facing. B is context-sensitive like a lot of
+sports games' off-ball buttons: Bounce while you're carrying, Tackle
+(hold, not tap — it fires the instant you're in range of an opposing
+carrier) once you're not. Marking, smothering, spoiling and the hit-out
+aren't built yet — A/X off the ball and Y/RB/LB are still unbound or
+reserved for them. The keyboard's three gait tiers hit the same values an
+analog stick reaches, so it is a real input path, not a degraded one —
+sprint/walk are keyboard-only modifiers for that reason; a pad's stick is
+already analog, so only the L3-click sprint boost (FIFA-style) exists there.
 
 **Kicking coach** (`kick_to_kick.tscn` only, first of three planned):
 walk up to the coach on the field, `Q`/X to talk, `Y`/A to accept a

@@ -807,3 +807,125 @@ zero errors — the first real (not just static) verification this agent
 has been able to do this project. Binary path and the exact incantations
 are saved to this agent's memory so future sessions don't have to
 rediscover them.
+
+---
+
+## Handover — coach fixes + P1-informed aim rework (Agent: mechanics/engine)
+
+Second playtest round. Three quick coach bugs, then a real rework of kick
+aiming after consulting Prototype 1 directly (`E:\aussie-rules_game`) at
+the user's explicit request, rather than guessing at "smooth."
+
+### Coach fixes
+
+1. **Coach floated 0.5m off the ground.** `_setup_coach()` positioned it
+   at `Field.centre() + COACH_STAND_OFFSET` wholesale — but `centre()`
+   returns `Vector3(0, 0.5, 0)`, tuned for resting a *ball* there, not a
+   standing rig whose own local origin already means "feet on the
+   ground." Now takes only centre's X/Z, Y forced to 0.
+2. **No ball at the start of a challenge.** Coach interaction is gated on
+   `not is_carrying()` by design (§5 last entry), so the player is always
+   empty-handed when `_accept_challenge()` runs — but nothing was giving
+   them a fresh ball. Now calls the existing `_reset_ball()` (same
+   placement the debug-reset/out-of-bounds paths already use) right
+   before `KickChallenge.begin()`.
+3. **Gamepad sprint moved to L3 click** (FIFA-style, per direct request),
+   off RT — RT can no longer safely double as sprint now that it's the
+   kick trigger regardless of ADS state (see below). `walk`'s gamepad
+   binding (also L3, a direct conflict) is gone rather than relocated —
+   a gamepad's stick is already analog, so the discrete "walk" tier it
+   provided was really only ever necessary for keyboard, which has no
+   analog input to fall back on and keeps `Ctrl`. No `get_gait()` logic
+   changed, `InputMap` only.
+
+### Kick aim, actually checked against Prototype 1 this time
+
+Last session's "hold LT to aim" model was engineered from the design
+brief's prose alone. The user played it, said it wasn't smooth on a pad,
+and specifically asked to check how Prototype 1 did it before touching
+anything — so an Explore agent went and read `controller.py`/
+`gameplay.py`/`mechanics.py`/`settings.py` directly rather than guessing.
+Findings that actually changed the plan:
+
+- **P1 gates aiming behind a hold too** (`K_2`/LT → `enter_aim_mode`,
+  *then* the stick moves things). The brief's "I just used right stick
+  for aiming" describes what happens *inside* that gated mode, not a
+  ungated always-on aim — so last session's LT-gate structure was
+  already right and did not need removing. Good to have checked before
+  ripping it out.
+- **P1's aim is a velocity-driven cursor** (`_aim_cursor += stick *
+  AIM_CURSOR_SPEED * raw_dt`, unprojected through the camera each frame),
+  not a raw angle-rate rotation — plus the whole world runs at
+  `SLOWMO_FACTOR = 0.25` while aiming, with the cursor itself exempted
+  (moves on `raw_dt`, not the dilated one) so aim input stays crisp while
+  everything else slows down. Both are real, cited contributors to "felt
+  fine." **Neither is ported here** — a full 2D-cursor/ground-unprojection
+  system and a selective time-dilation layer are both significant,
+  invasive rearchitectures that touch far more than kicking (the dilation
+  in particular would need to reach animation timing, AI decision timers
+  and ball physics without slowing the very input it's meant to keep
+  crisp), and neither was explicitly asked for — noted here so the option
+  is visible, not silently dropped. What *did* change: `KICK_AIM_YAW_SPEED`
+  180→100 deg/s, the simplest available lever toward "controlled, not
+  twitchy" without either of those.
+- **P1 has a real, deliberate, separately-implemented aim-assist**
+  (`apply_aim_assist`/`AIM_ASSIST_RADIUS`/`AIM_ASSIST_STRENGTH = 6.0`,
+  soft-pulls the cursor toward the nearest teammate, controller-only,
+  confirmed structurally distinct from the `KICK_SCATTER_*`/`PRESSURE_*`
+  accuracy-under-pressure system a previous research pass had already
+  found). Ported the constant directly — the blend formula
+  (`k = min(1, STRENGTH·dt)`) is a dimensionless fraction, so it carries
+  over even though P1 blends 2D screen pixels and this blends a 1D world
+  yaw. `CONE_DEG`/`RANGE` have no P1 equivalent (P1's radius gate is in
+  screen-space pixels around a cursor, which doesn't translate to a
+  world-space angle system) — first pass at the same idea, not a port.
+- **P1 has no hip-fire/ADS split** — every kick, human or AI, goes
+  through the identical aim-cursor pipeline. The "RT alone = quick,
+  imprecise, facing-based kick" the user asked for (an explicit FPS
+  analogy) has no P1 precedent; it's this project's own addition,
+  confirmed as such so it doesn't get mistaken for a port later.
+
+**What actually changed in `player_controller.gd`:**
+`_update_charge()` is now a three-way branch instead of two: LT held →
+existing ADS charge/aim/execute flow, unchanged in shape; LT released
+mid-charge → cancel, unchanged; **RT tapped with LT never having been
+held this attempt → new hip-fire branch** — fixed `KICK_HIP_FIRE_CHARGE`
+(0.55, since there's no stance to charge power through), aim snapped
+fresh to body-facing every time (not whatever `_kick_aim_yaw` was last
+left at by an earlier *cancelled* ADS attempt — that would've been a real
+staleness bug), fires immediately. `_apply_kick_accuracy()` split into a
+shared `_apply_spread()` primitive plus the existing skill-based caller,
+so the new `KICK_HIP_FIRE_SPREAD_DEG` scatter (stacks on top of the
+skill-based one, doesn't replace it) can't drift out of sync with how the
+existing spread already rotates a launch vector. New `_apply_aim_assist()`
++ `_nearest_teammate_for_assist()`, called from `_update_kick_aim()` each
+frame while charging, gamepad-only (matches P1's own controller-only
+gate — a mouse already points exactly where aimed).
+
+**A bug caught by re-checking the tackle-interruption path**: a hip-fire
+kick's swing can be interrupted by a tackle before `_dispose()` ever
+reads `_hip_fire_kick`, which would have left it stuck `true` — so the
+next kick to actually resolve, possibly a properly-aimed one with a
+freshly gathered ball, would have wrongly inherited hip-fire's scatter.
+Fixed by resetting it in `drop_ball()`, which already resets `_kick_charge`/
+`_charging` for the identical "abandoned mid-kick" reason.
+
+### Verification
+
+Same real headless passes as last entry, now also covering this code:
+`full_game.tscn` for 240 frames (AI on both teams actively commits and
+fires kicks every match, so this genuinely exercises the new hip-fire-
+adjacent `_update_charge` branch and the aim-assist teammate search, not
+just a parse check) and `kick_to_kick.tscn` for 180, both clean, zero
+errors. Re-verified by hand: the `_hip_fire_kick`/`drop_ball()` interaction
+above, that AI never reaches the hip-fire branch (`wants_kick()` is always
+true before AI ever pulses execute, so it can't fall through to the RT-
+alone branch), and that `_apply_aim_assist` safely no-ops in `kick_to_kick`
+(no other `PlayerController` exists there for the teammate search to find
+— confirmed intentional, not a bug, since `CoachNPC` is deliberately not
+in the `"players"` group).
+
+No RULES_REFERENCE.md numbers relied on. Prototype 1 specifics quoted
+above (`AIM_ASSIST_STRENGTH`, `SLOWMO_FACTOR`, etc.) are cited from the
+research pass, not RULES_REFERENCE.md, which doesn't cover aim-assist at
+all — worth adding a line there if this direction holds up under play.

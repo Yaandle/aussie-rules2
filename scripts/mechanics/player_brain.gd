@@ -44,11 +44,12 @@ func wants_kick_execute() -> bool:
 	return false
 
 
-## Direct 0..1 override for kick charge, or a negative sentinel to mean
-## "no override — ramp charge over hold duration instead" (see
-## PlayerController._update_charge). Only a human on a gamepad has a real
-## analog trigger to report here; keyboard and AI always fall through to
-## the ramp.
+## Direct 0..1 override for kick power — "where the end of the trajectory
+## line currently reaches to" — or a negative sentinel to mean "no
+## override, ramp over hold duration instead" (see
+## PlayerController._update_charge). Only a human on a gamepad has stick
+## position to read this way; keyboard and AI always fall through to the
+## ramp.
 func kick_charge_override() -> float:
 	return -1.0
 

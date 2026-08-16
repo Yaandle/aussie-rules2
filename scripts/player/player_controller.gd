@@ -99,6 +99,12 @@ var _kick_aim_yaw := 0.0
 ## stick had drifted to by then.
 var _handball_aim_dir := Vector3.FORWARD
 
+## True for exactly the one KICK currently in flight through _action, set
+## when it was fired as a hip-fire (RT with no prior LT) rather than an
+## aimed one — _dispose() reads this once to decide whether the extra
+## hip-fire scatter applies, then clears it.
+var _hip_fire_kick := false
+
 
 func _ready() -> void:
 	add_to_group(&"players")
@@ -290,6 +296,11 @@ func drop_ball() -> void:
 	_carry_distance = 0.0
 	_kick_charge = 0.0
 	_charging = false
+	# Otherwise a hip-fire windup broken by a tackle before it reaches
+	# _dispose() would leave this stuck true — the next kick to actually
+	# fire, possibly a properly-aimed one with a fresh ball, would wrongly
+	# inherit hip-fire's extra scatter.
+	_hip_fire_kick = false
 	_gather_cooldown = Tuning.GATHER_COOLDOWN
 	if MatchState.possession == team:
 		MatchState.possession = Tuning.Team.NONE
@@ -394,9 +405,16 @@ func _get_tackled(by: PlayerController) -> void:
 ## LT-hold-stance / RT-tap-execute (design brief's CONTROLS section), not
 ## the old single-button hold-then-release-to-fire: wants_kick() (LT) only
 ## ever charges and aims; wants_kick_execute() (RT) is the one thing that
-## actually fires the kick, and only while stance is already held.
-## Releasing LT without ever tapping RT cancels — no kick, charge
-## discarded — where the old model would have fired on release regardless.
+## actually fires the kick. Releasing LT without ever tapping RT cancels —
+## no kick, charge discarded — where the old model would have fired on
+## release regardless.
+##
+## RT on its own (never having held LT this attempt) doesn't no-op any
+## more — it hip-fires: whatever the body's facing, fixed power, extra
+## scatter. Matches P1's actual structure for the aimed case (LT/enter_
+## aim_mode gates the aim cursor there too, confirmed by re-reading it —
+## this was never meant to lose that gate); the hip-fire option itself has
+## no P1 equivalent, it's this project's own ADS-vs-hip-fire addition.
 func _update_charge(delta: float) -> void:
 	if _action != Tuning.Action.NONE or _stun_timer > 0.0:
 		_kick_trajectory.update_preview(false, Vector3.ZERO, Vector3.ZERO)
@@ -408,9 +426,9 @@ func _update_charge(delta: float) -> void:
 			_kick_aim_yaw = _facing_yaw
 		var override := _brain.kick_charge_override()
 		if override >= 0.0:
-			# A gamepad's LT reports real pull depth — track it directly so
-			# power can be eased back down, not just ramped up with no way
-			# back short of a full release-and-recancel.
+			# Power is wherever the trajectory line currently reaches to —
+			# a gamepad's right stick sets it directly and live, not a
+			# value that only ever ramps up with no way back down.
 			_kick_charge = override
 		else:
 			_kick_charge = minf(1.0, _kick_charge + delta / Tuning.KICK_CHARGE_TIME)
@@ -419,8 +437,19 @@ func _update_charge(delta: float) -> void:
 			_charging = false
 			_begin(Tuning.Action.KICK)
 	elif _charging:
+		# LT released without RT — cancel, no kick.
 		_charging = false
 		_kick_charge = 0.0
+	elif _brain.wants_kick_execute() and is_carrying():
+		_hip_fire_kick = true
+		_kick_charge = Tuning.KICK_HIP_FIRE_CHARGE
+		# Fresh body-facing every time, not whatever _kick_aim_yaw was last
+		# left at by an earlier cancelled ADS attempt — _kick_parameters()
+		# reads _kick_aim_yaw unconditionally, so this is what actually
+		# makes a hip-fire go "wherever the body's facing" rather than
+		# some stale aim.
+		_kick_aim_yaw = _facing_yaw
+		_begin(Tuning.Action.KICK)
 
 	if _brain.wants_handball() and is_carrying():
 		_begin(Tuning.Action.HANDBALL)
@@ -451,6 +480,56 @@ func _update_kick_aim(delta: float) -> void:
 	var mouse := InputManager.take_mouse_look()
 	_kick_aim_yaw -= stick.x * deg_to_rad(Tuning.KICK_AIM_YAW_SPEED) * delta \
 		+ deg_to_rad(mouse.x)
+	_apply_aim_assist(delta)
+
+
+## Soft pull toward the nearest teammate roughly in the aim direction — a
+## per-frame blend toward their angle, not a snap-to (design brief: "not
+## lock on but a small aim assist"). Ported from P1's apply_aim_assist:
+## same k = min(1, STRENGTH * dt) blend fraction: dimensionless, so it
+## carries over even though P1 blends a 2D screen cursor and this blends
+## a yaw angle. Gamepad only, matching P1's controller-only gate — a
+## mouse already points exactly where aimed, so assist would only fight
+## it, and it's the stick's indirection this is actually compensating for.
+func _apply_aim_assist(delta: float) -> void:
+	if InputManager.device != InputManager.Device.GAMEPAD:
+		return
+	var target := _nearest_teammate_for_assist()
+	if target == null:
+		return
+	var to_target := target.global_position - _boot_point.global_position
+	to_target.y = 0.0
+	if to_target.length_squared() < 0.0001:
+		return
+	var target_yaw := atan2(-to_target.x, -to_target.z)
+	var k := minf(1.0, Tuning.KICK_AIM_ASSIST_STRENGTH * delta)
+	_kick_aim_yaw = lerp_angle(_kick_aim_yaw, target_yaw, k)
+
+
+## Nearest teammate within KICK_AIM_ASSIST_RANGE and KICK_AIM_ASSIST_CONE_
+## DEG of the *current* aim direction — cone gates it to "roughly where
+## you're already pointing", same spirit as P1's radius gate around the
+## cursor, adapted from screen-space pixels to a world-space angle since
+## there's no 2D cursor here to measure a pixel radius around.
+func _nearest_teammate_for_assist() -> PlayerController:
+	var aim_dir := _yaw_direction(_kick_aim_yaw)
+	var cone := deg_to_rad(Tuning.KICK_AIM_ASSIST_CONE_DEG)
+	var best: PlayerController = null
+	var best_dist := Tuning.KICK_AIM_ASSIST_RANGE
+	for node in get_tree().get_nodes_in_group(&"players"):
+		var other := node as PlayerController
+		if other == null or other == self or other.team != team:
+			continue
+		var to_other := other.global_position - global_position
+		to_other.y = 0.0
+		var dist := to_other.length()
+		if dist < 0.01 or dist > best_dist:
+			continue
+		if aim_dir.angle_to(to_other.normalized()) > cone:
+			continue
+		best_dist = dist
+		best = other
+	return best
 
 
 func is_kick_aiming() -> bool:
@@ -535,22 +614,31 @@ func _kick_parameters(charge: float) -> Dictionary:
 		elevation_deg, speed_out)
 
 
-## Random aim error applied only to a KICK, rolled fresh here rather than
-## while charging — the trajectory cue can't show it because it isn't
-## knowable ahead of the actual kick. Zero at kick_accuracy == 1.0, up to
-## KICK_ACCURACY_MAX_SPREAD_DEG of yaw/pitch drift at 0.0. Rotates the
-## whole resultant launch vector (aim + carried momentum together)
-## rather than re-deriving it, so the kick's total speed is unaffected —
-## a bad kick goes off-line, not further or shorter.
-func _apply_kick_accuracy(launch: Dictionary, right: Vector3) -> Dictionary:
-	var spread := deg_to_rad(Tuning.KICK_ACCURACY_MAX_SPREAD_DEG
-		* (1.0 - clampf(kick_accuracy, 0.0, 1.0)))
-	if spread <= 0.0:
+## Rotates the whole resultant launch vector (aim + carried momentum
+## together) by a random amount rather than re-deriving it, so a spread
+## kick goes off-line, not further or shorter. Shared by the two things
+## that make a kick less than pinpoint — skill (_apply_kick_accuracy) and
+## not having aimed down sights at all (the hip-fire spread in
+## _dispose()) — so neither can quietly drift out of sync with the other
+## about what "how far off" actually means.
+func _apply_spread(launch: Dictionary, right: Vector3, spread_deg: float) -> Dictionary:
+	if spread_deg <= 0.0:
 		return launch
+	var spread := deg_to_rad(spread_deg)
 	launch.launch_velocity = (launch.launch_velocity as Vector3) \
 		.rotated(Vector3.UP, randf_range(-spread, spread)) \
 		.rotated(right, randf_range(-spread, spread) * 0.5)
 	return launch
+
+
+## Random aim error from the character's own skill, rolled fresh here
+## rather than while charging — the trajectory cue can't show it because
+## it isn't knowable ahead of the actual kick. Zero at kick_accuracy ==
+## 1.0, up to KICK_ACCURACY_MAX_SPREAD_DEG at 0.0.
+func _apply_kick_accuracy(launch: Dictionary, right: Vector3) -> Dictionary:
+	var spread_deg := Tuning.KICK_ACCURACY_MAX_SPREAD_DEG \
+		* (1.0 - clampf(kick_accuracy, 0.0, 1.0))
+	return _apply_spread(launch, right, spread_deg)
 
 
 func _dispose() -> void:
@@ -571,6 +659,9 @@ func _dispose() -> void:
 			# ball moving along `forward` is a positive spin about `right`.
 			spin = right * Tuning.KICK_BACKSPIN
 			launch = _apply_kick_accuracy(launch, right)
+			if _hip_fire_kick:
+				launch = _apply_spread(launch, right, Tuning.KICK_HIP_FIRE_SPREAD_DEG)
+			_hip_fire_kick = false
 		Tuning.Action.HANDBALL:
 			launch = _launch_from(_carry_point.global_position, _handball_aim_dir,
 				Tuning.HANDBALL_ANGLE, Tuning.HANDBALL_SPEED)

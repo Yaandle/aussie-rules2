@@ -40,7 +40,7 @@ func wants_kick_execute() -> bool:
 
 
 func kick_charge_override() -> float:
-	return InputManager.kick_stance_strength()
+	return InputManager.kick_reach_strength()
 
 
 func wants_handball() -> bool:
