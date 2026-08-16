@@ -412,3 +412,206 @@ every other screen does today.
 - The boundary fence is a flat ribbon, not real picket geometry — correct
   at broadcast distance, would read as fake up close (e.g. if a future
   camera mode ever gets near the boundary).
+
+---
+
+## Handover — kick stance/execute + decoupled aim (Agent: mechanics/engine)
+
+First pass at the Xbox+KBM control scheme the design brief specifies,
+scoped to the one piece that was fully numerically specified: the two-stage
+kick, its independent aim, and handball's independent aim. Marking (3-tier),
+punch/spoil, smother, bump and the ruck hit-out are deliberately **not**
+built this pass — see "Deferred" below for why and what each still needs.
+No visuals, contests-beyond-tackle, or RULES_REFERENCE.md numbers touched.
+
+### 1. Kick is now LT-hold-stance / RT-tap-execute, not hold-then-release
+
+`player_controller.gd`'s `_update_charge()` used to fire the kick on the
+same button's release (hold `kick` to charge, let go to fire). The brief
+wants two separate controls — hold to enter a slowed aiming stance, tap a
+different button to strike — so release-without-firing had to become a
+real option (**cancel**), which the old model had no way to express.
+
+New flow: `wants_kick()` (LT / `K`) only ever charges and holds stance;
+`wants_kick_execute()` (RT / `F`, new on `PlayerBrain`) is the one thing
+that fires, and only while stance is already held. Releasing LT before ever
+tapping RT zeroes `_kick_charge` and drops out of stance with no kick fired.
+`AIBrain` needed the same shape — it used to just flip its simulated button
+false when its hold timer ran out (which the old release-fires model read
+as "let go"); now it pulses `_kick_execute_pressed` true for one frame
+while keeping `wants_kick()` true that same frame, i.e. it "holds LT and
+taps RT" like a human would. Traced the frame-by-frame interaction with the
+existing windup/contact timing (`Tuning.ACTION_DURATION`/`ACTION_CONTACT`)
+by hand: because `is_carrying()` always goes false at contact time (~0.42s
+into the swing) well before `_action` resets to `NONE` (~0.78s), a brief
+window where `AIBrain` can spuriously re-`_commit_kick()` while its own
+swing is still playing is real but inert — `_update_charge()` early-returns
+on `_action != NONE` the entire time, so nothing it sets during that window
+is ever read before the top-level `is_carrying()` check wipes it.
+
+### 2. Aim is decoupled from body facing — kick and handball each got their own source
+
+The brief is explicit that this is new: "aim is fully decoupled from
+movement/facing... two different aim sources feeding the same shared
+launch-math helper." `_launch_from()` (the shared helper every disposal
+already funnelled through) took an implicit `forward := -global_transform.
+basis.z` before; it now takes `horizontal_dir` explicitly, so it can no
+longer quietly default to body-forward for whichever action is calling it.
+
+- **Kick**: a new `_kick_aim_yaw` float, snapped to `_facing_yaw` the
+  instant stance begins, then nudged by the right stick/mouse for a human
+  only (`_update_kick_aim()`) — reusing the exact same
+  `InputManager.get_look_vector()`/`take_mouse_look()` calls and sign
+  convention `broadcast_camera.gd` already used for its own yaw, so "push
+  the stick right" turns the aim the same way it already turns the camera.
+  Frozen the moment the swing begins (RT consumes it once, waggling the
+  stick after that can't retroactively redirect an already-struck kick).
+  AI never nudges it, so its kicks stay body-forward exactly as before —
+  just captured a moment earlier (when its simulated stance begins, not at
+  contact time), a difference too small to matter for a baseline explicitly
+  "not a tactics system" (`ai_brain.gd`'s own docstring).
+- **Handball**: no persistent aim state — captured once in `_begin()` at
+  the instant `X` is pressed, from `_wish_dir` (falling back to
+  body-forward if the stick's neutral right then), matching "toward
+  wherever Left stick is currently held" precisely rather than reading it
+  again later at the animation's contact time, where it could have drifted.
+- **Bounce**: untouched, still body-forward — the brief doesn't ask for a
+  bounce aim source, and AFL's real bounce-while-running doesn't need one.
+
+`kick_trajectory.gd` itself needed no changes — it was already a dumb
+ballistic previewer fed an origin/velocity by `player_controller.gd`; once
+`_kick_parameters()` started resolving that velocity from the aim yaw
+instead of body facing, the preview correctly followed without knowing
+anything changed. ("The active source" the brief means to be read correctly
+lives in `_kick_parameters()`/`_launch_from()`, not in the trajectory node.)
+
+### 3. Kick stance slows movement; camera stops eating the aim stick
+
+`Tuning.KICK_STANCE_SPEED_SCALE` (0.55) applied in `_update_locomotion()`
+while `_charging` — less restrictive than the existing swing-lock
+`ACTION_SPEED_SCALE` (0.4), since the brief wants you still moving while
+aiming, just slower, not planted. `Tuning.KICK_AIM_YAW_SPEED` (180°/s,
+starts equal to `CAM_YAW_SPEED` but is a separate dial) governs how fast
+the stick/mouse swings the aim.
+
+`broadcast_camera.gd._update_rotation()` now early-returns while the human
+target is in kick stance (`is_kick_aiming()`, new on `PlayerController`),
+so the right stick/mouse drives aim instead of fighting the camera for the
+same input. Position/lookahead (`_update_focus`) and FOV (`_update_fov`)
+keep running unaffected — the rig still tracks the player, it just holds
+its current orientation instead of re-centring on stick input until aiming
+ends. This is the one change in `broadcast_camera.gd`; no lens/visual
+treatment touched, per the ownership split with Agent 1.
+
+### 4. Tackle: renamed from `mark_contest`, moved to B, switched to hold
+
+The old `mark_contest` action (E / Y, edge-triggered) only ever meant
+"attempt a tackle" — there is no marking system yet, so the name was
+already misleading and would only get worse once marking exists. Removed
+it outright and added `tackle` (E / **B**, `is_action_pressed` — a hold,
+per "B hold near opponent: Tackle") rather than leaving a dead action name
+bound to nothing. `PlayerController._try_tackle()`'s existing guards
+already required `not is_carrying()` on the tackler, so switching from tap
+to hold is safe by inspection: it only re-attempts a tackle on a target
+still in range, and the moment one lands, `other.is_carrying()` goes false
+and removes them as a valid target — no re-tackle-spam from holding B down.
+
+Y is now fully unbound (was tackle, freed for the brief's own "Aggressive
+mark" reservation). B keeps its existing Bounce binding *as well* —
+Bounce needs `is_carrying()`, Tackle needs `!is_carrying()`, so the two are
+mutually exclusive by possession state and can safely share the physical
+button, exactly the "buttons remap by phase" pattern the brief describes
+for the defensive phase generally (confirmed against a pre-existing
+precedent already in this file: `camera_recenter` and `character_menu`
+already shared physical `C` before this change).
+
+### 5. Input map bookkeeping
+
+`project.godot [input]`: removed `kick` (K/A) and `mark_contest` (E/Y).
+Added `kick_stance` (K / LT axis4), `kick_execute` (**F**, not a mouse
+button — see below / RT axis5, physically shared with the pre-existing
+`sprint` action, same "one physical control, two named logical actions,
+gameplay code picks which applies" pattern already used for LT elsewhere),
+`tackle` (E / B button1). Left `bounce`, `handball`, `sprint`, `walk`,
+`camera_*`, `switch_player`, `pause`, `debug_*`, `character_menu` untouched.
+A is now fully unbound (was `kick`), reserved for the brief's marking tier.
+
+**Deliberate deviation from the brief's literal RT-tap-execute /
+LMB-adjacent instinct**: used keyboard `F` rather than Left Mouse Button
+for `kick_execute`. This project has never bound a mouse *button* to
+anything (only mouse *motion*, for camera look), so there were no verified
+examples of Godot 4's `InputEventMouseButton` text-resource format in this
+file to pattern-match against, and no way to headless-verify a guess (see
+§6). `F` is a plain `InputEventKey` identical in shape to the eight other
+key bindings already in the file, eliminating that risk for the same
+functional outcome. Worth revisiting for real mouse-click support once
+this can be tested in-editor.
+
+### 6. Verification — and the gap in it
+
+No `godot`/`godot4` executable was found on `PATH`, in `Program Files`, in
+`%LOCALAPPDATA%`, or anywhere else searched — this environment cannot run
+`godot --headless --path . --quit-after 300`, the project's own standard
+smoke test (see this file's top section and `README.md`). Everything above
+was instead verified by:
+
+- Full re-reads of every touched file post-edit (not just diffing the
+  intended change) to catch anything the edit tool matched wrong.
+- Hand-tracing the state machine frame-by-frame for: a minimum-charge tap
+  kick, hold-then-cancel, hold-to-execute at partial and full charge, the
+  `AIBrain` timing interaction in §1, handball while moving vs. stationary,
+  and tackle-hold while closing distance.
+- Re-deriving `_yaw_direction()` against `_update_facing()`'s existing
+  `atan2(-desired.x, -desired.z)` and confirming they're exact inverses
+  (yaw→direction round-trips to the same direction that produced it),
+  rather than trusting a fresh derivation by eye.
+- Grepping for every remaining reference to the removed `kick`/
+  `mark_contest` action names across the whole project — the only hits
+  left are unrelated animation/icon lookup keys that happen to also be
+  spelled `"kick"` (`player_animation.gd`, `placeholder_animations.gd`,
+  `ui_icon.gd`, `character_screen.gd`), not `Input` action reads.
+- Checking every new `project.godot` `[input]` block character-for-character
+  against an existing verified block of the same event type (`InputEventKey`
+  / `InputEventJoypadMotion` / `InputEventJoypadButton`) rather than
+  reconstructing the format from memory.
+
+**What this hasn't caught**: anything that only shows up at actual engine
+parse time or in play — whether the two new axis-4/5 bindings read the
+Xbox triggers the way I expect, whether the stance slow/aim-swing feels
+right, whether `_kick_aim_yaw` drifting from `_facing_yaw` looks correct on
+the rig. Needs a real `godot --headless` pass and then hands-on-pad time in
+`kick_to_kick.tscn` before this is more than "should be correct by
+inspection." Point me at the executable, or run the standard smoke test
+yourself, before relying on this beyond that.
+
+**Flag for Agent 1 (UI/visual, out of my scope)**: `debug_hud.gd`'s
+hardcoded control hint — `"K hold+release kick   Q handball   Space bounce
+R reset ball   F3 hud"` — describes the removed model. Not edited here;
+`HUD` is explicitly out of scope for this agent.
+
+### Deferred: marking, punch/spoil, smother, bump, hit-out
+
+Not started. Unlike the kick, these have no numeric spec anywhere yet —
+building them now would mean inventing detection radii, timing windows and
+risk/reward resolution unsupervised. Concretely still open before any of
+these can be built:
+
+- **Marking (A/X/Y tiers)**: needs "ball in flight" + timing-window
+  detection (nothing in the codebase currently distinguishes a mark from
+  `_try_gather()`'s passive proximity pickup), and per RULES_REFERENCE.md
+  §4 holding-the-ball/free-kick adjudication isn't resolved yet either —
+  the brief's "mistimed aggressive mark ≈ free-kick-against" has no home
+  until that lands.
+- **Punch/Spoil (LT tap, not carrying)**: needs a contest-detection radius
+  and a resolution (does it just knock the ball loose faster, cancel a
+  mark attempt, or both).
+- **Smother (X, not carrying)**: needs a way to read that an opponent is
+  mid-disposal-windup (nothing public exposes `_action` today) plus a
+  timing window and a resolution.
+- **Bump (LB hold + RT stick flick)**: needs the hit-stick timing model
+  itself designed — flick-direction-vs-carrier-approach-angle scoring,
+  plus the free-kick-for-high-contact rule RULES_REFERENCE.md doesn't have
+  numbers for yet.
+- **Hit-out (RB, ruck stoppage only)**: needs a ruck/stoppage phase to
+  exist first; `GameState.Phase.STOPPAGE` exists but nothing currently
+  enters it for a ball-up the way it will need to.

@@ -75,6 +75,15 @@ func camera() -> Camera3D:
 
 
 func _update_rotation(delta: float) -> void:
+	# While the player is in kick stance, the right stick/mouse drives kick
+	# aim instead (PlayerController._update_kick_aim) — so the camera has
+	# to stop consuming that input for the duration, not fight over it.
+	# Holding last orientation is correct here: _update_focus/_update_fov
+	# keep running unaffected, so the rig still tracks position and speed,
+	# it just stops re-orienting from stick/mouse until aiming ends.
+	if _is_target_aiming():
+		return
+
 	if Input.is_action_just_pressed(&"camera_recenter"):
 		recenter()
 		return
@@ -90,6 +99,10 @@ func _update_rotation(delta: float) -> void:
 	var rate := 1.0 - exp(-Tuning.CAM_ROTATE_RATE * delta)
 	_yaw_pivot.rotation.y = lerp_angle(_yaw_pivot.rotation.y, _yaw, rate)
 	_pitch_pivot.rotation.x = lerpf(_pitch_pivot.rotation.x, _pitch, rate)
+
+
+func _is_target_aiming() -> bool:
+	return target is PlayerController and (target as PlayerController).is_kick_aiming()
 
 
 func _update_focus(delta: float) -> void:

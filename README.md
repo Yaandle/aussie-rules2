@@ -33,16 +33,26 @@ Verified: `godot --headless --path . --quit-after 300` exits 0 with no errors.
 |---|---|---|
 | Move / walk / sprint | `WASD` / `Ctrl` / `Shift` | Stick / L3 / RT |
 | Camera / recentre | Arrows, mouse / `C` | Right stick / R3 |
-| Kick (hold to charge) | `K` | A |
-| Handball · Bounce · Mark | `Q` · `Space` · `E` | X · B · Y |
+| Kick stance (hold, aim, charge) | `K` | LT |
+| Kick (execute, while in stance) | `F` | RT |
+| Handball (toward move direction) | `Q` | X |
+| Bounce (in possession) · Tackle (not) | `Space` · `E` | B · B |
 | Switch player · Pause | `Tab` · `Esc` | LB · Start |
 | Reset ball · Debug HUD | `R` · `F3` | Back · D-pad up |
 
-Mark/contest and switch-player now do something: switch-player cycles which
-of your own team's players you're driving, and mark/contest attempts a
-tackle when you're close enough to an opposing carrier. The keyboard's three
-gait tiers hit the same values an analog stick reaches, so it is a real
-input path, not a degraded one.
+Kick is two-stage: hold K/LT to enter a slowed aiming stance — the right
+stick or mouse swings the kick's aim independently of which way the body is
+facing, same as the on-screen trajectory preview — then tap F/RT to strike
+at whatever power/aim you've built up. Releasing K/LT without ever tapping
+F/RT cancels the kick outright rather than firing it. Handball aims wherever
+the left stick/WASD is held at the moment of the press, also independent of
+facing. B is context-sensitive like a lot of sports games' off-ball buttons:
+Bounce while you're carrying, Tackle (hold, not tap — it fires the instant
+you're in range of an opposing carrier) once you're not. Marking, smothering,
+spoiling and the hit-out aren't built yet — A/X off the ball and Y/RB/LB are
+still unbound or reserved for them. The keyboard's three gait tiers hit the
+same values an analog stick reaches, so it is a real input path, not a
+degraded one.
 
 ## Files
 

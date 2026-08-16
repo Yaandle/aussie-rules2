@@ -32,7 +32,11 @@ func gait() -> float:
 
 
 func wants_kick() -> bool:
-	return Input.is_action_pressed(&"kick")
+	return Input.is_action_pressed(&"kick_stance")
+
+
+func wants_kick_execute() -> bool:
+	return Input.is_action_just_pressed(&"kick_execute")
 
 
 func wants_handball() -> bool:
@@ -44,4 +48,4 @@ func wants_bounce() -> bool:
 
 
 func wants_tackle() -> bool:
-	return Input.is_action_just_pressed(&"mark_contest")
+	return Input.is_action_pressed(&"tackle")

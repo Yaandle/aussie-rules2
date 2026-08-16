@@ -23,12 +23,14 @@ var _kick_pressed := false
 var _handball_pressed := false
 var _tackle_wanted := false
 
-## Simulates holding the kick button: true while charging, false for one
-## frame on release, which is the edge PlayerController's charge state
-## machine fires the kick on. Kept as separate state from is_carrying()
+## Simulates holding LT (stance) for _kick_hold_timer seconds, then
+## tapping RT for exactly one frame — PlayerController now fires on that
+## execute pulse, not on a hold->release edge, so this needs both signals
+## rather than just one boolean. Kept as separate state from is_carrying()
 ## because the action's windup keeps is_carrying() true well past release.
 var _kick_committed := false
 var _kick_hold_timer := 0.0
+var _kick_execute_pressed := false
 
 ## Was the ball held last frame, so a held->loose edge can be caught and
 ## turned into a reaction delay (see AI_LOOSE_BALL_REACTION_MIN/MAX).
@@ -39,6 +41,7 @@ var _reaction_timer := 0.0
 func update(controller: PlayerController, delta: float) -> void:
 	_handball_pressed = false
 	_tackle_wanted = false
+	_kick_execute_pressed = false
 
 	if ball == null:
 		_move_dir = Vector3.ZERO
@@ -89,6 +92,10 @@ func wants_kick() -> bool:
 	return _kick_pressed
 
 
+func wants_kick_execute() -> bool:
+	return _kick_execute_pressed
+
+
 func wants_handball() -> bool:
 	return _handball_pressed
 
@@ -108,7 +115,13 @@ func _think_carrying(controller: PlayerController, delta: float, pos: Vector3) -
 			_kick_pressed = true
 			_kick_hold_timer -= delta
 		else:
-			_kick_pressed = false
+			# Same frame: stay "in stance" one last tick and pulse execute,
+			# so PlayerController sees both wants_kick() and
+			# wants_kick_execute() true together, exactly as a human
+			# holding LT and tapping RT would land it.
+			_kick_pressed = true
+			_kick_execute_pressed = true
+			_kick_committed = false
 		return
 
 	var dist := pos.distance_to(goal_point)

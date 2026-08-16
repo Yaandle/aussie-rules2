@@ -164,6 +164,18 @@ const DISPOSAL_MOMENTUM_TRANSFER := 0.55
 # You plant to kick. Fraction of target speed available mid-action.
 const ACTION_SPEED_SCALE := 0.4
 
+# LT kick stance (design brief's CONTROLS section): an ADS analogue, not a
+# full plant — you can still move and reposition while aiming, just not at
+# full pace. Deliberately less restrictive than ACTION_SPEED_SCALE, which
+# is the actual kicking-motion lock that follows it.
+const KICK_STANCE_SPEED_SCALE := 0.55
+
+# deg/s the right stick/mouse swings the kick aim while in stance — a
+# separate dial from CAM_YAW_SPEED (below) even though it starts at the
+# same value, because aim precision and camera smoothing are different
+# concerns that will want to diverge once this has been played.
+const KICK_AIM_YAW_SPEED := 180.0
+
 # Action timing, indexed by Action. CONTACT is when the ball actually
 # leaves — partway through the swing, not at either end of it.
 #

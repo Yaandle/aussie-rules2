@@ -31,8 +31,16 @@ func gait() -> float:
 	return 0.0
 
 
-## Held-down semantics: true for as long as the kick should keep charging.
+## Held-down semantics: true for as long as kick stance/charge should be
+## held (LT on a pad) — see PlayerController._update_charge.
 func wants_kick() -> bool:
+	return false
+
+
+## Edge-triggered: true for the one frame the kick should actually fire
+## (RT tap on a pad), while wants_kick() is still held. Only consulted
+## while stance is active; ignored otherwise.
+func wants_kick_execute() -> bool:
 	return false
 
 

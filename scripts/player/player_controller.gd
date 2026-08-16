@@ -84,6 +84,21 @@ var _action_fired := false
 var _kick_charge := 0.0
 var _charging := false
 
+## World-space yaw the kick is currently aimed along, decoupled from body
+## facing (design brief's CONTROLS section: "aim is fully decoupled from
+## movement/facing"). Snapped to _facing_yaw when stance begins, then
+## nudged by the right stick/mouse for a human for as long as stance
+## holds — see _update_kick_aim(). Frozen the instant the swing begins,
+## same as _kick_charge, so waggling the stick after committing can't
+## retroactively change where an already-struck kick goes.
+var _kick_aim_yaw := 0.0
+
+## Where a HANDBALL launches, captured once in _begin() at the moment the
+## button is pressed — not read fresh in _dispose(), which fires later at
+## the animation's contact time and would otherwise pick up wherever the
+## stick had drifted to by then.
+var _handball_aim_dir := Vector3.FORWARD
+
 
 func _ready() -> void:
 	add_to_group(&"players")
@@ -172,9 +187,13 @@ func _update_locomotion(delta: float) -> void:
 	else:
 		_wish_dir = Vector3.ZERO
 
-	# Planting to kick or handball costs you your legs for a moment.
+	# Planting to kick or handball costs you your legs for a moment; the
+	# kick stance ahead of that (LT held, still aiming/repositioning) costs
+	# less, same relationship as ADS-walk vs. firing in a shooter.
 	if _action != Tuning.Action.NONE:
 		target_speed *= Tuning.ACTION_SPEED_SCALE
+	elif _charging:
+		target_speed *= Tuning.KICK_STANCE_SPEED_SCALE
 
 	var accel := Tuning.ACCELERATION if target_speed > _speed else Tuning.BRAKING
 	if not is_on_floor():
@@ -372,19 +391,29 @@ func _get_tackled(by: PlayerController) -> void:
 
 # ── Disposal ─────────────────────────────────────────────────────────
 
+## LT-hold-stance / RT-tap-execute (design brief's CONTROLS section), not
+## the old single-button hold-then-release-to-fire: wants_kick() (LT) only
+## ever charges and aims; wants_kick_execute() (RT) is the one thing that
+## actually fires the kick, and only while stance is already held.
+## Releasing LT without ever tapping RT cancels — no kick, charge
+## discarded — where the old model would have fired on release regardless.
 func _update_charge(delta: float) -> void:
 	if _action != Tuning.Action.NONE or _stun_timer > 0.0:
 		_kick_trajectory.update_preview(false, Vector3.ZERO, Vector3.ZERO)
 		return
+
 	if _brain.wants_kick() and is_carrying():
-		_charging = true
+		if not _charging:
+			_charging = true
+			_kick_aim_yaw = _facing_yaw
 		_kick_charge = minf(1.0, _kick_charge + delta / Tuning.KICK_CHARGE_TIME)
+		_update_kick_aim(delta)
+		if _brain.wants_kick_execute():
+			_charging = false
+			_begin(Tuning.Action.KICK)
 	elif _charging:
 		_charging = false
-		if is_carrying():
-			_begin(Tuning.Action.KICK)
-		else:
-			_kick_charge = 0.0
+		_kick_charge = 0.0
 
 	if _brain.wants_handball() and is_carrying():
 		_begin(Tuning.Action.HANDBALL)
@@ -401,9 +430,40 @@ func _update_charge(delta: float) -> void:
 		_kick_trajectory.update_preview(false, Vector3.ZERO, Vector3.ZERO)
 
 
+## Right stick (or mouse, off the same look input the camera would
+## otherwise be reading — see BroadcastCamera._is_target_aiming) swings
+## the aim yaw independently of where the body is facing or heading.
+## AI has nothing to feed this, so it simply never moves past the
+## body-forward snapshot _update_charge took when stance began — which is
+## exactly its old always-body-forward kick, just captured a moment
+## earlier now.
+func _update_kick_aim(delta: float) -> void:
+	if not (_brain is HumanBrain):
+		return
+	var stick := InputManager.get_look_vector()
+	var mouse := InputManager.take_mouse_look()
+	_kick_aim_yaw -= stick.x * deg_to_rad(Tuning.KICK_AIM_YAW_SPEED) * delta \
+		+ deg_to_rad(mouse.x)
+
+
+func is_kick_aiming() -> bool:
+	return _charging
+
+
+func _yaw_direction(yaw: float) -> Vector3:
+	return Vector3(-sin(yaw), 0.0, -cos(yaw))
+
+
 func _begin(action: Tuning.Action) -> void:
 	if _action != Tuning.Action.NONE:
 		return
+	if action == Tuning.Action.HANDBALL:
+		# "Toward wherever Left stick is currently held" (CONTROLS section),
+		# captured now rather than at _dispose()'s later contact time, and
+		# falling back to body-forward if the stick is neutral at the
+		# instant of the press.
+		_handball_aim_dir = _wish_dir if _wish_dir.length_squared() > 0.0001 \
+			else -global_transform.basis.z
 	_action = action
 	_action_elapsed = 0.0
 	_action_fired = false
@@ -435,10 +495,15 @@ func _update_action(delta: float) -> void:
 ## Shared elevation/speed -> direction/launch_velocity math every
 ## disposal action goes through, so kicks, handballs and bounces can't
 ## quietly diverge in how "how hard, how high" becomes a velocity.
-func _launch_from(origin: Vector3, elevation_deg: float, speed_out: float) -> Dictionary:
-	var forward := -global_transform.basis.z
+## `horizontal_dir` is the caller's aim source made explicit (kick: the
+## free-aim yaw; handball: wherever the stick was held; bounce: body
+## facing) — this function no longer assumes body-forward itself, so it
+## can't quietly default to the wrong source for whichever action is
+## calling it.
+func _launch_from(origin: Vector3, horizontal_dir: Vector3, elevation_deg: float,
+		speed_out: float) -> Dictionary:
 	var elevation := deg_to_rad(elevation_deg)
-	var direction := (forward * cos(elevation) + Vector3.UP * sin(elevation)).normalized()
+	var direction := (horizontal_dir * cos(elevation) + Vector3.UP * sin(elevation)).normalized()
 
 	# Carry the player's own momentum into the ball, the way it actually
 	# works — a kick on the run goes further than the same kick standing.
@@ -453,12 +518,14 @@ func _launch_from(origin: Vector3, elevation_deg: float, speed_out: float) -> Di
 ## The exact KICK launch a release at `charge` (0..1) would produce, sans
 ## accuracy error — the aimed path, not the executed one. Called both by
 ## the on-screen trajectory cue (every frame while charging, see
-## _update_charge) and by _dispose() (once, at release) so the two can
-## never disagree about what "the aim" actually is.
+## _update_charge) and by _dispose() (once, at execute) so the two can
+## never disagree about what "the aim" actually is. Direction comes from
+## _kick_aim_yaw, not body facing — see _update_kick_aim.
 func _kick_parameters(charge: float) -> Dictionary:
 	var elevation_deg := lerpf(Tuning.KICK_MIN_ANGLE, Tuning.KICK_MAX_ANGLE, charge)
 	var speed_out := lerpf(Tuning.KICK_MIN_SPEED, Tuning.KICK_MAX_SPEED, charge) * kick_power_scale
-	return _launch_from(_boot_point.global_position, elevation_deg, speed_out)
+	return _launch_from(_boot_point.global_position, _yaw_direction(_kick_aim_yaw),
+		elevation_deg, speed_out)
 
 
 ## Random aim error applied only to a KICK, rolled fresh here rather than
@@ -498,12 +565,12 @@ func _dispose() -> void:
 			spin = right * Tuning.KICK_BACKSPIN
 			launch = _apply_kick_accuracy(launch, right)
 		Tuning.Action.HANDBALL:
-			launch = _launch_from(_carry_point.global_position, Tuning.HANDBALL_ANGLE,
-				Tuning.HANDBALL_SPEED)
+			launch = _launch_from(_carry_point.global_position, _handball_aim_dir,
+				Tuning.HANDBALL_ANGLE, Tuning.HANDBALL_SPEED)
 			spin = right * Tuning.HANDBALL_SPIN
 		Tuning.Action.BOUNCE:
-			launch = _launch_from(_carry_point.global_position, Tuning.BOUNCE_ANGLE,
-				Tuning.BOUNCE_SPEED)
+			launch = _launch_from(_carry_point.global_position, -global_transform.basis.z,
+				Tuning.BOUNCE_ANGLE, Tuning.BOUNCE_SPEED)
 			spin = right * Tuning.HANDBALL_SPIN
 		_:
 			return
