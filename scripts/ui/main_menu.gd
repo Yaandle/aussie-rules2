@@ -30,6 +30,8 @@ var _entries: Array[Entry] = [
 		"res://scenes/modes/full_game.tscn", true),
 	Entry.new("SCENARIO", "Practice a set situation", "", false),
 	Entry.new("GOAL KICKING", "Shots on goal from the arc", "", false),
+	Entry.new("AI TEST", "Configure team size, control and AI behaviour",
+		"res://scenes/ui/ai_test_screen.tscn", true),
 ]
 
 var _index := 0
@@ -56,6 +58,8 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"character_menu"):
 		SceneWipe.change_scene("res://scenes/ui/character_screen.tscn")
+	elif event.is_action_pressed(&"team_menu"):
+		SceneWipe.change_scene("res://scenes/ui/team_list_screen.tscn")
 	elif event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up"):
 		_move(-1)
 	elif event.is_action_pressed(&"move_back") or event.is_action_pressed(&"ui_down"):
@@ -93,6 +97,7 @@ func _refresh() -> void:
 			var subtitle := entry.subtitle if entry.unlocked else "Not built yet"
 			lines.append("[color=#%s]    %s[/color]" % [COLOUR_HINT, subtitle])
 	lines.append("")
-	lines.append("[color=#%s]W/S or arrows to choose   Enter to select   C for character[/color]"
+	lines.append(
+		"[color=#%s]W/S or arrows to choose   Enter to select   C for character   T for team list[/color]"
 		% COLOUR_HINT)
 	_label.text = "\n".join(lines)

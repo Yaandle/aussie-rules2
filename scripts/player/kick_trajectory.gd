@@ -21,7 +21,8 @@ extends Node3D
 ## even decided yet at this point since the ball hasn't been struck.
 
 const MAX_DOTS := 22
-const DOT_STEP_TIME := 0.05      ## s of simulated flight per dash
+const SIM_STEP_TIME := 0.05      ## s of simulated flight per integration step
+const MAX_SIM_SECONDS := 8.0     ## safety cap so a freak launch can't loop forever
 const DOT_RADIUS := 0.045
 const RING_RADIUS := 0.5
 const RING_THICKNESS := 0.07
@@ -71,33 +72,57 @@ func update_preview(active: bool, origin: Vector3, launch_velocity: Vector3) -> 
 		return
 
 	var points := _simulate(origin, launch_velocity)
+	var shown := _downsample(points, MAX_DOTS)
 	var multimesh := _dots.multimesh
-	var shown := mini(points.size(), MAX_DOTS)
-	multimesh.visible_instance_count = shown
-	for i in shown:
+	multimesh.visible_instance_count = shown.size()
+	for i in shown.size():
 		# MultiMesh instance transforms are local to _dots, which follows
 		# the player like any other child node — to_local() converts the
 		# simulation's world-space points into that space so a dash lands
 		# exactly at its simulated world position regardless of where the
 		# player is standing or facing.
-		multimesh.set_instance_transform(i, Transform3D(Basis.IDENTITY, _dots.to_local(points[i])))
+		multimesh.set_instance_transform(i, Transform3D(Basis.IDENTITY, _dots.to_local(shown[i])))
 
 	var landing := points[points.size() - 1] if not points.is_empty() else origin
 	landing.y = 0.02   # just off the turf, same reasoning as Field's line markings
 	_ring.global_position = landing
 
 
+## Steps the flight all the way to the ground rather than for a fixed
+## number of dots' worth — a stronger kick_power_scale or a higher charge
+## both mean a longer flight, and the landing ring needs to sit where the
+## ball would actually come down, not wherever a fixed time budget ran
+## out. MAX_SIM_SECONDS is only a safety valve (real kicks land in ~3s at
+## the highest charge/kick_power_scale combination); it should never
+## actually bind.
 func _simulate(origin: Vector3, launch_velocity: Vector3) -> Array[Vector3]:
 	var points: Array[Vector3] = []
 	var pos := origin
 	var vel := launch_velocity
-	for i in MAX_DOTS:
+	var steps := ceili(MAX_SIM_SECONDS / SIM_STEP_TIME)
+	for i in steps:
 		var speed := vel.length()
 		if speed > 0.05:
-			vel += (-vel * speed * Tuning.BALL_DRAG_COEFF / Tuning.BALL_MASS) * DOT_STEP_TIME
-		vel.y -= Tuning.GRAVITY * DOT_STEP_TIME
-		pos += vel * DOT_STEP_TIME
+			vel += (-vel * speed * Tuning.BALL_DRAG_COEFF / Tuning.BALL_MASS) * SIM_STEP_TIME
+		vel.y -= Tuning.GRAVITY * SIM_STEP_TIME
+		pos += vel * SIM_STEP_TIME
 		points.append(pos)
 		if pos.y <= GROUND_HEIGHT:
 			break
 	return points
+
+
+## Thins a full flight path down to at most `count` points spread evenly
+## from boot to landing, so the dashed line always shows the *whole* arc
+## no matter how long the real flight is — a rendering concern kept
+## separate from _simulate()'s physics one, which has to walk every step
+## to land the ring correctly even when that's far more points than are
+## worth drawing individually.
+func _downsample(points: Array[Vector3], count: int) -> Array[Vector3]:
+	if points.size() <= count:
+		return points
+	var result: Array[Vector3] = []
+	for i in count:
+		var t := float(i) / float(count - 1)
+		result.append(points[roundi(t * float(points.size() - 1))])
+	return result

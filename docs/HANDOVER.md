@@ -929,3 +929,162 @@ No RULES_REFERENCE.md numbers relied on. Prototype 1 specifics quoted
 above (`AIM_ASSIST_STRENGTH`, `SLOWMO_FACTOR`, etc.) are cited from the
 research pass, not RULES_REFERENCE.md, which doesn't cover aim-assist at
 all — worth adding a line there if this direction holds up under play.
+
+---
+
+## Handover — kick power off the aim stick, not the trigger (Agent: mechanics/engine)
+
+Third playtest round on the same system. The user rejected the previous
+entry's power model outright: LT pull-depth, even live-adjustable, is
+still fundamentally a squeeze. What they wanted instead is the stick's
+Y-position read directly as power — wherever the trajectory preview line
+currently reaches to, full stop, pushed forward for further and eased
+back for shorter, with no separate "charge" value underneath it at all.
+
+### What changed
+
+`InputManager.kick_stance_strength()` → renamed `kick_reach_strength()`
+and re-sourced: was `Input.get_action_strength(&"kick_stance")` (LT's own
+analog depth), now `clampf(get_look_vector().y, 0.0, 1.0)` — the same
+right-stick vector `_update_kick_aim()` already reads `.x` off for aim
+yaw. `human_brain.gd`'s `kick_charge_override()` call site updated to
+match; `player_brain.gd`'s doc comment updated for the same reason.
+`player_controller.gd` itself needed no logic change — `_update_charge()`
+already treated any `override >= 0.0` as "this is the power, full stop,"
+so swapping what feeds that override was a one-line change one layer
+down. LT still gates entry into the aiming stance at its existing 0.2
+deadzone (`project.godot`); it just no longer reports a depth anyone
+reads for anything.
+
+Keyboard (with or without mouse) is unaffected: `InputManager.device`
+tracks mouse motion as `Device.KEYBOARD`, so `kick_reach_strength()`
+returns the `-1.0` sentinel for both, same as before, and `_update_charge()`
+falls through to the pre-existing `_kick_charge + delta / KICK_CHARGE_TIME`
+hold-ramp. AI is likewise untouched — `AIBrain` doesn't override
+`kick_charge_override()`, so it inherits `PlayerBrain`'s base `-1.0` and
+always ramps too. Only a human on a gamepad reads differently than it did
+last round.
+
+### A coupling worth knowing about, not changed
+
+`get_look_vector()` runs the raw stick through `_shape()`, which scales
+the **combined 2D magnitude** by `pow(magnitude, LOOK_CURVE)` (curve =
+2.0) and reapplies that as one uniform factor to both x and y. That curve
+was picked for camera-look feel, back when x and y were both "look," i.e.
+one job. Now x is aim yaw and y is power — two logically separate values
+sharing one physical stick — and the shared magnitude curve means they
+are not read fully independently: nudging aim (x) while holding a power
+level (y) measurably changes the read power, and vice versa, because both
+axes are scaled by whatever the *combined* deflection works out to, not
+by each axis's own deflection. Concretely: holding raw `(0.3, 0.3)` — a
+moderate aim nudge at moderate power — shapes down to roughly `(0.13,
+0.13)`, not `(0.3, 0.3)`, because `pow(0.424, 2) ≈ 0.18` is the factor
+applied to both. Small aim corrections during a held power barely move
+it; a large simultaneous diagonal push (aiming hard off to one side while
+holding high power) will visibly suppress the power reading versus
+pushing straight forward at the same perceived effort.
+
+Not fixed here — no playtest evidence yet that this is what anyone would
+actually feel as "power feels jumpy," and the fix isn't obvious even if
+it is: shaping x and y independently (two separate `pow()` calls instead
+of one radial one) is a small change, but whether that's the *right* feel
+for aim-yaw specifically (camera-look elsewhere still wants the radial
+curve) is itself a judgment call this agent can't make from static
+reading. Flagged so a future round has the actual cause on hand rather
+than re-deriving it from a "kicking feels inconsistent while aiming off
+to the side" bug report.
+
+### Verification
+
+Same two real headless passes as both prior entries: `full_game.tscn` for
+240 frames and `kick_to_kick.tscn` for 180, both clean, exit 0, zero
+errors — confirms the rename and re-sourcing didn't break parsing or
+either scene's actual kick path (AI kicks every match in `full_game`,
+exercising `_update_charge`'s ramp branch same as always; a human brain's
+new stick-Y branch has no AI equivalent to exercise headless, so this
+only rules out parse/runtime breakage, not feel — same limitation every
+entry in this doc has flagged). Confirmed by reading, not runtime: only
+`kick_reach_strength()`, its one call site, and doc comments changed —
+`_update_kick_aim()`'s x-read and the aim-assist added last round are
+untouched by this round's diff.
+
+### Open questions carried forward
+
+None of the tuning constants from the last two rounds have been
+playtested since landing — `KICK_HIP_FIRE_CHARGE` (0.55),
+`KICK_HIP_FIRE_SPREAD_DEG` (20°), `KICK_AIM_ASSIST_CONE_DEG`/`RANGE`
+(18°/60m — `STRENGTH` at 6.0 is P1-sourced, higher confidence than the
+other two), and now whether the x/y curve-coupling above is even
+noticeable at the stick deflections a real kick actually uses. All first-
+guess numbers or carried-over defaults, not verified by feel. Next round
+should be a play pass, not another static read.
+
+---
+
+## Handover — trajectory preview was cut short of its own landing ring (Agent: mechanics/engine)
+
+Bug report from actually playing this build: the dashed trajectory line
+visibly stopped short of the landing ring instead of connecting to it,
+and stronger kicks didn't look like they reached any further than weaker
+ones. Both symptoms turned out to be the same root cause.
+
+### Root cause
+
+`KickTrajectory._simulate()` (`scripts/player/kick_trajectory.gd`) stepped
+the flight model for exactly `MAX_DOTS` iterations (22) at `DOT_STEP_TIME`
+(0.05s) each — 1.10 simulated seconds, full stop, whether or not the ball
+had come back down yet. That constant was doing two unrelated jobs at
+once: "how many dots to draw" (a rendering/perf concern) and "how long to
+simulate" (a correctness concern) — fine while they happened to be the
+same number, which they aren't once a real kick's flight time is
+considered. A full-charge kick at the `Tuning.KICK_MAX_ANGLE`/`_SPEED`
+this project actually uses takes on the order of 3.5s to land (confirmed
+by running the restructured model standalone, see Verification) — more
+than 3x the old budget. The landing ring was then placed at
+`points[points.size() - 1]` with `y` force-set to ground height
+regardless of whether that last point was actually on the ground — so for
+any kick beyond a weak stab pass, the dashed line simply stopped in
+mid-air around apex, and the ring snapped to the ground directly beneath
+that mid-air point, nowhere near where the ball would really land. Since
+`_kick_parameters()` already multiplies speed by `kick_power_scale` for
+*both* the real kick and this preview (same function, see the previous
+entry's diagram of that call graph), the underlying physics was already
+scaling correctly with the character's kicking-power stat — the preview
+just couldn't show more than the first ~30-100% of it depending on charge,
+which reads exactly like "distance doesn't seem to follow kicking power"
+even though the real kick already did.
+
+### Fix
+
+Split the one job into two. `_simulate()` now steps until the ball
+actually reaches `GROUND_HEIGHT` (or a `MAX_SIM_SECONDS` = 8.0s safety
+valve, ~2x more than the slowest realistic landing even at
+`CHARACTER_KICK_POWER_MAX`, so it should never actually bind) and returns
+every raw point — this is the one that has to be physically correct, so
+it doesn't get to stop early for rendering-budget reasons. A new
+`_downsample()` then thins that full path down to at most `MAX_DOTS`
+points spread evenly from boot to landing for the dashed line — a pure
+rendering concern, kept separate on purpose so neither job can
+accidentally shortchange the other again. The landing ring reads from the
+full (non-downsampled) path's true last point, so it always sits exactly
+where the last dot is, connected, not floating below it. Short kicks that
+already landed within 22 steps are unaffected — `_downsample` returns the
+array unchanged when there's nothing to thin.
+
+### Verification
+
+Both standard headless passes (`full_game.tscn` 240 frames,
+`kick_to_kick.tscn` 180 frames) clean, exit 0 — confirms no parse/runtime
+break, though neither exercises the new code's actual values since the
+preview only updates for a `HumanBrain` (see `_update_charge`) and
+headless has no human driving one. So this was also checked numerically:
+a scratch `--script` run (`extends SceneTree`, instantiated
+`KickTrajectory` directly and called `_simulate`/`_downsample` with no
+scene tree needed, since neither touches `_dots`/`_ring` — deleted after,
+not part of the diff) confirmed, at max charge and `kick_power_scale`:
+73 raw steps / 3.65s flight / lands at `y≈0` (not mid-air), downsamples
+to exactly 22 dots whose last entry equals the true landing point, and
+that distance scales with `kick_power_scale` as expected — 24.7m at 0.7x,
+45.2m at 1.0x, 67.8m at 1.3x, all at the same full charge. A weak
+min-charge/min-power kick landed in 13 raw steps, under the 22-dot cap,
+confirming the unchanged path for short kicks.

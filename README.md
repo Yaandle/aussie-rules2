@@ -45,8 +45,12 @@ Kick is two ways to fire, both off the same trigger. Hold K/LT to enter a
 slowed ADS stance — the right stick or mouse swings the kick's aim
 independently of which way the body is facing, same as the on-screen
 trajectory preview, at a deliberately unhurried turn rate for precision —
-then tap F/RT to strike at whatever power/aim you've built up. Releasing
-K/LT without ever tapping F/RT cancels outright rather than firing. Tap
+then tap F/RT to strike at whatever power/aim is currently showing on the
+preview. On a pad, the same stick sets power too — push it forward for a
+longer kick, ease back for shorter, live and reversible right up until you
+fire; keyboard has no stick to read that from, so K instead ramps power
+the longer it's held, same as before. Releasing K/LT without ever tapping
+F/RT cancels outright rather than firing. Tap
 F/RT **without** ever holding K/LT and you hip-fire instead: an instant
 kick wherever the body's currently facing, fixed middling power, no charge,
 and noticeably less accurate — the "didn't aim down sights" option, for
