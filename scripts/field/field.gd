@@ -31,14 +31,26 @@ const COLOUR_POST_BASE := Color("#c65449")  ## Prototype 1's POST_RED
 ## ground — there is playing surface behind the posts.
 const GOAL_LINE_INSET := 1.5
 
-## How far the surrounds run past the boundary.
-const SURROUND_MARGIN := 25.0
+## How far the surrounds run past the boundary. Generous enough that wide
+## establishing camera angles (menu backdrop, broadcast flyovers) don't run
+## off the edge of the ground plane and reveal sky at a grazing angle.
+const SURROUND_MARGIN := 60.0
+
+## Stadium boundary fence — purely a "this is an oval, not an empty plane"
+## visual cue (design doc §9 territory, same spirit as the posts). Sits
+## just past the running-track apron drawn by turf.gdshader's apron_width.
+const FENCE_HEIGHT := 1.1
+const FENCE_OFFSET := 9.0        ## m outside the boundary line, past the apron
+const FENCE_SEGMENTS := 160
+const FENCE_POST_SPACING := 8    ## every Nth ellipse segment gets a post
+const FENCE_POST_RADIUS := 0.05
 
 
 func _ready() -> void:
 	_size_ground()
 	_build_markings()
 	_build_goals()
+	_build_fence()
 
 
 ## The ground slab and its shader both take their extents from Tuning, so
@@ -319,3 +331,71 @@ func _score_zone(parent: Node3D, zone_name: String, centre_x: float, centre_z: f
 	area.body_entered.connect(func(body: Node3D) -> void:
 		if body is Ball:
 			scored.emit(team, is_goal))
+
+
+# ── Boundary fence ───────────────────────────────────────────────────
+# A continuous low ribbon rather than individually instanced pickets —
+# cheaper (one mesh, same technique as _stripe()) and reads the same way
+# a real picket fence does from a broadcast camera's distance: a solid
+# white band, not distinct pickets. A handful of posts add just enough
+# depth cues up close without the cost of a picket per metre.
+
+func _build_fence() -> void:
+	var half_length := Tuning.FIELD_HALF_LENGTH + FENCE_OFFSET
+	var half_width := Tuning.FIELD_HALF_WIDTH + FENCE_OFFSET
+	var points := _ellipse_at(Vector3.ZERO, half_length, half_width, FENCE_SEGMENTS)
+	var count := points.size()
+
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in count:
+		var a := points[i]
+		var b := points[(i + 1) % count]
+		var a0 := Vector3(a.x, 0.0, a.z)
+		var a1 := Vector3(a.x, FENCE_HEIGHT, a.z)
+		var b0 := Vector3(b.x, 0.0, b.z)
+		var b1 := Vector3(b.x, FENCE_HEIGHT, b.z)
+		var tangent := (b0 - a0)
+		var outward := Vector3(tangent.z, 0.0, -tangent.x).normalized()
+		surface.set_normal(outward)
+		surface.add_vertex(a0)
+		surface.add_vertex(b0)
+		surface.add_vertex(b1)
+		surface.add_vertex(a0)
+		surface.add_vertex(b1)
+		surface.add_vertex(a1)
+
+	var mesh := surface.commit()
+	var material := StandardMaterial3D.new()
+	material.albedo_color = COLOUR_LINE
+	material.roughness = 0.85
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+
+	var node := MeshInstance3D.new()
+	node.name = "Fence"
+	node.mesh = mesh
+	node.material_override = material
+	add_child(node)
+
+	var post_material := StandardMaterial3D.new()
+	post_material.albedo_color = COLOUR_POST_BASE
+	post_material.roughness = 0.7
+	var posts := Node3D.new()
+	posts.name = "FencePosts"
+	add_child(posts)
+	for i in range(0, count, FENCE_POST_SPACING):
+		_fence_post(posts, points[i], post_material)
+
+
+func _fence_post(parent: Node3D, base: Vector3, material: Material) -> void:
+	var height := FENCE_HEIGHT + 0.12
+	var shaft := CylinderMesh.new()
+	shaft.top_radius = FENCE_POST_RADIUS
+	shaft.bottom_radius = FENCE_POST_RADIUS
+	shaft.height = height
+	shaft.radial_segments = 6
+	var node := MeshInstance3D.new()
+	node.mesh = shaft
+	node.material_override = material
+	node.position = Vector3(base.x, height * 0.5, base.z)
+	parent.add_child(node)

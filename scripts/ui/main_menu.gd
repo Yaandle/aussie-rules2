@@ -35,7 +35,11 @@ var _entries: Array[Entry] = [
 var _index := 0
 
 const COLOUR_TITLE := "f4f1e0"
-const COLOUR_SELECTED := "f4f1e0"
+## The same gold as CharacterScreen's COLOUR_GOLD and the home guernsey
+## (PlaceholderRig.COLOUR_GUERNSEY) — one accent colour used everywhere to
+## mean "this is the live/selected thing", rather than each screen
+## inventing its own.
+const COLOUR_SELECTED := "e9c95e"
 const COLOUR_NORMAL := "c9c9bd"
 const COLOUR_LOCKED := "7a7a72"
 const COLOUR_HINT := "9a9a90"

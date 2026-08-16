@@ -7,7 +7,14 @@ extends CanvasLayer
 ## judging feel — this is what a player is actually meant to read while
 ## playing, so unlike DebugHud it has no visibility toggle.
 
-@onready var _label: Label = $Label
+## Same colours as PlaceholderRig's home/away guernsey — HOME and AWAY read
+## at a glance without needing the word to be parsed, and it ties the
+## scoreboard into the same palette as the players on the field.
+const COLOUR_HOME := "e9c95e"
+const COLOUR_AWAY := "c95f55"
+const COLOUR_GOAL_FLASH := "e9c95e"
+
+@onready var _label: RichTextLabel = $Label
 
 ## While > 0, a transient message (see flash()) is showing instead of the
 ## normal readout — used for "GOAL!", "QUARTER TIME", "FULL TIME".
@@ -31,7 +38,7 @@ func _process(delta: float) -> void:
 
 ## Replaces the readout with `text` for `duration` seconds, then reverts.
 func flash(text: String, duration := 2.5) -> void:
-	_label.text = text
+	_label.text = "[center][color=#%s]%s[/color][/center]" % [COLOUR_GOAL_FLASH, text]
 	_banner_timer = duration
 
 
@@ -45,6 +52,6 @@ func _compose() -> String:
 	var total := maxi(int(ceil(MatchState.seconds_remaining)), 0)
 	var minutes := total / 60
 	var seconds := total % 60
-	return "HOME  %s      Q%d   %02d:%02d      %s  AWAY" % [
-		MatchState.scoreline(Tuning.Team.HOME), MatchState.quarter, minutes, seconds,
-		MatchState.scoreline(Tuning.Team.AWAY)]
+	return "[center][color=#%s]HOME  %s[/color]      Q%d   %02d:%02d      [color=#%s]%s  AWAY[/color][/center]" % [
+		COLOUR_HOME, MatchState.scoreline(Tuning.Team.HOME), MatchState.quarter, minutes, seconds,
+		COLOUR_AWAY, MatchState.scoreline(Tuning.Team.AWAY)]

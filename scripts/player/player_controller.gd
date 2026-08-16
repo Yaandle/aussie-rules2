@@ -37,6 +37,15 @@ signal ball_disposed(action: Tuning.Action)
 ## anything else, on whichever player it hands off to.
 var speed_scale := 1.0
 
+## Multiplier on KICK_MIN/MAX_SPEED — see _kick_parameters(). 1.0 leaves
+## Full Game/the sandbox exactly as tuned, same as speed_scale above.
+var kick_power_scale := 1.0
+
+## 0..1, where 1.0 is pinpoint and 0.0 is KICK_ACCURACY_MAX_SPREAD_DEG of
+## random aim error — see _dispose()'s KICK branch, the only place this
+## is actually rolled.
+var kick_accuracy := 1.0
+
 ## Set by whatever owns the view — movement is camera-relative, as every
 ## third-person game's is. Left null the player still works, just in
 ## world axes, which keeps this node testable headless.
@@ -46,6 +55,7 @@ var camera: Node3D = null
 @onready var _carry_point: Marker3D = $CarryPoint
 @onready var _boot_point: Marker3D = $BootPoint
 @onready var _gather_zone: Area3D = $GatherZone
+@onready var _kick_trajectory: KickTrajectory = $KickTrajectory
 
 ## Defaults to a HumanBrain so a bare instance (the milestone-1 sandbox,
 ## scenes/main.tscn) behaves exactly as it always did. Full Game assigns
@@ -364,6 +374,7 @@ func _get_tackled(by: PlayerController) -> void:
 
 func _update_charge(delta: float) -> void:
 	if _action != Tuning.Action.NONE or _stun_timer > 0.0:
+		_kick_trajectory.update_preview(false, Vector3.ZERO, Vector3.ZERO)
 		return
 	if _brain.wants_kick() and is_carrying():
 		_charging = true
@@ -379,6 +390,15 @@ func _update_charge(delta: float) -> void:
 		_begin(Tuning.Action.HANDBALL)
 	elif _brain.wants_bounce() and is_carrying():
 		_begin(Tuning.Action.BOUNCE)
+
+	# Only the human player gets the on-screen cue — an AI doesn't need to
+	# see its own aim, and it'd be a lot of idle preview updates for
+	# nothing on every AI-controlled player every frame.
+	if _charging and _brain is HumanBrain:
+		var params := _kick_parameters(_kick_charge)
+		_kick_trajectory.update_preview(true, params.origin, params.launch_velocity)
+	else:
+		_kick_trajectory.update_preview(false, Vector3.ZERO, Vector3.ZERO)
 
 
 func _begin(action: Tuning.Action) -> void:
@@ -412,49 +432,84 @@ func _update_action(delta: float) -> void:
 		_action_elapsed = 0.0
 
 
-func _dispose() -> void:
-	if not is_carrying():
-		_kick_charge = 0.0
-		return
-
-	var ball := _carried_ball
+## Shared elevation/speed -> direction/launch_velocity math every
+## disposal action goes through, so kicks, handballs and bounces can't
+## quietly diverge in how "how hard, how high" becomes a velocity.
+func _launch_from(origin: Vector3, elevation_deg: float, speed_out: float) -> Dictionary:
 	var forward := -global_transform.basis.z
-	var right := global_transform.basis.x
-
-	var origin: Vector3
-	var elevation: float
-	var speed_out: float
-	var spin: Vector3
-
-	match _action:
-		Tuning.Action.KICK:
-			origin = _boot_point.global_position
-			elevation = deg_to_rad(lerpf(
-				Tuning.KICK_MIN_ANGLE, Tuning.KICK_MAX_ANGLE, _kick_charge))
-			speed_out = lerpf(Tuning.KICK_MIN_SPEED, Tuning.KICK_MAX_SPEED, _kick_charge)
-			# Backspin: the top of the ball travels backwards, which for a
-			# ball moving along `forward` is a positive spin about `right`.
-			spin = right * Tuning.KICK_BACKSPIN
-		Tuning.Action.HANDBALL:
-			origin = _carry_point.global_position
-			elevation = deg_to_rad(Tuning.HANDBALL_ANGLE)
-			speed_out = Tuning.HANDBALL_SPEED
-			spin = right * Tuning.HANDBALL_SPIN
-		Tuning.Action.BOUNCE:
-			origin = _carry_point.global_position
-			elevation = deg_to_rad(Tuning.BOUNCE_ANGLE)
-			speed_out = Tuning.BOUNCE_SPEED
-			spin = right * Tuning.HANDBALL_SPIN
-		_:
-			return
-
+	var elevation := deg_to_rad(elevation_deg)
 	var direction := (forward * cos(elevation) + Vector3.UP * sin(elevation)).normalized()
 
 	# Carry the player's own momentum into the ball, the way it actually
 	# works — a kick on the run goes further than the same kick standing.
 	var carried_momentum := Vector3(velocity.x, 0.0, velocity.z) \
 		* Tuning.DISPOSAL_MOMENTUM_TRANSFER
-	var launch_velocity := direction * speed_out + carried_momentum
+	return {
+		"origin": origin,
+		"launch_velocity": direction * speed_out + carried_momentum,
+	}
+
+
+## The exact KICK launch a release at `charge` (0..1) would produce, sans
+## accuracy error — the aimed path, not the executed one. Called both by
+## the on-screen trajectory cue (every frame while charging, see
+## _update_charge) and by _dispose() (once, at release) so the two can
+## never disagree about what "the aim" actually is.
+func _kick_parameters(charge: float) -> Dictionary:
+	var elevation_deg := lerpf(Tuning.KICK_MIN_ANGLE, Tuning.KICK_MAX_ANGLE, charge)
+	var speed_out := lerpf(Tuning.KICK_MIN_SPEED, Tuning.KICK_MAX_SPEED, charge) * kick_power_scale
+	return _launch_from(_boot_point.global_position, elevation_deg, speed_out)
+
+
+## Random aim error applied only to a KICK, rolled fresh here rather than
+## while charging — the trajectory cue can't show it because it isn't
+## knowable ahead of the actual kick. Zero at kick_accuracy == 1.0, up to
+## KICK_ACCURACY_MAX_SPREAD_DEG of yaw/pitch drift at 0.0. Rotates the
+## whole resultant launch vector (aim + carried momentum together)
+## rather than re-deriving it, so the kick's total speed is unaffected —
+## a bad kick goes off-line, not further or shorter.
+func _apply_kick_accuracy(launch: Dictionary, right: Vector3) -> Dictionary:
+	var spread := deg_to_rad(Tuning.KICK_ACCURACY_MAX_SPREAD_DEG
+		* (1.0 - clampf(kick_accuracy, 0.0, 1.0)))
+	if spread <= 0.0:
+		return launch
+	launch.launch_velocity = (launch.launch_velocity as Vector3) \
+		.rotated(Vector3.UP, randf_range(-spread, spread)) \
+		.rotated(right, randf_range(-spread, spread) * 0.5)
+	return launch
+
+
+func _dispose() -> void:
+	if not is_carrying():
+		_kick_charge = 0.0
+		return
+
+	var ball := _carried_ball
+	var right := global_transform.basis.x
+
+	var launch: Dictionary
+	var spin: Vector3
+
+	match _action:
+		Tuning.Action.KICK:
+			launch = _kick_parameters(_kick_charge)
+			# Backspin: the top of the ball travels backwards, which for a
+			# ball moving along `forward` is a positive spin about `right`.
+			spin = right * Tuning.KICK_BACKSPIN
+			launch = _apply_kick_accuracy(launch, right)
+		Tuning.Action.HANDBALL:
+			launch = _launch_from(_carry_point.global_position, Tuning.HANDBALL_ANGLE,
+				Tuning.HANDBALL_SPEED)
+			spin = right * Tuning.HANDBALL_SPIN
+		Tuning.Action.BOUNCE:
+			launch = _launch_from(_carry_point.global_position, Tuning.BOUNCE_ANGLE,
+				Tuning.BOUNCE_SPEED)
+			spin = right * Tuning.HANDBALL_SPIN
+		_:
+			return
+
+	var origin: Vector3 = launch.origin
+	var launch_velocity: Vector3 = launch.launch_velocity
 	var flight := launch_velocity.normalized()
 
 	# Placed while the ball is still frozen, then launched — a rigid body

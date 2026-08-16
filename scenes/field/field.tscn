@@ -7,10 +7,10 @@
 shader = ExtResource("2_turf")
 
 [sub_resource type="PlaneMesh" id="Mesh_ground"]
-size = Vector2(215, 185)
+size = Vector2(285, 255)
 
 [sub_resource type="BoxShape3D" id="Shape_ground"]
-size = Vector3(215, 2, 185)
+size = Vector3(285, 2, 255)
 
 [node name="Field" type="Node3D"]
 script = ExtResource("1_field")

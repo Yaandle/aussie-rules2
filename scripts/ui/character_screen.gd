@@ -1,53 +1,111 @@
 class_name CharacterScreen
-extends CanvasLayer
+extends Node
 
 ## Attribute screen ported from Prototype 1's character_state.py /
 ## character_render.py (hotkey "C" from the main menu there too). P1 also
 ## had a named-player roster with disk persistence layered on the same
 ## screen; this port keeps the part that actually changes gameplay right
-## now — the single live SPEED/HEIGHT draft (design doc's "APPLY TO ALL
-## PLAYERS" default, see CharacterProfile) — and drops the roster, since
-## there's nowhere yet that more than one saved profile would matter.
+## now — the live SPEED/HEIGHT/KICKING POWER/KICKING ACCURACY draft
+## (design doc's "APPLY TO ALL PLAYERS" default, see CharacterProfile) —
+## and drops the roster, since there's nowhere yet that more than one
+## saved profile would matter.
 ##
-## Two adjustable stats (Speed, Height), six locked flavour rows kept for
-## the same reason P1 kept them: a stat screen that only ever shows two
+## Four adjustable stats, four locked flavour rows kept for the same
+## reason P1 kept them: a stat screen that only ever shows a couple of
 ## live numbers doesn't read as a stat screen. A PLAY action row replaces
 ## P1's SAVE — confirming here launches kick_to_kick.tscn instead of
 ## writing to disk.
+##
+## The whole left column is built here from ATTRIBUTE_ROWS rather than
+## laid out in `character_screen.tscn`: eight instances of one row is
+## data, and the .tscn holding eight hand-placed copies of it would have
+## to be re-edited by hand every time a stat is added or a column moves.
+## The .tscn is just the shell — 3D backdrop, scrim, and an empty Control
+## to hang this on. Same reasoning as `field.gd` generating its markings
+## and `player_animation.gd` assembling its graph in code.
 
+## Row order and content. `key` is the CharacterProfile/_stat_config
+## field, or null for a flavour row that is displayed but not adjustable.
+## `bar` is false for a stat that has no scale to be part-way along.
 const ATTRIBUTE_ROWS := [
-	{"key": "speed", "name": "SPEED"},
-	{"key": null, "name": "JUMPING"},
-	{"key": null, "name": "KICKING POWER"},
-	{"key": null, "name": "KICKING ACCURACY"},
-	{"key": null, "name": "STRENGTH"},
-	{"key": "height", "name": "HEIGHT"},
-	{"key": null, "name": "WEIGHT"},
-	{"key": null, "name": "KICKING FOOT"},
+	{"key": "speed", "icon": &"speed", "name": "SPEED"},
+	{"key": null, "icon": &"jump", "name": "JUMPING"},
+	{"key": "kick_power", "icon": &"kick", "name": "KICKING POWER"},
+	{"key": "kick_accuracy", "icon": &"accuracy", "name": "KICKING ACCURACY"},
+	{"key": null, "icon": &"strength", "name": "STRENGTH"},
+	{"key": "height", "icon": &"height", "name": "HEIGHT"},
+	{"key": null, "icon": &"weight", "name": "WEIGHT"},
+	{"key": null, "icon": &"foot", "name": "KICKING FOOT", "bar": false},
 ]
 
-const COLOUR_TITLE := "f4f1e0"
-const COLOUR_SELECTED := "f4f1e0"
-const COLOUR_NORMAL := "c9c9bd"
-const COLOUR_LOCKED := "7a7a72"
-const COLOUR_HINT := "9a9a90"
-const COLOUR_GOLD := "e9c95e"
+const TITLE := "PLAYER PROFILE"
+const SUBTITLE := "CUSTOMISE YOUR CHARACTER"
+const ACTION_TEXT := "PLAY — OPEN FIELD"
 
-const BAR_SEGMENTS := 16
+# ── Left column geometry, in design-resolution px (1280x720) ─────────
+const LEFT_MARGIN := 58.0
+const HEADER_TOP := 62.0
+const STAT_TOP := 184.0
+const ROW_SEPARATION := 13
+const BUTTON_TOP := 613.0
+const HINTS_TOP := 678.0
 
-@onready var _label: RichTextLabel = $Label
-@onready var _backdrop: CharacterBackdrop = $BackdropContainer/SubViewport/CharacterBackdrop
 
-var _speed := Tuning.CHARACTER_SPEED_DEFAULT
-var _height := Tuning.CHARACTER_HEIGHT_DEFAULT
+@onready var _ui: Control = $Overlay/UI
+@onready var _backdrop: CharacterBackdrop = $CharacterBackdrop
+
+## key -> {min, max, step, format}. Built in _ready() rather than as a
+## script const so it can freely reference Tuning's constants without
+## relying on cross-script const-folding.
+var _stat_config := {}
+
+## Control-legend text, keyed by InputManager.Device. Only the keyboard
+## set is settled — the Xbox bindings are being defined separately, so
+## the controller legend is one more entry in here and nothing else:
+## `_apply_hints()` already runs on `device_changed`, and KeyHintBar takes
+## whatever strings it is handed. Until that entry exists a plugged-in
+## pad shows the keyboard legend, which is what every other screen in the
+## project does today.
+var _hint_sets := {}
+
+var _draft := {}
+var _rows: Array[StatRow] = []
+var _play: ActionButton
+var _hints: KeyHintBar
 var _selected := 0
 var _busy := false   ## true while a wipe is in flight — input is inert
 
 
 func _ready() -> void:
-	_speed = CharacterProfile.speed
-	_height = CharacterProfile.height
-	_backdrop.set_height_scale(_height / Tuning.CHARACTER_HEIGHT_DEFAULT)
+	_stat_config = {
+		"speed": {"min": Tuning.CHARACTER_SPEED_MIN, "max": Tuning.CHARACTER_SPEED_MAX,
+			"step": Tuning.CHARACTER_SPEED_STEP, "format": "%.2f m/s"},
+		"height": {"min": Tuning.CHARACTER_HEIGHT_MIN, "max": Tuning.CHARACTER_HEIGHT_MAX,
+			"step": Tuning.CHARACTER_HEIGHT_STEP, "format": "%.0f cm"},
+		"kick_power": {"min": Tuning.CHARACTER_KICK_POWER_MIN, "max": Tuning.CHARACTER_KICK_POWER_MAX,
+			"step": Tuning.CHARACTER_KICK_POWER_STEP, "format": "%.2fx"},
+		"kick_accuracy": {"min": Tuning.CHARACTER_KICK_ACCURACY_MIN,
+			"max": Tuning.CHARACTER_KICK_ACCURACY_MAX,
+			"step": Tuning.CHARACTER_KICK_ACCURACY_STEP, "format": "%.0f%%"},
+	}
+	_draft = {
+		"speed": CharacterProfile.speed,
+		"height": CharacterProfile.height,
+		"kick_power": CharacterProfile.kick_power,
+		"kick_accuracy": CharacterProfile.kick_accuracy,
+	}
+	_hint_sets = {
+		InputManager.Device.KEYBOARD: [
+			{"keys": "W / S", "label": "Select"},
+			{"keys": "A / D", "label": "Adjust"},
+			{"keys": "Enter", "label": "Play"},
+			{"keys": "Esc / C", "label": "Back"},
+		],
+	}
+
+	_build()
+	InputManager.device_changed.connect(_on_device_changed)
+	_backdrop.set_height_scale(_draft["height"] / Tuning.CHARACTER_HEIGHT_DEFAULT)
 	_refresh()
 
 
@@ -81,13 +139,14 @@ func _nudge(direction: int) -> void:
 	if _selected >= ATTRIBUTE_ROWS.size():
 		return
 	var row: Dictionary = ATTRIBUTE_ROWS[_selected]
-	if row["key"] == "speed":
-		_speed = clampf(_speed + direction * Tuning.CHARACTER_SPEED_STEP,
-			Tuning.CHARACTER_SPEED_MIN, Tuning.CHARACTER_SPEED_MAX)
-	elif row["key"] == "height":
-		_height = clampf(_height + direction * Tuning.CHARACTER_HEIGHT_STEP,
-			Tuning.CHARACTER_HEIGHT_MIN, Tuning.CHARACTER_HEIGHT_MAX)
-		_backdrop.set_height_scale(_height / Tuning.CHARACTER_HEIGHT_DEFAULT)
+	var key = row["key"]
+	if key == null:
+		return
+	var config: Dictionary = _stat_config[key]
+	_draft[key] = clampf(_draft[key] + direction * float(config["step"]),
+		float(config["min"]), float(config["max"]))
+	if key == "height":
+		_backdrop.set_height_scale(_draft["height"] / Tuning.CHARACTER_HEIGHT_DEFAULT)
 	_refresh()
 
 
@@ -100,8 +159,10 @@ func _confirm_and_play() -> void:
 	if _busy:
 		return
 	_busy = true
-	CharacterProfile.speed = _speed
-	CharacterProfile.height = _height
+	CharacterProfile.speed = _draft["speed"]
+	CharacterProfile.height = _draft["height"]
+	CharacterProfile.kick_power = _draft["kick_power"]
+	CharacterProfile.kick_accuracy = _draft["kick_accuracy"]
 	SceneWipe.change_scene("res://scenes/modes/kick_to_kick.tscn")
 
 
@@ -112,45 +173,85 @@ func _exit_to_menu() -> void:
 	SceneWipe.change_scene("res://scenes/ui/main_menu.tscn")
 
 
+# ── Build ────────────────────────────────────────────────────────────
+
+func _build() -> void:
+	var header := VBoxContainer.new()
+	header.position = Vector2(LEFT_MARGIN, HEADER_TOP)
+	header.add_theme_constant_override(&"separation", 2)
+	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	header.add_child(UIStyle.label(TITLE, UIStyle.SIZE_TITLE, UIStyle.TEXT_PRIMARY,
+		UIStyle.WEIGHT_HEAVY, UIStyle.TRACK_TITLE))
+	header.add_child(UIStyle.label(SUBTITLE, UIStyle.SIZE_SUBTITLE, UIStyle.TEXT_MUTED,
+		UIStyle.WEIGHT_REGULAR, UIStyle.TRACK_SUBTITLE))
+	_ui.add_child(header)
+
+	var list := VBoxContainer.new()
+	list.position = Vector2(LEFT_MARGIN, STAT_TOP)
+	list.add_theme_constant_override(&"separation", ROW_SEPARATION)
+	list.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ui.add_child(list)
+	for entry: Dictionary in ATTRIBUTE_ROWS:
+		var row := StatRow.new()
+		list.add_child(row)
+		row.configure(entry["icon"], entry["name"], entry["key"] == null,
+			entry.get("bar", true))
+		_rows.append(row)
+
+	_play = ActionButton.new(ACTION_TEXT)
+	_play.position = Vector2(LEFT_MARGIN, BUTTON_TOP)
+	_ui.add_child(_play)
+
+	_hints = KeyHintBar.new()
+	_hints.position = Vector2(LEFT_MARGIN, HINTS_TOP)
+	_ui.add_child(_hints)
+	_apply_hints()
+
+
+func _on_device_changed(_device: int) -> void:
+	_apply_hints()
+
+
+func _apply_hints() -> void:
+	var keyboard: Array = _hint_sets[InputManager.Device.KEYBOARD]
+	_hints.set_hints(_hint_sets.get(InputManager.device, keyboard))
+
+
+# ── Refresh ──────────────────────────────────────────────────────────
+
 func _refresh() -> void:
-	var lines: Array[String] = []
-	lines.append("[color=#%s]CHARACTER[/color]" % COLOUR_TITLE)
-	lines.append("[color=#%s]SPEED / HEIGHT ADJUSTABLE  ·  REST LOCKED[/color]" % COLOUR_HINT)
-	lines.append("")
-	for i in ATTRIBUTE_ROWS.size():
-		lines.append(_stat_line(i))
-	lines.append("")
-	var action_selected := _selected == ATTRIBUTE_ROWS.size()
-	var action_colour := COLOUR_SELECTED if action_selected else COLOUR_NORMAL
-	lines.append("[color=#%s]%sPLAY — OPEN FIELD[/color]" % [
-		action_colour, "> " if action_selected else "  "])
-	lines.append("")
-	lines.append("[color=#%s]W/S select   A/D adjust   Enter play   Esc/C back[/color]"
-		% COLOUR_HINT)
-	_label.text = "\n".join(lines)
+	for i in _rows.size():
+		var entry: Dictionary = ATTRIBUTE_ROWS[i]
+		_rows[i].set_state(i == _selected, _filled_segments(entry["key"]),
+			_value_text(entry["key"]))
+	_play.set_selected(_selected == ATTRIBUTE_ROWS.size())
 
 
-func _stat_line(i: int) -> String:
-	var row: Dictionary = ATTRIBUTE_ROWS[i]
-	var selected := i == _selected
-	var locked: bool = row["key"] == null
-	var cursor := "> " if selected else "  "
-	var colour := COLOUR_LOCKED if locked else (COLOUR_SELECTED if selected else COLOUR_NORMAL)
-	var suffix := "  · LOCKED" if locked else ""
-	var line := "[color=#%s]%s%s%s[/color]" % [colour, cursor, row["name"], suffix]
-	if locked:
-		return line
-	var value: float = _speed if row["key"] == "speed" else _height
-	var vmin: float = Tuning.CHARACTER_SPEED_MIN if row["key"] == "speed" \
-		else Tuning.CHARACTER_HEIGHT_MIN
-	var vmax: float = Tuning.CHARACTER_SPEED_MAX if row["key"] == "speed" \
-		else Tuning.CHARACTER_HEIGHT_MAX
-	var text := ("%.2f m/s" % value) if row["key"] == "speed" else ("%.0f cm" % value)
-	var value_colour := COLOUR_GOLD if selected else COLOUR_NORMAL
-	return "%s   [color=#%s]%s %s[/color]" % [line, value_colour, _bar(value, vmin, vmax), text]
+## Where the stat sits between its own min and max, quantised to the
+## row's squares. A locked row has no backing stat yet, so it reads zero
+## — the bar is not hidden and not faked, it just has nothing to show
+## until something in CharacterProfile drives it.
+func _filled_segments(key) -> int:
+	if key == null:
+		return 0
+	var config: Dictionary = _stat_config[key]
+	var vmin := float(config["min"])
+	var vmax := float(config["max"])
+	if vmax <= vmin:
+		return 0
+	var fraction := clampf((float(_draft[key]) - vmin) / (vmax - vmin), 0.0, 1.0)
+	return int(round(fraction * StatRow.SEGMENTS))
 
 
-func _bar(value: float, vmin: float, vmax: float) -> String:
-	var frac := 0.0 if vmax <= vmin else (value - vmin) / (vmax - vmin)
-	var filled := int(round(clampf(frac, 0.0, 1.0) * BAR_SEGMENTS))
-	return "[%s%s]" % ["#".repeat(filled), "·".repeat(BAR_SEGMENTS - filled)]
+## Empty for the locked rows: they have no assigned number, and a "—"
+## placeholder would just be noise in a column that is otherwise all
+## real readings.
+func _value_text(key) -> String:
+	if key == null:
+		return ""
+	var config: Dictionary = _stat_config[key]
+	var value: float = _draft[key]
+	# kick_accuracy is stored 0..1 and shown as a percentage; everything
+	# else is already in its display unit.
+	var display_value := value * 100.0 if key == "kick_accuracy" else value
+	return (config["format"] as String) % display_value

@@ -6,39 +6,17 @@
 [ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="4_player"]
 [ext_resource type="PackedScene" path="res://scenes/camera/broadcast_camera.tscn" id="5_camera"]
 [ext_resource type="PackedScene" path="res://scenes/ui/debug_hud.tscn" id="6_hud"]
-
-[sub_resource type="ProceduralSkyMaterial" id="Sky_material"]
-sky_top_color = Color(0.32, 0.5, 0.76, 1)
-sky_horizon_color = Color(0.72, 0.78, 0.8, 1)
-ground_bottom_color = Color(0.27, 0.31, 0.26, 1)
-ground_horizon_color = Color(0.55, 0.6, 0.52, 1)
-sun_angle_max = 26.0
-sun_curve = 0.12
-
-[sub_resource type="Sky" id="Sky"]
-sky_material = SubResource("Sky_material")
-
-[sub_resource type="Environment" id="Environment"]
-background_mode = 2
-sky = SubResource("Sky")
-ambient_light_source = 3
-reflected_light_source = 2
-tonemap_mode = 3
-tonemap_white = 6.0
-ssao_enabled = true
-fog_enabled = true
-fog_light_color = Color(0.71, 0.77, 0.8, 1)
-fog_density = 0.0008
+[ext_resource type="Environment" path="res://materials/broadcast_environment.tres" id="7_env"]
 
 [node name="Main" type="Node3D" unique_id=885742140]
 script = ExtResource("1_main")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=2115172144]
-environment = SubResource("Environment")
+environment = ExtResource("7_env")
 
 [node name="Sun" type="DirectionalLight3D" parent="." unique_id=464142346]
 transform = Transform3D(0.81915, 0, 0.57358, 0.43938, 0.64279, -0.62751, -0.36868, 0.76604, 0.52654, 0, 40, 0)
-light_energy = 1.15
+light_energy = 1.7
 shadow_enabled = true
 directional_shadow_max_distance = 120.0
 

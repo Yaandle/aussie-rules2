@@ -25,7 +25,7 @@ const SHIN_LENGTH := 0.42
 const UPPER_ARM_LENGTH := 0.30
 const FOREARM_LENGTH := 0.27
 const SHOULDER_HEIGHT := 0.40    # above Torso origin
-const SHOULDER_WIDTH := 0.21
+const SHOULDER_WIDTH := 0.24
 const HIP_WIDTH := 0.10
 const NECK_HEIGHT := 0.44        # above Torso origin
 
@@ -38,6 +38,12 @@ const COLOUR_SKIN := Color("#ecc9a0")
 const COLOUR_SHORTS := Color("#2a2c33")
 const COLOUR_HAIR := Color("#2c241d")
 const COLOUR_BOOT := Color("#22241d")
+
+## Kit trim — the yoke band, side panels and sock tops. Off-white rather
+## than pure white so it doesn't blow out next to the guernsey under
+## broadcast lighting, and echoes the field markings' colour (see
+## Field.COLOUR_LINE) so player and ground read as one visual system.
+const COLOUR_TRIM := Color("#f0ece0")
 
 @export var away_kit := false
 
@@ -52,10 +58,27 @@ func _build() -> void:
 	var guernsey := COLOUR_GUERNSEY_AWAY if away_kit else COLOUR_GUERNSEY
 
 	var hips := _joint(self, "Hips", Vector3(0.0, HIP_HEIGHT, 0.0))
-	_box(hips, "Pelvis", Vector3(0.30, 0.18, 0.20), Vector3.ZERO, COLOUR_SHORTS)
+	_box(hips, "Pelvis", Vector3(0.23, 0.18, 0.20), Vector3.ZERO, COLOUR_SHORTS)
 
+	# Torso is deliberately narrower than the pelvis box's own width would
+	# suggest, and the yoke below is wider again — that step is the V
+	# silhouette read (broad shoulders, narrow waist) a single uniform box
+	# can't give without real taper geometry.
 	var torso := _joint(hips, "Torso", Vector3(0.0, 0.06, 0.0))
-	_box(torso, "Chest", Vector3(0.36, 0.44, 0.23), Vector3(0.0, 0.22, 0.0), guernsey)
+	_box(torso, "Chest", Vector3(0.32, 0.44, 0.22), Vector3(0.0, 0.22, 0.0), guernsey)
+
+	# Yoke: a contrasting band across the shoulders, guernsey-style — also
+	# the widest point of the torso, which is what sells the V-taper at a
+	# broadcast camera's distance where limb capsules alone read thin.
+	_box(torso, "Yoke", Vector3(0.42, 0.09, 0.235), Vector3(0.0, 0.385, 0.0), COLOUR_TRIM,
+		0.55)
+
+	# Side panels: a second guernsey-design cue and a bit of extra width
+	# at the ribs, tapering the silhouette back in toward the pelvis.
+	for panel_side: int in [-1, 1]:
+		_box(torso, "SidePanel" + ("L" if panel_side < 0 else "R"),
+			Vector3(0.045, 0.34, 0.20), Vector3(0.17 * panel_side, 0.15, 0.0),
+			COLOUR_TRIM, 0.55)
 
 	var neck := _joint(torso, "Neck", Vector3(0.0, NECK_HEIGHT, 0.0))
 	_sphere(neck, "Head", 0.115, Vector3(0.0, 0.20, 0.0), COLOUR_SKIN)
@@ -78,8 +101,12 @@ func _build() -> void:
 		_capsule(hip, "Thigh" + suffix, 0.085, THIGH_LENGTH,
 			Vector3(0.0, -THIGH_LENGTH * 0.5, 0.0), COLOUR_SKIN)
 		var knee := _joint(hip, "Knee" + suffix, Vector3(0.0, -THIGH_LENGTH, 0.0))
+		# A sock, not bare skin — AFL players play in long socks, and it
+		# gives the leg a light-dark-light value break (skin thigh, trim
+		# sock, dark boot) that reads better at a distance than one flat
+		# skin-toned capsule from hip to ankle.
 		_capsule(knee, "Shin" + suffix, 0.062, SHIN_LENGTH,
-			Vector3(0.0, -SHIN_LENGTH * 0.5, 0.0), COLOUR_SKIN)
+			Vector3(0.0, -SHIN_LENGTH * 0.5, 0.0), COLOUR_TRIM)
 		var ankle := _joint(knee, "Ankle" + suffix, Vector3(0.0, -SHIN_LENGTH, 0.0))
 		_box(ankle, "Boot" + suffix, Vector3(0.10, 0.07, 0.26),
 			Vector3(0.0, -0.035, -0.06), COLOUR_BOOT)
@@ -96,31 +123,31 @@ func _joint(parent: Node3D, joint_name: String, offset: Vector3) -> Node3D:
 
 
 func _mesh_node(parent: Node3D, part_name: String, mesh: Mesh, offset: Vector3,
-		colour: Color) -> MeshInstance3D:
+		colour: Color, roughness := 0.78) -> MeshInstance3D:
 	var node := MeshInstance3D.new()
 	node.name = part_name
 	node.mesh = mesh
 	node.position = offset
-	node.material_override = _material(colour)
+	node.material_override = _material(colour, roughness)
 	parent.add_child(node)
 	return node
 
 
 func _box(parent: Node3D, part_name: String, size: Vector3, offset: Vector3,
-		colour: Color) -> MeshInstance3D:
+		colour: Color, roughness := 0.78) -> MeshInstance3D:
 	var mesh := BoxMesh.new()
 	mesh.size = size
-	return _mesh_node(parent, part_name, mesh, offset, colour)
+	return _mesh_node(parent, part_name, mesh, offset, colour, roughness)
 
 
 func _capsule(parent: Node3D, part_name: String, radius: float, length: float,
-		offset: Vector3, colour: Color) -> MeshInstance3D:
+		offset: Vector3, colour: Color, roughness := 0.78) -> MeshInstance3D:
 	var mesh := CapsuleMesh.new()
 	mesh.radius = radius
 	mesh.height = maxf(length, radius * 2.0 + 0.001)
 	mesh.radial_segments = 10
 	mesh.rings = 3
-	return _mesh_node(parent, part_name, mesh, offset, colour)
+	return _mesh_node(parent, part_name, mesh, offset, colour, roughness)
 
 
 func _sphere(parent: Node3D, part_name: String, radius: float, offset: Vector3,
@@ -133,11 +160,12 @@ func _sphere(parent: Node3D, part_name: String, radius: float, offset: Vector3,
 	return _mesh_node(parent, part_name, mesh, offset, colour)
 
 
-func _material(colour: Color) -> StandardMaterial3D:
-	if _materials.has(colour):
-		return _materials[colour]
+func _material(colour: Color, roughness := 0.78) -> StandardMaterial3D:
+	var key := "%s|%.2f" % [colour, roughness]
+	if _materials.has(key):
+		return _materials[key]
 	var material := StandardMaterial3D.new()
 	material.albedo_color = colour
-	material.roughness = 0.78
-	_materials[colour] = material
+	material.roughness = roughness
+	_materials[key] = material
 	return material

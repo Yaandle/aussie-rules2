@@ -1,0 +1,70 @@
+[gd_resource type="Environment" load_steps=3 format=3]
+
+; Character-screen "studio" environment. Deliberately NOT
+; broadcast_environment.tres: this one is a dark navy-to-green portrait
+; box (design reference), which is the opposite of what a match wants,
+; so the two are kept apart rather than parameterised. The character
+; backdrop is the only thing that loads it.
+;
+; The navy-to-green gradient in the reference is two things stacked: the
+; procedural sky supplies the top half and the horizon glow band, and the
+; fog pulls the far turf toward that same navy so the green fades upward
+; into it instead of stopping at a hard horizon.
+
+[sub_resource type="ProceduralSkyMaterial" id="SkyMat_studio"]
+sky_top_color = Color(0.043, 0.075, 0.11, 1)
+sky_horizon_color = Color(0.28, 0.39, 0.45, 1)
+sky_curve = 0.13
+sky_energy_multiplier = 1.0
+ground_bottom_color = Color(0.055, 0.098, 0.086, 1)
+ground_horizon_color = Color(0.17, 0.27, 0.26, 1)
+ground_curve = 0.1
+sun_angle_max = 30.0
+sun_curve = 0.2
+
+[sub_resource type="Sky" id="Sky_studio"]
+sky_material = SubResource("SkyMat_studio")
+
+[resource]
+background_mode = 2
+sky = SubResource("Sky_studio")
+ambient_light_source = 3
+ambient_light_energy = 0.22
+reflected_light_source = 2
+tonemap_mode = 3
+tonemap_white = 4.2
+glow_enabled = true
+glow_levels/3 = 1.0
+glow_levels/5 = 1.0
+glow_levels/7 = 1.0
+glow_intensity = 0.45
+glow_bloom = 0.06
+glow_hdr_threshold = 1.0
+glow_blend_mode = 2
+ssao_enabled = true
+ssao_radius = 0.6
+ssao_intensity = 1.6
+ssao_light_affect = 0.4
+; Depth fog, not exponential. This screen is a portrait box that happens
+; to be standing on a full 165x135m oval, and past ~50m that oval is all
+; clutter — the boundary line and the running-track apron flatten into a
+; hard bright streak right across the horizon (and across the KICKING
+; ACCURACY row) when seen edge-on from 1m off the ground. A depth ramp
+; erases everything past the far end of it while leaving the near turf
+; its colour, which exponential fog cannot do without fogging the
+; foreground green away too.
+;
+; fog_light_color is deliberately close to the sky's horizon colour, a
+; touch darker: matching them makes the ground fade into the sky with no
+; seam, and the small remaining step is what reads as the horizon glow.
+fog_enabled = true
+fog_mode = 1
+fog_light_color = Color(0.18, 0.25, 0.3, 1)
+fog_light_energy = 1.0
+fog_sun_scatter = 0.0
+fog_density = 1.0
+fog_aerial_perspective = 0.0
+fog_sky_affect = 0.0
+fog_depth_begin = 5.0
+fog_depth_end = 55.0
+fog_depth_curve = 1.0

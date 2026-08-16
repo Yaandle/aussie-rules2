@@ -283,6 +283,27 @@ const CHARACTER_HEIGHT_MAX := 205.0     # cm
 const CHARACTER_HEIGHT_STEP := 1.0      # cm per Left/Right nudge
 const CHARACTER_HEIGHT_DEFAULT := 185.0 # matches PlaceholderRig's HIP_HEIGHT rig
 
+# Kicking Power is a straight multiplier on KICK_MIN/MAX_SPEED (see
+# PlayerController._kick_parameters), so it scales range the same way a
+# harder-struck ball naturally would. Kicking Accuracy is inverted from
+# how it reads on screen: 1.0 (full bar) is pinpoint, 0.0 (empty bar) is
+# KICK_ACCURACY_MAX_SPREAD_DEG of random aim error in every direction —
+# see PlayerController._dispose's KICK branch for where the error is
+# actually rolled (at the moment of the kick, not before — the on-screen
+# trajectory cue shows the aimed path, since the error isn't knowable
+# ahead of it).
+const CHARACTER_KICK_POWER_MIN := 0.7
+const CHARACTER_KICK_POWER_MAX := 1.3
+const CHARACTER_KICK_POWER_STEP := 0.05
+const CHARACTER_KICK_POWER_DEFAULT := 1.0
+
+const CHARACTER_KICK_ACCURACY_MIN := 0.0
+const CHARACTER_KICK_ACCURACY_MAX := 1.0
+const CHARACTER_KICK_ACCURACY_STEP := 0.05
+const CHARACTER_KICK_ACCURACY_DEFAULT := 0.8
+
+const KICK_ACCURACY_MAX_SPREAD_DEG := 12.0  # deg of random error at zero accuracy
+
 const CHARACTER_TRANSITION_TIME := 0.3  # s, pixel-wipe cover/reveal duration
 
 

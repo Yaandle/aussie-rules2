@@ -1,39 +1,58 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/character_backdrop.gd" id="1_backdrop"]
+[ext_resource type="Environment" path="res://materials/character_studio_environment.tres" id="2_env"]
+[ext_resource type="Shader" path="res://assets/shaders/selection_ring.gdshader" id="3_ring"]
 
-[sub_resource type="ProceduralSkyMaterial" id="Sky_material"]
-sky_top_color = Color(0.32, 0.5, 0.76, 1)
-sky_horizon_color = Color(0.72, 0.78, 0.8, 1)
-ground_bottom_color = Color(0.27, 0.31, 0.26, 1)
-ground_horizon_color = Color(0.55, 0.6, 0.52, 1)
-sun_angle_max = 26.0
-sun_curve = 0.12
+[sub_resource type="ShaderMaterial" id="Mat_ring"]
+render_priority = 1
+shader = ExtResource("3_ring")
 
-[sub_resource type="Sky" id="Sky"]
-sky_material = SubResource("Sky_material")
-
-[sub_resource type="Environment" id="Environment"]
-background_mode = 2
-sky = SubResource("Sky")
-ambient_light_source = 3
-reflected_light_source = 2
-tonemap_mode = 3
-tonemap_white = 6.0
-fog_enabled = true
-fog_light_color = Color(0.71, 0.77, 0.8, 1)
-fog_density = 0.001
+[sub_resource type="PlaneMesh" id="Mesh_ring"]
+size = Vector2(3.65, 3.65)
 
 [node name="CharacterBackdrop" type="Node3D"]
 script = ExtResource("1_backdrop")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
-environment = SubResource("Environment")
+environment = ExtResource("2_env")
 
+; Two lights, not one, because this is a portrait box rather than a
+; match: the reference has a clearly lit figure standing on a nearly
+; black pitch, and no single directional light gives both. They are split
+; by cull mask — Sun lights everything except the subject's visual layer,
+; Key lights only the subject (character_backdrop.gd moves the previewed
+; player's meshes onto SUBJECT_LAYER). Tune the ground and the figure
+; independently by touching one light each.
+;
+; NOTE on the transforms below: the 12 numbers in a Transform3D literal
+; are the basis ROWS, while basis.x/y/z are its COLUMNS — so an axis you
+; want has to be written down the triples, not along one. Getting that
+; backwards silently gives you the transpose, which is still orthonormal
+; (so it looks fine and loads fine) but aims the light somewhere else
+; entirely; here it aimed the sun upward, and every +Y surface in the
+; scene was lit by ambient alone. See docs/HANDOVER.md — the same literal
+; is in four other scenes.
+
+; Ground/scene light. Travel direction is basis -Z = (-0.35, -0.55, -0.76).
 [node name="Sun" type="DirectionalLight3D" parent="."]
-transform = Transform3D(0.81915, 0, 0.57358, 0.43938, 0.64279, -0.62751, -0.36868, 0.76604, 0.52654, 0, 40, 0)
-light_energy = 1.15
+transform = Transform3D(0.9083, -0.2298, 0.3496, 0, 0.8356, 0.5493, -0.4183, -0.4989, 0.759, 0, 40, 0)
+light_energy = 0.14
+light_cull_mask = 4294967293
 shadow_enabled = false
+
+; Subject key, from above and to the camera's left, so the figure is lit
+; across the face rather than rimmed. Travel is (0.35, -0.6, -0.72).
+[node name="Key" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.8993, 0.2622, -0.3499, 0, 0.8002, 0.5998, 0.4372, -0.5394, 0.7197, 0, 40, 0)
+light_energy = 1.05
+light_cull_mask = 2
+shadow_enabled = false
+
+[node name="SelectionRing" type="MeshInstance3D" parent="."]
+material_override = SubResource("Mat_ring")
+cast_shadow = 0
+mesh = SubResource("Mesh_ring")
 
 [node name="Camera3D" type="Camera3D" parent="."]
 fov = 50.0
