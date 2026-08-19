@@ -65,3 +65,38 @@ func wants_bounce() -> bool:
 
 func wants_tackle() -> bool:
 	return false
+
+
+## Held-down semantics, exactly like wants_kick(): true for as long as a
+## Safe Mark should stay readied (A on a pad) — see
+## PlayerController._update_aerial_contest. The same query, unchanged, is
+## also what drives the A-as-ground-pickup case once the ball isn't
+## airborne (PlayerController._update_ground_pickup) — one input, two
+## meanings, decided by ball state rather than by the brain.
+func wants_mark_safe() -> bool:
+	return false
+
+
+## Edge-triggered: true for the one frame a Running/RAC mark should be
+## attempted (X tap).
+func wants_mark_running() -> bool:
+	return false
+
+
+## Edge-triggered: true for the one frame an Aggressive/Spectacular mark
+## should be attempted (Y tap) — commits to a jump immediately, whether or
+## not it will connect.
+func wants_mark_aggressive() -> bool:
+	return false
+
+
+## Edge-triggered: true for the one frame a Punch/Spoil should be
+## attempted (LT tap, not carrying) — see PlayerController._try_spoil.
+func wants_spoil() -> bool:
+	return false
+
+
+## Edge-triggered: true for the one frame a Smother should be attempted
+## (X tap, not carrying) — see PlayerController._try_smother.
+func wants_smother() -> bool:
+	return false

@@ -22,6 +22,10 @@ var _gait := 0.0
 var _kick_pressed := false
 var _handball_pressed := false
 var _tackle_wanted := false
+## Basic marking stub: AI only ever attempts the Safe tier, never Running
+## or Aggressive — proving the contest resolves correctly is this pass's
+## job, not giving AI good judgement about which tier to pick.
+var _mark_safe_wanted := false
 
 ## Simulates holding LT (stance) for _kick_hold_timer seconds, then
 ## tapping RT for exactly one frame — PlayerController now fires on that
@@ -42,6 +46,7 @@ func update(controller: PlayerController, delta: float) -> void:
 	_handball_pressed = false
 	_tackle_wanted = false
 	_kick_execute_pressed = false
+	_mark_safe_wanted = false
 
 	if ball == null:
 		_move_dir = Vector3.ZERO
@@ -104,6 +109,10 @@ func wants_tackle() -> bool:
 	return _tackle_wanted
 
 
+func wants_mark_safe() -> bool:
+	return _mark_safe_wanted
+
+
 # ── Decisions ────────────────────────────────────────────────────────
 
 func _think_carrying(controller: PlayerController, delta: float, pos: Vector3) -> void:
@@ -139,6 +148,13 @@ func _think_carrying(controller: PlayerController, delta: float, pos: Vector3) -
 func _think_loose_ball(controller: PlayerController, pos: Vector3, team: Tuning.Team) -> void:
 	if _is_closest_teammate_to(controller, team, ball.global_position):
 		_move_toward(ball.global_position, pos, 1.0)
+		# Close enough to a ball still in the air that holding up for a
+		# catch beats running through where it currently is — the same
+		# reach test PlayerController._update_aerial_contest itself uses,
+		# just gated a little earlier by range so the AI commits from a
+		# sensible distance rather than at the very last instant.
+		if ball.is_airborne() and pos.distance_to(ball.global_position) <= Tuning.MARK_CONTEST_RANGE:
+			_mark_safe_wanted = true
 	else:
 		_move_toward(home_position, pos, 0.5)
 

@@ -22,13 +22,22 @@ shader_type canvas_item;
 // key-hint legend sat past UV.x 0.4 where the wash had already decayed to
 // almost nothing.
 
-uniform vec4 tint : source_color = vec4(0.965, 0.957, 0.933, 0.56);
+// Cut down twice now — first from 0.56/0.82 to 0.34/0.52, which still
+// read as covering too much of the pitch. This pass goes further on both
+// axes at once: alpha down to 0.18 (a hazy wash at 0.34 over saturated
+// turf green was still a visible white veil even confined to a third of
+// the screen) and the hold/fade window pulled in to roughly match where
+// the stat text itself actually sits (LEFT_MARGIN=58px, values ending
+// well under half the 1280px width) instead of past it. A steeper
+// falloff (2.2, was 1.5) keeps what's left concentrated right at the
+// text edge rather than spread thin across the whole window.
+uniform vec4 tint : source_color = vec4(0.965, 0.957, 0.933, 0.18);
 /// UV.x at which the wash starts fading, and where it reaches zero.
-uniform float hold : hint_range(0.0, 1.0) = 0.24;
-uniform float fade_to : hint_range(0.0, 1.0) = 0.82;
+uniform float hold : hint_range(0.0, 1.0) = 0.05;
+uniform float fade_to : hint_range(0.0, 1.0) = 0.30;
 /// >1 keeps the wash strong under the text and dumps it late; 1.0 is a
 /// straight linear ramp.
-uniform float falloff : hint_range(0.5, 4.0) = 1.5;
+uniform float falloff : hint_range(0.5, 4.0) = 2.2;
 
 float dither(vec2 p) {
 	return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;

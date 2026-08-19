@@ -53,3 +53,23 @@ func wants_bounce() -> bool:
 
 func wants_tackle() -> bool:
 	return Input.is_action_pressed(&"tackle")
+
+
+func wants_mark_safe() -> bool:
+	return Input.is_action_pressed(&"mark_safe")
+
+
+func wants_mark_running() -> bool:
+	return Input.is_action_just_pressed(&"mark_running")
+
+
+func wants_mark_aggressive() -> bool:
+	return Input.is_action_just_pressed(&"mark_aggressive")
+
+
+func wants_spoil() -> bool:
+	return Input.is_action_just_pressed(&"spoil")
+
+
+func wants_smother() -> bool:
+	return Input.is_action_just_pressed(&"smother")

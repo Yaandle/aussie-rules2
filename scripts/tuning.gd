@@ -25,7 +25,10 @@ extends RefCounted
 
 enum Team { HOME, AWAY, NONE }
 
-enum Action { NONE, KICK, HANDBALL, BOUNCE }
+## Appended-only: ACTION_DURATION/ACTION_CONTACT below are indexed
+## positionally by this enum's int value, so KICK/HANDBALL/BOUNCE must keep
+## their existing slots. New actions always go on the end.
+enum Action { NONE, KICK, HANDBALL, BOUNCE, MARK_SAFE, MARK_RUNNING, MARK_AGGRESSIVE }
 
 
 # ── Ground geometry (metres) ─────────────────────────────────────────
@@ -224,8 +227,8 @@ const KICK_MOUSE_REACH_SENSITIVITY := 0.0035
 # generated from them (see placeholder_animations.gd). When real Mixamo
 # clips arrive, contact becomes a call track on the animation and the
 # CONTACT row is deleted; nothing else changes.
-const ACTION_DURATION := [0.0, 0.78, 0.45, 0.50]
-const ACTION_CONTACT := [0.0, 0.42, 0.20, 0.22]
+const ACTION_DURATION := [0.0, 0.78, 0.45, 0.50, 0.55, 0.40, 0.95]
+const ACTION_CONTACT := [0.0, 0.42, 0.20, 0.22, 0.08, 0.06, 0.40]
 
 # AFL rule: a player running with the ball must bounce or touch it to
 # ground every 15 metres. Carried over unchanged from Prototype 1's
@@ -324,6 +327,96 @@ const TACKLE_RADIUS := 1.4             # m, more generous than GATHER_RADIUS
 const TACKLE_STUN_DURATION := 0.5      # s the tackled player can't act
 const TACKLE_SPILL_SPEED := 3.0        # m/s the loose ball scatters at
 
+# Punch/Spoil (LT tap, not carrying, near an aerial contest): knocking a
+# high ball away is easier than controlling it, so the reach is more
+# generous than a catch's MARK_CATCH_RADIUS. Like tackle, this has no
+# dedicated Tuning.Action/animation yet — an instantaneous physical contest,
+# not a windup-and-contact disposal (see PlayerController._try_spoil).
+const SPOIL_RADIUS := 1.6              # m
+const SPOIL_IMPULSE_SPEED := 4.0       # m/s the ball is knocked away at
+const SPOIL_COOLDOWN := 0.6            # s between attempts — a tap, not a battering
+
+# Holding-the-ball ruling (RULES_REFERENCE.md §4): tackled inside this
+# window since personally gaining the ball is the neutral case (ball-up,
+# no signal); tackled after it has elapsed is a real ruling — see
+# PlayerController._get_tackled's holding_the_ball_called signal. The
+# ruling is decided here; awarding the actual free kick still needs the
+# set-shot/free-kick apparatus this project doesn't have yet, so nothing
+# consumes the signal today — a known, tracked gap, not a silent one.
+const PRIOR_OPPORTUNITY_GRACE := 0.5   # s
+
+# Smother (X tap, not carrying): closing down an opponent before their kick
+# leaves the boot. SMOTHER_RADIUS is deliberately tighter than TACKLE_RADIUS
+# — this has to be a genuine close-down, not a tackle with extra steps.
+# Blocked at the boot means the ball barely moves, unlike a tackle's spill.
+const SMOTHER_RADIUS := 1.1            # m
+const SMOTHER_SPILL_SPEED := 1.5       # m/s
+
+
+# ── Marking / aerial contests ────────────────────────────────────────
+# Three-tier contextual catch (design brief priority 2): Safe (A) is the
+# generous, reliable default; Running/RAC (X) trades security for keeping
+# your stride; Aggressive/Spectacular (Y) is a real committed jump with the
+# tightest margin for error. None of these roll dice — every outcome is a
+# reach-radius/timing test against the ball's actual position at the
+# moment of resolution, matching RULES_REFERENCE.md §3's "physical, not a
+# probability table" stance, the same one tackling already follows.
+
+# Real AFL rule: a kick has to travel this far, uninterrupted (not touching
+# the ground or another player), before a catch counts as a legal mark
+# rather than just a possession. The same number is also the real trigger
+# distance for stand-the-mark (RULES_REFERENCE.md's existing entry for this
+# name) — one rule, two consequences, so it stays one constant.
+const MARK_STAND_MIN_DISTANCE := 15.0   # m
+
+# How long a legal mark protects its taker from being tackled, counted down
+# in PlayerController._protected_timer and cleared early the instant they
+# dispose. RULES_REFERENCE.md's MARK_HOLD_DURATION.
+const MARK_HOLD_DURATION := 5.0         # s
+
+# Base reach from the catch point (CarryPoint doubles as the hands here) to
+# the ball's actual position, scaled per tier below. A real arm's-reach
+# figure, deliberately looser than GATHER_RADIUS's "already basically in
+# your hands".
+const MARK_CATCH_RADIUS := 1.15         # m
+
+const MARK_SAFE_REACH_SCALE := 1.0
+const MARK_RUNNING_REACH_SCALE := 0.8      # a snap grab at pace has less margin
+const MARK_AGGRESSIVE_REACH_SCALE := 1.4   # full stretch at the top of a leap
+
+# Movement cost while committed to each tier — see
+# PlayerController._update_locomotion / Tuning.action_speed_scale. Safe
+# plants you properly; Running barely interrupts your stride, which is the
+# whole point of taking it on the run; Aggressive's mid-air control comes
+# from AIR_ACCELERATION instead (it's airborne), so this only governs its
+# brief landing recovery.
+const MARK_SAFE_SPEED_SCALE := 0.30
+const MARK_RUNNING_SPEED_SCALE := 0.88
+const MARK_AGGRESSIVE_SPEED_SCALE := 0.45
+
+# The vertical impulse a spectacular attempt launches with — real jump
+# physics through the same gravity/is_on_floor integration every other
+# airborne frame already uses (see PlayerController._physics_process), not
+# a scripted hop. v^2 = 2*g*h -> ~0.82m of standing reach at the peak:
+# elite-athlete territory without being cartoonish.
+const MARK_AGGRESSIVE_JUMP_SPEED := 4.0    # m/s
+
+# How far out an airborne ball has to be before an aggressive attempt is
+# even considered live — no point committing to a leap for a ball still the
+# length of the ground away.
+const MARK_CONTEST_RANGE := 6.0            # m
+
+const RUMBLE_MARK := Vector3(0.20, 0.35, 0.12)
+
+# The same A press that attempts a Safe Mark becomes this once the ball
+# isn't in the air (design brief: the action comes from "ball state +
+# player state + proximity + input", not just the button). Wider and
+# speed-responsive versus the passive walk-over GATHER_RADIUS, modelling a
+# deliberate reach for a contested ground ball rather than the ball simply
+# ending up underfoot.
+const GROUND_PICKUP_RADIUS := 1.3              # m
+const GROUND_PICKUP_LUNGE_PER_SPEED := 0.05    # m of extra reach per m/s of current speed
+
 
 # ── Character screen ─────────────────────────────────────────────────
 # Ported from Prototype 1's character_state.py / character_render.py: a
@@ -390,16 +483,25 @@ const AI_LOOSE_BALL_REACTION_MAX := 0.40   # s
 
 
 # ── Training coaches ────────────────────────────────────────────────
-# First of three (design brief): a kicking coach now, a marking coach and
-# a tackling coach later, all meant to share this same proximity-trigger /
-# dialogue / challenge shape once they exist. Kick_to_kick only for
-# now — wiring any of this into Full Game is explicitly later work.
+# Second of three (design brief): a kicking coach, now a marking coach and
+# a tackling coach later, all sharing the same proximity-trigger / dialogue
+# / challenge shape (kick_to_kick.gd's CoachKind-parameterised state
+# machine) — wiring any of this into Full Game is explicitly later work.
 const COACH_INTERACT_RADIUS := 2.5             # m, proximity that shows the prompt
 const COACH_STAND_OFFSET := Vector3(18.0, 0.0, 10.0)   # from field centre, kick_to_kick only
+const MARK_COACH_STAND_OFFSET := Vector3(-18.0, 0.0, 10.0)   # opposite half, clear of the kicking drill's target zone
 
 const KICK_CHALLENGE_TARGET_DISTANCE := 40.0   # m downfield of the player when accepted
 const KICK_CHALLENGE_TARGET_RADIUS := 3.0      # m, hit tolerance
 const KICK_CHALLENGE_ATTEMPTS := 5
+
+const MARK_CHALLENGE_ATTEMPTS := 6
+const MARK_CHALLENGE_ELEVATION_DEG := 48.0     # deg, a generous hang-time arc
+const MARK_CHALLENGE_MIN_DISTANCE := 16.0      # m, just past MARK_STAND_MIN_DISTANCE so every delivery is legal-mark eligible
+const MARK_CHALLENGE_MAX_DISTANCE := 28.0      # m
+const MARK_CHALLENGE_TARGET_SPREAD := 4.0      # m random offset from the player's current spot per delivery
+const MARK_CHALLENGE_DELIVERY_DELAY := 1.4     # s, the coach "calling for it" before the ball leaves
+const MARK_CHALLENGE_NEXT_DELAY := 1.6         # s after an attempt resolves before the next delivery
 
 
 ## Maps a 0..1 gait scalar onto the three named speeds, so WALK_SPEED,
@@ -422,3 +524,19 @@ static func action_duration(action: Action) -> float:
 
 static func action_contact_time(action: Action) -> float:
 	return float(ACTION_CONTACT[clampi(int(action), 0, ACTION_CONTACT.size() - 1)])
+
+
+## Fraction of target speed available while `action` is active. KICK/
+## HANDBALL/BOUNCE all share the one historical ACTION_SPEED_SCALE; the
+## mark tiers each cost a different amount because that cost is the whole
+## point of choosing between them (see the Marking section above).
+static func action_speed_scale(action: Action) -> float:
+	match action:
+		Action.MARK_SAFE:
+			return MARK_SAFE_SPEED_SCALE
+		Action.MARK_RUNNING:
+			return MARK_RUNNING_SPEED_SCALE
+		Action.MARK_AGGRESSIVE:
+			return MARK_AGGRESSIVE_SPEED_SCALE
+		_:
+			return ACTION_SPEED_SCALE

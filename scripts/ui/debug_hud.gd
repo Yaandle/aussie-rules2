@@ -62,6 +62,12 @@ func _compose() -> String:
 		lines.append("blend    strafe %+0.2f   forward %+0.2f" % [blend.x, blend.y])
 		lines.append("anim     %s" % player.animation_state())
 		lines.append("charge   %s %0.2f" % [_bar(player.kick_charge()), player.kick_charge()])
+		var mark_bits: Array[String] = []
+		if player.is_mark_readying():
+			mark_bits.append("READYING")
+		if player.is_protected():
+			mark_bits.append("PROTECTED %0.1fs" % player.protected_seconds())
+		lines.append("mark     %s" % (" / ".join(mark_bits) if not mark_bits.is_empty() else "-"))
 		if player.is_carrying():
 			var overdue := "  BOUNCE NOW" if player.bounce_overdue() else ""
 			lines.append("carry    %5.1f m / %0.0f m%s" % [
@@ -79,7 +85,8 @@ func _compose() -> String:
 
 	lines.append("")
 	lines.append("WASD move   Ctrl walk   Shift sprint   arrows/mouse camera   C recentre")
-	lines.append("K hold+release kick   Q handball   Space bounce   R reset ball   F3 hud")
+	lines.append("K hold+release kick   Q handball   Space bounce   E tackle   R reset ball   F3 hud")
+	lines.append("G hold safe mark/pickup   Q running mark   H aggressive mark (jump)")
 	return "\n".join(lines)
 
 

@@ -28,6 +28,18 @@ extends CharacterBody3D
 signal action_started(action: Tuning.Action)
 signal ball_gathered(ball: Ball)
 signal ball_disposed(action: Tuning.Action)
+signal mark_caught(tier: Tuning.Action, legal_mark: bool)
+signal mark_missed(tier: Tuning.Action)
+
+## Fired from _get_tackled only when the tackled player had already had
+## Tuning.PRIOR_OPPORTUNITY_GRACE seconds of personal possession — a real
+## holding-the-ball ruling (RULES_REFERENCE.md §4), as opposed to the
+## neutral case (tackled inside the grace window), which stays silent since
+## nothing about it differs from a plain tackle today. Nothing consumes
+## this yet: awarding the actual free kick needs a set-shot/free-kick
+## apparatus this project doesn't have — the ruling is decided correctly,
+## the consequence is the next piece.
+signal holding_the_ball_called(tackler: PlayerController)
 
 @export var team: Tuning.Team = Tuning.Team.HOME
 
@@ -65,6 +77,37 @@ var _brain: PlayerBrain = HumanBrain.new()
 ## Seconds left unable to move or act after being tackled. Zero the rest
 ## of the time.
 var _stun_timer := 0.0
+
+## Seconds left immune to _try_tackle() after taking a legal mark — the
+## stand-the-mark protection window (Tuning.MARK_HOLD_DURATION). Cleared
+## early the instant this player disposes of the ball; also doubles as the
+## protection mechanism a future kick-in's goal square will use.
+var _protected_timer := 0.0
+
+## True for exactly one physics frame: set by _begin_aggressive_mark(),
+## consumed by the gravity block in _physics_process so the jump impulse
+## lands after the floor-snap/gravity assignment rather than being
+## immediately overwritten by it.
+var _pending_jump := false
+
+## Held-stance flag for a Safe Mark, exactly parallel to _charging for a
+## kick — true only while the ball is airborne, in reach range hasn't
+## resolved yet, and the brain still wants it. Read by _update_locomotion
+## for MARK_SAFE_SPEED_SCALE, same mechanism KICK_STANCE_SPEED_SCALE uses.
+var _mark_readying := false
+
+## Seconds left before another Punch/Spoil attempt can connect — a tap
+## action with no windup, so this is the only thing stopping it being held
+## down for a continuous battering (see _try_spoil).
+var _spoil_cooldown := 0.0
+
+## Seconds this player personally has held the ball since their own last
+## gather/mark. Distinct from MatchState.possession_seconds(), which
+## tracks the whole TEAM's unbroken hold and does not reset on a same-team
+## handball — holding-the-ball's "prior opportunity" (RULES_REFERENCE.md
+## §4) is about this individual player's own chance to dispose, so
+## _get_tackled reads this instead.
+var _possession_held_seconds := 0.0
 
 ## Unit XZ direction the body is actually travelling. Kept as state
 ## rather than re-derived from velocity every frame so it survives a
@@ -131,14 +174,26 @@ func _physics_process(delta: float) -> void:
 
 	_gather_cooldown = maxf(0.0, _gather_cooldown - delta)
 	_stun_timer = maxf(0.0, _stun_timer - delta)
+	_protected_timer = maxf(0.0, _protected_timer - delta)
+	_spoil_cooldown = maxf(0.0, _spoil_cooldown - delta)
+	_possession_held_seconds = _possession_held_seconds + delta if is_carrying() else 0.0
 
 	_update_charge(delta)
+	_update_marking(delta)
 	_update_action(delta)
 
 	if is_on_floor():
 		velocity.y = -0.5   # a little bite into the floor keeps is_on_floor stable
 	else:
 		velocity.y -= Tuning.GRAVITY * delta
+	if _pending_jump:
+		# Applied after the floor-snap above, not before — is_on_floor() is
+		# still true for one more frame at the instant a jump is triggered
+		# (the physics server hasn't seen us leave the ground yet), so
+		# setting this any earlier would just get overwritten by the -0.5
+		# floor bite on the very frame that matters.
+		velocity.y = Tuning.MARK_AGGRESSIVE_JUMP_SPEED
+		_pending_jump = false
 
 	_update_locomotion(delta)
 
@@ -151,6 +206,7 @@ func _physics_process(delta: float) -> void:
 	_track_carry_distance(before)
 	_try_gather()
 	_try_tackle()
+	_try_smother()
 
 	_animation.drive(locomotion_blend(), delta)
 
@@ -195,11 +251,16 @@ func _update_locomotion(delta: float) -> void:
 
 	# Planting to kick or handball costs you your legs for a moment; the
 	# kick stance ahead of that (LT held, still aiming/repositioning) costs
-	# less, same relationship as ADS-walk vs. firing in a shooter.
+	# less, same relationship as ADS-walk vs. firing in a shooter. Each mark
+	# tier costs its own amount — see Tuning.action_speed_scale — and
+	# readying a Safe Mark (held, not yet resolved) costs the same as the
+	# mark itself will, so there's no free lunch in holding it early.
 	if _action != Tuning.Action.NONE:
-		target_speed *= Tuning.ACTION_SPEED_SCALE
+		target_speed *= Tuning.action_speed_scale(_action)
 	elif _charging:
 		target_speed *= Tuning.KICK_STANCE_SPEED_SCALE
+	elif _mark_readying:
+		target_speed *= Tuning.MARK_SAFE_SPEED_SCALE
 
 	var accel := Tuning.ACCELERATION if target_speed > _speed else Tuning.BRAKING
 	if not is_on_floor():
@@ -287,6 +348,14 @@ func carried_ball() -> Ball:
 	return _carried_ball
 
 
+## True while a stand-the-mark protection window (Tuning.MARK_HOLD_DURATION)
+## from a legal mark is still running — _try_tackle() skips a protected
+## carrier entirely. Also the hook a future protected kick-in state reuses
+## for goal-square immunity (see docs' Priority 5).
+func is_protected() -> bool:
+	return _protected_timer > 0.0
+
+
 ## Let go without disposing — for resets and, later, for a tackle
 ## stripping the ball.
 func drop_ball() -> void:
@@ -302,6 +371,7 @@ func drop_ball() -> void:
 	# inherit hip-fire's extra scatter.
 	_hip_fire_kick = false
 	_gather_cooldown = Tuning.GATHER_COOLDOWN
+	_protected_timer = 0.0
 	if MatchState.possession == team:
 		MatchState.possession = Tuning.Team.NONE
 
@@ -352,14 +422,22 @@ func _try_gather() -> void:
 			continue
 		if ball.linear_velocity.length() > Tuning.GATHER_MAX_BALL_SPEED:
 			continue
-		ball.attach_to(_carry_point, self)
-		_carried_ball = ball
-		_carry_distance = 0.0
-		MatchState.possession = team
-		if _brain is HumanBrain:
-			InputManager.rumble(Tuning.RUMBLE_GATHER)
-		ball_gathered.emit(ball)
+		_complete_gather(ball)
 		return
+
+
+## Shared attach/possession/signal path for every way of gaining the ball —
+## the passive walk-over gather just above, an explicit ground pickup and
+## every mark tier (see the Marking section below) — so none of them can
+## drift out of sync about what "gained possession" actually does.
+func _complete_gather(ball: Ball) -> void:
+	ball.attach_to(_carry_point, self)
+	_carried_ball = ball
+	_carry_distance = 0.0
+	MatchState.possession = team
+	if _brain is HumanBrain:
+		InputManager.rumble(Tuning.RUMBLE_GATHER)
+	ball_gathered.emit(ball)
 
 
 # ── Contests ─────────────────────────────────────────────────────────
@@ -369,7 +447,7 @@ func _try_gather() -> void:
 # the ball loose for a fresh contest.
 
 func _try_tackle() -> void:
-	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE:
+	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE or _mark_readying:
 		return
 	if not _brain.wants_tackle():
 		return
@@ -377,7 +455,7 @@ func _try_tackle() -> void:
 		var other := node as PlayerController
 		if other == null or other == self or other.team == team:
 			continue
-		if not other.is_carrying():
+		if not other.is_carrying() or other.is_protected():
 			continue
 		if global_position.distance_to(other.global_position) > Tuning.TACKLE_RADIUS:
 			continue
@@ -388,6 +466,11 @@ func _try_tackle() -> void:
 ## Called on the tackled player, by the tackler.
 func _get_tackled(by: PlayerController) -> void:
 	var ball := _carried_ball
+	# Captured before drop_ball() resets anything, though drop_ball() itself
+	# doesn't touch this timer — is_carrying() going false next frame is what
+	# actually zeroes it (see _physics_process) — read now regardless, so
+	# there's no dependency on exactly when that reset happens to land.
+	var holding_the_ball := _possession_held_seconds >= Tuning.PRIOR_OPPORTUNITY_GRACE
 	drop_ball()
 	_stun_timer = Tuning.TACKLE_STUN_DURATION
 	_action = Tuning.Action.NONE
@@ -398,6 +481,191 @@ func _get_tackled(by: PlayerController) -> void:
 		scatter.y = 0.0
 		scatter = scatter.normalized() if scatter.length_squared() > 0.0001 else Vector3.FORWARD
 		ball.apply_central_impulse(scatter * Tuning.TACKLE_SPILL_SPEED * ball.mass)
+	if holding_the_ball:
+		holding_the_ball_called.emit(by)
+
+
+## Smother (X tap, not carrying): close down an opponent before their kick
+## leaves the boot. Targets anyone still carrying whose kick hasn't fired
+## yet — either still in stance (is_kick_aiming()) or mid-swing but before
+## contact (is_mid_kick_swing()) — since a kick already gone is nothing a
+## smother can do anything about.
+func _try_smother() -> void:
+	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE:
+		return
+	if not _brain.wants_smother():
+		return
+	for node in get_tree().get_nodes_in_group(&"players"):
+		var other := node as PlayerController
+		if other == null or other == self or other.team == team:
+			continue
+		if not other.is_carrying() or not (other.is_kick_aiming() or other.is_mid_kick_swing()):
+			continue
+		if global_position.distance_to(other.global_position) > Tuning.SMOTHER_RADIUS:
+			continue
+		other._get_smothered(self)
+		return
+
+
+## Called on the smothered player, by the smotherer. Cancels the kick
+## outright — whatever stage the swing was at, it doesn't complete — and
+## the ball drops right at their feet rather than spilling like a tackle:
+## blocked at the boot means it barely moves.
+func _get_smothered(by: PlayerController) -> void:
+	var ball := _carried_ball
+	drop_ball()
+	_action = Tuning.Action.NONE
+	_action_elapsed = 0.0
+	_action_fired = false
+	if is_instance_valid(ball):
+		var scatter := global_position - by.global_position
+		scatter.y = 0.3
+		scatter = scatter.normalized() if scatter.length_squared() > 0.0001 else Vector3.FORWARD
+		ball.knock(scatter * Tuning.SMOTHER_SPILL_SPEED * ball.mass)
+
+
+# ── Marking ──────────────────────────────────────────────────────────
+# Design brief priority 2: a three-tier contextual catch, resolved by a
+# reach-radius/timing test against the ball's live position rather than a
+# probability roll (RULES_REFERENCE.md §3, same physical-not-scripted
+# stance tackling already follows). Safe (A, held) plants and waits for the
+# ball to arrive; Running (X, tapped) snap-grabs at pace with a tighter
+# margin; Aggressive (Y, tapped) commits to a real jump. The same A button
+# becomes a ground pickup once the ball isn't airborne — the brief's "ball
+# state + player state + proximity + input, not just the button" framing.
+
+func _update_marking(delta: float) -> void:
+	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE \
+			or _gather_cooldown > 0.0:
+		_mark_readying = false
+		return
+
+	var ball := _live_ball()
+	if not is_instance_valid(ball) or ball.is_held:
+		_mark_readying = false
+		return
+
+	if ball.is_airborne():
+		_try_spoil(ball)
+		_update_aerial_contest(ball, delta)
+	else:
+		_mark_readying = false
+		_update_ground_pickup(ball, delta)
+
+
+## Punch/Spoil (LT tap, not carrying, near an aerial contest): knocks a
+## contestable ball off its line rather than controlling it. No target
+## player to name — physically deflecting the ball is enough on its own to
+## spoil whoever else was about to mark it, since their own reach test
+## (_ball_in_catch_reach) reads the ball's real position/velocity, which
+## this has just changed. wants_spoil() is already edge-triggered (one tap,
+## one attempt); the cooldown on top of that is what stops a volley of fast
+## repeat taps from re-punching the same ball again a few frames later,
+## faster than a real swing could reset.
+func _try_spoil(ball: Ball) -> void:
+	if _spoil_cooldown > 0.0 or not _brain.wants_spoil():
+		return
+	if ball.global_position.distance_to(_carry_point.global_position) > Tuning.SPOIL_RADIUS:
+		return
+	_spoil_cooldown = Tuning.SPOIL_COOLDOWN
+	var away := ball.global_position - global_position
+	away.y = 0.4   # a real punch knocks it up and away, not flat along the ground
+	away = away.normalized() if away.length_squared() > 0.0001 else Vector3.UP
+	ball.knock(away * Tuning.SPOIL_IMPULSE_SPEED * ball.mass)
+
+
+func _update_aerial_contest(ball: Ball, _delta: float) -> void:
+	if _brain.wants_mark_safe():
+		_mark_readying = true
+		if _ball_in_catch_reach(ball, Tuning.MARK_SAFE_REACH_SCALE):
+			_complete_mark(ball, Tuning.Action.MARK_SAFE)
+		return
+	_mark_readying = false
+
+	if _brain.wants_mark_running() \
+			and _ball_in_catch_reach(ball, Tuning.MARK_RUNNING_REACH_SCALE):
+		_complete_mark(ball, Tuning.Action.MARK_RUNNING)
+		return
+
+	if _brain.wants_mark_aggressive() and ball.global_position.distance_to(
+			_carry_point.global_position) <= Tuning.MARK_CONTEST_RANGE:
+		_begin_aggressive_mark()
+
+
+## A — Ground Pickup once the ball is loose rather than in flight (design
+## brief): a deliberate reach, wider and speed-responsive versus the
+## passive walk-over _try_gather() above, not an instant snap onto the ball.
+func _update_ground_pickup(ball: Ball, _delta: float) -> void:
+	if not _brain.wants_mark_safe():
+		return
+	if ball.linear_velocity.length() > Tuning.GATHER_MAX_BALL_SPEED:
+		return
+	var reach := Tuning.GROUND_PICKUP_RADIUS + _speed * Tuning.GROUND_PICKUP_LUNGE_PER_SPEED
+	var to_ball := ball.global_position - _carry_point.global_position
+	to_ball.y = 0.0
+	if to_ball.length() <= reach:
+		_complete_gather(ball)
+
+
+## Resolved immediately rather than deferred through the _action/contact
+## machinery below: Safe/Running only ever call this once they already know
+## the catch connects, so the "attempt" and the "outcome" are the same
+## event. _begin() just plays the catch/cradle animation after the fact.
+func _complete_mark(ball: Ball, tier: Tuning.Action) -> void:
+	var legal_mark := ball.is_mark_eligible()
+	_complete_gather(ball)
+	if legal_mark:
+		_protected_timer = Tuning.MARK_HOLD_DURATION
+	_mark_readying = false
+	_begin(tier)
+	if _brain is HumanBrain:
+		InputManager.rumble(Tuning.RUMBLE_MARK)
+	mark_caught.emit(tier, legal_mark)
+
+
+## Y commits to the jump the instant it's pressed, whether or not it will
+## actually connect — that commitment is the entire risk of an aggressive
+## attempt. The vertical impulse goes through _pending_jump so it survives
+## this frame's floor-snap (see _physics_process); everything after that is
+## the same gravity integration every other airborne frame already uses —
+## no separate jump-arc code, the arc just falls out of it.
+func _begin_aggressive_mark() -> void:
+	_pending_jump = true
+	_begin(Tuning.Action.MARK_AGGRESSIVE)
+
+
+## Fires at the jump's contact instant (Tuning.ACTION_CONTACT), timed to
+## land near its peak reach — see _update_action's dispatch. A clean miss
+## leaves the ball untouched: no contact happened, so nothing about its
+## flight changes.
+func _resolve_aggressive_mark() -> void:
+	var ball := _live_ball()
+	if is_instance_valid(ball) and not ball.is_held \
+			and _ball_in_catch_reach(ball, Tuning.MARK_AGGRESSIVE_REACH_SCALE):
+		var legal_mark := ball.is_mark_eligible()
+		_complete_gather(ball)
+		if legal_mark:
+			_protected_timer = Tuning.MARK_HOLD_DURATION
+		if _brain is HumanBrain:
+			InputManager.rumble(Tuning.RUMBLE_MARK)
+		mark_caught.emit(Tuning.Action.MARK_AGGRESSIVE, legal_mark)
+	else:
+		mark_missed.emit(Tuning.Action.MARK_AGGRESSIVE)
+
+
+func _ball_in_catch_reach(ball: Ball, reach_scale: float) -> bool:
+	if not ball.is_airborne():
+		return false
+	return ball.global_position.distance_to(_carry_point.global_position) \
+		<= Tuning.MARK_CATCH_RADIUS * reach_scale
+
+
+## The one ball in the scene, found by group rather than a wired reference —
+## every mode's Ball adds itself to the "ball" group (see Ball._ready()), so
+## this needs no per-mode setup the way AIBrain.ball does.
+func _live_ball() -> Ball:
+	var nodes := get_tree().get_nodes_in_group(&"ball")
+	return nodes[0] as Ball if not nodes.is_empty() else null
 
 
 # ── Disposal ─────────────────────────────────────────────────────────
@@ -578,6 +846,22 @@ func is_kick_aiming() -> bool:
 	return _charging
 
 
+## True from the moment a KICK's swing begins until the ball actually
+## leaves at its contact instant — see _try_smother, which reads this
+## alongside is_kick_aiming() to find a target whose kick can still be
+## blocked.
+func is_mid_kick_swing() -> bool:
+	return _action == Tuning.Action.KICK and not _action_fired
+
+
+func is_mark_readying() -> bool:
+	return _mark_readying
+
+
+func protected_seconds() -> float:
+	return _protected_timer
+
+
 func _yaw_direction(yaw: float) -> Vector3:
 	return Vector3(-sin(yaw), 0.0, -cos(yaw))
 
@@ -613,7 +897,13 @@ func _update_action(delta: float) -> void:
 	var contact := Tuning.action_contact_time(_action)
 	if not _action_fired and _action_elapsed >= contact:
 		_action_fired = true
-		_dispose()
+		match _action:
+			Tuning.Action.MARK_AGGRESSIVE:
+				_resolve_aggressive_mark()
+			Tuning.Action.MARK_SAFE, Tuning.Action.MARK_RUNNING:
+				pass   # already caught in _update_marking(); this leg is cosmetic only
+			_:
+				_dispose()
 
 	if _action_elapsed >= Tuning.action_duration(_action):
 		_action = Tuning.Action.NONE
@@ -725,11 +1015,12 @@ func _dispose() -> void:
 	# the ball is oriented on the way down changes how it lands.
 	var up_reference := Vector3.UP if absf(flight.y) < 0.98 else Vector3.FORWARD
 	ball.global_transform = Transform3D(Basis.looking_at(-flight, up_reference), origin)
-	ball.launch(launch_velocity, launch_velocity.length(), spin, self)
+	ball.launch(launch_velocity, launch_velocity.length(), spin, self, _action == Tuning.Action.KICK)
 
 	_carried_ball = null
 	_carry_distance = 0.0
 	_gather_cooldown = Tuning.GATHER_COOLDOWN
+	_protected_timer = 0.0   # playing on forfeits stand-the-mark protection
 	if _action != Tuning.Action.BOUNCE:
 		MatchState.possession = Tuning.Team.NONE
 	if _brain is HumanBrain:

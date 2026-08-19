@@ -6,10 +6,14 @@ extends CanvasLayer
 ## slots). Reached from the main menu via the "team_menu" action (T),
 ## same as character_menu (C) reaches CharacterScreen — see main_menu.gd.
 ##
-## Built on the Soft Brutalist system (see soft_brutalist.gd) like the
-## rest of the game's UI, rather than owning its own separate visual
-## identity the way this screen used to (neo-morphism over a muted retro
-## palette, see the old NeoPanel-based revision).
+## Deliberately its own visual identity again — a chunky neomorphism x
+## brutalist retro-'90s treatment (thick near-black borders, hard offset
+## drop shadows instead of SoftBrutalist's blurred ones, a warm parchment
+## card fill) rather than the rest of the game's Soft Brutalist system.
+## Only the card shell changes: layout, the legend/roster content, and
+## FormationWhiteboard itself are untouched — see _retro_card() below,
+## which is a drop-in replacement for what used to be a plain _card()
+## built on SoftBrutalist.panel_style()/soften().
 ##
 ## Read-only: roster editing (which real players fill which slot) and
 ## picking between multiple named formations are out of scope for this
@@ -50,6 +54,20 @@ const BOARD_BAND_HEIGHT := 720.0 - SCREEN_MARGIN * 2.0 - HEADER_HEIGHT - HINT_HE
 const BOARD_PANEL_WIDTH := (BOARD_BAND_HEIGHT - FormationWhiteboard.MARGIN * 2.0) \
 	* BOARD_ASPECT + FormationWhiteboard.MARGIN * 2.0
 const CONTENT_WIDTH := COLUMN_WIDTH + float(PANEL_GAP) + BOARD_PANEL_WIDTH
+
+## ── Retro neomorphism x brutalist card shell ───────────────────────────
+## A warm parchment fill, a thick near-black rule (brutalist), and a
+## solid offset shadow with no blur (the neomorphic-brutalist hybrid's
+## signature — a real embossed shape, but hard-edged like a stamped card
+## rather than airbrushed) instead of SoftBrutalist's soft blur. Local to
+## this screen only; see the header comment for why.
+const RETRO_PANEL := Color("#F3E7CE")     ## warm parchment, not plain white
+const RETRO_BORDER := Color("#1C1A17")    ## near-black, not pure ink — warmer
+const RETRO_SHADOW := Color("#2F5F5A")    ## dusty teal, the one recurring accent
+const RETRO_ACCENT := Color("#C2542F")    ## rust/terracotta — title underline, hint chips
+const RETRO_BORDER_WIDTH := 4
+const RETRO_RADIUS := 6                   ## chunky, not the rest of the app's 16px soft round
+const RETRO_SHADOW_OFFSET := Vector2(7.0, 7.0)
 
 const ROSTER_HEIGHT := 88.0
 ## Six legend rows plus their heading and the card padding. Fixed rather
@@ -103,17 +121,50 @@ func _exit_to_menu() -> void:
 
 # ── Build ────────────────────────────────────────────────────────────
 
-## A card is a Panel (not a PanelContainer) with its content in an
-## anchored MarginContainer — Panel so SoftBrutalist.soften() can hang the
-## blurred shadow layer outside the card rect without a container sorting
-## it back inside. See soften()'s own note.
+## A card is a plain Control wrapper (not a Container, so its children's
+## positions don't get re-sorted) exactly `minimum` in size — the same
+## external footprint the old SoftBrutalist-based card claimed, so none of
+## this screen's hand-tuned pixel geometry (CONTENT_WIDTH, BOARD_PANEL_
+## WIDTH etc.) shifts. Inside it: a solid RETRO_SHADOW panel offset by
+## RETRO_SHADOW_OFFSET first, then the real parchment-and-border panel at
+## (0,0) on top — a hard-edged stamped shadow instead of a blurred one,
+## intentionally allowed to poke past the wrapper's own claimed rect
+## since Control rendering isn't clipped to its reported size.
 func _card(parent: Control, minimum: Vector2) -> MarginContainer:
+	var wrapper := Control.new()
+	wrapper.custom_minimum_size = minimum
+	wrapper.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(wrapper)
+
+	# Both anchored full-rect to `wrapper` (not sized off the `minimum`
+	# snapshot directly) so a caller that stretches the wrapper afterwards
+	# (SIZE_EXPAND_FILL on the whiteboard panel, sizing it to the row's
+	# actual height) carries the shadow and the front panel along with it.
+	var shadow := Panel.new()
+	shadow.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shadow.offset_left = RETRO_SHADOW_OFFSET.x
+	shadow.offset_right = RETRO_SHADOW_OFFSET.x
+	shadow.offset_top = RETRO_SHADOW_OFFSET.y
+	shadow.offset_bottom = RETRO_SHADOW_OFFSET.y
+	shadow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var shadow_style := StyleBoxFlat.new()
+	shadow_style.bg_color = RETRO_SHADOW
+	shadow_style.set_corner_radius_all(RETRO_RADIUS)
+	shadow_style.anti_aliasing_size = 1.0
+	shadow.add_theme_stylebox_override(&"panel", shadow_style)
+	wrapper.add_child(shadow)
+
 	var panel := Panel.new()
-	panel.add_theme_stylebox_override(&"panel", SoftBrutalist.panel_style())
-	panel.custom_minimum_size = minimum
+	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	parent.add_child(panel)
-	SoftBrutalist.soften(panel, SoftBrutalist.Elevation.REST)
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = RETRO_PANEL
+	panel_style.border_color = RETRO_BORDER
+	panel_style.set_border_width_all(RETRO_BORDER_WIDTH)
+	panel_style.set_corner_radius_all(RETRO_RADIUS)
+	panel_style.anti_aliasing_size = 1.0
+	panel.add_theme_stylebox_override(&"panel", panel_style)
+	wrapper.add_child(panel)
 
 	var inner := MarginContainer.new()
 	inner.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -126,7 +177,11 @@ func _card(parent: Control, minimum: Vector2) -> MarginContainer:
 
 func _build_header(parent: Control) -> void:
 	var inner := _card(parent, Vector2(CONTENT_WIDTH, HEADER_HEIGHT))
-	(inner.get_parent() as Control).size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	# Two levels up: inner -> panel -> wrapper. Size flags have to land on
+	# the wrapper, since that's the node actually parented into `parent`'s
+	# layout — panel and shadow are just anchored full-rect inside it now.
+	(inner.get_parent().get_parent() as Control).size_flags_horizontal = \
+		Control.SIZE_SHRINK_CENTER
 
 	var column := VBoxContainer.new()
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -134,7 +189,17 @@ func _build_header(parent: Control) -> void:
 	column.add_theme_constant_override(&"separation", 2)
 	inner.add_child(column)
 	column.add_child(SoftBrutalist.label("TEAM LIST", SoftBrutalist.SIZE_TITLE,
-		SoftBrutalist.INK, SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_TITLE))
+		RETRO_BORDER, SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_TITLE))
+
+	# The one "printed card" flourish: a short rust-coloured rule under the
+	# title, the retro touch a plain type-only header didn't have.
+	var underline := Panel.new()
+	underline.custom_minimum_size = Vector2(56.0, 4.0)
+	underline.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var underline_style := StyleBoxFlat.new()
+	underline_style.bg_color = RETRO_ACCENT
+	underline.add_theme_stylebox_override(&"panel", underline_style)
+	column.add_child(underline)
 	column.add_child(SoftBrutalist.label("STARTING FORMATION PREVIEW",
 		SoftBrutalist.SIZE_LABEL, SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_REGULAR,
 		SoftBrutalist.TRACK_LABEL))
@@ -231,8 +296,10 @@ func _build_info_panel(parent: Control) -> void:
 
 func _build_whiteboard(parent: Control) -> void:
 	var inner := _card(parent, Vector2(BOARD_PANEL_WIDTH, 0.0))
-	var panel := inner.get_parent() as Control
-	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	# See _build_header()'s comment — the flag has to land on the wrapper,
+	# two levels up from `inner`, for the row to actually stretch it.
+	var wrapper := inner.get_parent().get_parent() as Control
+	wrapper.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	# The board draws its own inset (FormationWhiteboard.MARGIN), so the
 	# card's text padding would double it.
 	for side: String in ["left", "right", "top", "bottom"]:

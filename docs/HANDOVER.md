@@ -1256,3 +1256,313 @@ gamepad's or mouse's continuous one) feels acceptable as a fallback or
 needs its own easing, and the crosshair's own idle/aim alpha and fade
 rate (0.35/0.85/rate 10). Plus everything already open from the last two
 entries — none of that has been played either.
+
+---
+
+## Handover — three-tier marking, ground pickup, spoil/smother, holding-the-ball ruling (Agent: mechanics/engine)
+
+Design brief priorities 2 and part of 3. The "Deferred" section several
+entries up explicitly declined to build marking/spoil/smother without a
+spec — this pass builds them against the brief's own three-tier
+description plus RULES_REFERENCE.md §4, and calls out exactly where an
+invented value sits versus a real AFL rule.
+
+### 1. Movement (priority 1) — verified, not rebuilt
+
+Read `player_controller.gd` end to end against the brief's Madden/FIFA
+movement ask before touching anything: asymmetric ACCELERATION/BRAKING,
+TURN_RATE_STANDING→TURN_RATE_SPRINT falloff producing the plant-and-pivot
+emergently, REVERSE_SPEED_SCALE, momentum-driven `_heading` distinct from
+`_facing_yaw` feeding the animation strafe axis — all already there and
+already matches the brief closely (this is the same system multiple past
+entries in this doc built/tuned). Left alone. No Godot binary access to
+actually feel it on a pad — verified by headless boot + code reading only,
+same caveat every past entry here has flagged for anything requiring a
+human hand.
+
+### 2. Three-tier marking (priority 2)
+
+New `Tuning.Action` entries `MARK_SAFE`/`MARK_RUNNING`/`MARK_AGGRESSIVE`,
+appended (not inserted) so `ACTION_DURATION`/`ACTION_CONTACT`'s existing
+KICK/HANDBALL/BOUNCE indices don't shift. New
+`Tuning.action_speed_scale(action)` generalises the old flat
+`ACTION_SPEED_SCALE` so each tier can cost a different amount of
+movement — Safe plants (0.30), Running barely breaks stride (0.88),
+Aggressive's mid-air control comes from the existing `AIR_ACCELERATION`
+instead.
+
+**Ball eligibility** (`ball.gd`): `launch()` gained a 5th param
+`is_kick_disposal` — only `PlayerController._dispose()`'s KICK branch
+passes `true`. Ball tracks `_flight_origin`/`_is_kick_flight`, cleared on
+landing (the `landed` signal path) or on `attach_to()`/`reset_at()`.
+`is_mark_eligible()` is straight-line distance from `_flight_origin` ≥
+`Tuning.MARK_STAND_MIN_DISTANCE` (15m, the same real number
+RULES_REFERENCE.md already names for stand-the-mark — one rule, two
+consequences, one constant). Centre bounces/handballs/bounces never set
+the flag (default `false`), so they can never be marked, matching real
+AFL.
+
+**Resolution** (`player_controller.gd`, new "Marking" section): no RNG
+anywhere, matching RULES_REFERENCE.md §3's stance. Safe (A, held) is a
+per-frame reach test against the ball's live position while held —
+generous, no commitment, matches "lowest risk, default option." Running
+(X, tap) is a single-frame reach test at a tighter radius, full speed,
+silent whiff if it doesn't connect (same "button press with nothing to
+act on no-ops" precedent `wants_handball()` already sets). Aggressive (Y,
+tap) always commits — a real vertical impulse
+(`Tuning.MARK_AGGRESSIVE_JUMP_SPEED`, ~0.82m of added reach) through the
+*existing* gravity/`is_on_floor()` integration, no separate jump-arc
+code — resolved at the jump's timed peak via the same `_action`/
+contact-time machinery kick/handball/bounce already use, just dispatched
+to `_resolve_aggressive_mark()` instead of `_dispose()`. A clean miss
+leaves the ball untouched — no contact, no effect, physically honest
+rather than a scripted bounce-off.
+
+Legal marks grant `_protected_timer` (`Tuning.MARK_HOLD_DURATION`, 5s —
+RULES_REFERENCE.md's already-named constant) which `_try_tackle()` now
+checks (`other.is_protected()`) — the actual stand-the-mark mechanic
+doesn't exist yet (needs an opponent obligated to stand still, not just
+tackle-immunity), but the *protection* half is live and correct, and it's
+the same primitive a kick-in's goal-square immunity (priority 5) will
+want. Cleared early on disposal (`_dispose()`) or losing the ball
+(`drop_ball()`) — playing on forfeits it, matching the real rule's
+spirit.
+
+**Ground pickup**: same `A`/`mark_safe` input, but once
+`Ball.is_airborne()` is false it means something else
+(`_update_ground_pickup`) — a wider, speed-responsive reach
+(`GROUND_PICKUP_RADIUS` plus a per-m/s lunge term) than the pre-existing
+passive `_try_gather()`, which is untouched and still fires on simple
+walk-over overlap (zero regression — verified both paths independently,
+see below). This is the brief's "ball state + player state + proximity +
+input, not just the button" line applied literally.
+
+**Brains**: `PlayerBrain` gained `wants_mark_safe/running/aggressive`
+(default false), `HumanBrain` reads three new InputMap actions, `AIBrain`
+gets a Safe-only stub (holds up for a catch when it's the closest
+teammate to an airborne ball within `MARK_CONTEST_RANGE`) — deliberately
+not smarter than that, matching the existing "not a tactics system" AI
+philosophy `ai_brain.gd`'s own docstring already states.
+
+**Input map**: `mark_safe` (G / gamepad A), `mark_running` (Q / X —
+shares the physical control with `handball`/`interact`, the established
+"one control, several logical actions, game state decides" pattern this
+file already uses 3-4 deep on B/C/X), `mark_aggressive` (H / gamepad
+**Y** — the physical Xbox Y button was fully free; the `confirm` action's
+keyboard `Y` is a different, coincidental thing, see below). Confirmed
+via a full audit of every existing `button_index` in the file before
+assigning — worth being explicit about since an earlier entry in this doc
+already flagged Y as "reserved" for exactly this.
+
+**A note on "Y" that's easy to get backward**: `confirm` (accept the
+coach's challenge) is bound to keyboard letter **Y** (mnemonic "yes")
+*and* gamepad button **A** (Xbox's actual confirm button) — not gamepad
+Y. Gamepad button_index 3 (the physical Y button) was genuinely unused
+before this pass, freed up by an earlier session specifically "for the
+brief's own 'Aggressive mark' reservation" (see the tackle-rework entry
+above) — confirmed by grep before relying on it, not assumed. That same
+audit is also what confirmed **RT stays the kick trigger, not sprint**:
+an earlier session already moved gamepad sprint to L3 click specifically
+because "RT can no longer safely double as sprint now that it's the kick
+trigger regardless of ADS state" — so the brief's "RT: Sprint/chase"
+line for priority 3 is read here as already satisfied by the existing
+`sprint` action (which has nothing to do with possession state either
+way), not as an instruction to rebind a trigger that's already carrying
+kick charge/execute.
+
+**Animation**: `PlaceholderAnimations` gained
+`_build_mark_safe/_running/_aggressive` (same pose-keyframe machinery as
+kick/handball/bounce — nothing new architecturally), registered in
+`PlayerAnimation.ACTION_STATES`, fully data-driven from there (the
+state-machine builder already iterates the dict generically).
+Aggressive's clip is the one with a real lead-in (crouch/reach/peak/land)
+rather than pure follow-through, timed against
+`ACTION_CONTACT[MARK_AGGRESSIVE]` to land near the jump's physical peak.
+
+**Marking coach + MarkChallenge** (`kick_to_kick.gd`, new
+`scripts/mechanics/mark_challenge.gd` + `.tscn`): mirrors the kicking
+coach almost exactly, per the note two entries up ("what actually ends up
+shared once the marking/tackling coaches exist isn't knowable yet —
+that's a refactor for when there are three of these"). This is that
+refactor's first half: `kick_to_kick.gd`'s single-coach state machine
+(`CoachState` plus one `_coach`/`_challenge` pair) is now parameterised
+by a `CoachKind` enum (`KICKING`/`MARKING`) so the prompt/dialogue/
+challenge flow is genuinely shared, not duplicated —
+`_spawn_coach(offset, kind)`, `_coach_node(kind)`, every handler takes or
+branches on `kind`. A third coach (tackling) slots into the same shape
+later. `MarkChallenge` differs from `KickChallenge` in one structural way
+worth knowing: it's the *deliverer*, not just an observer — the coach
+launches real kick-flight balls at the player (`Ball.launch(...,
+is_kick_disposal=true)`, so coach feeds count as legal marks same as any
+boot) on its own pacing rather than reacting to player-initiated kicks,
+using a small inverse-ballistics helper (closed-form no-drag range
+estimate plus one simulated correction pass, not a full iterative
+solver — a training delivery only needs to arrive somewhere reactable,
+not land on an exact spot).
+
+### 3. Spoil and Smother (priority 3, partial)
+
+Reuses the marking contest's reach-test primitives directly. **Spoil**
+(`_try_spoil`, LT tap — `P` / axis4, shares the physical LT with
+`kick_stance`, mutually exclusive by `is_carrying()` same as everywhere
+else): a cooldown-gated punch at any airborne ball in reach, applies
+`Ball.knock()` (new small public method — an external hit that clears
+mark eligibility the same way landing does, kept encapsulated rather than
+letting callers reach into `_is_kick_flight` directly). No target player
+to name: physically deflecting the ball is sufficient to spoil whoever
+else was reaching for it, since their own `_ball_in_catch_reach` reads
+the ball's real post-knock position — nothing needed to coordinate across
+players.
+
+**Smother** (`_try_smother`/`_get_smothered`, X tap — shares Q/X with
+handball/interact/mark_running, a fourth meaning on that one physical
+control, mutually exclusive by state in every mode that actually has more
+than one player type on the field at once): targets an opponent still
+carrying whose kick hasn't left yet (new `is_mid_kick_swing()` public
+getter, paired with the existing `is_kick_aiming()`), cancels the kick
+outright and drops the ball right at their feet (`SMOTHER_SPILL_SPEED`,
+much lower than a tackle's spill) rather than the fuller tackle-style
+scatter — no stun, since blocking a kick isn't knocking a player down.
+
+Neither has a dedicated Tuning.Action/placeholder animation yet — same as
+tackle, which has shipped without one for several sessions already (an
+instantaneous physical contest, not a windup-and-contact disposal).
+Cosmetic gap, not a functional one.
+
+### 4. Holding-the-ball ruling (RULES_REFERENCE.md §4)
+
+The ruling only — not the free kick itself, which needs a set-shot
+apparatus this project doesn't have. New `_possession_held_seconds` on
+`PlayerController`, reset whenever `is_carrying()` goes false, distinct
+on purpose from `MatchState.possession_seconds()`: that one tracks the
+*team's* unbroken hold and, by inspection of its setter, does **not**
+reset on a same-team handball (`if possession == value: return`
+short-circuits before the reset) — which would wrongly blame a player
+tackled the instant they receive a handball for time their teammate
+already spent holding it. `_get_tackled` now checks the per-player timer
+against new `Tuning.PRIOR_OPPORTUNITY_GRACE` (0.5s, RULES_REFERENCE.md's
+already-named number) and fires `holding_the_ball_called(tackler)` when
+it's a real ruling — silent for the neutral case, since nothing about a
+tackle inside the grace window differs from what already happened.
+Nothing consumes the signal yet.
+
+### Verification
+
+No GUI/pad access this session either (see the priority-1 note above) —
+same limitation every entry in this doc has hit. Compensated with three
+levels, same discipline as the trajectory-bug and kick-distance entries
+above:
+
+1. **Static**: full re-reads of every touched file post-edit,
+   `--headless --editor --quit` global-class-cache rescan after every new
+   `class_name` (`MarkChallenge`), `--headless --path . <scene>
+   --quit-after N` for `kick_to_kick.tscn`/`full_game.tscn`/the main menu
+   after every meaningful chunk — all clean, zero errors, throughout.
+2. **Scripted physics, not just parse-clean**: two temporary scenes
+   (`_scratch_mark_test.tscn`/`.gd`, `_scratch_defense_test.tscn`/`.gd` —
+   deleted, not part of the diff, same "not committed" precedent this
+   doc's very first `KickTrajectory` scratch script set) instantiated
+   real `Player`/`Ball`/`Field` scenes under real Jolt physics with a
+   scripted `PlayerBrain` standing in for input, driving actual kicks/
+   marks/tackles through the real code paths rather than reimplementing
+   or mocking any of it. First attempt used `--script extends SceneTree`,
+   which turned out **not** to bootstrap `[autoload]` singletons
+   (`Identifier not found: MatchState` at compile time, only in that
+   mode) — a genuinely new gotcha for this project's headless toolkit,
+   worth remembering: use a real scene plus the positional-scene-argument
+   form for anything that touches an autoload, not bare `--script`.
+   Saved to this agent's memory alongside the existing Godot-binary/
+   global-class-cache notes.
+3. **Results, all passing**: a 20m kick caught (Safe, held) grants
+   exactly `MARK_HOLD_DURATION` (5.00s) protection and
+   `legal_mark=true`; an 8m kick is caught but grants none
+   (`legal_mark=false`) — confirms the eligibility gate is live, not just
+   present. Ground pickup succeeds at ~1.05m (outside the passive 0.85m
+   `GATHER_RADIUS`, inside the new 1.3m `GROUND_PICKUP_RADIUS`) —
+   confirms it's genuinely a *new* reach, not the old one relabelled.
+   Aggressive mark: real positive `velocity.y` observed, then a real
+   landing (`is_on_floor()` true again) — and, unprompted, a bonus
+   confirmation that the catch itself connected and correctly read as
+   `legal_mark=false` for a sub-15m flight, exercising the same
+   eligibility gate a third way. Smother: kicker stops carrying, stops
+   aiming, ball speed drops to near-zero, within one second of the
+   defender closing in mid-stance. Spoil: a genuinely mark-eligible,
+   still-airborne, still-loose ball has its `is_mark_eligible()` flip to
+   false and its velocity visibly deflect off-axis (a nonzero
+   X-component appearing on a flight that had none) the instant the
+   defender's reach connects — caught mid-flight by a diagnostic print,
+   not inferred after the fact.
+
+One test-harness bug worth recording, not a game bug: an early version
+of the spoil test kept force-tracking the defender onto the ball's
+position every frame *after* the spoil connected too, which then
+triggered the pre-existing passive `_try_gather()` a few frames later and
+made the ball read `held=true` — briefly looked like a real failure until
+the diagnostic log showed the deflection had already happened correctly
+a full 0.28s before that. Latching the check the instant a spoil is first
+observed fixed it. Recorded because it's exactly the "looks like a bug,
+is actually the test" trap worth recognising quickly rather than chasing
+into the real code.
+
+### Known limitations, honestly scoped rather than silently dropped
+
+- **Bump (LB hold + right-stick flick) — not built.** Genuinely new
+  ground unlike spoil/smother (a flick-gesture detector doesn't exist
+  anywhere in this input system yet — `InputManager` only has held-axis
+  and tap-edge patterns today) *and* RULES_REFERENCE.md has zero numbers
+  for the dangerous-contact/free-kick side of it. A previous session
+  already declined exactly this feature for exactly these two reasons
+  (see "Deferred" above) — this pass had headroom to close marking/
+  spoil/smother but not to also invent a gesture-detection primitive and
+  a contact-danger heuristic unsupervised in the same sitting. Sketch for
+  next time: reuse `Ball.knock()`-style external-hit plumbing for the
+  physical push; the flick itself is probably a magnitude-over-time
+  threshold on `InputManager.get_look_vector()`, sampled a few frames
+  back, rather than anything stateful in the Input Map; the danger
+  judgement needs either real numbers from whoever owns
+  RULES_REFERENCE.md or an explicit "not yet enforced" stub matching this
+  pass's holding-the-ball pattern (decide the ruling, defer the
+  consequence).
+- **Holding-the-ball has no consequence yet**, by design this pass — see
+  §4 above. The natural next step shares an apparatus with kick-in
+  (priority 5): both need "give a player the ball, freeze the opponent's
+  ability to contest, let them dispose freely" as a state, which is
+  exactly what `_protected_timer` already models for marks. A free-kick/
+  set-shot phase built on that primitive would close both gaps in one
+  pass.
+- **Stand-the-mark itself** (the mark-taker's opponent frozen in place,
+  ≥15m marks only) **is still not modelled** — `is_protected()` stops the
+  *tackle*, but nothing stops the opponent moving/repositioning. Needs
+  Full Game's two-team context to matter at all; inert in solo
+  `kick_to_kick`.
+- **AI only ever attempts a Safe mark**, never Running/Aggressive, and
+  has no spoil/smother/tackle-avoidance awareness at all. Matches the
+  existing "deliberately simple, not a tactics system" AI baseline
+  already in place for kicking/handballing — noted so it doesn't read as
+  an oversight.
+- **Ruck contests (priority 4) and protected kick-in (priority 5) are
+  untouched** — next in the brief's own ordering. `_protected_timer`/
+  `is_protected()` (this pass) is directly reusable for kick-in's
+  goal-square immunity; ruck can reuse the aggressive mark's exact
+  jump-impulse pattern (`_pending_jump` → gravity integration, no bespoke
+  arc code) for ruckmen contesting a bounce.
+- **Full Game integration**: marking/ground-pickup/spoil/smother all
+  already work in `full_game.tscn` as-is (same `PlayerController`,
+  verified via the standard headless AI-match smoke test) — nothing
+  mode-specific was assumed. What's *not* done: AI never attempts spoil/
+  smother, and there's no human-facing HUD callout for a legal mark or a
+  holding-the-ball ruling beyond `DebugHud`'s diagnostic readout.
+
+### Files changed
+
+`scripts/tuning.gd`, `scripts/ball/ball.gd`,
+`scripts/player/player_controller.gd`, `scripts/mechanics/player_brain.gd`
+/`human_brain.gd`/`ai_brain.gd`, `scripts/player/placeholder_animations.gd`,
+`scripts/player/player_animation.gd`, `scripts/modes/kick_to_kick.gd`,
+`scripts/ui/debug_hud.gd`, `project.godot` (`[input]` only). New:
+`scripts/mechanics/mark_challenge.gd`, `scenes/mechanics/mark_challenge.tscn`.
+Not touched: anything UI-owned (`ui_side_scrim.gdshader`/
+`team_list_screen.gd` had pre-existing uncommitted changes on disk at
+session start from another agent, left exactly as found),
+`broadcast_camera.gd`, `full_game.gd` (works unmodified — see Full Game
+integration note above), `field.gd`, `team_formation.gd`.

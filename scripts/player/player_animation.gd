@@ -42,12 +42,15 @@ const BLEND_POINTS := [
 	[Vector2(0.75, 0.75), &"run_fwd_r"],
 ]
 
-## Tackle-attempt, mark-jump and tackled-reaction states join this list
-## when the mechanics that trigger them exist.
+## Tackle-attempt and tackled-reaction states join this list when the
+## mechanics that trigger them exist.
 const ACTION_STATES := {
 	Tuning.Action.KICK: &"kick",
 	Tuning.Action.HANDBALL: &"handball",
 	Tuning.Action.BOUNCE: &"bounce",
+	Tuning.Action.MARK_SAFE: &"mark_safe",
+	Tuning.Action.MARK_RUNNING: &"mark_running",
+	Tuning.Action.MARK_AGGRESSIVE: &"mark_aggressive",
 }
 
 const LOCOMOTION_STATE := &"locomotion"

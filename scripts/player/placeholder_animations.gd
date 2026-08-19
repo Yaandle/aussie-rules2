@@ -40,9 +40,23 @@ const GAIT_SAMPLES := 14      ## keys per locomotion cycle
 ## Locomotion clips, keyed by name. Read alongside the blend point layout
 ## in player_animation.gd — the two lists have to agree.
 const GAITS := {
+	# Zero, not just small: two rounds of shrinking these toward zero
+	# (0.02-ish, then ~0.006-0.01) still read as a twitch rather than a
+	# sway, most visible on the character screen's tight preview camera.
+	# The likely cause isn't amplitude — several of these feed a
+	# maxf(0.0, sin(...)) rectifier in _gait_pose() (knee_lift, the ankle
+	# terms derived from it), which has a hard kink at every zero-crossing
+	# that CUBIC track interpolation, sampled at only GAIT_SAMPLES (14)
+	# points over the cycle, cannot represent without overshoot — and an
+	# overshoot's absolute size doesn't necessarily shrink just because
+	# the signal feeding it does. A menu preview doesn't need a believable
+	# idle breathing sway badly enough to chase that; zero sidesteps the
+	# whole mechanism instead of tuning around it. Revisit with a smooth
+	# (kink-free) idle formula or a higher sample rate if idle sway is
+	# wanted again later.
 	"idle": {
-		"cycle": 3.2, "stride": 0.02, "knee_lift": 0.03, "arm_swing": 0.02,
-		"bob": 0.006, "lean": 0.02, "twist": 0.012,
+		"cycle": 4.5, "stride": 0.0, "knee_lift": 0.0, "arm_swing": 0.0,
+		"bob": 0.0, "lean": 0.0, "twist": 0.0,
 	},
 	"jog_fwd": {
 		"cycle": 0.72, "stride": 0.42, "knee_lift": 0.75, "arm_swing": 0.45,
@@ -82,6 +96,9 @@ static func build_library(hip_height: float) -> AnimationLibrary:
 	library.add_animation(&"kick", _build_kick(hip_height))
 	library.add_animation(&"handball", _build_handball(hip_height))
 	library.add_animation(&"bounce", _build_bounce(hip_height))
+	library.add_animation(&"mark_safe", _build_mark_safe(hip_height))
+	library.add_animation(&"mark_running", _build_mark_running(hip_height))
+	library.add_animation(&"mark_aggressive", _build_mark_aggressive(hip_height))
 	return library
 
 
@@ -234,6 +251,112 @@ static func _build_bounce(hip_height: float) -> Animation:
 			"hip_y": -0.02, "torso": Vector3(-0.18, 0.0, 0.0), "neck": Vector3(0.10, 0.0, 0.0),
 			"shoulder_l": Vector3(0.50, 0.0, -0.16), "shoulder_r": Vector3(0.50, 0.0, 0.16),
 			"knee_l": Vector3(-0.20, 0.0, 0.0), "knee_r": Vector3(-0.20, 0.0, 0.0),
+		})],
+		[length, _base_pose()],
+	], hip_height)
+
+
+## Safe mark: by the time this plays the catch has already happened
+## (PlayerController._complete_mark gathers the ball before calling
+## _begin) — this is the follow-through, not the reach. Both hands come up
+## and close around the ball, then it's pulled straight into a carry.
+static func _build_mark_safe(hip_height: float) -> Animation:
+	var length := Tuning.action_duration(Tuning.Action.MARK_SAFE)
+	var contact := Tuning.action_contact_time(Tuning.Action.MARK_SAFE)
+	return _assemble(length, false, [
+		[0.0, _pose({
+			"hip_y": -0.04, "torso": Vector3(-0.08, 0.0, 0.0), "neck": Vector3(0.10, 0.0, 0.0),
+			"shoulder_l": Vector3(1.15, 0.0, -0.35), "elbow_l": Vector3(-0.35, 0.0, 0.0),
+			"shoulder_r": Vector3(1.15, 0.0, 0.35), "elbow_r": Vector3(-0.35, 0.0, 0.0),
+			"hip_l": Vector3(0.05, 0.0, 0.0), "hip_r": Vector3(-0.05, 0.0, 0.0),
+			"knee_l": Vector3(-0.22, 0.0, 0.0), "knee_r": Vector3(-0.18, 0.0, 0.0),
+		})],
+		[contact, _pose({
+			"hip_y": -0.05, "torso": Vector3(-0.04, 0.0, 0.0), "neck": Vector3(0.06, 0.0, 0.0),
+			"shoulder_l": Vector3(1.05, 0.0, -0.22), "elbow_l": Vector3(-0.75, 0.0, 0.0),
+			"shoulder_r": Vector3(1.05, 0.0, 0.22), "elbow_r": Vector3(-0.75, 0.0, 0.0),
+			"knee_l": Vector3(-0.16, 0.0, 0.0), "knee_r": Vector3(-0.14, 0.0, 0.0),
+		})],
+		[lerpf(contact, length, 0.55), _pose({
+			"hip_y": -0.01, "torso": Vector3(0.05, 0.0, 0.0),
+			"shoulder_l": Vector3(0.55, 0.0, -0.20), "elbow_l": Vector3(-0.95, 0.0, 0.0),
+			"shoulder_r": Vector3(0.35, 0.0, 0.30), "elbow_r": Vector3(-0.55, 0.0, 0.0),
+		})],
+		[length, _base_pose()],
+	], hip_height)
+
+
+## Running/RAC mark: a snap grab that barely interrupts the stride — legs
+## keep a running pose throughout rather than planting, unlike the safe
+## mark above.
+static func _build_mark_running(hip_height: float) -> Animation:
+	var length := Tuning.action_duration(Tuning.Action.MARK_RUNNING)
+	var contact := Tuning.action_contact_time(Tuning.Action.MARK_RUNNING)
+	return _assemble(length, false, [
+		[0.0, _pose({
+			"torso": Vector3(0.10, 0.08, 0.0),
+			"shoulder_l": Vector3(0.75, 0.0, -0.18), "elbow_l": Vector3(-0.55, 0.0, 0.0),
+			"shoulder_r": Vector3(0.60, 0.0, 0.28), "elbow_r": Vector3(-0.45, 0.0, 0.0),
+			"hip_l": Vector3(0.30, 0.0, 0.0), "knee_l": Vector3(-0.55, 0.0, 0.0),
+			"hip_r": Vector3(-0.20, 0.0, 0.0), "knee_r": Vector3(-0.25, 0.0, 0.0),
+		})],
+		[contact, _pose({
+			"torso": Vector3(0.14, 0.05, 0.0),
+			"shoulder_l": Vector3(0.50, 0.0, -0.10), "elbow_l": Vector3(-0.85, 0.0, 0.0),
+			"shoulder_r": Vector3(0.40, 0.0, 0.20), "elbow_r": Vector3(-0.70, 0.0, 0.0),
+			"hip_l": Vector3(0.35, 0.0, 0.0), "knee_l": Vector3(-0.60, 0.0, 0.0),
+			"hip_r": Vector3(-0.25, 0.0, 0.0), "knee_r": Vector3(-0.20, 0.0, 0.0),
+		})],
+		[length, _base_pose()],
+	], hip_height)
+
+
+## Aggressive/spectacular mark: the one clip that's a real lead-in rather
+## than pure follow-through, since PlayerController fires the jump impulse
+## and this animation together at t=0 (see _begin_aggressive_mark) — crouch
+## and push off, rise with both arms sweeping up to full stretch around
+## `contact` (timed to the jump's physical peak), pull the ball in, land
+## and absorb. The extra hip_y lift/dip on top of the physical jump arc
+## itself is deliberate: it reads as the body actively stretching for the
+## ball rather than just riding the CharacterBody3D's own trajectory inert.
+static func _build_mark_aggressive(hip_height: float) -> Animation:
+	var length := Tuning.action_duration(Tuning.Action.MARK_AGGRESSIVE)
+	var contact := Tuning.action_contact_time(Tuning.Action.MARK_AGGRESSIVE)
+	return _assemble(length, false, [
+		[0.0, _pose({
+			"hip_y": -0.10, "torso": Vector3(-0.05, 0.0, 0.0),
+			"shoulder_l": Vector3(0.55, 0.0, -0.30), "shoulder_r": Vector3(0.55, 0.0, 0.30),
+			"elbow_l": Vector3(-0.30, 0.0, 0.0), "elbow_r": Vector3(-0.30, 0.0, 0.0),
+			"hip_l": Vector3(-0.35, 0.0, 0.0), "knee_l": Vector3(-0.70, 0.0, 0.0),
+			"hip_r": Vector3(0.20, 0.0, 0.0), "knee_r": Vector3(-0.30, 0.0, 0.0),
+		})],
+		[contact * 0.6, _pose({
+			"hip_y": 0.05, "torso": Vector3(0.06, 0.0, 0.0), "neck": Vector3(0.08, 0.0, 0.0),
+			"shoulder_l": Vector3(1.35, 0.0, -0.40), "shoulder_r": Vector3(1.35, 0.0, 0.40),
+			"elbow_l": Vector3(-0.20, 0.0, 0.0), "elbow_r": Vector3(-0.20, 0.0, 0.0),
+			"hip_l": Vector3(-0.55, 0.0, 0.0), "knee_l": Vector3(-0.40, 0.0, 0.0),
+			"hip_r": Vector3(0.35, 0.0, 0.0), "knee_r": Vector3(-0.15, 0.0, 0.0),
+		})],
+		[contact, _pose({
+			"hip_y": 0.08, "torso": Vector3(0.10, 0.0, 0.0), "neck": Vector3(0.10, 0.0, 0.0),
+			"shoulder_l": Vector3(1.55, 0.0, -0.30), "shoulder_r": Vector3(1.55, 0.0, 0.30),
+			"elbow_l": Vector3(-0.55, 0.0, 0.0), "elbow_r": Vector3(-0.55, 0.0, 0.0),
+			"hip_l": Vector3(-0.40, 0.0, 0.0), "knee_l": Vector3(-0.25, 0.0, 0.0),
+			"hip_r": Vector3(0.45, 0.0, 0.0), "knee_r": Vector3(-0.10, 0.0, 0.0),
+		})],
+		[lerpf(contact, length, 0.55), _pose({
+			"hip_y": -0.02, "torso": Vector3(0.02, 0.0, 0.0),
+			"shoulder_l": Vector3(0.70, 0.0, -0.20), "elbow_l": Vector3(-0.95, 0.0, 0.0),
+			"shoulder_r": Vector3(0.55, 0.0, 0.28), "elbow_r": Vector3(-0.70, 0.0, 0.0),
+			"hip_l": Vector3(0.10, 0.0, 0.0), "knee_l": Vector3(-0.45, 0.0, 0.0),
+			"hip_r": Vector3(-0.10, 0.0, 0.0), "knee_r": Vector3(-0.40, 0.0, 0.0),
+		})],
+		[lerpf(contact, length, 0.85), _pose({
+			"hip_y": -0.10, "torso": Vector3(-0.10, 0.0, 0.0),
+			"shoulder_l": Vector3(0.50, 0.0, -0.18), "elbow_l": Vector3(-0.75, 0.0, 0.0),
+			"shoulder_r": Vector3(0.40, 0.0, 0.24), "elbow_r": Vector3(-0.55, 0.0, 0.0),
+			"hip_l": Vector3(0.20, 0.0, 0.0), "knee_l": Vector3(-0.60, 0.0, 0.0),
+			"hip_r": Vector3(0.15, 0.0, 0.0), "knee_r": Vector3(-0.55, 0.0, 0.0),
 		})],
 		[length, _base_pose()],
 	], hip_height)

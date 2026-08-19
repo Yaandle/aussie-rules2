@@ -8,21 +8,32 @@ extends Node3D
 ## boot scene, and it applies whatever SPEED/HEIGHT the character screen
 ## was left on (CharacterProfile) to the player it spawns.
 ##
-## Also where the first training coach lives (design brief): walk up to
-## the coach, X to talk, confirm to start a kick-at-the-target challenge.
-## Kicking coach only for now, kick_to_kick only for now — a marking coach
-## and a tackling coach are explicitly later work, and so is wiring any of
-## this into Full Game. See docs/HANDOVER.md for the full writeup,
-## including which pieces here are rough placeholders standing in for UI
-## this agent doesn't own.
+## Also where the training coaches live (design brief): walk up to a coach,
+## X to talk, confirm to start a challenge. Two of the planned three are
+## here — kicking (kick at a downfield target) and marking (catch the
+## coach's deliveries) — sharing one CoachKind-parameterised prompt/
+## dialogue/challenge state machine rather than one copy per coach; a
+## tackling coach is the remaining, explicitly later, one. kick_to_kick
+## only for now — wiring any of this into Full Game is also later work.
+## See docs/HANDOVER.md for the full writeup, including which pieces here
+## are rough placeholders standing in for UI this agent doesn't own.
 
 const BALL_RESET_AHEAD := 3.0
 const BALL_LOST_BELOW := -5.0
 
 const COACH_SCENE := preload("res://scenes/mechanics/coach_npc.tscn")
 const KICK_CHALLENGE_SCENE := preload("res://scenes/mechanics/kick_challenge.tscn")
+const MARK_CHALLENGE_SCENE := preload("res://scenes/mechanics/mark_challenge.tscn")
 
 enum CoachState { NONE, PROMPT, DIALOGUE, CHALLENGE }
+
+## Which coach _coach_state currently refers to. A player can only be in
+## interact range of one coach at a time (they stand well apart), so one
+## shared prompt/dialogue/challenge state machine serves both rather than
+## duplicating it per coach — see _setup_coach/_spawn_coach and every
+## _active_coach branch below. Extend here, not by copy-pasting the state
+## machine, when the tackling coach (design brief's third) arrives.
+enum CoachKind { KICKING, MARKING }
 
 @onready var _field: Field = $Field
 @onready var _ball: Ball = $Ball
@@ -30,9 +41,12 @@ enum CoachState { NONE, PROMPT, DIALOGUE, CHALLENGE }
 @onready var _camera: BroadcastCamera = $BroadcastCamera
 @onready var _hud: DebugHud = $DebugHud
 
-var _coach: CoachNPC
+var _kicking_coach: CoachNPC
+var _marking_coach: CoachNPC
 var _challenge: KickChallenge
+var _mark_challenge: MarkChallenge
 var _coach_state := CoachState.NONE
+var _active_coach: CoachKind = CoachKind.KICKING
 var _crosshair: KickCrosshair
 
 ## PLACEHOLDER: a bare Label standing in for the real coach dialogue
@@ -106,18 +120,29 @@ func _physics_process(_delta: float) -> void:
 	# already carrying the ball (prompt correctly withheld — see
 	# _on_coach_range_entered) and then dropped/disposed it while still
 	# standing there needs a live re-check, not just the one-shot signal.
-	if _coach_state == CoachState.NONE and is_instance_valid(_coach) \
-			and _coach.player_in_range() == _player and not _player.is_carrying():
-		_coach_state = CoachState.PROMPT
-		_set_hint_text("Press X to talk to the coach")
+	if _coach_state == CoachState.NONE and not _player.is_carrying():
+		if not _check_coach_in_range(CoachKind.KICKING):
+			_check_coach_in_range(CoachKind.MARKING)
 
 
 func _reset_ball() -> void:
 	if is_instance_valid(_challenge):
 		_challenge.force_miss()
+	if is_instance_valid(_mark_challenge):
+		_mark_challenge.force_miss()
 	_player.drop_ball()
 	var ahead := -_player.global_transform.basis.z * BALL_RESET_AHEAD
 	_ball.reset_at(_player.global_position + ahead + Vector3.UP * 0.3)
+
+
+func _check_coach_in_range(kind: CoachKind) -> bool:
+	var coach := _coach_node(kind)
+	if not is_instance_valid(coach) or coach.player_in_range() != _player:
+		return false
+	_coach_state = CoachState.PROMPT
+	_active_coach = kind
+	_set_hint_text("Press X to talk to the coach")
+	return true
 
 
 func _on_ball_disposed(action: Tuning.Action) -> void:
@@ -130,37 +155,52 @@ func _on_ball_disposed(action: Tuning.Action) -> void:
 # ── Training coach ───────────────────────────────────────────────────
 
 func _setup_coach() -> void:
-	_coach = COACH_SCENE.instantiate()
-	# Position before add_child(), same reasoning full_game.gd documents for
-	# spawning players: KickToKick sits at identity, so .position and
-	# .global_position agree, and the coach never exists at the origin for
-	# even one physics tick before landing where it belongs.
-	# X/Z only from centre() — its Y (0.5) is tuned for resting a ball
-	# there, not for a standing rig whose own origin already means "feet
-	# on the ground"; reusing it wholesale floated the coach half a metre up.
-	var stand := _field.centre()
-	stand.y = 0.0
-	_coach.position = stand + Tuning.COACH_STAND_OFFSET
-	add_child(_coach)
-	_coach.face_toward(_field.centre())
-	_coach.player_entered_range.connect(_on_coach_range_entered)
-	_coach.player_left_range.connect(_on_coach_range_left)
-
+	_kicking_coach = _spawn_coach(Tuning.COACH_STAND_OFFSET, CoachKind.KICKING)
 	_challenge = KICK_CHALLENGE_SCENE.instantiate()
 	add_child(_challenge)
-	_challenge.challenge_ended.connect(_on_challenge_ended)
+	_challenge.challenge_ended.connect(_on_kick_challenge_ended)
 	_challenge.hint_changed.connect(_set_hint_text)
 
+	_marking_coach = _spawn_coach(Tuning.MARK_COACH_STAND_OFFSET, CoachKind.MARKING)
+	_mark_challenge = MARK_CHALLENGE_SCENE.instantiate()
+	add_child(_mark_challenge)
+	_mark_challenge.challenge_ended.connect(_on_mark_challenge_ended)
+	_mark_challenge.hint_changed.connect(_set_hint_text)
 
-func _on_coach_range_entered(player: PlayerController) -> void:
+
+## Position before add_child(), same reasoning full_game.gd documents for
+## spawning players: KickToKick sits at identity, so .position and
+## .global_position agree, and the coach never exists at the origin for
+## even one physics tick before landing where it belongs.
+## X/Z only from centre() — its Y (0.5) is tuned for resting a ball
+## there, not for a standing rig whose own origin already means "feet
+## on the ground"; reusing it wholesale floated the coach half a metre up.
+func _spawn_coach(stand_offset: Vector3, kind: CoachKind) -> CoachNPC:
+	var coach := COACH_SCENE.instantiate()
+	var stand := _field.centre()
+	stand.y = 0.0
+	coach.position = stand + stand_offset
+	add_child(coach)
+	coach.face_toward(_field.centre())
+	coach.player_entered_range.connect(_on_coach_range_entered.bind(kind))
+	coach.player_left_range.connect(_on_coach_range_left.bind(kind))
+	return coach
+
+
+func _coach_node(kind: CoachKind) -> CoachNPC:
+	return _marking_coach if kind == CoachKind.MARKING else _kicking_coach
+
+
+func _on_coach_range_entered(player: PlayerController, kind: CoachKind) -> void:
 	if _coach_state != CoachState.NONE or player != _player or player.is_carrying():
 		return
 	_coach_state = CoachState.PROMPT
+	_active_coach = kind
 	_set_hint_text("Press X to talk to the coach")
 
 
-func _on_coach_range_left(_player_left: PlayerController) -> void:
-	if _coach_state == CoachState.PROMPT:
+func _on_coach_range_left(_player_left: PlayerController, kind: CoachKind) -> void:
+	if _coach_state == CoachState.PROMPT and _active_coach == kind:
 		_coach_state = CoachState.NONE
 		_set_hint_text("")
 
@@ -168,9 +208,12 @@ func _on_coach_range_left(_player_left: PlayerController) -> void:
 func _begin_dialogue() -> void:
 	_coach_state = CoachState.DIALOGUE
 	InputManager.gameplay_input_enabled = false
-	_coach.face_toward(_player.global_position)
-	_camera.enter_dialogue(_coach, _player)
-	_set_hint_text("Coach: \"Want to practice your kicking?\"   Y: Yes   N: No")
+	var coach := _coach_node(_active_coach)
+	coach.face_toward(_player.global_position)
+	_camera.enter_dialogue(coach, _player)
+	var offer := "Want to practice your kicking?" if _active_coach == CoachKind.KICKING \
+		else "Want to work on your marking?"
+	_set_hint_text("Coach: \"%s\"   Y: Yes   N: No" % offer)
 
 
 func _end_dialogue() -> void:
@@ -179,7 +222,8 @@ func _end_dialogue() -> void:
 	# Still standing next to the coach after declining — re-offer the
 	# prompt immediately rather than making them step out of range and
 	# back in just to see it again.
-	if is_instance_valid(_coach) and _coach.player_in_range() == _player:
+	var coach := _coach_node(_active_coach)
+	if is_instance_valid(coach) and coach.player_in_range() == _player:
 		_coach_state = CoachState.PROMPT
 		_set_hint_text("Press X to talk to the coach")
 	else:
@@ -196,7 +240,10 @@ func _accept_challenge() -> void:
 	# right here — nothing to kick unless a fresh ball is put in their
 	# hands, same placement _reset_ball()'s safety net already uses.
 	_reset_ball()
-	_challenge.begin(_ball, _pick_target_position())
+	if _active_coach == CoachKind.MARKING:
+		_mark_challenge.begin(_ball, _player, _coach_node(CoachKind.MARKING).global_position)
+	else:
+		_challenge.begin(_ball, _pick_target_position())
 
 
 func _pick_target_position() -> Vector3:
@@ -208,9 +255,15 @@ func _pick_target_position() -> Vector3:
 	return _field.centre()
 
 
-func _on_challenge_ended(hits: int, attempts_total: int) -> void:
+func _on_kick_challenge_ended(hits: int, attempts_total: int) -> void:
 	_coach_state = CoachState.NONE
 	_set_hint_text("Practice done — %d/%d on target. Walk back to the coach to go again."
+		% [hits, attempts_total])
+
+
+func _on_mark_challenge_ended(hits: int, attempts_total: int) -> void:
+	_coach_state = CoachState.NONE
+	_set_hint_text("Practice done — %d/%d marked. Walk back to the coach to go again."
 		% [hits, attempts_total])
 
 

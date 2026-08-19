@@ -40,8 +40,17 @@ var _carrier: Node3D = null
 var _release_grace := 0.0
 var _was_airborne := false
 
+## Set true only by a launch() that came off a KICK disposal, and cleared
+## the instant the ball touches down or is gathered — the live "is this
+## still an uninterrupted kick flight" state is_mark_eligible() reads.
+## Handballs/bounces/hit-outs never set this, so they can never be marked,
+## same as real AFL.
+var _is_kick_flight := false
+var _flight_origin := Vector3.ZERO
+
 
 func _ready() -> void:
+	add_to_group(&"ball")
 	mass = Tuning.BALL_MASS
 	continuous_cd = true
 	can_sleep = true
@@ -79,6 +88,9 @@ func _physics_process(delta: float) -> void:
 	var airborne := is_airborne()
 	if _was_airborne and not airborne:
 		landed.emit(linear_velocity.length())
+		# Touched down without being marked — no longer a live mark chance,
+		# same as a kick that bounces before anyone takes it in real AFL.
+		_is_kick_flight = false
 	_was_airborne = airborne
 
 
@@ -101,8 +113,13 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		state.apply_central_force(omega.cross(v) * Tuning.BALL_MAGNUS_COEFF)
 
 
-## Send the ball. `direction` need not be normalised.
-func launch(direction: Vector3, speed: float, spin: Vector3, from: Node3D = null) -> void:
+## Send the ball. `direction` need not be normalised. `is_kick_disposal` marks
+## this flight as mark-eligible (see is_mark_eligible()) — only
+## PlayerController._dispose()'s KICK branch should ever pass true; every
+## other caller (handball, bounce, hit-out, the centre bounce) leaves it
+## false, since none of those can ever be marked.
+func launch(direction: Vector3, speed: float, spin: Vector3, from: Node3D = null,
+		is_kick_disposal: bool = false) -> void:
 	detach()
 	if from != null:
 		# Usually already excluded from carrying it; only swap if the ball
@@ -118,6 +135,8 @@ func launch(direction: Vector3, speed: float, spin: Vector3, from: Node3D = null
 	linear_velocity = direction.normalized() * speed
 	angular_velocity = spin
 	_was_airborne = is_airborne()
+	_is_kick_flight = is_kick_disposal
+	_flight_origin = global_position
 
 
 ## Carry the ball at `point`, following it exactly. Kept as a kinematic
@@ -132,6 +151,7 @@ func attach_to(point: Node3D, holder: Node3D) -> void:
 	freeze = true
 	linear_velocity = Vector3.ZERO
 	angular_velocity = Vector3.ZERO
+	_is_kick_flight = false
 	if is_instance_valid(_carrier) and _carrier != holder:
 		remove_collision_exception_with(_carrier)
 	_carrier = holder
@@ -164,12 +184,35 @@ func is_settled() -> bool:
 	return not is_held and (sleeping or linear_velocity.length() < Tuning.BALL_SLEEP_SPEED)
 
 
+## True while this is still an uninterrupted kick flight that has covered
+## Tuning.MARK_STAND_MIN_DISTANCE — the real AFL test for a legal mark, as
+## opposed to just a good take (see PlayerController._complete_mark, which
+## reads this to decide whether to grant mark protection). Distance is
+## straight-line from where it left the boot: that's what a kick's
+## displacement actually is, regardless of the shape of the arc it flew.
+func is_mark_eligible() -> bool:
+	return _is_kick_flight and not is_held \
+		and global_position.distance_to(_flight_origin) >= Tuning.MARK_STAND_MIN_DISTANCE
+
+
+## An external hit that doesn't control the ball — a spoil, later a bump.
+## Clears mark eligibility the same way landing does (see
+## is_mark_eligible()): a touched ball is no longer a clean, uninterrupted
+## kick, even if it's still in the air afterward. Kept here rather than
+## left to callers reaching into _is_kick_flight directly, so this
+## invariant can't be forgotten at a new call site later.
+func knock(impulse: Vector3) -> void:
+	_is_kick_flight = false
+	apply_central_impulse(impulse)
+
+
 func reset_at(position: Vector3) -> void:
 	detach()
 	if is_instance_valid(_carrier):
 		remove_collision_exception_with(_carrier)
 	_carrier = null
 	_release_grace = 0.0
+	_is_kick_flight = false
 	freeze = false
 	sleeping = false
 	linear_velocity = Vector3.ZERO
