@@ -19,7 +19,6 @@ const HEIGHT := 40.0
 const WIDTH := 560.0
 const ICON_BOX := 40.0
 const ICON_INSET := 8.0
-const ICON_RADIUS := 10
 const LABEL_X := 56.0
 const LABEL_GAP := 10           ## label to its "· LOCKED" suffix
 const BAR_X := 254.0
@@ -37,6 +36,9 @@ const MARKER_X := -16.0
 const MARKER_SIZE := Vector2(3.0, 20.0)
 
 const LOCKED_SUFFIX := "• LOCKED"
+
+## Icon box corner radius — sharp, not SoftBrutalist's 14px.
+const ICON_RADIUS := 6
 
 
 ## Bar squares: filled solid, empty outlined. Split out only because
@@ -60,15 +62,21 @@ class SegmentBar extends Control:
 				draw_rect(Rect2(left, top, SEGMENT_SIZE, SEGMENT_SIZE),
 					UIStyle.SEGMENT_FILL, true)
 			else:
-				# Half-pixel inset so the 1px stroke lands on whole
-				# pixels instead of straddling two and going grey.
+				# Half-pixel inset so the stroke lands on whole pixels
+				# instead of straddling two and going grey. A full
+				# SoftBrutalist.BORDER_WIDTH (3px) stroke would all but
+				# erase an 11px square, so this stays a stroke rather than
+				# the token set's full boxed-element border — 2px is as
+				# far as that token can stretch at this size.
 				draw_rect(Rect2(left + 0.5, top + 0.5,
 					SEGMENT_SIZE - 1.0, SEGMENT_SIZE - 1.0),
-					UIStyle.SEGMENT_EMPTY, false, 1.0)
+					UIStyle.SEGMENT_EMPTY, false, 2.0)
 
 
 var _marker: ColorRect
 var _icon_box: Panel
+var _box_idle: StyleBoxFlat
+var _box_selected: StyleBoxFlat
 var _icon: UIIcon
 var _name: Label
 var _lock: Label
@@ -76,8 +84,6 @@ var _bar: SegmentBar
 var _value: Label
 var _locked := false
 var _accent := UIStyle.ACCENT
-var _box_idle: StyleBoxFlat
-var _box_selected: StyleBoxFlat
 
 
 func _init() -> void:
@@ -96,6 +102,23 @@ func _build() -> void:
 	_icon_box = Panel.new()
 	_icon_box.position = Vector2.ZERO
 	_icon_box.size = Vector2(ICON_BOX, ICON_BOX)
+	# Sharp hairline box (UIStyle.rounded()), not SoftBrutalist's full
+	# boxed-element shape — the icon boxes read sharper and cleaner at
+	# this small size with a 1px ink line than with a 3px border and
+	# 14px corners. A soft drop shadow is added on top of the hairline
+	# box (which never had one), matching SoftBrutalist's "rest" shadow
+	# so the row still reads as lifted off the backdrop.
+	_box_idle = UIStyle.rounded(UIStyle.ICON_BOX_FILL, UIStyle.ICON_BOX_BORDER, 1, ICON_RADIUS)
+	_box_idle.shadow_color = Color(SoftBrutalist.INK.r, SoftBrutalist.INK.g, SoftBrutalist.INK.b, 0.22)
+	_box_idle.shadow_size = SoftBrutalist.SHADOW_REST_SIZE
+	_box_idle.shadow_offset = SoftBrutalist.SHADOW_REST_OFFSET
+
+	_box_selected = UIStyle.rounded(UIStyle.ICON_BOX_FILL, UIStyle.ACCENT, 1, ICON_RADIUS)
+	_box_selected.shadow_color = Color(SoftBrutalist.INK.r, SoftBrutalist.INK.g, SoftBrutalist.INK.b, 0.22)
+	_box_selected.shadow_size = SoftBrutalist.SHADOW_REST_SIZE
+	_box_selected.shadow_offset = SoftBrutalist.SHADOW_REST_OFFSET
+
+	_icon_box.add_theme_stylebox_override(&"panel", _box_idle)
 	add_child(_icon_box)
 
 	_icon = UIIcon.new()
@@ -153,9 +176,6 @@ func configure(icon_name: StringName, display_name: String, locked: bool,
 	# nothing to turn".
 	_accent = UIStyle.ACCENT if not locked else Color(UIStyle.ACCENT, 0.45)
 	_marker.color = _accent
-	_box_idle = UIStyle.rounded(UIStyle.ICON_BOX_FILL, UIStyle.ICON_BOX_BORDER,
-		1, ICON_RADIUS)
-	_box_selected = UIStyle.rounded(UIStyle.ICON_BOX_FILL, _accent, 1, ICON_RADIUS)
 
 
 ## Per-refresh state. `filled` is honoured whether or not the row is
@@ -168,6 +188,5 @@ func set_state(selected: bool, filled: int, value_text: String) -> void:
 	_value.visible = not value_text.is_empty()
 
 	_marker.visible = selected
-	_icon_box.add_theme_stylebox_override(&"panel",
-		_box_selected if selected else _box_idle)
+	_icon_box.add_theme_stylebox_override(&"panel", _box_selected if selected else _box_idle)
 	_icon.line_colour = _accent if selected else UIStyle.ICON_LINE

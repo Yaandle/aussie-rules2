@@ -91,6 +91,44 @@ const SHAPES := {
 	&"play": [
 		["fill", 7.5, 4.0, 19.0, 12.0, 7.5, 20.0],
 	],
+	# AFL ball, side on: an oval outline plus a lace line down the middle —
+	# main_menu.gd's FULL GAME card badge.
+	&"football": [
+		["loop", 21.0, 12.0, 19.8, 15.0, 16.5, 17.2, 12.0, 18.0, 7.5, 17.2,
+			4.2, 15.0, 3.0, 12.0, 4.2, 9.0, 7.5, 6.8, 12.0, 6.0, 16.5, 6.8,
+			19.8, 9.0],
+		["poly", 9.0, 12.0, 15.0, 12.0],
+		["poly", 10.5, 10.5, 10.5, 13.5],
+		["poly", 12.0, 10.0, 12.0, 14.0],
+		["poly", 13.5, 10.5, 13.5, 13.5],
+	],
+	# Witches-hat training cone — main_menu.gd's SCENARIO card badge.
+	&"cone": [
+		["loop", 12.0, 3.0, 8.0, 19.0, 16.0, 19.0],
+		["poly", 6.0, 20.0, 18.0, 20.0],
+		["poly", 9.0, 13.0, 15.0, 13.0],
+	],
+	# AFL goalposts: two tall goal posts flanked by two shorter behind
+	# posts on a baseline — main_menu.gd's GOAL KICKING card badge.
+	&"goalpost": [
+		["poly", 4.0, 10.0, 4.0, 21.0],
+		["poly", 9.0, 3.0, 9.0, 21.0],
+		["poly", 15.0, 3.0, 15.0, 21.0],
+		["poly", 20.0, 10.0, 20.0, 21.0],
+		["poly", 2.0, 21.0, 22.0, 21.0],
+	],
+	# Simple right-pointing chevron-arrow — the "open this" glyph in the
+	# corner of a main_menu.gd card.
+	&"arrow_right": [
+		["poly", 5.0, 12.0, 19.0, 12.0],
+		["poly", 13.5, 6.0, 19.0, 12.0, 13.5, 18.0],
+	],
+	# Padlock — the "· LOCKED" tag glyph.
+	&"lock": [
+		["arc", 12.0, 9.0, 4.0, 200.0, 340.0],
+		["loop", 6.5, 9.0, 17.5, 9.0, 17.5, 20.0, 6.5, 20.0],
+		["dot", 12.0, 14.0, 1.3],
+	],
 }
 
 const ARC_POINTS := 28

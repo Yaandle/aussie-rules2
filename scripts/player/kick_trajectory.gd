@@ -28,7 +28,31 @@ const RING_RADIUS := 0.5
 const RING_THICKNESS := 0.07
 const GROUND_HEIGHT := 0.05       ## simulation stops once the ball would be this low
 
-const COLOUR := Color(0.95, 0.82, 0.35, 0.9)
+## Dot trail tapering: boot-end dashes start smaller/dimmer, landing-end
+## dashes finish larger/brighter, so the arc reads as a directional trail
+## pointing at the landing spot rather than a static row of identical balls.
+const DOT_SCALE_NEAR := 0.55
+const DOT_SCALE_FAR := 1.35
+const DOT_ALPHA_NEAR := 0.35
+const DOT_ALPHA_FAR := 1.0
+
+## Landing ring pulse: subtle scale/alpha breathing so the landing zone
+## reads as "live" without competing with the dashed arc for attention.
+const RING_PULSE_SPEED := 2.0
+const RING_PULSE_SCALE_AMOUNT := 0.04
+const RING_PULSE_ALPHA_AMOUNT := 0.12
+
+## Colour source: res://scripts/ui/soft_brutalist.gd, SoftBrutalist.ACCENT_PRIMARY
+## (#4E9F5B). The raw UI hex reads muddy/low-contrast as an unshaded overlay on
+## grass (green-on-green), so it's lightened and desaturated slightly toward
+## yellow here purely for outdoor 3D legibility — same accent family, tuned
+## for this context rather than matched pixel-for-pixel to the UI swatch.
+var _colour: Color = SoftBrutalist.ACCENT_PRIMARY.lightened(0.35)
+
+var _inner_ring_material: StandardMaterial3D
+var _outer_ring_material: StandardMaterial3D
+var _dot_material: StandardMaterial3D
+var _time := 0.0
 
 @onready var _dots: MultiMeshInstance3D = $Dots
 @onready var _ring: MeshInstance3D = $LandingRing
@@ -37,29 +61,53 @@ const COLOUR := Color(0.95, 0.82, 0.35, 0.9)
 func _ready() -> void:
 	visible = false
 
-	var material := StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.albedo_color = COLOUR
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_dot_material = StandardMaterial3D.new()
+	_dot_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_dot_material.albedo_color = _colour
+	_dot_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_dot_material.vertex_color_use_as_albedo = true   # lets per-instance MultiMesh colours modulate the shared mesh
 
 	var dot_mesh := SphereMesh.new()
 	dot_mesh.radius = DOT_RADIUS
 	dot_mesh.height = DOT_RADIUS * 2.0
 	dot_mesh.radial_segments = 8
 	dot_mesh.rings = 4
-	dot_mesh.material = material
+	dot_mesh.material = _dot_material
 
 	var multimesh := MultiMesh.new()
 	multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	multimesh.use_colors = true
 	multimesh.mesh = dot_mesh
 	multimesh.instance_count = MAX_DOTS
 	multimesh.visible_instance_count = 0
 	_dots.multimesh = multimesh
 
-	var ring_mesh := TorusMesh.new()
-	ring_mesh.inner_radius = RING_RADIUS - RING_THICKNESS
-	ring_mesh.outer_radius = RING_RADIUS
-	ring_mesh.material = material
+	# Two-layer "landing zone" look: a soft, wider outer ring plus a
+	# brighter, thinner inner ring, combined as two surfaces of one
+	# ArrayMesh so a single MeshInstance3D can still carry both.
+	_outer_ring_material = StandardMaterial3D.new()
+	_outer_ring_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_outer_ring_material.albedo_color = Color(_colour.r, _colour.g, _colour.b, _colour.a * 0.35)
+	_outer_ring_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+
+	_inner_ring_material = StandardMaterial3D.new()
+	_inner_ring_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_inner_ring_material.albedo_color = _colour
+	_inner_ring_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+
+	var outer_torus := TorusMesh.new()
+	outer_torus.inner_radius = RING_RADIUS - RING_THICKNESS * 1.8
+	outer_torus.outer_radius = RING_RADIUS + RING_THICKNESS * 0.6
+
+	var inner_torus := TorusMesh.new()
+	inner_torus.inner_radius = RING_RADIUS - RING_THICKNESS * 0.55
+	inner_torus.outer_radius = RING_RADIUS
+
+	var ring_mesh := ArrayMesh.new()
+	ring_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, outer_torus.get_mesh_arrays())
+	ring_mesh.surface_set_material(0, _outer_ring_material)
+	ring_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, inner_torus.get_mesh_arrays())
+	ring_mesh.surface_set_material(1, _inner_ring_material)
 	_ring.mesh = ring_mesh
 
 
@@ -71,21 +119,37 @@ func update_preview(active: bool, origin: Vector3, launch_velocity: Vector3) -> 
 	if not active:
 		return
 
+	# Driven every frame while charging, so this doubles as our pulse clock —
+	# no separate _process needed just to keep a hidden node ticking.
+	_time += get_process_delta_time()
+
 	var points := _simulate(origin, launch_velocity)
 	var shown := _downsample(points, MAX_DOTS)
 	var multimesh := _dots.multimesh
 	multimesh.visible_instance_count = shown.size()
+	var last := shown.size() - 1
 	for i in shown.size():
+		var t := 0.0 if last <= 0 else float(i) / float(last)
+		var scale := lerpf(DOT_SCALE_NEAR, DOT_SCALE_FAR, t)
+		var alpha := lerpf(DOT_ALPHA_NEAR, DOT_ALPHA_FAR, t)
 		# MultiMesh instance transforms are local to _dots, which follows
 		# the player like any other child node — to_local() converts the
 		# simulation's world-space points into that space so a dash lands
 		# exactly at its simulated world position regardless of where the
 		# player is standing or facing.
-		multimesh.set_instance_transform(i, Transform3D(Basis.IDENTITY, _dots.to_local(shown[i])))
+		var xform := Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * scale), _dots.to_local(shown[i]))
+		multimesh.set_instance_transform(i, xform)
+		multimesh.set_instance_color(i, Color(_colour.r, _colour.g, _colour.b, _colour.a * alpha))
 
 	var landing := points[points.size() - 1] if not points.is_empty() else origin
 	landing.y = 0.02   # just off the turf, same reasoning as Field's line markings
 	_ring.global_position = landing
+
+	var pulse := sin(_time * RING_PULSE_SPEED)
+	_ring.scale = Vector3.ONE * (1.0 + pulse * RING_PULSE_SCALE_AMOUNT)
+	var alpha_mod := 1.0 + pulse * RING_PULSE_ALPHA_AMOUNT
+	_inner_ring_material.albedo_color = Color(_colour.r, _colour.g, _colour.b, clampf(_colour.a * alpha_mod, 0.0, 1.0))
+	_outer_ring_material.albedo_color = Color(_colour.r, _colour.g, _colour.b, clampf(_colour.a * 0.35 * alpha_mod, 0.0, 1.0))
 
 
 ## Steps the flight all the way to the ground rather than for a fixed

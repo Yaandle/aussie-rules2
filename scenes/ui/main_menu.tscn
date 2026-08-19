@@ -1,11 +1,7 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/main_menu.gd" id="1_menu"]
 [ext_resource type="PackedScene" path="res://scenes/ui/menu_backdrop.tscn" id="2_backdrop"]
-[ext_resource type="Shader" path="res://assets/shaders/ui_glow_border.gdshader" id="3_glow"]
-
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_glow"]
-shader = ExtResource("3_glow")
 
 [node name="MainMenu" type="CanvasLayer"]
 script = ExtResource("1_menu")
@@ -24,47 +20,3 @@ own_world_3d = true
 size = Vector2i(1280, 720)
 
 [node name="MenuBackdrop" parent="BackdropContainer/SubViewport" instance=ExtResource("2_backdrop")]
-
-[node name="Scrim" type="ColorRect" parent="."]
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-color = Color(0.05, 0.06, 0.05, 0.22)
-
-[node name="GlowBorder" type="ColorRect" parent="."]
-material = SubResource("ShaderMaterial_glow")
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -636.0
-offset_top = -354.5
-offset_right = 636.0
-offset_bottom = 354.5
-grow_horizontal = 2
-grow_vertical = 2
-mouse_filter = 2
-color = Color(1, 1, 1, 1)
-
-[node name="Label" type="RichTextLabel" parent="."]
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -220.0
-offset_top = -140.0
-offset_right = 220.0
-offset_bottom = 140.0
-grow_horizontal = 2
-grow_vertical = 2
-theme_override_colors/default_color = Color(0.95, 0.96, 0.9, 1)
-theme_override_colors/font_outline_color = Color(0.03, 0.04, 0.03, 0.85)
-theme_override_constants/outline_size = 5
-theme_override_font_sizes/normal_font_size = 22
-bbcode_enabled = true
-fit_content = true
-scroll_active = false

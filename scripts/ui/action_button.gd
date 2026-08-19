@@ -13,7 +13,9 @@ const HEIGHT := 44.0
 const PAD_X := 20
 const ICON_SIZE := 18.0
 const ICON_GAP := 14
-const RADIUS := 8
+
+## Button corner radius — sharp, not SoftBrutalist's 14px.
+const RADIUS := 6
 
 var _icon: UIIcon
 var _label: Label
@@ -26,12 +28,12 @@ func _init(text := "") -> void:
 	custom_minimum_size.y = HEIGHT
 	size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 
-	# Idle already shows the accent border — the reference's resting
-	# state is a visible teal outline, not a grey one that lights up. The
-	# selected state doubles the border and warms the fill instead.
-	_box_idle = _panel(Color(UIStyle.PANEL_FILL, 0.82), Color(UIStyle.ACCENT, 0.55), 1)
-	_box_selected = _panel(UIStyle.PANEL_FILL.lerp(UIStyle.ACCENT, 0.07),
-		UIStyle.ACCENT, 2)
+	# Sharp hairline box (UIStyle.rounded()), not SoftBrutalist's full
+	# boxed-element shape — reads sharper and matches the icon boxes'
+	# hairline treatment. "Selected" swaps in the accent-bordered cut
+	# directly rather than tweening through SoftBrutalist.animate_state().
+	_box_idle = _panel(UIStyle.ICON_BOX_FILL, UIStyle.ICON_BOX_BORDER)
+	_box_selected = _panel(UIStyle.ICON_BOX_FILL, UIStyle.ACCENT)
 	add_theme_stylebox_override(&"panel", _box_idle)
 
 	var row := HBoxContainer.new()
@@ -56,8 +58,8 @@ func set_selected(selected: bool) -> void:
 	add_theme_stylebox_override(&"panel", _box_selected if selected else _box_idle)
 
 
-func _panel(fill: Color, border: Color, width: int) -> StyleBoxFlat:
-	var box := UIStyle.rounded(fill, border, width, RADIUS)
+func _panel(fill: Color, border: Color) -> StyleBoxFlat:
+	var box := UIStyle.rounded(fill, border, 1, RADIUS)
 	box.content_margin_left = PAD_X
 	box.content_margin_right = PAD_X + 4
 	box.content_margin_top = 0

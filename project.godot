@@ -23,7 +23,6 @@ GameState="*res://scripts/autoload/game_state.gd"
 MatchState="*res://scripts/autoload/match_state.gd"
 CharacterProfile="*res://scripts/autoload/character_profile.gd"
 SceneWipe="*res://scripts/autoload/scene_wipe.gd"
-AiTestConfig="*res://scripts/autoload/ai_test_config.gd"
 
 [display]
 

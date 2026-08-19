@@ -29,6 +29,7 @@ const KICKOFF_DEPTH := 30.0     ## m from centre each team lines up at
 var _home_players: Array[PlayerController] = []
 var _away_players: Array[PlayerController] = []
 var _controlled_index := 0
+var _crosshair: KickCrosshair
 
 var _pause_timer := 0.0
 var _pause_callback := Callable()
@@ -43,6 +44,10 @@ func _ready() -> void:
 	_spawn_teams()
 	_hud.player = _home_players[_controlled_index]
 	_hud.ball = _ball
+
+	_crosshair = KickCrosshair.new()
+	_crosshair.player = _home_players[_controlled_index]
+	add_child(_crosshair)
 
 	_start_match()
 
@@ -277,3 +282,4 @@ func _switch_human_player() -> void:
 	_camera.recenter()
 
 	_hud.player = next
+	_crosshair.player = next

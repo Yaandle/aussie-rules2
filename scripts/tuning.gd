@@ -208,6 +208,15 @@ const KICK_AIM_ASSIST_STRENGTH := 6.0
 const KICK_AIM_ASSIST_CONE_DEG := 18.0
 const KICK_AIM_ASSIST_RANGE := 60.0
 
+# Keyboard/mouse has no stick position for kick_charge_override() to read
+# (that's gamepad-only), so power comes from PlayerController._update_kick_
+# aim() instead: arrow up/down reads as a held rate over KICK_CHARGE_TIME,
+# same pacing the old ramp and AI's ramp both already use (deliberately not
+# a second, independent knob); mouse motion is a raw per-frame delta, this
+# many power-fraction-per-pixel, same idea as CAM_MOUSE_SENSITIVITY but in
+# 0..1 units instead of degrees since there's no angle involved here.
+const KICK_MOUSE_REACH_SENSITIVITY := 0.0035
+
 # Action timing, indexed by Action. CONTACT is when the ball actually
 # leaves — partway through the swing, not at either end of it.
 #

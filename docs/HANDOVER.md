@@ -1088,3 +1088,171 @@ that distance scales with `kick_power_scale` as expected — 24.7m at 0.7x,
 45.2m at 1.0x, 67.8m at 1.3x, all at the same full charge. A weak
 min-charge/min-power kick landed in 13 raw steps, under the 22-dot cap,
 confirming the unchanged path for short kicks.
+
+---
+
+## Handover — aim starts from the camera, not the body; keyboard/mouse power off the ramp (Agent: mechanics/engine)
+
+Two more asks from the same play session. Both are about where a kick's
+aim *starts* and how its power is *set*, not the trajectory maths from
+the previous entry (untouched this round).
+
+### Aim starts from the camera, not body facing
+
+The concrete complaint: camera turned to line up a shot on goals while
+the body's still running a different line — pull LT, and the kick used
+to start aimed wherever the *body* was facing, not what was on screen.
+`_update_charge()` snapped `_kick_aim_yaw = _facing_yaw` the instant
+stance began; the right stick/mouse could swing it from there, but the
+starting point itself ignored the camera entirely.
+
+New `PlayerController._current_look_yaw()` reads the camera's own current
+forward vector (`camera.global_transform.basis.z`, flattened to yaw —
+same `atan2(-x, -z)` convention `_update_facing()`/`_nearest_teammate_for_
+assist()` already use, just pointed at the camera instead of a movement/
+facing direction) and that's what the aim now snaps to on entering
+stance. `camera` is already the actual `Camera3D` leaf
+(`BroadcastCamera.camera()`, assigned by each mode — see `main.gd`/
+`kick_to_kick.gd`/`full_game.gd`), which inherits the full yaw+pitch the
+rig's `$Yaw`/`$Pitch` pivots apply, so this needed no new coupling to
+`BroadcastCamera` itself, and mirrors `HumanBrain.wish_direction()`'s
+existing camera-forward-flattening pattern rather than inventing a
+second one. Falls back to `_facing_yaw` with no camera assigned — AI
+never gets one (`full_game.gd` only assigns `camera` to the one
+human-controlled `PlayerController`), so **AI kicks are unaffected, still
+body-forward, exactly as before**. Hip-fire is *deliberately* left on
+`_facing_yaw` too — it's specifically the "didn't aim down sights"
+option, so it stays tied to the body on purpose; only the ADS/stance path
+changed.
+
+**New: `KickCrosshair`** (`scripts/ui/kick_crosshair.gd`, plain
+`CanvasLayer`, no `.tscn` — built in `_ready()`, same "simple enough not
+to need a scene file" call `kick_to_kick.gd`'s placeholder prompt already
+made). A small dot pinned to screen centre — no 3D→2D projection needed,
+since for a perspective camera with no lens offset "straight down the
+camera's forward axis" *is* screen centre by definition, so the widget's
+position never has to know anything about the camera's actual rotation.
+Faint (`IDLE_ALPHA` 0.35) normally, brighter (`AIM_ALPHA` 0.85) while
+`player.is_kick_aiming()`, lerped between the two rather than snapped.
+Colour matches `KickTrajectory`'s gold on purpose (same "this is the
+kick-aim system" visual language as the dashed line/ring) but as its own
+literal `Color` constant, not a cross-class reference — see the next
+section, that turned out not to be optional. Instantiated once per mode
+(`kick_to_kick.gd`, `full_game.gd`) alongside the existing `_hud.player =
+...` assignment, and re-pointed at the new player in `full_game.gd`'s
+`_switch_human_player()` the same way `_hud.player` already is.
+
+**Papercut hit while building it, and a correction**: `KickCrosshair`
+first read `KickTrajectory.COLOUR` directly, and briefly failed to
+compile — `Parse Error: Cannot find member "COLOUR" in base
+"KickTrajectory"`. First guess was a genuine GDScript limitation on
+cross-`class_name` const access and said so here; that guess was wrong,
+worth correcting rather than leaving stated as fact. `SoftBrutalist.
+ACCENT_PRIMARY`/`.INK`/`.panel_style()` are the exact same shape of
+access (`class_name` script, `const`/`static func`, referenced from
+`debug_hud.gd` by class name) and work fine, including in this entry's
+own `KickCrosshair` once pointed at `SoftBrutalist` instead — so cross-
+class const access isn't the problem. Far more likely: `kick_trajectory.
+gd` was being actively hand-edited in the Godot editor, in parallel with
+this session, for the entire second half of this round — dot tapering
+(size/alpha gradient along the trail), a two-layer pulsing landing ring,
+and its colour switched from a local literal to `SoftBrutalist.
+ACCENT_PRIMARY.lightened(0.35)` (an *instance* field now, computed in
+`_ready()`, not the `const COLOUR` this entry's first draft above was
+written against — see that file directly, not this doc, for its current
+shape). The compile error most likely caught a mid-save/transient state
+of that file, not a real language limitation. Once noticed,
+`KickCrosshair` was pointed at the same `SoftBrutalist.ACCENT_PRIMARY.
+lightened(0.35)` source directly (not read live off `KickTrajectory`,
+which is a per-instance field there now, not a class-level constant
+anything else could reach into) so the dot keeps matching the trail/ring
+it's meant to visually agree with. `kick_trajectory.gd`'s other visual
+changes are untouched by this session — not this agent's work, not
+reverted, not reviewed for correctness, purely noted so the diff makes
+sense to whoever reads it next.
+
+### Keyboard/mouse power off the ramp
+
+The complaint: keyboard still used last round's outdated model — hold K,
+power ramps up over `KICK_CHARGE_TIME`, one-way, release-and-recharge to
+go back down. Gamepad got a live/reversible reach in the "kick power off
+the aim stick" entry above; keyboard didn't.
+
+The fix reuses machinery that was already half-there rather than
+inventing a parallel system. Two things were sitting idle during aim:
+
+- **Arrow up/down**, bound to the same `camera_up`/`camera_down` actions
+  `InputManager.get_look_vector()` already reads for `.y` — already
+  flowing through that function for keyboard players, just never
+  consumed, since `_update_kick_aim()` only ever read `.x` off it (for
+  yaw) and `kick_charge_override()`/`kick_reach_strength()` explicitly
+  gate `.y` to gamepad only.
+- **Mouse vertical motion**, drained every frame by `take_mouse_look()`
+  alongside `.x` (which drives yaw), with `.y` simply discarded.
+
+`_update_kick_aim()` now spends both, for any non-gamepad device: arrow
+up/down as a held *rate* (`stick.y * delta / KICK_CHARGE_TIME` — same
+pacing the ramp and AI's ramp both already use, deliberately not a second
+independent knob), mouse motion as a raw per-frame delta
+(`Tuning.KICK_MOUSE_REACH_SENSITIVITY`, new constant, pixels→power-
+fraction same idea as `CAM_MOUSE_SENSITIVITY` but unitless instead of
+degrees). Both added into `_kick_charge`, clamped 0..1, live and
+reversible either direction — arrow-up/mouse-forward raises it, arrow-
+down/mouse-back lowers it, matching the sign convention `_update_rotation
+()`'s existing mouse-pitch term already set (`_pitch -= mouse.y`, i.e.
+mouse-up increases the value it's steering).
+
+Getting there took a wrong turn worth recording: the first draft tried
+making `kick_reach_strength()` device-agnostic (drop its `device !=
+GAMEPAD` gate, since `get_look_vector().y` already reads arrow keys) and
+let `_update_charge()`'s existing `override >= 0.0` branch handle
+keyboard too, same as gamepad. That's wrong — that branch treats the
+value as an absolute position (`_kick_charge = override`, a hard snap
+every frame), which is correct for a stick that physically holds its
+deflection but not for a digital key: a keyboard player not currently
+holding either arrow reads `0.0` — still `>= 0.0`, so it *snaps* `_kick_
+charge` back to zero every single frame arrows aren't held, wiping out
+any mouse-driven adjustment made a moment earlier before it could
+persist. `kick_charge_override()`/`kick_reach_strength()` were left
+exactly as they were (still gamepad-only); the keyboard path lives
+entirely in `_update_charge()`'s new `elif not (_brain is HumanBrain)`
+branch (skips the ramp for a human on keyboard, since `_update_kick_aim`
+handles it) plus the accumulation in `_update_kick_aim()` itself — an
+accumulator that's nudged, never snapped, which is what actually makes it
+reversible without self-erasing.
+
+**Not carried over on purpose**: the x/y shared-radial-curve coupling
+flagged in the "kick power off the aim stick" entry (`LOOK_CURVE`
+shaping `get_look_vector()`'s combined magnitude before x/y split) also
+applies to two arrow keys held together — e.g. up+right for power+yaw at
+once shapes to roughly 71% of either held alone. Same root cause as the
+gamepad note, not re-litigated in full here; flagging once more since
+this is now the second control scheme it quietly touches.
+
+### Verification
+
+Both standard headless passes clean, exit 0, after first re-running the
+`--headless --editor --quit` global-class-cache rescan this project's
+memory already documents (`KickCrosshair` is a brand-new `class_name` —
+skipping the rescan reproduces exactly the stale-cache failure that note
+warns about, confirmed by hitting it, not just reading about it, on the
+first attempt before the `COLOUR` fix was even in yet). Neither headless
+pass exercises `_current_look_yaw()`'s human path or the new keyboard
+power accumulation directly — headless generates no real input events, so
+`_charging` never goes true for a `HumanBrain` there — but both do
+exercise `KickCrosshair._process()` every frame (idle-alpha path, no
+errors) and confirm AI's unchanged body-forward/ramp paths still compile
+and run through a full match/practice session. The yaw maths itself
+wasn't re-verified numerically this round — it's the same `atan2(-x,-z)`
+pattern already proven correct three other places in this file, applied
+to a fourth vector, not new maths.
+
+### Open questions carried forward
+
+All new this round, none playtested: `Tuning.KICK_MOUSE_REACH_SENSITIVITY`
+(0.0035, a first guess at how many pixels should swing empty-to-full),
+whether arrow-key power (a purely binary 0-or-1 input, unlike the
+gamepad's or mouse's continuous one) feels acceptable as a fallback or
+needs its own easing, and the crosshair's own idle/aim alpha and fade
+rate (0.35/0.85/rate 10). Plus everything already open from the last two
+entries — none of that has been played either.

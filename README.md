@@ -41,20 +41,23 @@ Verified: `godot --headless --path . --quit-after 300` exits 0 with no errors.
 | Switch player · Pause | `Tab` · `Esc` | LB · Start |
 | Reset ball · Debug HUD | `R` · `F3` | Back · D-pad up |
 
-Kick is two ways to fire, both off the same trigger. Hold K/LT to enter a
-slowed ADS stance — the right stick or mouse swings the kick's aim
-independently of which way the body is facing, same as the on-screen
-trajectory preview, at a deliberately unhurried turn rate for precision —
-then tap F/RT to strike at whatever power/aim is currently showing on the
-preview. On a pad, the same stick sets power too — push it forward for a
-longer kick, ease back for shorter, live and reversible right up until you
-fire; keyboard has no stick to read that from, so K instead ramps power
-the longer it's held, same as before. Releasing K/LT without ever tapping
-F/RT cancels outright rather than firing. Tap
-F/RT **without** ever holding K/LT and you hip-fire instead: an instant
-kick wherever the body's currently facing, fixed middling power, no charge,
-and noticeably less accurate — the "didn't aim down sights" option, for
-when there's no time to line one up. On a pad, aiming also gets a soft
+Kick is two ways to fire, both off the same trigger. A faint dot always
+sits at screen centre marking where the camera's currently pointed — hold
+K/LT to enter a slowed ADS stance and the kick's aim starts exactly there,
+not wherever the body's facing, so turning the camera toward goals while
+still running a different line lines the kick up correctly the moment you
+pull the trigger. From that starting point the right stick or mouse swings
+the aim further, same as the on-screen trajectory preview, at a
+deliberately unhurried turn rate for precision — then tap F/RT to strike
+at whatever power/aim is currently showing. Power is live and reversible
+either way, never a one-way ramp: on a pad, the same stick's forward/back
+position sets it directly; on keyboard/mouse, arrow up/down and mouse
+movement both nudge it up or down, live, right up until you fire.
+Releasing K/LT without ever tapping F/RT cancels outright rather than
+firing. Tap F/RT **without** ever holding K/LT and you hip-fire instead:
+an instant kick wherever the body's currently facing — not the camera,
+there's no time to aim down sights here — fixed middling power, no
+charge, and noticeably less accurate. On a pad, aiming also gets a soft
 pull toward the nearest teammate roughly in the aim direction (not a
 lock-on) — ported from Prototype 1's own aim-assist, confirmed to be a
 real, deliberate system there and not something invented for this port.

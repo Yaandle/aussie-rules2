@@ -423,14 +423,23 @@ func _update_charge(delta: float) -> void:
 	if _brain.wants_kick() and is_carrying():
 		if not _charging:
 			_charging = true
-			_kick_aim_yaw = _facing_yaw
+			# Wherever the camera/crosshair is currently pointing, not body
+			# facing — see _current_look_yaw(). Camera turned toward goals
+			# while still running a different line, then pull the trigger:
+			# the kick starts aimed at goals, not wherever your legs
+			# happened to be carrying you.
+			_kick_aim_yaw = _current_look_yaw()
 		var override := _brain.kick_charge_override()
 		if override >= 0.0:
 			# Power is wherever the trajectory line currently reaches to —
 			# a gamepad's right stick sets it directly and live, not a
 			# value that only ever ramps up with no way back down.
 			_kick_charge = override
-		else:
+		elif not (_brain is HumanBrain):
+			# AI has no stick/mouse to read a live position from, so it
+			# keeps the original hold-duration ramp. A human on keyboard/
+			# mouse gets a live, reversible read too now — see
+			# _update_kick_aim(), just below, not a ramp at all any more.
 			_kick_charge = minf(1.0, _kick_charge + delta / Tuning.KICK_CHARGE_TIME)
 		_update_kick_aim(delta)
 		if _brain.wants_kick_execute():
@@ -443,11 +452,14 @@ func _update_charge(delta: float) -> void:
 	elif _brain.wants_kick_execute() and is_carrying():
 		_hip_fire_kick = true
 		_kick_charge = Tuning.KICK_HIP_FIRE_CHARGE
-		# Fresh body-facing every time, not whatever _kick_aim_yaw was last
-		# left at by an earlier cancelled ADS attempt — _kick_parameters()
-		# reads _kick_aim_yaw unconditionally, so this is what actually
-		# makes a hip-fire go "wherever the body's facing" rather than
-		# some stale aim.
+		# Fresh body-facing every time — deliberately _facing_yaw, not
+		# _current_look_yaw(): hip-fire is specifically "didn't aim down
+		# sights," so it stays tied to the body the way it always has,
+		# not wherever the camera happens to be pointed. Also not whatever
+		# _kick_aim_yaw was last left at by an earlier cancelled ADS
+		# attempt — _kick_parameters() reads _kick_aim_yaw unconditionally,
+		# so this is what actually makes a hip-fire go "wherever the
+		# body's facing" rather than some stale aim.
 		_kick_aim_yaw = _facing_yaw
 		_begin(Tuning.Action.KICK)
 
@@ -468,11 +480,11 @@ func _update_charge(delta: float) -> void:
 
 ## Right stick (or mouse, off the same look input the camera would
 ## otherwise be reading — see BroadcastCamera._is_target_aiming) swings
-## the aim yaw independently of where the body is facing or heading.
-## AI has nothing to feed this, so it simply never moves past the
-## body-forward snapshot _update_charge took when stance began — which is
-## exactly its old always-body-forward kick, just captured a moment
-## earlier now.
+## the aim yaw independently of where the body is facing or heading. AI
+## has nothing to feed this, and no camera assigned either (see
+## _current_look_yaw()'s fallback), so it simply never moves past the
+## body-forward snapshot _update_charge took when stance began — exactly
+## its old always-body-forward kick, unchanged by any of this.
 func _update_kick_aim(delta: float) -> void:
 	if not (_brain is HumanBrain):
 		return
@@ -480,7 +492,37 @@ func _update_kick_aim(delta: float) -> void:
 	var mouse := InputManager.take_mouse_look()
 	_kick_aim_yaw -= stick.x * deg_to_rad(Tuning.KICK_AIM_YAW_SPEED) * delta \
 		+ deg_to_rad(mouse.x)
+	if InputManager.device != InputManager.Device.GAMEPAD:
+		# No stick position for kick_charge_override() to read on keyboard
+		# (see that function) — power comes from here instead, the same
+		# per-axis split as aim yaw just above: arrow up/down is a held
+		# rate (stick.y, the same vector's other axis, paced the same as
+		# the hold-ramp everyone else still uses), mouse is a raw
+		# per-frame delta. Both push the reach up AND down live, same
+		# spirit as a gamepad's stick position — replaces holding K alone
+		# auto-ramping power up with no way back down.
+		_kick_charge = clampf(_kick_charge
+			+ stick.y * delta / Tuning.KICK_CHARGE_TIME
+			- mouse.y * Tuning.KICK_MOUSE_REACH_SENSITIVITY, 0.0, 1.0)
 	_apply_aim_assist(delta)
+
+
+## Where the camera (and the on-screen crosshair — see KickCrosshair,
+## instantiated by whichever mode owns this scene) is currently pointing,
+## flattened to yaw. What a freshly-entered aim stance snaps to instead of
+## body facing — see _update_charge. Falls back to _facing_yaw with no
+## camera assigned (AI, and this node under test headless — same reasoning
+## HumanBrain.wish_direction's own camera fallback documents) or if the
+## camera happens to be looking close enough to straight down/up that a
+## flattened forward has nothing meaningful left to point along.
+func _current_look_yaw() -> float:
+	if not is_instance_valid(camera):
+		return _facing_yaw
+	var forward := -camera.global_transform.basis.z
+	forward.y = 0.0
+	if forward.length_squared() < 0.000001:
+		return _facing_yaw
+	return atan2(-forward.x, -forward.z)
 
 
 ## Soft pull toward the nearest teammate roughly in the aim direction — a

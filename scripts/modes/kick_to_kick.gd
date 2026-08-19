@@ -33,6 +33,7 @@ enum CoachState { NONE, PROMPT, DIALOGUE, CHALLENGE }
 var _coach: CoachNPC
 var _challenge: KickChallenge
 var _coach_state := CoachState.NONE
+var _crosshair: KickCrosshair
 
 ## PLACEHOLDER: a bare Label standing in for the real coach dialogue
 ## bubble / hint UI (design brief describes a proper chat bubble; UI is
@@ -58,6 +59,10 @@ func _ready() -> void:
 
 	_hud.player = _player
 	_hud.ball = _ball
+
+	_crosshair = KickCrosshair.new()
+	_crosshair.player = _player
+	add_child(_crosshair)
 
 	_player.ball_disposed.connect(_on_ball_disposed)
 

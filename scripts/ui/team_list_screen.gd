@@ -1,44 +1,33 @@
 class_name TeamListScreen
 extends CanvasLayer
 
-## Read-only Team List / Edit Team preview (design brief's Team List
-## screen, starting scope): a top-down whiteboard of the field outline
-## with a dot for each of TeamFormation's 18 slots, plus a legend of the
-## six position lines. Reached from the main menu via the "team_menu"
-## action (T), the same way character_menu (C) reaches CharacterScreen —
-## see main_menu.gd.
+## Team List screen: a top-down whiteboard preview of a team's starting
+## layout (FormationWhiteboard, driven by TeamFormation's fixed 18
+## slots). Reached from the main menu via the "team_menu" action (T),
+## same as character_menu (C) reaches CharacterScreen — see main_menu.gd.
 ##
-## Deliberately its own visual identity: neo-morphism/soft-UI (see
-## neo_panel.gd) over a muted retro palette, not the bright broadcast look
-## the rest of the game uses — the same reasoning CharacterScreen's dark
-## teal "studio" look was kept apart from match-day styling (see that
-## script's header). ui_style.gd's palette is not reused here for that
-## reason, though its component *pattern* (FontVariation type scale,
-## rounded() StyleBox factory) is: `_font()` below is the same
-## FontVariation idea with this screen's own weights, and NeoPanel's
-## StyleBoxFlat.draw() calls are UIStyle.rounded()'s technique extended to
-## three layered boxes instead of one.
+## Built on the Soft Brutalist system (see soft_brutalist.gd) like the
+## rest of the game's UI, rather than owning its own separate visual
+## identity the way this screen used to (neo-morphism over a muted retro
+## palette, see the old NeoPanel-based revision).
 ##
-## Wiring formations into a live kickoff, editing rosters, or picking
-## which formation a team uses are explicitly out of scope for this pass
-## (see the brief) — this screen only ever shows the one data-driven
-## layout TeamFormation.SLOTS describes.
-
-const BG_COLOUR := Color("#ded6c3")
-const PANEL_FILL := Color("#e2dbc9")
-const SHADOW_DARK := Color("#b9ae95")
-const SHADOW_LIGHT := Color("#fbf7ea")
-const TEXT_PRIMARY := Color("#4a4436")
-const TEXT_MUTED := Color("#8c826c")
-const ACCENT := Color("#b5652f")
+## Read-only: roster editing (which real players fill which slot) and
+## picking between multiple named formations are out of scope for this
+## pass, and the previous team_size / start-positions controls have been
+## removed now that the roster is fixed at the full 18-a-side (4 on the
+## interchange bench, informational only) — this screen just previews
+## TeamFormation.SLOTS's one data-driven layout.
 
 const MARGIN := 36.0
 const HEADER_HEIGHT := 78.0
 const LEGEND_WIDTH := 224.0
+const LEGEND_HEIGHT := 248.0
 const PANEL_GAP := 18.0
 const HINT_HEIGHT := 30.0
+const INFO_HEIGHT := 72.0
 
 var _busy := false
+var _whiteboard: FormationWhiteboard
 
 
 func _ready() -> void:
@@ -49,12 +38,13 @@ func _ready() -> void:
 
 	var background := ColorRect.new()
 	background.set_anchors_preset(Control.PRESET_FULL_RECT)
-	background.color = BG_COLOUR
+	background.color = SoftBrutalist.BACKGROUND
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(background)
 
 	_build_header(root)
 	_build_legend(root)
+	_build_info_panel(root)
 	_build_whiteboard(root)
 	_build_hint(root)
 
@@ -76,13 +66,11 @@ func _exit_to_menu() -> void:
 # ── Build ────────────────────────────────────────────────────────────
 
 func _build_header(root: Control) -> void:
-	var panel := NeoPanel.new()
-	panel.base_fill = PANEL_FILL
-	panel.shadow_dark = SHADOW_DARK
-	panel.shadow_light = SHADOW_LIGHT
-	panel.radius = 20
+	var panel := Panel.new()
+	panel.add_theme_stylebox_override(&"panel", SoftBrutalist.panel_style())
 	panel.position = Vector2(MARGIN, MARGIN)
 	panel.size = Vector2(1280.0 - MARGIN * 2.0, HEADER_HEIGHT)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(panel)
 
 	var column := VBoxContainer.new()
@@ -90,19 +78,19 @@ func _build_header(root: Control) -> void:
 	column.add_theme_constant_override(&"separation", 2)
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(column)
-	column.add_child(_label("TEAM LIST", 26, TEXT_PRIMARY, 0.35, 4))
-	column.add_child(_label("18-A-SIDE FORMATION PREVIEW · READ ONLY", 12, TEXT_MUTED, -0.2, 1))
+	column.add_child(SoftBrutalist.label("TEAM LIST", 26, SoftBrutalist.INK,
+		SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_TITLE))
+	column.add_child(SoftBrutalist.label("STARTING FORMATION PREVIEW", 12,
+		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_REGULAR, SoftBrutalist.TRACK_LABEL))
 
 
 func _build_legend(root: Control) -> void:
 	var top := MARGIN + HEADER_HEIGHT + PANEL_GAP
-	var panel := NeoPanel.new()
-	panel.base_fill = PANEL_FILL
-	panel.shadow_dark = SHADOW_DARK
-	panel.shadow_light = SHADOW_LIGHT
-	panel.radius = 20
+	var panel := Panel.new()
+	panel.add_theme_stylebox_override(&"panel", SoftBrutalist.panel_style())
 	panel.position = Vector2(MARGIN, top)
-	panel.size = Vector2(LEGEND_WIDTH, 720.0 - top - MARGIN - HINT_HEIGHT - PANEL_GAP)
+	panel.size = Vector2(LEGEND_WIDTH, LEGEND_HEIGHT)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(panel)
 
 	var column := VBoxContainer.new()
@@ -110,7 +98,8 @@ func _build_legend(root: Control) -> void:
 	column.add_theme_constant_override(&"separation", 14)
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(column)
-	column.add_child(_label("POSITION LINES", 13, TEXT_PRIMARY, 0.2, 2))
+	column.add_child(SoftBrutalist.label("POSITION LINES", 13, SoftBrutalist.INK,
+		SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL))
 
 	for line: int in TeamFormation.LINE_NAMES.size():
 		var row := HBoxContainer.new()
@@ -123,42 +112,51 @@ func _build_legend(root: Control) -> void:
 		swatch.color = FormationWhiteboard.LINE_COLOURS[line]
 		swatch.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_child(swatch)
-		row.add_child(_label(TeamFormation.LINE_NAMES[line], 13, TEXT_PRIMARY, -0.1, 1))
+		row.add_child(SoftBrutalist.label(TeamFormation.LINE_NAMES[line], 13,
+			SoftBrutalist.INK, SoftBrutalist.WEIGHT_REGULAR, 0))
+
+
+## Small static info card filling the slot the old editable "TEAM SIZE" /
+## "START POSITIONS" panel used to occupy — the roster is fixed now, so
+## this is read-only context rather than a control.
+func _build_info_panel(root: Control) -> void:
+	var top := MARGIN + HEADER_HEIGHT + PANEL_GAP * 2.0 + LEGEND_HEIGHT
+	var panel := Panel.new()
+	panel.add_theme_stylebox_override(&"panel", SoftBrutalist.panel_style())
+	panel.position = Vector2(MARGIN, top)
+	panel.size = Vector2(LEGEND_WIDTH, INFO_HEIGHT)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(panel)
+
+	var column := VBoxContainer.new()
+	column.position = Vector2(20.0, 16.0)
+	column.add_theme_constant_override(&"separation", 4)
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(column)
+	column.add_child(SoftBrutalist.label("ROSTER", 11, SoftBrutalist.MUTED,
+		SoftBrutalist.WEIGHT_REGULAR, SoftBrutalist.TRACK_LABEL))
+	column.add_child(SoftBrutalist.label("18 A-SIDE · 4 ON INTERCHANGE", 15,
+		SoftBrutalist.INK, SoftBrutalist.WEIGHT_BOLD, 0))
 
 
 func _build_whiteboard(root: Control) -> void:
 	var top := MARGIN + HEADER_HEIGHT + PANEL_GAP
 	var left := MARGIN + LEGEND_WIDTH + PANEL_GAP
-	var panel := NeoPanel.new()
-	panel.base_fill = PANEL_FILL
-	panel.shadow_dark = SHADOW_DARK
-	panel.shadow_light = SHADOW_LIGHT
-	panel.radius = 20
+	var panel := Panel.new()
+	panel.add_theme_stylebox_override(&"panel", SoftBrutalist.panel_style())
 	panel.position = Vector2(left, top)
 	panel.size = Vector2(1280.0 - left - MARGIN, 720.0 - top - MARGIN - HINT_HEIGHT - PANEL_GAP)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(panel)
 
-	var whiteboard := FormationWhiteboard.new()
-	whiteboard.set_anchors_preset(Control.PRESET_FULL_RECT)
-	whiteboard.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(whiteboard)
+	_whiteboard = FormationWhiteboard.new()
+	_whiteboard.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_whiteboard.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(_whiteboard)
 
 
 func _build_hint(root: Control) -> void:
-	var label := _label("T / ESC — BACK TO MENU", 12, TEXT_MUTED, -0.1, 1)
+	var label := SoftBrutalist.label("T / ESC — BACK TO MENU", 12,
+		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_REGULAR, SoftBrutalist.TRACK_LABEL)
 	label.position = Vector2(MARGIN, 720.0 - MARGIN - HINT_HEIGHT + 8.0)
 	root.add_child(label)
-
-
-func _label(text: String, size: int, colour: Color, embolden: float, tracking: int) -> Label:
-	var node := Label.new()
-	node.text = text
-	var variation := FontVariation.new()
-	variation.base_font = ThemeDB.fallback_font
-	variation.variation_embolden = embolden
-	variation.spacing_glyph = tracking
-	node.add_theme_font_override(&"font", variation)
-	node.add_theme_font_size_override(&"font_size", size)
-	node.add_theme_color_override(&"font_color", colour)
-	node.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return node

@@ -5,17 +5,11 @@
 [node name="Scoreboard" type="CanvasLayer"]
 script = ExtResource("1_scoreboard")
 
-[node name="Label" type="RichTextLabel" parent="."]
-anchors_preset = 10
-anchor_right = 1.0
+[node name="Panel" type="Panel" parent="."]
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -230.0
+offset_top = 10.0
+offset_right = 230.0
+offset_bottom = 58.0
 grow_horizontal = 2
-offset_left = 40.0
-offset_top = 12.0
-offset_right = -40.0
-offset_bottom = 48.0
-theme_override_colors/default_color = Color(0.95, 0.96, 0.9, 1)
-theme_override_colors/font_outline_color = Color(0.03, 0.04, 0.03, 0.85)
-theme_override_constants/outline_size = 5
-theme_override_font_sizes/normal_font_size = 22
-bbcode_enabled = true
-scroll_active = false

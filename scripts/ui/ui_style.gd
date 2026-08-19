@@ -19,23 +19,32 @@ extends RefCounted
 ## `base_face` below and every screen picks it up.
 
 # ── Palette ──────────────────────────────────────────────────────────
-# Sampled off the design reference. Nothing here is a gameplay colour;
-# the two accents that *are* shared with the world (the guernsey gold in
-# main_menu.gd, the line off-white in field.gd) stay defined there.
+# Pulled from SoftBrutalist (scripts/ui/soft_brutalist.gd) rather than
+# sampled locally, so this screen reads as the same design language as
+# the rest of scenes/ui/ instead of a one-off dark "studio" look. Names
+# are kept as-is (every call site below reads by role, not by hex) so
+# only this block had to change when the screen moved off its old dark
+# palette; the character_backdrop's own dark navy environment is a
+# separate 3D lighting concern and is untouched by this.
 
-const TEXT_PRIMARY := Color("#eaedef")   ## Titles, labels, values
-const TEXT_MUTED := Color("#7c8a9a")     ## Subtitle, "· LOCKED", hint labels
-const ICON_LINE := Color("#c2cfdb")
-const ICON_BOX_FILL := Color("#22303f")
-const ICON_BOX_BORDER := Color("#3a4a5c")
-const SEGMENT_FILL := Color("#ffffff")   ## A filled bar square is pure white
-const SEGMENT_EMPTY := Color("#8b98a6")  ## An empty one is this, outline only
-const PANEL_FILL := Color("#0f1620")
-const CHIP_BORDER := Color("#46586a")
+const TEXT_PRIMARY := SoftBrutalist.INK       ## Titles, labels, values
+const TEXT_MUTED := SoftBrutalist.MUTED       ## Subtitle, "· LOCKED", hint labels
+const ICON_LINE := SoftBrutalist.INK
+const SEGMENT_FILL := SoftBrutalist.ACCENT_PRIMARY  ## A filled bar square is the green accent
+const SEGMENT_EMPTY := SoftBrutalist.MUTED          ## An empty one is this, outline only
+const PANEL_FILL := SoftBrutalist.PANEL
+const CHIP_BORDER := SoftBrutalist.INK
 
-## Cyan/teal. The one "this is live/interactive" accent on this screen —
-## the play button's border, and the selected row's icon box and marker.
-const ACCENT := Color("#4fd1c5")
+## Green. The one "this is live/interactive" accent on this screen — the
+## play button's border, and the selected row's icon box and marker.
+const ACCENT := SoftBrutalist.ACCENT_PRIMARY
+
+## Icon box fill/border — sharp hairline boxes (see `rounded()`), not the
+## full boxed-element shape. Light-palette values (the panel white and the
+## ink line) rather than the old dark-studio hex, so they still sit on the
+## Soft Brutalist palette this screen moved to.
+const ICON_BOX_FILL := SoftBrutalist.PANEL
+const ICON_BOX_BORDER := SoftBrutalist.INK
 
 # ── Type ─────────────────────────────────────────────────────────────
 # Sizes are for the project's 1280x720 design resolution; `canvas_items`
@@ -91,8 +100,10 @@ static func label(text: String, size: int, colour: Color, embolden := WEIGHT_REG
 	return node
 
 
-## Rounded rect with a hairline border — the icon boxes, the play button
-## and the key chips are all this shape at different sizes.
+## Rounded rect with a hairline border. Used for the icon boxes, the play
+## button, and the key hint chips — small, sharp-edged shapes where a
+## hairline reads better than SoftBrutalist's full 3px-ink-border boxed
+## shape.
 static func rounded(fill: Color, border: Color, border_width := 1, radius := 6) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
 	box.bg_color = fill
