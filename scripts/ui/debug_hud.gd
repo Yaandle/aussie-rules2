@@ -22,10 +22,16 @@ var ball: Ball
 func _ready() -> void:
 	## Single card panel behind the existing text block (see soft_brutalist.gd)
 	## — this is a debug overlay, not a screen, so it doesn't warrant themed
-	## per-row layout, just legibility over any field background.
+	## per-row layout, just legibility over any field background. Kept
+	## translucent (not the opaque panel_style() fill) so it reads as an
+	## overlay rather than a solid card blocking the 3D view behind it.
 	_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_panel.add_theme_stylebox_override(&"panel", SoftBrutalist.panel_style(SoftBrutalist.PANEL))
-	SoftBrutalist.soften(_panel, SoftBrutalist.Elevation.REST)
+	var style := SoftBrutalist.panel_style(Color(SoftBrutalist.PANEL, 0.35),
+		SoftBrutalist.RADIUS_MD, Color(SoftBrutalist.LINE, 0.6))
+	_panel.add_theme_stylebox_override(&"panel", style)
+	# No soften() call: a blurred drop shadow under a translucent panel
+	# would darken the field behind it, fighting the point of making this
+	# see-through in the first place.
 	# Genuinely fixed-pitch, not just tabular figures: every line below is
 	# printf-padded into columns and two of them draw ASCII bars, none of
 	# which line up in a proportional face.

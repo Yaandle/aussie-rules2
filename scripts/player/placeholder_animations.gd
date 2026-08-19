@@ -133,8 +133,12 @@ static func _gait_pose(phase: float, g: Dictionary) -> Dictionary:
 		0.0, -ARM_REST_OUT - absf(abduct) * 0.5)
 	pose["shoulder_r"] = Vector3(-swing_r * arm / maxf(stride, 0.02),
 		0.0, ARM_REST_OUT + absf(abduct) * 0.5)
-	pose["elbow_l"] = Vector3(-(ELBOW_REST + arm * 0.6 * maxf(0.0, sin(a + PI))), 0.0, 0.0)
-	pose["elbow_r"] = Vector3(-(ELBOW_REST + arm * 0.6 * maxf(0.0, sin(a))), 0.0, 0.0)
+	# Positive X, not negative: per this function's swing convention above,
+	# a limb hanging along -Y with a positive X rotation swings its far end
+	# toward -Z (forward) — an elbow needs the same sign to bend the
+	# forearm forward under the upper arm rather than back behind the body.
+	pose["elbow_l"] = Vector3(ELBOW_REST + arm * 0.6 * maxf(0.0, sin(a + PI)), 0.0, 0.0)
+	pose["elbow_r"] = Vector3(ELBOW_REST + arm * 0.6 * maxf(0.0, sin(a)), 0.0, 0.0)
 	pose["hip_l"] = Vector3(swing_l, 0.0, abduct_l)
 	pose["hip_r"] = Vector3(swing_r, 0.0, abduct_r)
 	pose["knee_l"] = Vector3(bend_l, 0.0, 0.0)
@@ -245,8 +249,8 @@ static func _base_pose() -> Dictionary:
 		"neck": Vector3.ZERO,
 		"shoulder_l": Vector3(0.0, 0.0, -ARM_REST_OUT),
 		"shoulder_r": Vector3(0.0, 0.0, ARM_REST_OUT),
-		"elbow_l": Vector3(-ELBOW_REST, 0.0, 0.0),
-		"elbow_r": Vector3(-ELBOW_REST, 0.0, 0.0),
+		"elbow_l": Vector3(ELBOW_REST, 0.0, 0.0),
+		"elbow_r": Vector3(ELBOW_REST, 0.0, 0.0),
 		"hip_l": Vector3.ZERO,
 		"hip_r": Vector3.ZERO,
 		"knee_l": Vector3.ZERO,
