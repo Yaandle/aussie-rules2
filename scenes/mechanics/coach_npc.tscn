@@ -1,7 +1,7 @@
 [gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/mechanics/coach_npc.gd" id="1_coach"]
-[ext_resource type="Script" path="res://scripts/player/placeholder_rig.gd" id="2_rig"]
+[ext_resource type="Script" path="res://scripts/player/humanoid_rig.gd" id="2_rig"]
 
 [node name="CoachNPC" type="Node3D"]
 script = ExtResource("1_coach")

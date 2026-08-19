@@ -14,12 +14,15 @@ extends Node
 ## animation is reporting the physics, not decorating it.
 ##
 ## WHY THE TREE IS BUILT IN CODE: there are no animation assets yet, so
-## the clips are generated at load (placeholder_animations.gd) and the
+## the clips are generated at load (humanoid_animations.gd) and the
 ## graph has to be assembled around them at the same moment. Once real
-## Mixamo clips are imported this whole `_build_*` half goes away and
-## `tree_root` gets authored in the editor instead — the blend point
-## layout, the state names and the public methods below are already the
-## ones it will use, so nothing outside this file changes.
+## mocap/Mixamo-style clips are imported this whole `_build_*` half goes
+## away and `tree_root` gets authored in the editor instead — the blend
+## point layout, the state names and the public methods below are already
+## the ones it will use, so nothing outside this file changes. The rig
+## itself (humanoid_rig.gd) already exposes a Skeleton3D whose bone names
+## match Godot's SkeletonProfileHumanoid, so an imported clip's bone
+## tracks land on it without renaming.
 ##
 ## NOT YET WIRED: root motion. §5 wants tackles and marks driven by root
 ## motion so a contest visibly decides where bodies end up, with
@@ -28,7 +31,7 @@ extends Node
 ## track plus get_root_motion_position() in the controller's move step.
 
 ## Blend point layout. Must agree with the clip names in
-## PlaceholderAnimations.GAITS. x = strafe (-1 left, +1 right),
+## HumanoidAnimations.GAITS. x = strafe (-1 left, +1 right),
 ## y = forward speed (-1 backpedal, +1 full sprint), both normalised
 ## against Tuning.SPRINT_SPEED.
 const BLEND_POINTS := [
@@ -83,9 +86,13 @@ func _ready() -> void:
 	_player.root_node = _player.get_path_to(_rig)
 	_tree.root_node = _tree.get_path_to(_rig)
 
-	# PLACEHOLDER: delete this line once real clips are imported.
-	_player.add_animation_library(&"", PlaceholderAnimations.build_library(
-		PlaceholderRig.HIP_HEIGHT))
+	# PLACEHOLDER: delete this line once real mocap clips are imported —
+	# HumanoidAnimations writes bone tracks against the same
+	# SkeletonProfileHumanoid-compatible names a real import would use, so
+	# swapping this call for an authored AnimationLibrary needs no other
+	# change here.
+	_player.add_animation_library(&"", HumanoidAnimations.build_library(
+		HumanoidRig.HIP_HEIGHT))
 
 	_tree.tree_root = _build_state_machine()
 	_tree.anim_player = _tree.get_path_to(_player)

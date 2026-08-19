@@ -1,7 +1,7 @@
 [gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://scripts/player/player_controller.gd" id="1_player"]
-[ext_resource type="Script" path="res://scripts/player/placeholder_rig.gd" id="2_rig"]
+[ext_resource type="Script" path="res://scripts/player/humanoid_rig.gd" id="2_rig"]
 [ext_resource type="Script" path="res://scripts/player/player_animation.gd" id="3_anim"]
 [ext_resource type="Script" path="res://scripts/player/kick_trajectory.gd" id="4_trajectory"]
 

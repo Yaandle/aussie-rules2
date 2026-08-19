@@ -14,7 +14,7 @@ extends CanvasLayer
 ## the tabular-figure face can sit next to the rounded/grotesk HOME/AWAY
 ## tags without BBCode juggling fonts mid-string.
 
-## Same colours as PlaceholderRig's home/away guernsey — HOME and AWAY read
+## Same colours as HumanoidRig's home/away guernsey — HOME and AWAY read
 ## at a glance without needing the word to be parsed, and it ties the
 ## scoreboard into the same palette as the players on the field.
 const COLOUR_HOME := Color("#C99A2E")

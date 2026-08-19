@@ -6,7 +6,7 @@ extends Control
 ##
 ## The project has no icon assets and no art pipeline yet (design doc §9,
 ## same reason `turf.gdshader` computes the ground analytically and
-## `placeholder_rig.gd` builds a figure out of boxes). Eight glyphs at one
+## `humanoid_rig.gd` builds a figure out of boxes). Eight glyphs at one
 ## size did not justify starting one: these are stroked from a shape table
 ## in `_draw()`, so they cost no import step, stay sharp at any UI scale,
 ## and recolour by setting `line_colour` instead of shipping a second set.

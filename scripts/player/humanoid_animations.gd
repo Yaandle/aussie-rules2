@@ -1,35 +1,42 @@
-class_name PlaceholderAnimations
+class_name HumanoidAnimations
 extends RefCounted
 
-## Generates the placeholder AnimationLibrary for PlaceholderRig.
+## Generates the placeholder AnimationLibrary for HumanoidRig's Skeleton3D.
 ##
-## Every clip here is sampled from a parametric gait function — leg swing,
-## knee lift, arm counter-swing, hip bob, torso lean and twist, all sine
-## functions of one phase. It is not good animation. It is not trying to
-## be. It exists so the BlendSpace2D in player_animation.gd has real,
-## differently-shaped clips to interpolate between, which is the only way
-## to prove the locomotion pipeline before there is any art.
+## Replaces PlaceholderAnimations. The pose math (parametric sine-based
+## gait, per-action keyframe poses) is untouched — only the track target
+## changed, from Node3D property tracks on bare "joint" nodes to bone
+## tracks on a real Skeleton3D, via Godot's "NodePath:BoneName" track-path
+## convention. That is what makes this something a future retarget/mocap
+## pipeline can eventually replace wholesale: import real clips authored
+## against SkeletonProfileHumanoid's bone names, drop them in this
+## library's place, and nothing in player_animation.gd or
+## player_controller.gd has to change, same promise the placeholder always
+## made — just against bone tracks now instead of node tracks.
 ##
-## THE SWAP TO MIXAMO: import the .glb, and the whole of this file plus
-## placeholder_rig.gd is deleted. player_animation.gd keeps the same
-## clip names, blend point layout and state names, and stops calling
-## build_library(). Nothing in player_controller.gd is touched.
+## Track targets are bone names on the Skeleton3D, which player_animation.gd
+## locates as "Skeleton3D" (a direct child of the Rig, HumanoidRig's own
+## root_node target).
 
-## Track targets, relative to the AnimationPlayer's root_node (the Rig).
-const PATHS := {
+const SKELETON := "Skeleton3D"
+
+## Old joint key -> bone name. Keys are kept from the placeholder version
+## so _gait_pose()/the per-action pose dictionaries below didn't need
+## touching — only this map and _assemble()'s track-path construction did.
+const BONES := {
 	"hips": "Hips",
-	"torso": "Hips/Torso",
-	"neck": "Hips/Torso/Neck",
-	"shoulder_l": "Hips/Torso/ShoulderL",
-	"shoulder_r": "Hips/Torso/ShoulderR",
-	"elbow_l": "Hips/Torso/ShoulderL/ElbowL",
-	"elbow_r": "Hips/Torso/ShoulderR/ElbowR",
-	"hip_l": "Hips/HipL",
-	"hip_r": "Hips/HipR",
-	"knee_l": "Hips/HipL/KneeL",
-	"knee_r": "Hips/HipR/KneeR",
-	"ankle_l": "Hips/HipL/KneeL/AnkleL",
-	"ankle_r": "Hips/HipR/KneeR/AnkleR",
+	"torso": "Chest",
+	"neck": "Neck",
+	"shoulder_l": "LeftUpperArm",
+	"shoulder_r": "RightUpperArm",
+	"elbow_l": "LeftLowerArm",
+	"elbow_r": "RightLowerArm",
+	"hip_l": "LeftUpperLeg",
+	"hip_r": "RightUpperLeg",
+	"knee_l": "LeftLowerLeg",
+	"knee_r": "RightLowerLeg",
+	"ankle_l": "LeftFoot",
+	"ankle_r": "RightFoot",
 }
 
 const ARM_REST_OUT := 0.10    ## rad, arms held clear of the ribs
@@ -391,7 +398,9 @@ static func _pose(overrides: Dictionary) -> Dictionary:
 
 ## Every clip writes the identical track set — that is a hard requirement
 ## for clean AnimationTree blending, and the reason all of them go
-## through here.
+## through here. Bone tracks use Godot's "NodePath:BoneName" convention —
+## the node part ("Skeleton3D") resolves relative to the AnimationPlayer's
+## root_node (the Rig), same as every plain node track already did.
 static func _assemble(length: float, looping: bool, keys: Array,
 		hip_height: float) -> Animation:
 	var anim := Animation.new()
@@ -399,13 +408,13 @@ static func _assemble(length: float, looping: bool, keys: Array,
 	anim.loop_mode = Animation.LOOP_LINEAR if looping else Animation.LOOP_NONE
 
 	var hip_position_track := anim.add_track(Animation.TYPE_POSITION_3D)
-	anim.track_set_path(hip_position_track, NodePath(PATHS["hips"]))
+	anim.track_set_path(hip_position_track, NodePath(SKELETON + ":" + BONES["hips"]))
 	anim.track_set_interpolation_type(hip_position_track, Animation.INTERPOLATION_CUBIC)
 
 	var rotation_tracks := {}
-	for key: String in PATHS:
+	for key: String in BONES:
 		var track := anim.add_track(Animation.TYPE_ROTATION_3D)
-		anim.track_set_path(track, NodePath(PATHS[key] as String))
+		anim.track_set_path(track, NodePath(SKELETON + ":" + (BONES[key] as String)))
 		anim.track_set_interpolation_type(track, Animation.INTERPOLATION_CUBIC)
 		rotation_tracks[key] = track
 

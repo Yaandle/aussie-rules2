@@ -1566,3 +1566,248 @@ Not touched: anything UI-owned (`ui_side_scrim.gdshader`/
 session start from another agent, left exactly as found),
 `broadcast_camera.gd`, `full_game.gd` (works unmodified — see Full Game
 integration note above), `field.gd`, `team_formation.gd`.
+
+---
+
+## Handover — placeholder rig replaced with a real Skeleton3D (Agent: UI/visual model)
+
+Design brief's own escape hatch for `PlaceholderRig` ("dropping in a
+Mixamo character replaces this node and the generated clips; the blend
+space, the state machine, the parameter names... stay exactly as they
+are") is now built the way that promise actually needs: a real
+`Skeleton3D` with a bone hierarchy matching Godot 4's built-in
+`SkeletonProfileHumanoid`, driven by `AnimationPlayer`/`AnimationTree`
+bone tracks instead of `Node3D` property tracks on bare "joint" nodes.
+Pulled current state from this file rather than assuming what a
+concurrent mechanics-agent pass might have changed underneath
+`player_controller.gd` — nothing there touched the rig/animation API this
+pass depends on (its most recent change was `_ball_in_catch_reach`'s
+assist-radius bonus and a new `catch_point_position()` getter, both
+unrelated).
+
+### Bone hierarchy, and why it's this one
+
+22 bones: `Root → Hips → Spine → Chest → Neck → Head`,
+`Chest → Left/RightShoulder → Left/RightUpperArm → Left/RightLowerArm →
+Left/RightHand`, `Hips → Left/RightUpperLeg → Left/RightLowerLeg →
+Left/RightFoot → Left/RightToes`. This is exactly
+`SkeletonProfileHumanoid`'s **required** bone set and parent chain — the
+profile also defines optional eye/jaw/finger bones, skipped here since
+they carry no gameplay or silhouette weight at this project's current
+art fidelity and Godot's own retargeter treats them as optional, not
+required, for a BoneMap to resolve. Naming and parenting is what a mocap
+importer or Mixamo-via-BoneMap retarget actually matches on; getting that
+right (not rest-pose axis perfection — see Known limitations) is what
+unlocks "drop in real clips later with no renaming."
+
+### What replaced what
+
+- **`scripts/player/humanoid_rig.gd`** (`class_name HumanoidRig`) replaces
+  `placeholder_rig.gd`/`PlaceholderRig` outright (deleted, not kept
+  alongside — this was the "likely removed" file the brief flagged, and
+  the swap is a straight 1:1 API replacement, confirmed by grepping every
+  call site first: `away_kit`, the `HIP_HEIGHT` constant, and the `Rig`
+  node name/type are the only things anything outside this file ever
+  touched, and all three still exist with the same names). Builds a
+  `Skeleton3D` child in code (bone rests from a `BONES` table: name,
+  parent, offset — mirrors the old joint-offset table almost line for
+  line) and hangs the same box/capsule/sphere placeholder meshes (yoke,
+  side panels, sock trim, all of it) off `BoneAttachment3D` nodes instead
+  of off the bones' former stand-in `Node3D`s. Visual output is
+  deliberately close to identical — this pass is the rig plumbing, not a
+  new art pass; a couple of mesh offsets shifted a few centimetres where
+  the old single "Torso" joint became a Spine/Chest split, not worth
+  hand-tuning further at placeholder fidelity.
+- **`scripts/player/humanoid_animations.gd`** (`class_name
+  HumanoidAnimations`) replaces `placeholder_animations.gd`/
+  `PlaceholderAnimations` outright, same reasoning. The parametric gait
+  math (`_gait_pose`, every per-action keyframe pose, the sign-convention
+  comments, all of it) is **untouched** — only the track target changed,
+  from `Animation.TYPE_ROTATION_3D`/`POSITION_3D` tracks on `NodePath`s
+  like `"Hips/Torso"` to the same track types on `NodePath`s like
+  `"Skeleton3D:Chest"`, Godot's own bone-track convention. The old
+  `PATHS` dict (joint key → node path) became `BONES` (joint key → bone
+  name); `_assemble()`'s two track-building loops are the only functions
+  that actually changed shape.
+- **`scripts/player/player_animation.gd`**: two lines. The
+  `PlaceholderAnimations.build_library(PlaceholderRig.HIP_HEIGHT)` call
+  became `HumanoidAnimations.build_library(HumanoidRig.HIP_HEIGHT)`,
+  plus doc-comment updates. `rig_path`/`animation_player_path`/
+  `animation_tree_path` exports, `drive()`, `play_action()`,
+  `current_state()`, `blend_position()` — the whole public contract the
+  brief said to extend, not redesign — are byte-for-byte unchanged.
+  Nothing in `player_controller.gd` needed touching: it only ever calls
+  through `PlayerAnimation`'s public methods, never reaches into the rig
+  directly (confirmed by grep before assuming, not after finding a bug).
+
+### Fully wired vs. stubbed
+
+**Fully wired**: the whole pipeline — `HumanoidRig` builds the skeleton
+and attaches meshes on `_ready()`, `PlayerAnimation._ready()` points
+`AnimationPlayer.root_node`/`AnimationTree.root_node` at the `Rig` node
+exactly as before, `HumanoidAnimations.build_library()` generates bone
+tracks against that skeleton, the `AnimationNodeStateMachine`/
+`BlendSpace2D` graph is unchanged and plays them the same way. Every call
+site that reached into the old rig (`full_game.gd`, `menu_backdrop.gd`,
+`character_backdrop.gd`, `coach_npc.tscn`) is updated to the new class
+name and confirmed working by the headless passes below —
+`character_backdrop.gd`'s `find_children("*", "MeshInstance3D", true,
+false)` recursive mesh-layer reassignment still finds every mesh despite
+them now sitting two levels deeper (`Rig/Skeleton3D/BoneAttachment3D/
+Mesh` instead of `Rig/Joint/Mesh`), since it was already recursive.
+
+**Stubbed / explicitly not attempted**: real skinning. `BoneAttachment3D`
+gives rigid-body-per-bone motion (a mesh rides its bone's transform
+wholesale, no per-vertex blend weights) — correct for primitive boxes/
+capsules standing in for limbs, and it's what makes bone tracks the right
+choice now rather than after a real mesh import, but it is not a smooth-
+skinned character and won't become one until an actual skinned mesh
+(Blender/Mixamo export with vertex weights) replaces these primitives.
+**Rest-pose axis convention for retargeting** is also unverified: this
+rig's bones inherit the same "-Y hangs down the limb" local convention
+the old joint hierarchy already used, which is internally consistent and
+matches this file's own `_gait_pose()` sign-convention comments, but
+whether it's byte-for-byte what Godot's `BoneMap`/humanoid retargeter
+expects for automatic axis correction hasn't been checked against a real
+mocap import — that importer step (`BoneMap` UI, or manual axis fixup) is
+still ahead of this rig, not proven clear by it. Root motion
+(`AnimationTree.root_motion_track`) remains unwired, exactly as every
+prior entry in this file has flagged — still blocked on contest mechanics
+existing, unrelated to this pass.
+
+### Verification
+
+Same toolkit this project's memory already documents: `--headless
+--editor --quit` to force a class-cache rescan after the two new
+`class_name` scripts (`HumanoidRig`/`HumanoidAnimations` both showed up
+in the rescan log, confirming registration), then the three standard
+headless passes — `--quit-after 300` on the main scene, `kick_to_kick.tscn`
+for 180 frames, `full_game.tscn` for 240 frames (AI-driven matches, so
+this exercises the animation state machine's action states, not just
+locomotion) — all exit 0, zero errors. The first `kick_to_kick.tscn` run
+caught a real miss: `scenes/mechanics/coach_npc.tscn` had its own direct
+`ext_resource` reference to the now-deleted `placeholder_rig.gd`, not
+reachable by grepping `.gd` scripts alone — worth remembering that
+`.tscn` `ext_resource` lines need their own sweep whenever a script gets
+renamed or deleted, not just call sites in code. Fixed, re-ran, clean.
+Also grepped the whole repo (`.gd` and `.tscn`) for `PlaceholderRig`/
+`PlaceholderAnimations`/`placeholder_rig`/`placeholder_animations` after
+all fixes; the only remaining hits are inside the two new files'
+own doc comments, explaining what they replaced.
+
+No human/pad verification possible in this environment (same limitation
+every mechanics-agent entry above has flagged) — nothing here needed one,
+since the deliverable is rig/animation plumbing verifiable by the
+animation system actually building and running without error, not by
+feel.
+
+---
+
+## Handover — character-screen standing-twitch fix + skeleton wireframe (Agent: UI/visual model)
+
+Follow-up to the rig replacement above, from a direct playtest report:
+the character screen's preview figure was visibly jittering/twitching
+while standing still. Root-caused rather than papered over, plus a
+wireframe overlay so the rig reads as a real skeleton at a glance, plus a
+small mesh-completeness pass — all per this round's brief.
+
+### Root cause: collision-response noise re-entering the animation blend
+
+`PlayerController._update_locomotion()` reads `velocity.x`/`.z` at the
+top of every physics frame to derive `_speed`/`_heading`, which
+`locomotion_blend()` then reports to the `AnimationTree` as real motion.
+`velocity` is a `CharacterBody3D` built-in that `move_and_slide()` is
+free to modify as part of its own collision response — and this
+project's floor-contact "bite" (`velocity.y = -0.5` every frame
+`is_on_floor()` is true, `_physics_process`) means a standing player
+re-triggers a resting collision every single frame, each one a chance for
+slide resolution to leave a sub-millimetre horizontal residue in
+`velocity`. That residue read straight back into `_speed`/`_heading` next
+frame, which `locomotion_blend()` reported as genuine (if tiny) motion —
+enough for the BlendSpace2D to blend in a hair of a moving clip (jog/
+strafe) over pure idle, and since that clip's own internal clock keeps
+advancing even at a low blend weight, the visible result is a continuous
+low-amplitude twitch, not a one-off. This is a general-purpose bug, not a
+character-screen-only one — it affects any player standing still
+anywhere, just far more visible on the screen's static close framing
+than on a moving broadcast camera.
+
+**Fix** (`player_controller.gd`, `_update_locomotion()`): a
+`Tuning.LOCOMOTION_VELOCITY_DEADZONE` (0.03 m/s) — horizontal velocity
+below it is snapped to exactly `Vector3.ZERO` (and `velocity.x`/`.z`
+zeroed with it) before `_speed`/`_heading` are derived from it. This
+kills the feedback loop at its source: even if `move_and_slide()`
+reintroduces a hair of noise next frame, it gets zeroed again before
+anything downstream ever reads it, so it can't accumulate into a visible
+sustained twitch. One `if`, no allocation, same cost for every player on
+the field — the "simple maths, stays cheap at team scale" ask, and it
+happens to fix the exact screen that surfaced it too.
+
+**Scope note**: this touches `player_controller.gd`'s movement code,
+which earlier passes in this doc were deliberately kept out of (see the
+original rig-replacement brief's own constraint). Direct instruction this
+round to fix the twitch is what justifies it — flagged here rather than
+silently done, per this project's own pattern of calling out when a pass
+crosses another agent's usual territory.
+
+### Skeleton wireframe overlay
+
+New **`scripts/player/skeleton_wireframe.gd`** (`SkeletonWireframe`,
+`MeshInstance3D`): given a `Skeleton3D` via `track()`, rebuilds one
+short camera-facing quad per bone (parent origin → bone origin) each
+frame from `get_bone_global_pose()`, in `SoftBrutalist.ACCENT_PRIMARY`
+green, unshaded and lightly emissive so it pops against the studio
+backdrop regardless of the two-light rig underneath it. Quads, not
+`PRIMITIVE_LINES`, because line width is unsupported/ignored on several
+of Godot's rendering backends — a billboard quad renders identically
+everywhere for a trivial vertex cost (~21 bones × 6 verts).
+
+**Deliberately not attached to on-field players** — only wired into
+`character_backdrop.gd`, which now calls `SkeletonWireframe.new()` +
+`.track(rig.skeleton())` once, after the existing mesh-layer reassignment
+loop. This project is scaling toward 16-a-side, and a per-frame rebuild
+that's free for one close-up preview instance would not be free times
+dozens of on-field bodies — the same "keep it cheap enough for a team"
+constraint this round's brief stated explicitly. `HumanoidRig.skeleton()`
+(added in the previous pass, unused until now) is what makes this a
+one-line hookup rather than a new lookup path.
+
+### Small mesh-completeness pass on `HumanoidRig`
+
+Two things, both cheap (no new bones, no added draw calls beyond what's
+listed):
+
+1. **Corrected mesh offsets.** The previous pass's `Chest_Mesh`/`Yoke`/
+   `SidePanel`/`Pelvis` offsets were approximate conversions from the old
+   joint-relative numbers, flagged at the time as "not hand-tuned
+   further." Recomputed properly this round: `Hips`/`Chest`/`Head` bones
+   sit at the *exact* world position their equivalent placeholder-era
+   joint used to (confirmed by re-deriving the offset chain, not just
+   eyeballing), so meshes that used to be centred on those joints now
+   sit at `Vector3.ZERO` on their bone instead of carrying over a stray
+   non-zero offset; `Yoke`/`SidePanel` offsets recomputed as (old offset
+   from the joint) minus (how far the new bone itself sits from where
+   that joint used to be), landing at 0.165/-0.07 instead of the
+   previous pass's 0.225/-0.01.
+2. **Hands.** The forearm capsules previously ended in empty air past
+   the elbow — no geometry marked where a hand would be, which read as
+   an amputee at anything closer than broadcast distance (exactly what
+   the close character-screen framing exposes). Added one small sphere
+   per `LowerArm` bone attachment — one extra low-poly mesh per arm, same
+   cost category as everything else already there.
+
+### Verification
+
+Same toolkit as every other entry: `--headless --editor --quit` rescan
+(`SkeletonWireframe` confirmed registered), then all four headless scene
+passes — main scene (300 frames), `kick_to_kick.tscn` (180),
+`full_game.tscn` (240), and this round added `character_screen.tscn`
+(180, the actual scene this bug was reported on) — all exit 0, zero
+errors. One real typo caught by the first attempt at the rescan, not by
+inspection: a stray `//` (C-style, not GDScript) survived an earlier
+edit into a comment line in `humanoid_rig.gd` and failed the parse;
+fixed, re-ran clean. Not verified visually — no GUI in this environment,
+same limitation as every prior entry — so the deadzone fix is verified
+as "compiles and runs error-free through the same physics paths every
+other pass exercises," not as "confirmed the twitch is gone on screen."
+That confirmation needs eyes on the actual character screen.

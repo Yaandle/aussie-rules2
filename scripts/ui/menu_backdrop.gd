@@ -79,11 +79,11 @@ func _cut_to_shot() -> void:
 func _spawn_player(team: Tuning.Team, spawn_position: Vector3, facing_deg: float) -> void:
 	var instance := PLAYER_SCENE.instantiate() as PlayerController
 	instance.team = team
-	# Set before add_child(), so PlaceholderRig._ready() builds with the
+	# Set before add_child(), so HumanoidRig._ready() builds with the
 	# right kit colour, and so the initial facing sticks (PlayerController
 	# recomputes its facing state from `rotation` the moment it enters the
 	# tree; changing rotation afterwards would just get overridden back).
-	(instance.get_node("Rig") as PlaceholderRig).away_kit = team == Tuning.Team.AWAY
+	(instance.get_node("Rig") as HumanoidRig).away_kit = team == Tuning.Team.AWAY
 	instance.position = spawn_position
 	instance.rotation.y = deg_to_rad(facing_deg)
 	add_child(instance)

@@ -217,7 +217,22 @@ func _update_locomotion(delta: float) -> void:
 	var wish := _brain.wish_direction(self)
 	var gait := 0.0 if _stun_timer > 0.0 else _brain.gait()
 
+	# move_and_slide()'s own collision response can leave `velocity` with a
+	# sub-millimetre horizontal residue even for a player standing dead
+	# still on flat ground (the floor-snap "bite" below re-triggers a
+	# resting contact every physics frame, and each contact's slide
+	# resolution can nudge velocity by a hair). That residue is otherwise
+	# read straight into _speed/_heading, which locomotion_blend() then
+	# reports to the AnimationTree as genuine motion — a standing player
+	# would visibly twitch toward whatever clip that phantom direction
+	# blends in. Snapping it to exact zero below the threshold nothing
+	# gameplay-relevant ever needs kills the feedback loop at its source,
+	# for every player this runs on, not just one screen's preview.
 	var horizontal := Vector3(velocity.x, 0.0, velocity.z)
+	if horizontal.length_squared() < Tuning.LOCOMOTION_VELOCITY_DEADZONE ** 2:
+		horizontal = Vector3.ZERO
+		velocity.x = 0.0
+		velocity.z = 0.0
 	_speed = horizontal.length()
 	if _speed > Tuning.PIVOT_SPEED_THRESHOLD:
 		_heading = horizontal / _speed

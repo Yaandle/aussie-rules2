@@ -97,6 +97,12 @@ const REVERSE_SPEED_SCALE := 0.0       # target speed multiplier at 180 deg off 
 # snaps straight to intent and you simply turn on the spot.
 const PIVOT_SPEED_THRESHOLD := 0.4     # m/s
 
+# Below this speed, horizontal velocity is treated as exactly zero rather
+# than real motion — see the comment at the top of _update_locomotion().
+# Sub-cm/s residue is collision-response noise, not intent; letting it
+# through made a standing-still player's animation blend visibly twitch.
+const LOCOMOTION_VELOCITY_DEADZONE := 0.03   # m/s
+
 # The rig's facing turns faster than the velocity heading does, so the
 # body leads the change of direction and the velocity lags behind it.
 # That lag is what feeds the blend space's strafe axis (see
@@ -224,7 +230,7 @@ const KICK_MOUSE_REACH_SENSITIVITY := 0.0035
 # leaves — partway through the swing, not at either end of it.
 #
 # These are constants only because the placeholder animations are
-# generated from them (see placeholder_animations.gd). When real Mixamo
+# generated from them (see humanoid_animations.gd). When real mocap/Mixamo
 # clips arrive, contact becomes a call track on the animation and the
 # CONTACT row is deleted; nothing else changes.
 const ACTION_DURATION := [0.0, 0.78, 0.45, 0.50, 0.55, 0.40, 0.95]
@@ -449,7 +455,7 @@ const CATCH_GRAVITY_ACCEL := 2.2         # m/s^2 at point-blank range
 # abstract logical units/s on its diorama grid; here Speed is the
 # player's effective SPRINT_SPEED in real m/s, so PLAYER_CONTROLLER's
 # speed_scale (speed / CHARACTER_SPEED_DEFAULT) multiplies WALK/JOG/
-# SPRINT uniformly. Height stays real centimetres — PlaceholderRig's
+# SPRINT uniformly. Height stays real centimetres — HumanoidRig's
 # proportions already assume a 185cm baseline, so CHARACTER_HEIGHT_
 # DEFAULT matches it exactly and height_scale becomes a uniform rig
 # scale rather than a re-derived skeleton.
@@ -461,7 +467,7 @@ const CHARACTER_SPEED_DEFAULT := SPRINT_SPEED
 const CHARACTER_HEIGHT_MIN := 165.0     # cm
 const CHARACTER_HEIGHT_MAX := 205.0     # cm
 const CHARACTER_HEIGHT_STEP := 1.0      # cm per Left/Right nudge
-const CHARACTER_HEIGHT_DEFAULT := 185.0 # matches PlaceholderRig's HIP_HEIGHT rig
+const CHARACTER_HEIGHT_DEFAULT := 185.0 # matches HumanoidRig's HIP_HEIGHT rig
 
 # Kicking Power is a straight multiplier on KICK_MIN/MAX_SPEED (see
 # PlayerController._kick_parameters), so it scales range the same way a

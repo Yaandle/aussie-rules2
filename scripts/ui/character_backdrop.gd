@@ -56,7 +56,7 @@ const CAMERA_SIDESTEP := 0.46
 @onready var _camera: Camera3D = $Camera3D
 @onready var _ring: MeshInstance3D = $SelectionRing
 
-var _rig_holder: PlaceholderRig
+var _rig_holder: HumanoidRig
 
 
 func _ready() -> void:
@@ -64,7 +64,7 @@ func _ready() -> void:
 
 	var instance := PLAYER_SCENE.instantiate() as PlayerController
 	instance.team = Tuning.Team.HOME
-	var rig := instance.get_node("Rig") as PlaceholderRig
+	var rig := instance.get_node("Rig") as HumanoidRig
 	rig.away_kit = false
 	instance.position = STAND_ON
 	instance.rotation.y = deg_to_rad(180.0)   # face the camera
@@ -72,11 +72,20 @@ func _ready() -> void:
 	instance.set_brain(PlayerBrain.new())
 	_rig_holder = rig
 
-	# After add_child, so PlaceholderRig._ready() has actually built the
+	# After add_child, so HumanoidRig._ready() has actually built the
 	# boxes there are meshes to move. owned=false because they are made at
 	# runtime and so belong to no scene.
 	for mesh in instance.find_children("*", "MeshInstance3D", true, false):
 		(mesh as MeshInstance3D).layers = SUBJECT_LAYER
+
+	# The skeleton wireframe overlay: this is a preview screen where one
+	# figure is looked at up close, so it's the one place in the project
+	# that pays for it — see SkeletonWireframe's own header for why this
+	# is deliberately not added to on-field players.
+	var wireframe := SkeletonWireframe.new()
+	wireframe.layers = SUBJECT_LAYER
+	wireframe.track(rig.skeleton())
+	add_child(wireframe)
 
 	_ring.position = STAND_ON + Vector3(0.0, RING_HEIGHT, 0.0)
 

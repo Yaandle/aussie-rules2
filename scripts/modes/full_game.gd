@@ -94,9 +94,9 @@ func _spawn_team(team: Tuning.Team, attack_direction: float) -> Array[PlayerCont
 	for i in Tuning.TEAM_SIZE:
 		var instance := PLAYER_SCENE.instantiate() as PlayerController
 		instance.team = team
-		# Set before add_child(), so PlaceholderRig._ready() builds with
+		# Set before add_child(), so HumanoidRig._ready() builds with
 		# the right kit colour the first time round.
-		(instance.get_node("Rig") as PlaceholderRig).away_kit = team == Tuning.Team.AWAY
+		(instance.get_node("Rig") as HumanoidRig).away_kit = team == Tuning.Team.AWAY
 
 		# Position before add_child(), not after. A CharacterBody3D that
 		# joins the tree registers its collision body with the physics
