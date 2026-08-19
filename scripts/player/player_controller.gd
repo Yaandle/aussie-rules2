@@ -653,11 +653,22 @@ func _resolve_aggressive_mark() -> void:
 		mark_missed.emit(Tuning.Action.MARK_AGGRESSIVE)
 
 
+## MARK_ASSIST_RADIUS_BONUS is added after the per-tier scale, not before —
+## a flat metres bonus applied uniformly to Safe/Running/Aggressive keeps
+## their relative difficulty spread intact rather than compressing it.
 func _ball_in_catch_reach(ball: Ball, reach_scale: float) -> bool:
 	if not ball.is_airborne():
 		return false
-	return ball.global_position.distance_to(_carry_point.global_position) \
-		<= Tuning.MARK_CATCH_RADIUS * reach_scale
+	var reach := Tuning.MARK_CATCH_RADIUS * reach_scale + Tuning.MARK_ASSIST_RADIUS_BONUS
+	return ball.global_position.distance_to(_carry_point.global_position) <= reach
+
+
+## World position of this player's catch point (their hands, for marking
+## purposes) — the same Marker3D carrying already uses. Exposed so Ball's
+## catch-gravity assist (_apply_catch_gravity) can find the nearest live
+## target without needing its own copy of where "the hands" are.
+func catch_point_position() -> Vector3:
+	return _carry_point.global_position
 
 
 ## The one ball in the scene, found by group rather than a wired reference —

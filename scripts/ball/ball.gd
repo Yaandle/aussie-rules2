@@ -99,18 +99,53 @@ func _physics_process(delta: float) -> void:
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	var v := state.linear_velocity
 	var speed := v.length()
-	if speed < 0.05:
+	if speed >= 0.05:
+		# F_drag = -0.5 * rho * Cd * A * |v| * v, with the constants folded
+		# into BALL_DRAG_COEFF.
+		state.apply_central_force(-v * speed * Tuning.BALL_DRAG_COEFF)
+
+		# F_magnus = S * (omega x v). Zero when the ball is not spinning, so
+		# a shanked wobbler is unaffected and a clean torpedo holds its line.
+		var omega := state.angular_velocity
+		if omega.length_squared() > 0.01:
+			state.apply_central_force(omega.cross(v) * Tuning.BALL_MAGNUS_COEFF)
+
+	_apply_catch_gravity(state)
+
+
+## "Catch gravity" (user-requested marking assist): a genuine small
+## attractive force toward whichever uncontested player is nearest while
+## this is still in flight — a real force through the same integration
+## drag/Magnus above already use, not a scripted snap onto a player.
+## Strongest at point-blank range, zero at CATCH_GRAVITY_RADIUS, so it
+## nudges a near-miss into a catch without visibly bending a kick's arc
+## from a distance.
+func _apply_catch_gravity(state: PhysicsDirectBodyState3D) -> void:
+	if not is_airborne():
 		return
+	var puller := _nearest_uncontested_catcher()
+	if puller == null:
+		return
+	var to_puller := puller.catch_point_position() - global_position
+	var dist := to_puller.length()
+	if dist < 0.05 or dist > Tuning.CATCH_GRAVITY_RADIUS:
+		return
+	var pull := 1.0 - dist / Tuning.CATCH_GRAVITY_RADIUS
+	state.apply_central_force(to_puller.normalized() * Tuning.CATCH_GRAVITY_ACCEL * pull * mass)
 
-	# F_drag = -0.5 * rho * Cd * A * |v| * v, with the constants folded
-	# into BALL_DRAG_COEFF.
-	state.apply_central_force(-v * speed * Tuning.BALL_DRAG_COEFF)
 
-	# F_magnus = S * (omega x v). Zero when the ball is not spinning, so
-	# a shanked wobbler is unaffected and a clean torpedo holds its line.
-	var omega := state.angular_velocity
-	if omega.length_squared() > 0.01:
-		state.apply_central_force(omega.cross(v) * Tuning.BALL_MAGNUS_COEFF)
+func _nearest_uncontested_catcher() -> PlayerController:
+	var best: PlayerController = null
+	var best_dist := Tuning.CATCH_GRAVITY_RADIUS
+	for node in get_tree().get_nodes_in_group(&"players"):
+		var player := node as PlayerController
+		if player == null or player.is_carrying():
+			continue
+		var dist := global_position.distance_to(player.catch_point_position())
+		if dist < best_dist:
+			best_dist = dist
+			best = player
+	return best
 
 
 ## Send the ball. `direction` need not be normalised. `is_kick_disposal` marks

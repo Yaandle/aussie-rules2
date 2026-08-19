@@ -418,6 +418,30 @@ const GROUND_PICKUP_RADIUS := 1.3              # m
 const GROUND_PICKUP_LUNGE_PER_SPEED := 0.05    # m of extra reach per m/s of current speed
 
 
+# ── Catch assist ─────────────────────────────────────────────────────
+# "Make marking a little easier" — two independent, additive forgiveness
+# levers rather than one blunt one, both still resolved physically (a
+# wider real reach / a real attractive force) rather than a hidden
+# probability bump, so RULES_REFERENCE.md §3's stance holds even while
+# being more forgiving.
+
+# Widens every mark tier's reach uniformly — applied as a flat bonus on
+# top of MARK_CATCH_RADIUS (see PlayerController._ball_in_catch_reach)
+# rather than folded into the per-tier scales, so the *relative*
+# safe/running/aggressive risk relationship — the whole point of having
+# three tiers — doesn't get flattened out by making them all easier by
+# the same multiple.
+const MARK_ASSIST_RADIUS_BONUS := 0.35   # m
+
+# "Catch gravity": a genuine small attractive force pulling the ball
+# toward whichever uncontested (not-carrying) player is nearest while
+# it's airborne — the same physical-forces mechanism drag/Magnus already
+# are (Ball._integrate_forces), not a scripted snap onto a player. Full
+# strength at point-blank range, fading to nothing at CATCH_GRAVITY_RADIUS.
+const CATCH_GRAVITY_RADIUS := 2.75       # m
+const CATCH_GRAVITY_ACCEL := 2.2         # m/s^2 at point-blank range
+
+
 # ── Character screen ─────────────────────────────────────────────────
 # Ported from Prototype 1's character_state.py / character_render.py: a
 # live attributes screen with two adjustable stats (Speed, Height) and a

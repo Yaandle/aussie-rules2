@@ -51,6 +51,8 @@ func _compose() -> String:
 	var lines: Array[String] = []
 	lines.append("%3d fps      input: %s" % [
 		Engine.get_frames_per_second(), InputManager.device_name()])
+	lines.append("last gamepad   button %-4s axis %s" % [
+		InputManager.last_joy_button_debug(), InputManager.last_joy_axis_debug()])
 	lines.append("mode %s / %s" % [GameState.mode_name(), GameState.phase_name()])
 	lines.append("")
 

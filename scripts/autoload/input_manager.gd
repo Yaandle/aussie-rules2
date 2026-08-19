@@ -34,6 +34,18 @@ var gameplay_input_enabled := true
 
 var _mouse_look := Vector2.ZERO
 
+## Diagnostic only (see last_joy_button_debug()/last_joy_axis_debug(),
+## surfaced on DebugHud) — the most recent raw gamepad button/axis Godot
+## actually received, independent of whatever Input Map action(s) it's
+## bound to. Exists so "this control does nothing on my pad" can be told
+## apart from "it's arriving under a different index than the Input Map
+## expects" without guessing: press the control in question, then read
+## these rather than the other way round. -1 until any joypad input of
+## that kind arrives.
+var _last_joy_button := -1
+var _last_joy_axis := -1
+var _last_joy_axis_value := 0.0
+
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -45,12 +57,28 @@ func _input(event: InputEvent) -> void:
 		if event is InputEventJoypadMotion and absf(event.axis_value) < 0.35:
 			return
 		device = Device.GAMEPAD
+		if event is InputEventJoypadButton:
+			var btn := event as InputEventJoypadButton
+			if btn.pressed:
+				_last_joy_button = btn.button_index
+		else:
+			var motion := event as InputEventJoypadMotion
+			_last_joy_axis = motion.axis
+			_last_joy_axis_value = motion.axis_value
 	elif event is InputEventKey or event is InputEventMouseButton:
 		device = Device.KEYBOARD
 	elif event is InputEventMouseMotion:
 		device = Device.KEYBOARD
 		if Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 			_mouse_look += event.relative * Tuning.CAM_MOUSE_SENSITIVITY
+
+
+func last_joy_button_debug() -> String:
+	return "%d" % _last_joy_button if _last_joy_button >= 0 else "-"
+
+
+func last_joy_axis_debug() -> String:
+	return "%d=%.2f" % [_last_joy_axis, _last_joy_axis_value] if _last_joy_axis >= 0 else "-"
 
 
 ## Movement intent in camera space: x = right, y = forward.
