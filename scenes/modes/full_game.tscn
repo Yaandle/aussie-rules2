@@ -14,11 +14,44 @@ script = ExtResource("1_full_game")
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = ExtResource("7_env")
 
+; Afternoon sun, travelling (-0.35, -0.72, -0.60) — i.e. downward, at
+; about 46 degrees of elevation.
+;
+; The transform this replaces was the transposed one docs/HANDOVER.md
+; warns about: the 12 numbers in a Transform3D literal are the basis
+; ROWS, while basis.x/y/z are its COLUMNS, so writing an axis along a
+; triple instead of down them yields the transpose. That is still
+; orthonormal, so it loads without complaint and the light looks
+; configured — but here it left basis.z = (0.574, -0.628, 0.527), meaning
+; the sun travelled *upward* at 39 degrees. Every horizontal surface in
+; the match scenes, the whole ground included, was therefore lit by sky
+; ambient alone: green turf under a blue-only ambient rendered dark teal,
+; and nothing in the scene cast a shadow worth the name.
+;
+; character_backdrop.tscn had already been corrected; that file's own note
+; flags that the same literal was still in four other scenes. This is one
+; of them.
 [node name="Sun" type="DirectionalLight3D" parent="."]
-transform = Transform3D(0.81915, 0, 0.57358, 0.43938, 0.64279, -0.62751, -0.36868, 0.76604, 0.52654, 0, 40, 0)
-light_energy = 1.7
+transform = Transform3D(0.8637, -0.3627, 0.3499, 0, 0.6943, 0.7197, -0.5039, -0.6216, 0.5998, 0, 40, 0)
+; Eased down from 1.7 now that the sun actually reaches the ground: at
+; full strength over the sky ambient the pitch clipped to flat white on
+; the lit side, which is the opposite of the calm overcast afternoon this
+; is meant to be.
+light_energy = 1.05
+; Penumbra width in degrees. The real sun subtends about half a degree;
+; overcast light is far wider, and this is what turns a hard-edged
+; stencil of a player into the soft ground shadow the brief asks for.
+; It is not a post effect — the directional soft-shadow filter is already
+; on (project.godot sets soft_shadow_filter_quality=3) and was simply
+; being handed a zero-radius source to filter.
+light_angular_distance = 2.2
+; Shadows sit at three-quarter strength rather than fully occluding, so
+; the shaded side of the ground keeps its colour instead of going to a
+; grey silhouette.
+shadow_opacity = 0.72
 shadow_enabled = true
 directional_shadow_max_distance = 120.0
+directional_shadow_blend_splits = true
 
 [node name="Field" parent="." instance=ExtResource("2_field")]
 

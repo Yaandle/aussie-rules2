@@ -13,7 +13,7 @@ extends HBoxContainer
 
 const CHIP_PAD_X := 9
 const CHIP_PAD_Y := 4
-const CHIP_RADIUS := 5
+const CHIP_RADIUS := SoftBrutalist.RADIUS_XS
 const CHIP_GAP := 8       ## chip to its own label
 const PAIR_GAP := 26      ## one hint pair to the next
 
@@ -41,7 +41,10 @@ func _pair(keys: String, text: String) -> HBoxContainer:
 	var chip := PanelContainer.new()
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var box := UIStyle.rounded(Color(UIStyle.PANEL_FILL, 0.55), UIStyle.CHIP_BORDER,
+	# Deliberately shadowless: a legend chip is the quietest thing on the
+	# screen, and eight of them each casting their own shadow along the
+	# bottom edge is exactly the busy chrome the brief asks to avoid.
+	var box := UIStyle.rounded(Color(UIStyle.PANEL_FILL, 0.7), UIStyle.CHIP_BORDER,
 		1, CHIP_RADIUS)
 	box.content_margin_left = CHIP_PAD_X
 	box.content_margin_right = CHIP_PAD_X

@@ -35,17 +35,26 @@ environment = ExtResource("2_env")
 ; is in four other scenes.
 
 ; Ground/scene light. Travel direction is basis -Z = (-0.35, -0.55, -0.76).
+; Raised from the 0.14 it ran at under the old dark-navy environment,
+; where the pitch was meant to fall away to near black. The box is a
+; bright overcast one now (see character_studio_environment.tres), so the
+; turf is lit rather than merely ambient-tinted.
 [node name="Sun" type="DirectionalLight3D" parent="."]
 transform = Transform3D(0.9083, -0.2298, 0.3496, 0, 0.8356, 0.5493, -0.4183, -0.4989, 0.759, 0, 40, 0)
-light_energy = 0.14
+light_energy = 0.75
 light_cull_mask = 4294967293
 shadow_enabled = false
 
 ; Subject key, from above and to the camera's left, so the figure is lit
 ; across the face rather than rimmed. Travel is (0.35, -0.6, -0.72).
+;
+; Eased back with the environment: against a bright background a 1.05 key
+; blew the figure's lit side out to flat white while the shaded side stayed
+; dark, which is high contrast rather than modelling. At 0.62 over the
+; raised ambient the figure keeps its form and stays inside the palette.
 [node name="Key" type="DirectionalLight3D" parent="."]
 transform = Transform3D(0.8993, 0.2622, -0.3499, 0, 0.8002, 0.5998, 0.4372, -0.5394, 0.7197, 0, 40, 0)
-light_energy = 1.05
+light_energy = 0.62
 light_cull_mask = 2
 shadow_enabled = false
 

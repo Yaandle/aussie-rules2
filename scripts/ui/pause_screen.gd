@@ -41,19 +41,16 @@ func _ready() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 
-	var background := ColorRect.new()
-	background.set_anchors_preset(Control.PRESET_FULL_RECT)
-	background.color = SoftBrutalist.BACKGROUND
-	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(background)
+	root.add_child(SoftBrutalist.backdrop())
 
 	var card := Panel.new()
 	card.add_theme_stylebox_override(&"panel", SoftBrutalist.panel_style())
+	SoftBrutalist.soften(card, SoftBrutalist.Elevation.OVERLAY)
 	card.size = Vector2(CARD_WIDTH, CARD_HEIGHT)
 	card.position = Vector2((1280.0 - CARD_WIDTH) / 2.0, (720.0 - CARD_HEIGHT) / 2.0)
 	root.add_child(card)
 
-	var title := SoftBrutalist.label("PAUSED", 30, SoftBrutalist.INK,
+	var title := SoftBrutalist.label("PAUSED", SoftBrutalist.SIZE_TITLE, SoftBrutalist.INK,
 		SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_TITLE)
 	title.position = Vector2(32.0, 32.0)
 	card.add_child(title)
@@ -63,12 +60,14 @@ func _ready() -> void:
 		var row := _rows[i]
 		var panel := Panel.new()
 		panel.add_theme_stylebox_override(&"panel", SoftBrutalist.button_style(&"normal"))
+		SoftBrutalist.soften(panel, SoftBrutalist.Elevation.LOW,
+			float(SoftBrutalist.RADIUS_SM))
 		panel.position = Vector2(32.0, top)
 		panel.size = Vector2(CARD_WIDTH - 64.0, ROW_HEIGHT)
 		card.add_child(panel)
 		_row_panels.append(panel)
 
-		var label := SoftBrutalist.label(row.title, 18, SoftBrutalist.INK,
+		var label := SoftBrutalist.label(row.title, SoftBrutalist.SIZE_BODY, SoftBrutalist.INK,
 			SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL)
 		label.set_anchors_preset(Control.PRESET_FULL_RECT)
 		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -134,6 +133,6 @@ func _quit_to_menu() -> void:
 func _refresh() -> void:
 	for i in _rows.size():
 		var selected := i == _index
-		_row_panels[i].add_theme_stylebox_override(&"panel",
-			SoftBrutalist.button_style(&"hover" if selected else &"normal"))
+		SoftBrutalist.animate_state(_row_panels[i], &"panel",
+			&"hover" if selected else &"normal")
 		_row_labels[i].add_theme_color_override(&"font_color", SoftBrutalist.INK)

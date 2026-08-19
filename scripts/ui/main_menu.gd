@@ -4,8 +4,8 @@ extends CanvasLayer
 ## Mode-select screen (design doc §7's front door).
 ##
 ## One reusable keyboard/gamepad-navigable list, matching Prototype 1's
-## menu.py pattern: up/down moves a row index, Enter/accept selects, a
-## locked row is shown muted with a " · LOCKED" tag and Enter is a no-op on
+## menu.py pattern: left/right moves a card index, Enter/accept selects, a
+## locked row is shown muted with a LOCKED tag and Enter is a no-op on
 ## it. P1 kept exactly one such list component and had render.py mirror it
 ## for drawing; here there is only one place the rows are defined (_entries
 ## below) and the cards draw directly from it, so there is nothing to keep
@@ -24,10 +24,24 @@ extends CanvasLayer
 ## GOAL KICKING). `_find_card_image()` looks there for `<image_key>.
 ## <jpg|jpeg|png|webp>` and falls back to a flat tinted placeholder if a
 ## file is missing, so the screen still renders correctly either way.
-## Source images aren't cropped to CARD_WIDTH x CARD_HEIGHT's aspect
-## (372x486) — the shader samples UV 0..1 directly rather than reflowing
-## to fit, so a mismatched aspect will stretch; see _find_card_image()'s
-## call site if that needs a cover-crop pass later.
+## Source images are cover-cropped by the shader rather than stretched,
+## so they need no particular aspect ratio.
+##
+## ── Layout ──────────────────────────────────────────────────────────
+## Everything is in containers, and no band knows the screen size. The
+## screen is four stacked bands inside one MarginContainer — corner
+## chrome, header, cards, footer — with the card band as the only one
+## that expands, so it takes exactly the space the other three leave and
+## the cards can never grow into the footer.
+##
+## The previous revision positioned every band from hardcoded 1280x720
+## constants, which put the card row's measured bottom (~674px, and ~681
+## once the selected card's scale-up is counted) below the footer's top
+## at 666 — the cards overlapped the hint text on every frame, and the
+## right-hand chrome was placed by subtracting a guessed label width from
+## the screen edge, so it never lined up with the left-hand chrome. Both
+## classes of bug are unreachable from a container layout, which is the
+## actual reason for the rewrite.
 
 class Entry:
 	var title: String
@@ -49,41 +63,52 @@ class Entry:
 
 var _entries: Array[Entry] = [
 	Entry.new("FULL GAME", "4-a-side, real clock, quarters, scoring",
-		"res://scenes/modes/full_game.tscn", true, &"football", "menuscreen_ball"),
+		"res://scenes/modes/full_game.tscn", true, &"football", "menuscreen_field"),
 	Entry.new("SCENARIO", "Practice a set situation", "", false, &"cone", "menuscreen_board"),
 	Entry.new("GOAL KICKING", "Shots on goal from the arc", "", false, &"goalpost",
-		"menuscreen_field"),
+		"menuscreen_ball"),
 ]
 
 var _index := 0
 
 const TITLE_TEXT := "AUSSIE RULES 2"
 const SUBTITLE_TEXT := "CHOOSE YOUR GAME MODE"
-const HINT_TEXT := "W/S or arrows to choose   Enter to select   C for character   T for team list"
 const LOCKED_SUBTITLE := "Not built yet"
 const ESTABLISHED_TEXT := "EST. 2025"
 ## Placeholder — the project has no build-version source yet; update this
 ## by hand until one exists.
 const VERSION_TEXT := "v0.1.0"
 
+## Control legend, in the same chip form the character screen uses
+## (KeyHintBar) rather than this screen's old single run-on sentence —
+## one legend treatment across the front end, and four short pairs read
+## at a glance where a 78-character line did not.
+const HINTS := [
+	{"keys": "A / D", "label": "Choose"},
+	{"keys": "Enter", "label": "Select"},
+	{"keys": "C", "label": "Character"},
+	{"keys": "T", "label": "Team"},
+]
+
 const IMAGE_DIR := "res://assets/textures/images/"
 const IMAGE_EXTENSIONS := ["jpg", "jpeg", "png", "webp"]
 
-# ── Layout geometry, in design-resolution px (1280x720) ────────────────
-const TITLE_FONT_SIZE := 40
-const SUBTITLE_FONT_SIZE := 15
-const CARD_WIDTH := 372.0
-const CARD_HEIGHT := 486.0
-const CARD_TITLE_SIZE := 20
-const CARD_SUBTITLE_SIZE := 13
-const CARD_PAD := 20.0
-const CARD_SEPARATION := 28
-const BADGE_SIZE := 46.0
+# ── Layout ───────────────────────────────────────────────────────────
+# Sizes on SoftBrutalist's 8px spacing step. Only minimums and gaps are
+# fixed; the card band's actual size comes from what the layout leaves.
+const SCREEN_MARGIN_X := SoftBrutalist.SPACE_6      ## 56
+const SCREEN_MARGIN_Y := SoftBrutalist.SPACE_4      ## 32
+const BAND_GAP := int(SoftBrutalist.SPACE_4)        ## 32
+const CHROME_HEIGHT := 20.0
+const FOOTER_HEIGHT := 28.0
+const CARD_SEPARATION := int(SoftBrutalist.SPACE_3) ## 24
+const CARD_MIN_WIDTH := 240.0
+const CARD_MIN_HEIGHT := 300.0
+const CARD_PAD := SoftBrutalist.SPACE_3             ## 24
+const CARD_RADIUS := SoftBrutalist.RADIUS_LG
+const BADGE_SIZE := 44.0
 const ARROW_BADGE_SIZE := 34.0
-const TITLE_TO_CARDS_GAP := 34
-const HINT_FONT_SIZE := 14
-const CORNER_MARGIN := 40.0
-const FOOTER_HEIGHT := 30.0
+const TEXT_BLOCK_HEIGHT := 76.0
 
 ## Shader saturation / scale-pop tween length — longer than SoftBrutalist's
 ## button-hover transitions (0.12-0.18s) since this is the screen's one
@@ -91,23 +116,31 @@ const FOOTER_HEIGHT := 30.0
 const CARD_ANIM_DURATION := 0.22
 const CARD_ANIM_TRANS := Tween.TRANS_CUBIC
 const CARD_ANIM_EASE := Tween.EASE_OUT
-const CARD_SELECTED_SCALE := 1.03
+## Small on purpose. The selected card now also rises to a wider, softer
+## shadow (SoftBrutalist.Elevation.RAISED), and that reads as lift far
+## better than scale does — a bigger pop would only shove the card into
+## the gap around it.
+const CARD_SELECTED_SCALE := 1.025
 
-const DIM_UNSELECTED := 0.28
-const DIM_LOCKED := 0.5
+## How far an unselected card sits along menu_card_image.gdshader's ramp
+## toward its flat muted tint. Locked goes further — flatter and quieter,
+## not darker.
+const DIM_UNSELECTED := 0.34
+const DIM_LOCKED := 0.58
 
 ## Opacity of the cream wash over the 3D camera montage (menu_backdrop.tscn)
 ## — high enough that chrome text stays legible, low enough that the
 ## montage still reads as a background rather than a hidden layer.
-const BACKDROP_OVERLAY_ALPHA := 0.80
+const BACKDROP_OVERLAY_ALPHA := 0.88
 
 class CardWidgets:
 	var frame: Control
 	var image: TextureRect
 	var material: ShaderMaterial
 	var border: Panel
-	var title_label: Label
-	var lock_row: Control
+	var shadow: SoftShadow
+	var arrow_icon: UIIcon
+	var arrow_badge: Panel
 
 var _cards: Array[CardWidgets] = []
 var _placeholder_tints := [SoftBrutalist.ACCENT_SECONDARY, SoftBrutalist.MUTED,
@@ -160,146 +193,175 @@ func _build() -> void:
 	# behind this in the SubViewportContainer laid out in main_menu.tscn,
 	# and this wash just needs to knock the footage back enough that ink
 	# text and the card frames stay legible over it.
-	var background := ColorRect.new()
-	background.set_anchors_preset(Control.PRESET_FULL_RECT)
-	background.color = Color(SoftBrutalist.BACKGROUND, BACKDROP_OVERLAY_ALPHA)
-	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(background)
+	root.add_child(SoftBrutalist.backdrop(BACKDROP_OVERLAY_ALPHA))
 
-	_build_corner_chrome(root)
+	var margin := MarginContainer.new()
+	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	margin.add_theme_constant_override(&"margin_left", int(SCREEN_MARGIN_X))
+	margin.add_theme_constant_override(&"margin_right", int(SCREEN_MARGIN_X))
+	margin.add_theme_constant_override(&"margin_top", int(SCREEN_MARGIN_Y))
+	margin.add_theme_constant_override(&"margin_bottom", int(SCREEN_MARGIN_Y))
+	root.add_child(margin)
 
-	var content := VBoxContainer.new()
-	content.set_anchors_preset(Control.PRESET_CENTER)
-	content.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	content.grow_vertical = Control.GROW_DIRECTION_BOTH
-	content.alignment = BoxContainer.ALIGNMENT_CENTER
-	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	content.add_theme_constant_override(&"separation", TITLE_TO_CARDS_GAP)
-	root.add_child(content)
+	var bands := VBoxContainer.new()
+	bands.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bands.add_theme_constant_override(&"separation", BAND_GAP)
+	margin.add_child(bands)
 
-	var title := SoftBrutalist.label(TITLE_TEXT, TITLE_FONT_SIZE, SoftBrutalist.INK,
-		SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_TITLE)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	content.add_child(title)
+	_build_corner_chrome(bands)
+	_build_header(bands)
+	_build_card_row(bands)
+	_build_footer(bands)
 
-	var subtitle := SoftBrutalist.label(SUBTITLE_TEXT, SUBTITLE_FONT_SIZE, SoftBrutalist.MUTED,
-		SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_TITLE)
-	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	subtitle.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	content.add_child(subtitle)
 
+## EST. 2025 on the left, version on the right, both on the screen's own
+## margin. An HBox with a spacer between them, rather than the old pair of
+## anchored labels offset by a guessed text width — a guess that put the
+## version tag 35px short of where the left-hand tag started from its own
+## edge, which is exactly the kind of near-miss the brief flags.
+func _build_corner_chrome(parent: Control) -> void:
 	var row := HBoxContainer.new()
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	row.custom_minimum_size.y = CHROME_HEIGHT
+	parent.add_child(row)
+
+	row.add_child(SoftBrutalist.label(ESTABLISHED_TEXT, SoftBrutalist.SIZE_LABEL,
+		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL))
+
+	var spacer := Control.new()
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(spacer)
+
+	row.add_child(SoftBrutalist.label(VERSION_TEXT, SoftBrutalist.SIZE_LABEL,
+		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL))
+
+
+func _build_header(parent: Control) -> void:
+	var column := VBoxContainer.new()
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_1))
+	parent.add_child(column)
+
+	var title := SoftBrutalist.label(TITLE_TEXT, SoftBrutalist.SIZE_DISPLAY, SoftBrutalist.INK,
+		SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_DISPLAY)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(title)
+
+	var subtitle := SoftBrutalist.label(SUBTITLE_TEXT, SoftBrutalist.SIZE_LABEL,
+		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_TITLE)
+	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(subtitle)
+
+
+func _build_card_row(parent: Control) -> void:
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# The one band that expands: it absorbs whatever height the chrome,
+	# header and footer do not use, so the cards are sized by the layout
+	# rather than by a constant that has to be kept in step with it.
+	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	row.add_theme_constant_override(&"separation", CARD_SEPARATION)
-	content.add_child(row)
+	parent.add_child(row)
 
 	for i in _entries.size():
 		var widgets := _build_card(_entries[i], i)
 		row.add_child(widgets.frame)
 		_cards.append(widgets)
 
-	_build_footer(root)
 
+## SETTINGS on the left margin, the control legend centred, EXIT GAME on
+## the right margin — the expanding legend in the middle is what pins the
+## two actions to the screen's own margins instead of to a hardcoded
+## offset.
+func _build_footer(parent: Control) -> void:
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.custom_minimum_size.y = FOOTER_HEIGHT
+	row.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_3))
+	parent.add_child(row)
 
-func _build_corner_chrome(root: Control) -> void:
-	var established := SoftBrutalist.label(ESTABLISHED_TEXT, HINT_FONT_SIZE, SoftBrutalist.MUTED,
-		SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL)
-	established.position = Vector2(CORNER_MARGIN, CORNER_MARGIN * 0.6)
-	root.add_child(established)
+	row.add_child(_build_footer_action(&"gear", "SETTINGS",
+		func() -> void: SceneWipe.change_scene("res://scenes/ui/settings_screen.tscn")))
 
-	var version := SoftBrutalist.label(VERSION_TEXT, HINT_FONT_SIZE, SoftBrutalist.MUTED,
-		SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL)
-	version.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	version.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	version.position = Vector2(-CORNER_MARGIN - 80.0, CORNER_MARGIN * 0.6)
-	root.add_child(version)
+	var hints := KeyHintBar.new()
+	hints.alignment = BoxContainer.ALIGNMENT_CENTER
+	hints.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hints.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(hints)
+	hints.set_hints(HINTS)
 
-
-func _build_footer(root: Control) -> void:
-	var settings := _build_footer_action("gear", "SETTINGS",
-		func() -> void: SceneWipe.change_scene("res://scenes/ui/settings_screen.tscn"))
-	settings.position = Vector2(CORNER_MARGIN, 720.0 - CORNER_MARGIN * 0.6 - FOOTER_HEIGHT)
-	root.add_child(settings)
-
-	var hint := SoftBrutalist.label(HINT_TEXT, HINT_FONT_SIZE, SoftBrutalist.MUTED,
-		SoftBrutalist.WEIGHT_REGULAR, SoftBrutalist.TRACK_LABEL)
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	hint.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	hint.position.y = -(CORNER_MARGIN * 0.6 + FOOTER_HEIGHT * 0.5 + HINT_FONT_SIZE * 0.5)
-	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(hint)
-
-	var exit_row := _build_footer_action("exit", "EXIT GAME", func() -> void: get_tree().quit())
-	exit_row.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	exit_row.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	exit_row.position = Vector2(-CORNER_MARGIN - 140.0, 720.0 - CORNER_MARGIN * 0.6 - FOOTER_HEIGHT)
-	root.add_child(exit_row)
+	row.add_child(_build_footer_action(&"exit", "EXIT GAME",
+		func() -> void: get_tree().quit()))
 
 
 ## Mouse-only footer action (SETTINGS / EXIT GAME): the screen's real
-## navigation model is keyboard-only (up/down over the three cards, per
-## the rest of the project's screens), and these two rows aren't part of
-## that row-cursor — no new input actions were added for them, so a
-## keyboard/gamepad user simply can't reach them yet. Click-only until
-## there's a reason to spend a new action binding on them.
+## navigation model is keyboard-only (left/right over the three cards, per
+## the rest of the project's screens), and these two rows are not part of
+## that card cursor — no new input actions were added for them, so a
+## keyboard/gamepad user simply cannot reach them yet. Click-only until
+## there is a reason to spend a new action binding on them.
 func _build_footer_action(icon_name: StringName, text: String, on_click: Callable) -> Control:
-	var wrap := Control.new()
-	wrap.custom_minimum_size = Vector2(140.0, FOOTER_HEIGHT)
-	wrap.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-
+	# HBoxContainer sized to its own content rather than a Control with a
+	# guessed 140px width — the old fixed width left the label floating
+	# short of the margin it was meant to sit on.
 	var row := HBoxContainer.new()
-	row.set_anchors_preset(Control.PRESET_FULL_RECT)
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_theme_constant_override(&"separation", 8)
-	wrap.add_child(row)
+	row.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_1))
+	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 
 	var icon := UIIcon.new()
 	icon.icon_name = icon_name
 	icon.line_colour = SoftBrutalist.MUTED
 	icon.custom_minimum_size = Vector2(18.0, 18.0)
+	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(icon)
 
-	var label := SoftBrutalist.label(text, HINT_FONT_SIZE, SoftBrutalist.MUTED,
+	var label := SoftBrutalist.label(text, SoftBrutalist.SIZE_LABEL, SoftBrutalist.MUTED,
 		SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL)
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(label)
 
-	wrap.gui_input.connect(func(event: InputEvent) -> void:
+	row.gui_input.connect(func(event: InputEvent) -> void:
 		if event is InputEventMouseButton and event.pressed \
 				and event.button_index == MOUSE_BUTTON_LEFT:
 			on_click.call())
-	wrap.mouse_entered.connect(func() -> void:
+	row.mouse_entered.connect(func() -> void:
 		icon.line_colour = SoftBrutalist.INK
 		label.add_theme_color_override(&"font_color", SoftBrutalist.INK))
-	wrap.mouse_exited.connect(func() -> void:
+	row.mouse_exited.connect(func() -> void:
 		icon.line_colour = SoftBrutalist.MUTED
 		label.add_theme_color_override(&"font_color", SoftBrutalist.MUTED))
-	return wrap
+	return row
 
 
 func _build_card(entry: Entry, index: int) -> CardWidgets:
 	var widgets := CardWidgets.new()
 
 	var frame := Control.new()
-	frame.custom_minimum_size = Vector2(CARD_WIDTH, CARD_HEIGHT)
-	frame.pivot_offset = Vector2(CARD_WIDTH, CARD_HEIGHT) * 0.5
+	frame.custom_minimum_size = Vector2(CARD_MIN_WIDTH, CARD_MIN_HEIGHT)
+	frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	frame.size_flags_vertical = Control.SIZE_FILL
 	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	widgets.frame = frame
 
-	# Drop shadow behind the photo — same panel shape the rest of the
-	# project's cards use, just filled with a placeholder tint that only
-	# ever peeks out at the rounded corners/shadow, since the image (or
-	# its own placeholder fill) covers the rest.
-	var shadow := Panel.new()
-	shadow.set_anchors_preset(Control.PRESET_FULL_RECT)
-	shadow.add_theme_stylebox_override(&"panel", SoftBrutalist.panel_style(SoftBrutalist.PANEL))
-	frame.add_child(shadow)
+	# Plain Control, not a Container, precisely so the shadow layer below
+	# can anchor itself outside the card rect — see SoftBrutalist.soften().
+	widgets.shadow = SoftBrutalist.soften(frame, SoftBrutalist.Elevation.REST,
+		float(CARD_RADIUS))
 
 	var image := TextureRect.new()
 	image.set_anchors_preset(Control.PRESET_FULL_RECT)
 	image.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# EXPAND_IGNORE_SIZE, and this is not optional. TextureRect defaults
+	# to EXPAND_KEEP_SIZE, which reports the *source texture* as the
+	# node's minimum size — and Control.size clamps up to the minimum, so
+	# the anchors asking for the card rect were silently overruled by the
+	# artwork's own 575x887. That is the "images extend outside their
+	# containers" the brief opens with: all three photos were drawing ~250px
+	# past the bottom of their cards, straight over the footer.
+	image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	var texture := _find_card_image(entry.image_key)
 	if texture == null:
 		texture = _placeholder_texture(_placeholder_tints[index % _placeholder_tints.size()])
@@ -307,8 +369,10 @@ func _build_card(entry: Entry, index: int) -> CardWidgets:
 
 	var material := ShaderMaterial.new()
 	material.shader = load("res://assets/shaders/menu_card_image.gdshader")
-	material.set_shader_parameter(&"rect_size", Vector2(CARD_WIDTH, CARD_HEIGHT))
-	material.set_shader_parameter(&"radius", float(SoftBrutalist.CORNER_RADIUS))
+	material.set_shader_parameter(&"radius", float(CARD_RADIUS))
+	# Seeded from the minimum so the first drawn frame is already clipped
+	# correctly; the resized handler below takes over from the layout.
+	material.set_shader_parameter(&"rect_size", Vector2(CARD_MIN_WIDTH, CARD_MIN_HEIGHT))
 	material.set_shader_parameter(&"saturation", 0.0)
 	material.set_shader_parameter(&"dim", DIM_LOCKED if not entry.unlocked else DIM_UNSELECTED)
 	material.set_shader_parameter(&"image", texture)
@@ -321,61 +385,88 @@ func _build_card(entry: Entry, index: int) -> CardWidgets:
 	var scrim := TextureRect.new()
 	scrim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	scrim.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	scrim.stretch_mode = TextureRect.STRETCH_SCALE
 	scrim.texture = _bottom_scrim_texture()
 	frame.add_child(scrim)
 
 	var badge := _build_icon_badge(entry.icon_name, BADGE_SIZE)
+	badge.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	badge.position = Vector2(CARD_PAD, CARD_PAD)
 	frame.add_child(badge)
 
+	# Anchored to the card's bottom edge with a gap kept clear on the
+	# right for the arrow badge, so the text block reflows with the card
+	# instead of being placed at a fixed offset from a fixed card size.
 	var text_column := VBoxContainer.new()
 	text_column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	text_column.add_theme_constant_override(&"separation", 4)
-	text_column.position = Vector2(CARD_PAD, CARD_HEIGHT - CARD_PAD - 70.0)
-	text_column.size = Vector2(CARD_WIDTH - CARD_PAD * 2.0 - ARROW_BADGE_SIZE - 10.0, 70.0)
+	text_column.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	text_column.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	text_column.offset_left = CARD_PAD
+	text_column.offset_right = -(CARD_PAD + ARROW_BADGE_SIZE + SoftBrutalist.SPACE_2)
+	text_column.offset_top = -(TEXT_BLOCK_HEIGHT + CARD_PAD)
+	text_column.offset_bottom = -CARD_PAD
+	text_column.alignment = BoxContainer.ALIGNMENT_END
 	frame.add_child(text_column)
 
-	var title_label := SoftBrutalist.label(entry.title, CARD_TITLE_SIZE, Color.WHITE,
+	var title_label := SoftBrutalist.label(entry.title, SoftBrutalist.SIZE_HEADING, Color.WHITE,
 		SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_LABEL)
 	text_column.add_child(title_label)
-	widgets.title_label = title_label
 
 	if entry.unlocked:
-		var subtitle_label := SoftBrutalist.label(entry.subtitle, CARD_SUBTITLE_SIZE,
+		var subtitle_label := SoftBrutalist.label(entry.subtitle, SoftBrutalist.SIZE_LABEL,
 			Color(1.0, 1.0, 1.0, 0.78), SoftBrutalist.WEIGHT_REGULAR, SoftBrutalist.TRACK_LABEL)
 		subtitle_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		text_column.add_child(subtitle_label)
 	else:
+		# One line, not the three the locked cards used to carry (a lock
+		# row, the word LOCKED, and a separate "Not built yet"). Three
+		# stacked lines of chrome on a card with nothing behind it is the
+		# noisiest thing on the screen and says one thing.
 		var lock_row := HBoxContainer.new()
 		lock_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		lock_row.add_theme_constant_override(&"separation", 6)
 		text_column.add_child(lock_row)
+
 		var lock_icon := UIIcon.new()
 		lock_icon.icon_name = &"lock"
-		lock_icon.line_colour = Color(1.0, 1.0, 1.0, 0.85)
-		lock_icon.custom_minimum_size = Vector2(14.0, 14.0)
+		lock_icon.line_colour = Color(1.0, 1.0, 1.0, 0.8)
+		lock_icon.custom_minimum_size = Vector2(13.0, 13.0)
+		lock_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		lock_row.add_child(lock_icon)
-		lock_row.add_child(SoftBrutalist.label("LOCKED", CARD_SUBTITLE_SIZE,
-			Color(1.0, 1.0, 1.0, 0.85), SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL))
-		text_column.add_child(SoftBrutalist.label(LOCKED_SUBTITLE, CARD_SUBTITLE_SIZE,
-			Color(1.0, 1.0, 1.0, 0.6), SoftBrutalist.WEIGHT_REGULAR, SoftBrutalist.TRACK_LABEL))
-		widgets.lock_row = lock_row
 
-	var arrow_badge := _build_icon_badge(&"arrow_right", ARROW_BADGE_SIZE)
-	arrow_badge.position = Vector2(CARD_WIDTH - CARD_PAD - ARROW_BADGE_SIZE,
-		CARD_HEIGHT - CARD_PAD - ARROW_BADGE_SIZE)
-	frame.add_child(arrow_badge)
+		var lock_label := SoftBrutalist.label(LOCKED_SUBTITLE, SoftBrutalist.SIZE_LABEL,
+			Color(1.0, 1.0, 1.0, 0.8), SoftBrutalist.WEIGHT_REGULAR, SoftBrutalist.TRACK_LABEL)
+		lock_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		lock_row.add_child(lock_label)
+
+	widgets.arrow_badge = _build_icon_badge(&"arrow_right", ARROW_BADGE_SIZE)
+	widgets.arrow_badge.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	widgets.arrow_badge.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	widgets.arrow_badge.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	widgets.arrow_badge.position = Vector2(-(CARD_PAD + ARROW_BADGE_SIZE),
+		-(CARD_PAD + ARROW_BADGE_SIZE))
+	widgets.arrow_icon = widgets.arrow_badge.get_child(0) as UIIcon
+	frame.add_child(widgets.arrow_badge)
 
 	# Border drawn last, on top of everything: a transparent-fill StyleBox
-	# with just the 3px ink edge + rounded corners, so the frame reads as
-	# crisp and unbroken regardless of what the photo underneath is doing.
+	# with just the edge + rounded corners, so the frame reads as crisp
+	# and unbroken regardless of what the photo underneath is doing.
 	var border := Panel.new()
 	border.set_anchors_preset(Control.PRESET_FULL_RECT)
 	border.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	border.add_theme_stylebox_override(&"panel", _border_style(SoftBrutalist.INK, 0, Vector2.ZERO))
+	border.add_theme_stylebox_override(&"panel", _border_style(SoftBrutalist.LINE))
 	frame.add_child(border)
 	widgets.border = border
+
+	# The card's pixel size is decided by the layout, and the image shader
+	# needs it to do its rounded clip and cover-crop. Pivot for the
+	# selection scale-up has to follow it too, or the card would grow from
+	# its top-left corner.
+	frame.resized.connect(func() -> void:
+		material.set_shader_parameter(&"rect_size", frame.size)
+		frame.pivot_offset = frame.size * 0.5)
 
 	return widgets
 
@@ -386,16 +477,16 @@ func _build_icon_badge(icon_name: StringName, badge_size: float) -> Panel:
 	badge.size = Vector2(badge_size, badge_size)
 	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(1.0, 1.0, 1.0, 0.92)
+	style.bg_color = Color(1.0, 1.0, 1.0, 0.94)
 	style.set_corner_radius_all(int(badge_size * 0.5))
-	style.anti_aliasing_size = 0.6
+	style.anti_aliasing_size = 1.0
 	badge.add_theme_stylebox_override(&"panel", style)
 
 	var icon := UIIcon.new()
 	icon.icon_name = icon_name
 	icon.line_colour = SoftBrutalist.INK
 	icon.set_anchors_preset(Control.PRESET_FULL_RECT)
-	var inset := badge_size * 0.24
+	var inset := badge_size * 0.26
 	icon.offset_left = inset
 	icon.offset_top = inset
 	icon.offset_right = -inset
@@ -405,18 +496,16 @@ func _build_icon_badge(icon_name: StringName, badge_size: float) -> Panel:
 
 
 ## Transparent-fill variant of SoftBrutalist.panel_style() — the shared
-## helper always fills solid, which would hide the photo/placeholder it's
-## layered over here.
-func _border_style(border_colour: Color, shadow_size: int, shadow_offset: Vector2) -> StyleBoxFlat:
+## helper always fills solid, which would hide the photo it is layered
+## over here. Carries no shadow either: the card's depth comes from the
+## SoftShadow attached to its frame.
+func _border_style(border_colour: Color) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
 	box.bg_color = Color(0, 0, 0, 0)
 	box.border_color = border_colour
 	box.set_border_width_all(SoftBrutalist.BORDER_WIDTH)
-	box.set_corner_radius_all(SoftBrutalist.CORNER_RADIUS)
-	box.shadow_color = Color(SoftBrutalist.INK.r, SoftBrutalist.INK.g, SoftBrutalist.INK.b, 0.22)
-	box.shadow_size = shadow_size
-	box.shadow_offset = shadow_offset
-	box.anti_aliasing_size = 0.6
+	box.set_corner_radius_all(CARD_RADIUS)
+	box.anti_aliasing_size = 1.0
 	return box
 
 
@@ -437,18 +526,21 @@ func _placeholder_texture(tint: Color) -> ImageTexture:
 ## A generated (not imported) top-transparent/bottom-dark vertical
 ## gradient, so the white title/subtitle text on every card stays legible
 ## over whatever the photo is doing underneath, same job a broadcast
-## lower-third scrim does.
+## lower-third scrim does. Three stops rather than two: a straight linear
+## ramp to 0.7 puts its steepest change right behind the title, which
+## reads as a visible band edge across the artwork.
 func _bottom_scrim_texture() -> GradientTexture2D:
 	var gradient := Gradient.new()
-	gradient.colors = PackedColorArray([Color(0, 0, 0, 0), Color(0, 0, 0, 0.7)])
-	gradient.offsets = PackedFloat32Array([0.35, 1.0])
+	gradient.colors = PackedColorArray([
+		Color(0, 0, 0, 0), Color(0, 0, 0, 0.22), Color(0, 0, 0, 0.62)])
+	gradient.offsets = PackedFloat32Array([0.3, 0.62, 1.0])
 	var texture := GradientTexture2D.new()
 	texture.gradient = gradient
 	texture.fill = GradientTexture2D.FILL_LINEAR
 	texture.fill_from = Vector2(0.0, 0.0)
 	texture.fill_to = Vector2(0.0, 1.0)
 	texture.width = 4
-	texture.height = 64
+	texture.height = 256
 	return texture
 
 
@@ -459,18 +551,22 @@ func _refresh() -> void:
 		var entry := _entries[i]
 		var selected := i == _index
 		var widgets := _cards[i]
+		var live := selected and entry.unlocked
 
-		var cursor := "› " if selected else ""
-		widgets.title_label.text = cursor + entry.title
+		var target_saturation := 1.0 if live else 0.0
+		var target_scale := CARD_SELECTED_SCALE if live else 1.0
+		var target_border := SoftBrutalist.ACCENT_PRIMARY if live else SoftBrutalist.LINE
 
-		var target_saturation := 1.0 if (selected and entry.unlocked) else 0.0
-		var target_scale := CARD_SELECTED_SCALE if (selected and entry.unlocked) else 1.0
-		var target_border := SoftBrutalist.ACCENT_PRIMARY if (selected and entry.unlocked) \
-			else SoftBrutalist.INK
-		var target_shadow_size := SoftBrutalist.SHADOW_HOVER_SIZE if selected \
-			else SoftBrutalist.SHADOW_REST_SIZE
-		var target_shadow_offset := SoftBrutalist.SHADOW_HOVER_OFFSET if selected \
-			else SoftBrutalist.SHADOW_REST_OFFSET
+		# The arrow badge is the cursor. The title used to carry a "› "
+		# prefix instead, which re-flowed the whole title line every time
+		# the selection moved — text that shifts sideways as you scroll a
+		# menu reads as a glitch, not as a cursor.
+		widgets.arrow_icon.line_colour = SoftBrutalist.ACCENT_PRIMARY if live \
+			else SoftBrutalist.MUTED
+
+		SoftBrutalist.set_elevation(widgets.shadow,
+			SoftBrutalist.Elevation.RAISED if selected else SoftBrutalist.Elevation.REST,
+			true, CARD_ANIM_DURATION)
 
 		var tween := widgets.frame.create_tween()
 		tween.set_trans(CARD_ANIM_TRANS)
@@ -485,6 +581,3 @@ func _refresh() -> void:
 		var next_border := border_style.duplicate()
 		widgets.border.add_theme_stylebox_override(&"panel", next_border)
 		tween.tween_property(next_border, "border_color", target_border, CARD_ANIM_DURATION)
-		tween.tween_property(next_border, "shadow_size", target_shadow_size, CARD_ANIM_DURATION)
-		tween.tween_property(next_border, "shadow_offset", target_shadow_offset,
-			CARD_ANIM_DURATION)

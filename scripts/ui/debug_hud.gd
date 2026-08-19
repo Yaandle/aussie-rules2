@@ -25,7 +25,11 @@ func _ready() -> void:
 	## per-row layout, just legibility over any field background.
 	_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_panel.add_theme_stylebox_override(&"panel", SoftBrutalist.panel_style(SoftBrutalist.PANEL))
-	_label.add_theme_font_override(&"font", SoftBrutalist.monospace_font)
+	SoftBrutalist.soften(_panel, SoftBrutalist.Elevation.REST)
+	# Genuinely fixed-pitch, not just tabular figures: every line below is
+	# printf-padded into columns and two of them draw ASCII bars, none of
+	# which line up in a proportional face.
+	_label.add_theme_font_override(&"font", SoftBrutalist.monospace_font())
 	_label.add_theme_color_override(&"font_color", SoftBrutalist.INK)
 
 

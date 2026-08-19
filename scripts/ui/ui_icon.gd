@@ -91,16 +91,22 @@ const SHAPES := {
 	&"play": [
 		["fill", 7.5, 4.0, 19.0, 12.0, 7.5, 20.0],
 	],
-	# AFL ball, side on: an oval outline plus a lace line down the middle —
-	# main_menu.gd's FULL GAME card badge.
+	# AFL ball, stood on its end: a pointed oval with a seam and four
+	# laces across it — main_menu.gd's FULL GAME card badge.
+	#
+	# Upright and pointed, not the wide flat ellipse this was. Lying on
+	# its side with a single horizontal line through the middle, the glyph
+	# read as an eye at badge size — the long axis and the seam ran the
+	# same way, which is the shape of an iris, not of a football.
 	&"football": [
-		["loop", 21.0, 12.0, 19.8, 15.0, 16.5, 17.2, 12.0, 18.0, 7.5, 17.2,
-			4.2, 15.0, 3.0, 12.0, 4.2, 9.0, 7.5, 6.8, 12.0, 6.0, 16.5, 6.8,
-			19.8, 9.0],
-		["poly", 9.0, 12.0, 15.0, 12.0],
-		["poly", 10.5, 10.5, 10.5, 13.5],
-		["poly", 12.0, 10.0, 12.0, 14.0],
-		["poly", 13.5, 10.5, 13.5, 13.5],
+		["loop", 12.0, 2.8, 15.3, 5.4, 17.2, 8.8, 17.6, 12.0, 17.2, 15.2,
+			15.3, 18.6, 12.0, 21.2, 8.7, 18.6, 6.8, 15.2, 6.4, 12.0,
+			6.8, 8.8, 8.7, 5.4],
+		["poly", 12.0, 6.6, 12.0, 17.4],
+		["poly", 9.9, 8.8, 14.1, 8.8],
+		["poly", 9.7, 11.2, 14.3, 11.2],
+		["poly", 9.7, 13.6, 14.3, 13.6],
+		["poly", 9.9, 16.0, 14.1, 16.0],
 	],
 	# Witches-hat training cone — main_menu.gd's SCENARIO card badge.
 	&"cone": [
@@ -122,6 +128,24 @@ const SHAPES := {
 	&"arrow_right": [
 		["poly", 5.0, 12.0, 19.0, 12.0],
 		["poly", 13.5, 6.0, 19.0, 12.0, 13.5, 18.0],
+	],
+	# Three sliders, not a cogwheel. A cog is a ring plus eight teeth, and
+	# at the 18px this is drawn at, teeth land at about two pixels each
+	# and mush into a fuzzy circle; sliders keep three clean horizontal
+	# strokes at any size.
+	&"gear": [
+		["poly", 4.0, 6.5, 20.0, 6.5],
+		["poly", 4.0, 12.0, 20.0, 12.0],
+		["poly", 4.0, 17.5, 20.0, 17.5],
+		["dot", 15.0, 6.5, 2.1],
+		["dot", 8.5, 12.0, 2.1],
+		["dot", 16.5, 17.5, 2.1],
+	],
+	# Door bracket, open on the side the arrow leaves through.
+	&"exit": [
+		["poly", 13.5, 4.0, 5.0, 4.0, 5.0, 20.0, 13.5, 20.0],
+		["poly", 10.5, 12.0, 20.0, 12.0],
+		["poly", 17.0, 8.8, 20.2, 12.0, 17.0, 15.2],
 	],
 	# Padlock — the "· LOCKED" tag glyph.
 	&"lock": [

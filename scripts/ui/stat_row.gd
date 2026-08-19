@@ -37,8 +37,9 @@ const MARKER_SIZE := Vector2(3.0, 20.0)
 
 const LOCKED_SUFFIX := "• LOCKED"
 
-## Icon box corner radius — sharp, not SoftBrutalist's 14px.
-const ICON_RADIUS := 6
+## Icon box corner radius — the small step on SoftBrutalist's radius
+## scale, not the card step a full panel uses.
+const ICON_RADIUS := SoftBrutalist.RADIUS_SM
 
 
 ## Bar squares: filled solid, empty outlined. Split out only because
@@ -64,13 +65,14 @@ class SegmentBar extends Control:
 			else:
 				# Half-pixel inset so the stroke lands on whole pixels
 				# instead of straddling two and going grey. A full
-				# SoftBrutalist.BORDER_WIDTH (3px) stroke would all but
-				# erase an 11px square, so this stays a stroke rather than
-				# the token set's full boxed-element border — 2px is as
-				# far as that token can stretch at this size.
+				# SoftBrutalist.BORDER_WIDTH stroke would all but erase an
+				# 11px square, so this stays a 1.5px hairline in the soft
+				# rule colour — an empty segment is a placeholder, and
+				# drawing it at the same weight as a filled one makes the
+				# bar read as full.
 				draw_rect(Rect2(left + 0.5, top + 0.5,
 					SEGMENT_SIZE - 1.0, SEGMENT_SIZE - 1.0),
-					UIStyle.SEGMENT_EMPTY, false, 2.0)
+					UIStyle.SEGMENT_EMPTY, false, 1.5)
 
 
 var _marker: ColorRect
@@ -84,6 +86,7 @@ var _bar: SegmentBar
 var _value: Label
 var _locked := false
 var _accent := UIStyle.ACCENT
+var _shadow: SoftShadow
 
 
 func _init() -> void:
@@ -102,24 +105,17 @@ func _build() -> void:
 	_icon_box = Panel.new()
 	_icon_box.position = Vector2.ZERO
 	_icon_box.size = Vector2(ICON_BOX, ICON_BOX)
-	# Sharp hairline box (UIStyle.rounded()), not SoftBrutalist's full
-	# boxed-element shape — the icon boxes read sharper and cleaner at
-	# this small size with a 1px ink line than with a 3px border and
-	# 14px corners. A soft drop shadow is added on top of the hairline
-	# box (which never had one), matching SoftBrutalist's "rest" shadow
-	# so the row still reads as lifted off the backdrop.
+	# Hairline box (UIStyle.rounded()), not the 2px edge a full card
+	# carries — at 40px square a card border would be most of the shape.
 	_box_idle = UIStyle.rounded(UIStyle.ICON_BOX_FILL, UIStyle.ICON_BOX_BORDER, 1, ICON_RADIUS)
-	_box_idle.shadow_color = Color(SoftBrutalist.INK.r, SoftBrutalist.INK.g, SoftBrutalist.INK.b, 0.22)
-	_box_idle.shadow_size = SoftBrutalist.SHADOW_REST_SIZE
-	_box_idle.shadow_offset = SoftBrutalist.SHADOW_REST_OFFSET
-
 	_box_selected = UIStyle.rounded(UIStyle.ICON_BOX_FILL, UIStyle.ACCENT, 1, ICON_RADIUS)
-	_box_selected.shadow_color = Color(SoftBrutalist.INK.r, SoftBrutalist.INK.g, SoftBrutalist.INK.b, 0.22)
-	_box_selected.shadow_size = SoftBrutalist.SHADOW_REST_SIZE
-	_box_selected.shadow_offset = SoftBrutalist.SHADOW_REST_OFFSET
 
 	_icon_box.add_theme_stylebox_override(&"panel", _box_idle)
 	add_child(_icon_box)
+	# LOW, not REST: the card-height blur is wider than this box is, and
+	# a shadow bigger than the thing casting it reads as a smudge rather
+	# than as height.
+	_shadow = SoftBrutalist.soften(_icon_box, SoftBrutalist.Elevation.LOW, float(ICON_RADIUS))
 
 	_icon = UIIcon.new()
 	_icon.position = Vector2(ICON_INSET, ICON_INSET)
@@ -190,3 +186,7 @@ func set_state(selected: bool, filled: int, value_text: String) -> void:
 	_marker.visible = selected
 	_icon_box.add_theme_stylebox_override(&"panel", _box_selected if selected else _box_idle)
 	_icon.line_colour = _accent if selected else UIStyle.ICON_LINE
+	# The selected row lifts as well as changing colour, so the cursor
+	# reads at a glance from across the column rather than only up close.
+	SoftBrutalist.set_elevation(_shadow,
+		SoftBrutalist.Elevation.REST if selected else SoftBrutalist.Elevation.LOW)

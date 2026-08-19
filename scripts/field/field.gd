@@ -34,16 +34,60 @@ const GOAL_LINE_INSET := 1.5
 ## How far the surrounds run past the boundary. Generous enough that wide
 ## establishing camera angles (menu backdrop, broadcast flyovers) don't run
 ## off the edge of the ground plane and reveal sky at a grazing angle.
-const SURROUND_MARGIN := 60.0
+##
+## 60m was not: the menu montage's opening wide shot sits 48m up and 70m
+## out, and from there the far edge of the plane cut a dead straight line
+## across the sky behind the treeline. This pushes that edge out to about
+## half a kilometre, where the environment fog has faded it into the sky
+## before it can be seen. The ground is two triangles however large it is
+## and the turf shader is per-pixel, so the extra reach costs nothing —
+## the plane covers the same screen area either way.
+const SURROUND_MARGIN := 420.0
 
 ## Stadium boundary fence — purely a "this is an oval, not an empty plane"
 ## visual cue (design doc §9 territory, same spirit as the posts). Sits
 ## just past the running-track apron drawn by turf.gdshader's apron_width.
+##
+## Its job is to frame the ground, not to be looked at. It used to be
+## painted in COLOUR_LINE — the exact white the goal posts and every
+## painted marking use — with COLOUR_POST_BASE red posts every eighth
+## segment, which made it a bright dashed ring and the brightest
+## continuous object in a wide shot. The colours below keep it a legible
+## edge while dropping it well below the markings in contrast.
 const FENCE_HEIGHT := 1.1
 const FENCE_OFFSET := 9.0        ## m outside the boundary line, past the apron
 const FENCE_SEGMENTS := 160
 const FENCE_POST_SPACING := 8    ## every Nth ellipse segment gets a post
 const FENCE_POST_RADIUS := 0.05
+## Muted stone, a long way off the markings' white.
+const COLOUR_FENCE := Color("#C9C6BA")
+## Cap rail along the top edge. A single darker line is what makes a flat
+## ribbon read as a fence rather than as a strip of paint standing on the
+## grass, and it does that without adding any brightness.
+const COLOUR_FENCE_RAIL := Color("#8E9089")
+const FENCE_RAIL_HEIGHT := 0.12
+
+# ── Surrounding trees ────────────────────────────────────────────────
+# A ring of small stylised trees in the park beyond the fence. One
+# MultiMesh for the canopies and one for the trunks, so the whole band is
+# two draw calls however many trees it holds — a MeshInstance3D per tree
+# would be hundreds.
+#
+# Placed outside the boundary and never inside it: this is framing for
+# wide and low camera angles, and the brief is explicit that the playing
+# surface stays uncluttered.
+
+const TREE_COUNT := 132
+const TREE_RING_INSET := 6.0     ## m beyond the fence before the first tree
+const TREE_RING_DEPTH := 26.0    ## m of band the ring is scattered through
+const TREE_HEIGHT_MIN := 3.4
+const TREE_HEIGHT_MAX := 5.8
+const TREE_SEED := 20250819
+const COLOUR_TRUNK := Color("#6B5B4A")
+## Canopy tints, sampled between per instance. Both are desaturated
+## against the pitch so the trees sit behind it rather than compete.
+const COLOUR_CANOPY_A := Color("#4F6B45")
+const COLOUR_CANOPY_B := Color("#6C8752")
 
 
 func _ready() -> void:
@@ -51,6 +95,7 @@ func _ready() -> void:
 	_build_markings()
 	_build_goals()
 	_build_fence()
+	_build_trees()
 
 
 ## The ground slab and its shader both take their extents from Tuning, so
@@ -367,8 +412,8 @@ func _build_fence() -> void:
 
 	var mesh := surface.commit()
 	var material := StandardMaterial3D.new()
-	material.albedo_color = COLOUR_LINE
-	material.roughness = 0.85
+	material.albedo_color = COLOUR_FENCE
+	material.roughness = 0.9
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
 
 	var node := MeshInstance3D.new()
@@ -377,14 +422,55 @@ func _build_fence() -> void:
 	node.material_override = material
 	add_child(node)
 
+	_build_fence_rail(points, count)
+
+	# Posts in the same stone family as the ribbon, a shade darker, rather
+	# than the goal posts' red.
 	var post_material := StandardMaterial3D.new()
-	post_material.albedo_color = COLOUR_POST_BASE
-	post_material.roughness = 0.7
+	post_material.albedo_color = COLOUR_FENCE_RAIL
+	post_material.roughness = 0.85
 	var posts := Node3D.new()
 	posts.name = "FencePosts"
 	add_child(posts)
 	for i in range(0, count, FENCE_POST_SPACING):
 		_fence_post(posts, points[i], post_material)
+
+
+## Darker band along the top edge of the fence, built as a second ribbon
+## sitting a hair outside the first so it reads as a capping rail.
+func _build_fence_rail(points: PackedVector3Array, count: int) -> void:
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in count:
+		var a := points[i]
+		var b := points[(i + 1) % count]
+		var low := FENCE_HEIGHT - FENCE_RAIL_HEIGHT
+		var a0 := Vector3(a.x, low, a.z)
+		var a1 := Vector3(a.x, FENCE_HEIGHT, a.z)
+		var b0 := Vector3(b.x, low, b.z)
+		var b1 := Vector3(b.x, FENCE_HEIGHT, b.z)
+		var tangent := b0 - a0
+		surface.set_normal(Vector3(tangent.z, 0.0, -tangent.x).normalized())
+		surface.add_vertex(a0)
+		surface.add_vertex(b0)
+		surface.add_vertex(b1)
+		surface.add_vertex(a0)
+		surface.add_vertex(b1)
+		surface.add_vertex(a1)
+
+	var material := StandardMaterial3D.new()
+	material.albedo_color = COLOUR_FENCE_RAIL
+	material.roughness = 0.9
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+
+	var node := MeshInstance3D.new()
+	node.name = "FenceRail"
+	node.mesh = surface.commit()
+	node.material_override = material
+	# Scaled fractionally outward so the two coplanar ribbons cannot
+	# z-fight along the rail's lower edge.
+	node.scale = Vector3(1.0008, 1.0, 1.0008)
+	add_child(node)
 
 
 func _fence_post(parent: Node3D, base: Vector3, material: Material) -> void:
@@ -399,3 +485,119 @@ func _fence_post(parent: Node3D, base: Vector3, material: Material) -> void:
 	node.material_override = material
 	node.position = Vector3(base.x, height * 0.5, base.z)
 	parent.add_child(node)
+
+
+# ── Trees ────────────────────────────────────────────────────────────
+
+## Scatters TREE_COUNT trees through a band in the park outside the fence.
+##
+## Deterministic (TREE_SEED): the ground is rebuilt from scratch every
+## time a scene loads, and a park that rearranged itself between the menu
+## montage and the match would read as a different venue.
+##
+## Angles are stratified rather than uniformly random — one tree per equal
+## slice of the ellipse, jittered inside its own slice. Uniform random
+## angles clump, and a ring with visible clusters and bald patches reads
+## as a bug rather than as planting.
+##
+## Tonal variation across the treeline comes from splitting the trees
+## between two canopy MultiMeshes with different solid materials, rather
+## than from a per-instance colour on one. MultiMesh.use_colors is set and
+## set_instance_color() accepts the values here, but they do not survive:
+## reading one straight back returns black, and the canopies render at the
+## material default. Two buckets is three draw calls instead of two, gives
+## the same read at this distance, and cannot silently stop working.
+func _build_trees() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = TREE_SEED
+
+	var half_length := Tuning.FIELD_HALF_LENGTH + FENCE_OFFSET + TREE_RING_INSET
+	var half_width := Tuning.FIELD_HALF_WIDTH + FENCE_OFFSET + TREE_RING_INSET
+	var slice := TAU / float(TREE_COUNT)
+
+	var trunks: Array[Transform3D] = []
+	# Two separately typed arrays rather than an array of arrays: the inner
+	# arrays of an Array[Array] are untyped, and passing one to a parameter
+	# declared Array[Transform3D] is a runtime type error.
+	var canopies_a: Array[Transform3D] = []
+	var canopies_b: Array[Transform3D] = []
+
+	for i in TREE_COUNT:
+		var angle := slice * (float(i) + rng.randf_range(0.15, 0.85))
+		# randf() squared biases the band inward, so the ring reads as a
+		# treeline thinning outward rather than as an even wall.
+		var depth := rng.randf() * rng.randf() * TREE_RING_DEPTH
+		var origin := Vector3(
+			cos(angle) * (half_length + depth), 0.0, sin(angle) * (half_width + depth))
+		var height := rng.randf_range(TREE_HEIGHT_MIN, TREE_HEIGHT_MAX)
+		var spread := height * rng.randf_range(0.26, 0.36)
+		var turn := Basis(Vector3.UP, rng.randf_range(0.0, TAU))
+
+		trunks.append(Transform3D(
+			turn.scaled(Vector3(1.0, height * 0.5, 1.0)),
+			origin + Vector3(0.0, height * 0.25, 0.0)))
+		var canopy := Transform3D(
+			turn.scaled(Vector3(spread, height * 0.42, spread)),
+			origin + Vector3(0.0, height * 0.66, 0.0))
+		if rng.randi() % 2 == 0:
+			canopies_a.append(canopy)
+		else:
+			canopies_b.append(canopy)
+
+	_tree_multimesh("Trunks", _trunk_mesh(), COLOUR_TRUNK, 0.9, trunks)
+	_tree_multimesh("CanopiesA", _canopy_mesh(), COLOUR_CANOPY_A, 0.95, canopies_a)
+	_tree_multimesh("CanopiesB", _canopy_mesh(), COLOUR_CANOPY_B, 0.95, canopies_b)
+
+
+## Low and deliberately faceted. The brief asks for clean silhouettes and
+## a handcrafted miniature read; a smooth high-poly ball at this size just
+## looks like a smooth high-poly ball.
+func _canopy_mesh() -> SphereMesh:
+	var mesh := SphereMesh.new()
+	mesh.radius = 1.0
+	mesh.height = 2.2
+	mesh.radial_segments = 7
+	mesh.rings = 4
+	return mesh
+
+
+func _trunk_mesh() -> CylinderMesh:
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = 0.09
+	mesh.bottom_radius = 0.15
+	mesh.height = 1.0
+	mesh.radial_segments = 5
+	return mesh
+
+
+func _tree_multimesh(node_name: String, mesh: PrimitiveMesh, albedo: Color,
+		roughness: float, transforms: Array[Transform3D]) -> void:
+	if transforms.is_empty():
+		return
+
+	var material := StandardMaterial3D.new()
+	material.albedo_color = albedo
+	material.roughness = roughness
+	material.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+	# `mesh.material`, not surface_set_material(): these are PrimitiveMeshes,
+	# which generate their surface lazily and expose exactly one material
+	# through this property. surface_set_material() silently does nothing on
+	# them, which is how the first cut of this ended up with white blobs.
+	mesh.material = material
+
+	var multimesh := MultiMesh.new()
+	multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	multimesh.mesh = mesh
+	multimesh.instance_count = transforms.size()
+	for i in transforms.size():
+		multimesh.set_instance_transform(i, transforms[i])
+
+	var node := MultiMeshInstance3D.new()
+	node.name = node_name
+	node.multimesh = multimesh
+	# The trees stand 90-120m out, well past anything the play happens
+	# near, so their shadows would only ever fall on empty park — and
+	# casting them would spend a slice of the directional shadow atlas on
+	# ground no camera dwells on.
+	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(node)

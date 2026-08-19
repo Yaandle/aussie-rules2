@@ -17,14 +17,46 @@ extends CanvasLayer
 ## removed now that the roster is fixed at the full 18-a-side (4 on the
 ## interchange bench, informational only) — this screen just previews
 ## TeamFormation.SLOTS's one data-driven layout.
+##
+## ── Layout ──────────────────────────────────────────────────────────
+## One centred content column, not a full-width spread. The board is a
+## portrait oval and it sizes itself to the available *height*, so when
+## its panel was given every pixel of width left over after the legend
+## column, the drawing ended up about 410px wide inside a 960px panel —
+## two thirds of the screen's largest card was empty. Sizing that panel
+## to the board it holds and centring the pair instead turns that dead
+## area into margin, which reads as deliberate space rather than as a
+## card someone forgot to fill.
 
-const MARGIN := 36.0
-const HEADER_HEIGHT := 78.0
-const LEGEND_WIDTH := 224.0
-const LEGEND_HEIGHT := 248.0
-const PANEL_GAP := 18.0
-const HINT_HEIGHT := 30.0
-const INFO_HEIGHT := 72.0
+const SCREEN_MARGIN := SoftBrutalist.SPACE_4        ## 32
+const BAND_GAP := int(SoftBrutalist.SPACE_2)        ## 16
+const PANEL_GAP := int(SoftBrutalist.SPACE_3)       ## 24
+## Tall enough for a 30px title over a 13px subtitle *plus* the card's own
+## padding. At 84 the two lines measured 61px against 36px of usable box
+## and the subtitle printed through the bottom border.
+const HEADER_HEIGHT := 104.0
+const HINT_HEIGHT := 24.0
+const COLUMN_WIDTH := 320.0
+const CARD_PAD := SoftBrutalist.SPACE_3             ## 24
+
+## Board panel width. The board draws itself to a portrait AFL aspect
+## (Tuning's half-width over half-length) fitted to whatever height it is
+## given, so this is that aspect applied to the tallest band this screen
+## can offer, plus the board's own inset — i.e. the width at which the
+## panel is exactly full rather than padded with empty cream.
+const BOARD_ASPECT := 0.818
+const BOARD_BAND_HEIGHT := 720.0 - SCREEN_MARGIN * 2.0 - HEADER_HEIGHT - HINT_HEIGHT \
+	- float(BAND_GAP) * 2.0
+const BOARD_PANEL_WIDTH := (BOARD_BAND_HEIGHT - FormationWhiteboard.MARGIN * 2.0) \
+	* BOARD_ASPECT + FormationWhiteboard.MARGIN * 2.0
+const CONTENT_WIDTH := COLUMN_WIDTH + float(PANEL_GAP) + BOARD_PANEL_WIDTH
+
+const ROSTER_HEIGHT := 88.0
+## Six legend rows plus their heading and the card padding. Fixed rather
+## than expanding: a legend stretched to the full height of the board
+## beside it is mostly empty card, and the slack reads better as space
+## between two compact cards.
+const LEGEND_HEIGHT := 296.0
 
 var _busy := false
 var _whiteboard: FormationWhiteboard
@@ -36,17 +68,23 @@ func _ready() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 
-	var background := ColorRect.new()
-	background.set_anchors_preset(Control.PRESET_FULL_RECT)
-	background.color = SoftBrutalist.BACKGROUND
-	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(background)
+	root.add_child(SoftBrutalist.backdrop())
 
-	_build_header(root)
-	_build_legend(root)
-	_build_info_panel(root)
-	_build_whiteboard(root)
-	_build_hint(root)
+	var margin := MarginContainer.new()
+	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for side: String in ["left", "right", "top", "bottom"]:
+		margin.add_theme_constant_override(StringName("margin_" + side), int(SCREEN_MARGIN))
+	root.add_child(margin)
+
+	var bands := VBoxContainer.new()
+	bands.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bands.add_theme_constant_override(&"separation", BAND_GAP)
+	margin.add_child(bands)
+
+	_build_header(bands)
+	_build_body(bands)
+	_build_hint(bands)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -65,98 +103,154 @@ func _exit_to_menu() -> void:
 
 # ── Build ────────────────────────────────────────────────────────────
 
-func _build_header(root: Control) -> void:
+## A card is a Panel (not a PanelContainer) with its content in an
+## anchored MarginContainer — Panel so SoftBrutalist.soften() can hang the
+## blurred shadow layer outside the card rect without a container sorting
+## it back inside. See soften()'s own note.
+func _card(parent: Control, minimum: Vector2) -> MarginContainer:
 	var panel := Panel.new()
 	panel.add_theme_stylebox_override(&"panel", SoftBrutalist.panel_style())
-	panel.position = Vector2(MARGIN, MARGIN)
-	panel.size = Vector2(1280.0 - MARGIN * 2.0, HEADER_HEIGHT)
+	panel.custom_minimum_size = minimum
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(panel)
+	parent.add_child(panel)
+	SoftBrutalist.soften(panel, SoftBrutalist.Elevation.REST)
+
+	var inner := MarginContainer.new()
+	inner.set_anchors_preset(Control.PRESET_FULL_RECT)
+	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for side: String in ["left", "right", "top", "bottom"]:
+		inner.add_theme_constant_override(StringName("margin_" + side), int(CARD_PAD))
+	panel.add_child(inner)
+	return inner
+
+
+func _build_header(parent: Control) -> void:
+	var inner := _card(parent, Vector2(CONTENT_WIDTH, HEADER_HEIGHT))
+	(inner.get_parent() as Control).size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 
 	var column := VBoxContainer.new()
-	column.position = Vector2(24.0, 12.0)
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.alignment = BoxContainer.ALIGNMENT_CENTER
 	column.add_theme_constant_override(&"separation", 2)
-	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(column)
-	column.add_child(SoftBrutalist.label("TEAM LIST", 26, SoftBrutalist.INK,
-		SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_TITLE))
-	column.add_child(SoftBrutalist.label("STARTING FORMATION PREVIEW", 12,
-		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_REGULAR, SoftBrutalist.TRACK_LABEL))
+	inner.add_child(column)
+	column.add_child(SoftBrutalist.label("TEAM LIST", SoftBrutalist.SIZE_TITLE,
+		SoftBrutalist.INK, SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_TITLE))
+	column.add_child(SoftBrutalist.label("STARTING FORMATION PREVIEW",
+		SoftBrutalist.SIZE_LABEL, SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_REGULAR,
+		SoftBrutalist.TRACK_LABEL))
 
 
-func _build_legend(root: Control) -> void:
-	var top := MARGIN + HEADER_HEIGHT + PANEL_GAP
-	var panel := Panel.new()
-	panel.add_theme_stylebox_override(&"panel", SoftBrutalist.panel_style())
-	panel.position = Vector2(MARGIN, top)
-	panel.size = Vector2(LEGEND_WIDTH, LEGEND_HEIGHT)
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(panel)
+func _build_body(parent: Control) -> void:
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Neither child expands, so ALIGNMENT_CENTER centres the pair as a
+	# group and the leftover width becomes even margin on both sides.
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	row.add_theme_constant_override(&"separation", PANEL_GAP)
+	parent.add_child(row)
 
 	var column := VBoxContainer.new()
-	column.position = Vector2(20.0, 18.0)
-	column.add_theme_constant_override(&"separation", 14)
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(column)
-	column.add_child(SoftBrutalist.label("POSITION LINES", 13, SoftBrutalist.INK,
-		SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL))
+	column.custom_minimum_size.x = COLUMN_WIDTH
+	column.add_theme_constant_override(&"separation", PANEL_GAP)
+	row.add_child(column)
+
+	_build_legend(column)
+
+	# Pushes the roster card down to sit level with the board panel's
+	# bottom edge, so the left column reads as two anchored cards rather
+	# than two floating ones.
+	var spacer := Control.new()
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	column.add_child(spacer)
+
+	_build_info_panel(column)
+	_build_whiteboard(row)
+
+
+func _build_legend(parent: Control) -> void:
+	var inner := _card(parent, Vector2(COLUMN_WIDTH, LEGEND_HEIGHT))
+
+	var column := VBoxContainer.new()
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_2))
+	inner.add_child(column)
+	column.add_child(SoftBrutalist.label("POSITION LINES", SoftBrutalist.SIZE_LABEL,
+		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL))
 
 	for line: int in TeamFormation.LINE_NAMES.size():
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override(&"separation", 10)
-		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		column.add_child(row)
+		var line_row := HBoxContainer.new()
+		line_row.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_2))
+		line_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		column.add_child(line_row)
 
-		var swatch := ColorRect.new()
-		swatch.custom_minimum_size = Vector2(14.0, 14.0)
-		swatch.color = FormationWhiteboard.LINE_COLOURS[line]
+		# Rounded, not a bare square: a hard-cornered swatch beside a set
+		# of 16px-radius cards is the one element on the screen that does
+		# not belong to the shape language.
+		var swatch := Panel.new()
+		var swatch_style := SoftBrutalist.panel_style(FormationWhiteboard.LINE_COLOURS[line],
+			SoftBrutalist.RADIUS_XS, FormationWhiteboard.LINE_COLOURS[line].darkened(0.25))
+		swatch.add_theme_stylebox_override(&"panel", swatch_style)
+		swatch.custom_minimum_size = Vector2(16.0, 16.0)
+		swatch.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		swatch.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		row.add_child(swatch)
-		row.add_child(SoftBrutalist.label(TeamFormation.LINE_NAMES[line], 13,
-			SoftBrutalist.INK, SoftBrutalist.WEIGHT_REGULAR, 0))
+		line_row.add_child(swatch)
+
+		var name_label := SoftBrutalist.label(TeamFormation.LINE_NAMES[line],
+			SoftBrutalist.SIZE_BODY, SoftBrutalist.INK, SoftBrutalist.WEIGHT_REGULAR,
+			SoftBrutalist.TRACK_NONE)
+		name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		line_row.add_child(name_label)
 
 
 ## Small static info card filling the slot the old editable "TEAM SIZE" /
 ## "START POSITIONS" panel used to occupy — the roster is fixed now, so
 ## this is read-only context rather than a control.
-func _build_info_panel(root: Control) -> void:
-	var top := MARGIN + HEADER_HEIGHT + PANEL_GAP * 2.0 + LEGEND_HEIGHT
-	var panel := Panel.new()
-	panel.add_theme_stylebox_override(&"panel", SoftBrutalist.panel_style())
-	panel.position = Vector2(MARGIN, top)
-	panel.size = Vector2(LEGEND_WIDTH, INFO_HEIGHT)
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(panel)
+func _build_info_panel(parent: Control) -> void:
+	var inner := _card(parent, Vector2(COLUMN_WIDTH, ROSTER_HEIGHT))
 
 	var column := VBoxContainer.new()
-	column.position = Vector2(20.0, 16.0)
-	column.add_theme_constant_override(&"separation", 4)
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(column)
-	column.add_child(SoftBrutalist.label("ROSTER", 11, SoftBrutalist.MUTED,
-		SoftBrutalist.WEIGHT_REGULAR, SoftBrutalist.TRACK_LABEL))
-	column.add_child(SoftBrutalist.label("18 A-SIDE · 4 ON INTERCHANGE", 15,
-		SoftBrutalist.INK, SoftBrutalist.WEIGHT_BOLD, 0))
+	column.alignment = BoxContainer.ALIGNMENT_CENTER
+	column.add_theme_constant_override(&"separation", 4)
+	inner.add_child(column)
+	column.add_child(SoftBrutalist.label("ROSTER", SoftBrutalist.SIZE_CAPTION,
+		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_REGULAR, SoftBrutalist.TRACK_LABEL))
+
+	# Autowrapped rather than trusting it to fit: this line used to be set
+	# at a size that overran the card it sits in by about 20px, printing
+	# "INTERCHANGE" straight through the right border onto the page.
+	var value := SoftBrutalist.label("18 A-SIDE · 4 ON INTERCHANGE", SoftBrutalist.SIZE_BODY,
+		SoftBrutalist.INK, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_NONE)
+	value.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	column.add_child(value)
 
 
-func _build_whiteboard(root: Control) -> void:
-	var top := MARGIN + HEADER_HEIGHT + PANEL_GAP
-	var left := MARGIN + LEGEND_WIDTH + PANEL_GAP
-	var panel := Panel.new()
-	panel.add_theme_stylebox_override(&"panel", SoftBrutalist.panel_style())
-	panel.position = Vector2(left, top)
-	panel.size = Vector2(1280.0 - left - MARGIN, 720.0 - top - MARGIN - HINT_HEIGHT - PANEL_GAP)
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(panel)
+func _build_whiteboard(parent: Control) -> void:
+	var inner := _card(parent, Vector2(BOARD_PANEL_WIDTH, 0.0))
+	var panel := inner.get_parent() as Control
+	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	# The board draws its own inset (FormationWhiteboard.MARGIN), so the
+	# card's text padding would double it.
+	for side: String in ["left", "right", "top", "bottom"]:
+		inner.add_theme_constant_override(StringName("margin_" + side), 0)
 
 	_whiteboard = FormationWhiteboard.new()
-	_whiteboard.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_whiteboard.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(_whiteboard)
+	inner.add_child(_whiteboard)
 
 
-func _build_hint(root: Control) -> void:
-	var label := SoftBrutalist.label("T / ESC — BACK TO MENU", 12,
-		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_REGULAR, SoftBrutalist.TRACK_LABEL)
-	label.position = Vector2(MARGIN, 720.0 - MARGIN - HINT_HEIGHT + 8.0)
-	root.add_child(label)
+func _build_hint(parent: Control) -> void:
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.custom_minimum_size.y = HINT_HEIGHT
+	parent.add_child(row)
+
+	var hints := KeyHintBar.new()
+	hints.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(hints)
+	hints.set_hints([{"keys": "T / Esc", "label": "Back to menu"}])

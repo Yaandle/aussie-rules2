@@ -52,25 +52,22 @@ func _ready() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 
-	var background := ColorRect.new()
-	background.set_anchors_preset(Control.PRESET_FULL_RECT)
-	background.color = SoftBrutalist.BACKGROUND
-	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(background)
+	root.add_child(SoftBrutalist.backdrop())
 
 	var card_height := 110.0 + _rows.size() * (ROW_HEIGHT + ROW_GAP) + 40.0
 	var card := Panel.new()
 	card.add_theme_stylebox_override(&"panel", SoftBrutalist.panel_style())
+	SoftBrutalist.soften(card, SoftBrutalist.Elevation.OVERLAY)
 	card.size = Vector2(CARD_WIDTH, card_height)
 	card.position = Vector2((1280.0 - CARD_WIDTH) / 2.0, (720.0 - card_height) / 2.0)
 	root.add_child(card)
 
-	var title := SoftBrutalist.label("SETTINGS", 30, SoftBrutalist.INK,
+	var title := SoftBrutalist.label("SETTINGS", SoftBrutalist.SIZE_TITLE, SoftBrutalist.INK,
 		SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_TITLE)
 	title.position = Vector2(32.0, 28.0)
 	card.add_child(title)
 
-	var subtitle := SoftBrutalist.label("PLACEHOLDER · NOT SAVED", 12, SoftBrutalist.MUTED,
+	var subtitle := SoftBrutalist.label("PLACEHOLDER · NOT SAVED", SoftBrutalist.SIZE_CAPTION, SoftBrutalist.MUTED,
 		SoftBrutalist.WEIGHT_REGULAR, SoftBrutalist.TRACK_LABEL)
 	subtitle.position = Vector2(32.0, 68.0)
 	card.add_child(subtitle)
@@ -80,18 +77,20 @@ func _ready() -> void:
 		var row := _rows[i]
 		var panel := Panel.new()
 		panel.add_theme_stylebox_override(&"panel", SoftBrutalist.button_style(&"normal"))
+		SoftBrutalist.soften(panel, SoftBrutalist.Elevation.LOW,
+			float(SoftBrutalist.RADIUS_SM))
 		panel.position = Vector2(32.0, top)
 		panel.size = Vector2(CARD_WIDTH - 64.0, ROW_HEIGHT)
 		card.add_child(panel)
 		_row_panels.append(panel)
 
-		var title_label := SoftBrutalist.label(row.title, 16, SoftBrutalist.INK,
+		var title_label := SoftBrutalist.label(row.title, SoftBrutalist.SIZE_BODY, SoftBrutalist.INK,
 			SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL)
 		title_label.position = Vector2(20.0, 16.0)
 		panel.add_child(title_label)
 		_title_labels.append(title_label)
 
-		var value_label := SoftBrutalist.label(row.value(), 16, SoftBrutalist.MUTED,
+		var value_label := SoftBrutalist.label(row.value(), SoftBrutalist.SIZE_BODY, SoftBrutalist.MUTED,
 			SoftBrutalist.WEIGHT_REGULAR, 0)
 		value_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 		value_label.position = Vector2(-180.0, 16.0)
@@ -102,7 +101,8 @@ func _ready() -> void:
 
 		top += ROW_HEIGHT + ROW_GAP
 
-	var hint := SoftBrutalist.label("UP/DOWN SELECT · LEFT/RIGHT CHANGE · ESC BACK", 12,
+	var hint := SoftBrutalist.label("UP/DOWN SELECT · LEFT/RIGHT CHANGE · ESC BACK",
+		SoftBrutalist.SIZE_CAPTION,
 		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_REGULAR, SoftBrutalist.TRACK_LABEL)
 	hint.position = Vector2(32.0, top + 8.0)
 	card.add_child(hint)
@@ -142,6 +142,6 @@ func _back() -> void:
 func _refresh() -> void:
 	for i in _rows.size():
 		var selected := i == _index
-		_row_panels[i].add_theme_stylebox_override(&"panel",
-			SoftBrutalist.button_style(&"hover" if selected else &"normal"))
+		SoftBrutalist.animate_state(_row_panels[i], &"panel",
+			&"hover" if selected else &"normal")
 		_value_labels[i].text = _rows[i].value()

@@ -11,8 +11,8 @@ extends CanvasLayer
 ## for why hand-built Control trees are the norm in scenes/ui/): the
 ## score/clock digits are real Label nodes routed through
 ## SoftBrutalist.numeric_label() rather than one RichTextLabel string, so
-## the monospace digits can sit next to the rounded/grotesk HOME/AWAY tags
-## without BBCode juggling fonts mid-string.
+## the tabular-figure face can sit next to the rounded/grotesk HOME/AWAY
+## tags without BBCode juggling fonts mid-string.
 
 ## Same colours as PlaceholderRig's home/away guernsey — HOME and AWAY read
 ## at a glance without needing the word to be parsed, and it ties the
@@ -20,10 +20,18 @@ extends CanvasLayer
 const COLOUR_HOME := Color("#C99A2E")
 const COLOUR_AWAY := Color("#C24A3F")
 
-const TAG_FONT_SIZE := 13
-const DIGIT_FONT_SIZE := 20
-const CLOCK_FONT_SIZE := 16
-const BANNER_FONT_SIZE := 18
+const TAG_FONT_SIZE := SoftBrutalist.SIZE_LABEL
+const DIGIT_FONT_SIZE := SoftBrutalist.SIZE_HEADING
+const CLOCK_FONT_SIZE := SoftBrutalist.SIZE_BODY
+const BANNER_FONT_SIZE := SoftBrutalist.SIZE_HEADING
+
+## Widths reserved for the two scorelines and the clock. Even with tabular
+## figures a scoreline grows a character as it climbs (0.0.0 -> 12.10.82),
+## and without a floor under each column that growth shoves everything
+## either side of it sideways mid-match. Fixed columns keep the clock
+## pinned in the centre of the card where a viewer's eye expects it.
+const SCORE_COLUMN_WIDTH := 92.0
+const CLOCK_COLUMN_WIDTH := 104.0
 
 @onready var _panel: Panel = $Panel
 
@@ -78,6 +86,7 @@ func _refresh() -> void:
 func _build_ui() -> void:
 	_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_panel.add_theme_stylebox_override(&"panel", SoftBrutalist.panel_style())
+	SoftBrutalist.soften(_panel, SoftBrutalist.Elevation.REST)
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -101,16 +110,16 @@ func _build_ui() -> void:
 	_home_tag.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(_home_tag)
 
-	_home_score = SoftBrutalist.numeric_label("0.0.0", DIGIT_FONT_SIZE, COLOUR_HOME)
-	_home_score.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_home_score = _score_label(COLOUR_HOME, HORIZONTAL_ALIGNMENT_RIGHT)
 	row.add_child(_home_score)
 
 	_clock_label = SoftBrutalist.numeric_label("Q1   00:00", CLOCK_FONT_SIZE, SoftBrutalist.INK)
 	_clock_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_clock_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_clock_label.custom_minimum_size.x = CLOCK_COLUMN_WIDTH
 	row.add_child(_clock_label)
 
-	_away_score = SoftBrutalist.numeric_label("0.0.0", DIGIT_FONT_SIZE, COLOUR_AWAY)
-	_away_score.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_away_score = _score_label(COLOUR_AWAY, HORIZONTAL_ALIGNMENT_LEFT)
 	row.add_child(_away_score)
 
 	_away_tag = SoftBrutalist.label("AWAY", TAG_FONT_SIZE, COLOUR_AWAY, SoftBrutalist.WEIGHT_BOLD,
@@ -118,9 +127,20 @@ func _build_ui() -> void:
 	_away_tag.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(_away_tag)
 
-	_banner = SoftBrutalist.label("", BANNER_FONT_SIZE, SoftBrutalist.INK, SoftBrutalist.WEIGHT_BOLD)
+	_banner = SoftBrutalist.label("", BANNER_FONT_SIZE, SoftBrutalist.INK,
+		SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_LABEL)
 	_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_banner.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_banner.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_banner.visible = false
 	margin.add_child(_banner)
+
+
+## One scoreline column: tabular digits, fixed width, and aligned toward
+## the clock so the two sides stay symmetrical about it.
+func _score_label(colour: Color, alignment: HorizontalAlignment) -> Label:
+	var node := SoftBrutalist.numeric_label("0.0.0", DIGIT_FONT_SIZE, colour)
+	node.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	node.horizontal_alignment = alignment
+	node.custom_minimum_size.x = SCORE_COLUMN_WIDTH
+	return node

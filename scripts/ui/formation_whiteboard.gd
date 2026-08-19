@@ -26,12 +26,24 @@ extends Control
 ## lines: a simple, slightly blocky "indie pixel screen" read rather than
 ## a photoreal field.
 
-const MARGIN := 28.0
+## Inset from the panel edge. Has to clear the goal-post ticks (which
+## poke GOAL_POST_LENGTH past the boundary at each end) *and* the ATTACK
+## caption above them, or the caption prints over the posts — which is
+## what a 28px inset did.
+const MARGIN := 44.0
 const DOT_RADIUS := 9.0
-const ELLIPSE_SEGMENTS := 72
+const ELLIPSE_SEGMENTS := 96
 const LABEL_FONT_SIZE := 11
-const DOT_BORDER_WIDTH := 2.0
-const ARC_SEGMENTS := 32
+const DOT_BORDER_WIDTH := 1.5
+const ARC_SEGMENTS := 48
+const CAPTION_OFFSET := 26.0
+
+## Line weights. The boundary is the only structural line on the board;
+## everything inside it is reference marking and is drawn lighter, so the
+## oval reads first and the 50m arcs and centre square sit behind it
+## rather than all competing at one weight.
+const BOUNDARY_WIDTH := 2.0
+const MARKING_WIDTH := 1.25
 
 ## Schematic goal/behind post sizing — small tick marks poking just
 ## outside the oval boundary at each goal line, not literal 3D posts.
@@ -40,10 +52,15 @@ const GOAL_POST_WIDTH := 3.0
 const BEHIND_POST_LENGTH := 7.0
 const BEHIND_POST_WIDTH := 2.0
 
-const PITCH_FILL := SoftBrutalist.BACKGROUND
-const LINE_ART_COLOUR := SoftBrutalist.INK
+## A hint of green rather than the cream the rest of the page uses — the
+## board sits on a white card, and at this size an untinted fill reads as
+## another panel rather than as a ground.
+const PITCH_FILL := Color("#EFF3EC")
+const LINE_ART_COLOUR := SoftBrutalist.LINE
+const MARKING_COLOUR := Color("#AFB8B0")
 const LABEL_COLOUR := SoftBrutalist.INK
-const DOT_BORDER := SoftBrutalist.INK
+const CAPTION_COLOUR := SoftBrutalist.MUTED
+const DOT_BORDER := SoftBrutalist.PANEL
 
 ## One tint per TeamFormation.Line, back-to-forward, blended between the
 ## Soft Brutalist accent green's darker and lighter ends so the legend
@@ -86,7 +103,7 @@ func _draw() -> void:
 	_draw_goal_posts(centre, scale)
 	_draw_formation(centre, scale)
 
-	_draw_label(centre + Vector2(4.0, -h * 0.5 - 18.0), "ATTACK ↑", true)
+	_draw_label(centre + Vector2(0.0, -h * 0.5 - CAPTION_OFFSET), "ATTACK ↑", true)
 
 
 ## Maps a world-space position (X = depth/attack axis, Z = lateral) to a
@@ -105,9 +122,13 @@ func _draw_formation(centre: Vector2, scale: float) -> void:
 		_draw_label(point, String(slot["label"]))
 
 
+## White ring, not an ink one: 18 dark-outlined dots over pale line art
+## is 18 of the highest-contrast objects on the screen. A light ring
+## still separates a dot from the markings underneath it while letting
+## the line colour itself carry the position.
 func _draw_dot(point: Vector2, colour: Color) -> void:
-	draw_circle(point, DOT_RADIUS, colour)
-	draw_arc(point, DOT_RADIUS, 0.0, TAU, 24, DOT_BORDER, DOT_BORDER_WIDTH, true)
+	draw_circle(point, DOT_RADIUS, colour, true, -1.0, true)
+	draw_arc(point, DOT_RADIUS, 0.0, TAU, 32, DOT_BORDER, DOT_BORDER_WIDTH, true)
 
 
 func _draw_oval(centre: Vector2, radius_x: float, radius_z: float) -> void:
@@ -116,30 +137,71 @@ func _draw_oval(centre: Vector2, radius_x: float, radius_z: float) -> void:
 		var t := TAU * float(i) / float(ELLIPSE_SEGMENTS)
 		points.append(centre + Vector2(cos(t) * radius_x, sin(t) * radius_z))
 	draw_colored_polygon(points, PITCH_FILL)
-	draw_polyline(points, LINE_ART_COLOUR, 2.0, true)
+	draw_polyline(points, LINE_ART_COLOUR, BOUNDARY_WIDTH, true)
 
 
 func _draw_centre_markings(centre: Vector2, scale: float) -> void:
 	var square_half := Tuning.CENTRE_SQUARE_SIZE * 0.5 * scale
-	draw_rect(Rect2(centre - Vector2.ONE * square_half, Vector2.ONE * square_half * 2.0),
-		LINE_ART_COLOUR, false, 1.0)
-	draw_arc(centre, Tuning.CENTRE_CIRCLE_OUTER * scale, 0.0, TAU, 32, LINE_ART_COLOUR, 1.0, true)
+	_draw_box(Rect2(centre - Vector2.ONE * square_half, Vector2.ONE * square_half * 2.0))
+	draw_arc(centre, Tuning.CENTRE_CIRCLE_OUTER * scale, 0.0, TAU, ARC_SEGMENTS,
+		MARKING_COLOUR, MARKING_WIDTH, true)
+
+
+## Antialiased rectangle outline. draw_rect()'s unfilled mode has no
+## antialiasing, so a 1px marking box came out as stair-stepped grey
+## against the pitch fill while every arc beside it was smooth.
+func _draw_box(rect: Rect2) -> void:
+	draw_polyline(PackedVector2Array([
+		rect.position,
+		rect.position + Vector2(rect.size.x, 0.0),
+		rect.end,
+		rect.position + Vector2(0.0, rect.size.y),
+		rect.position,
+	]), MARKING_COLOUR, MARKING_WIDTH, true)
 
 
 ## The 50m arcs, one per end, centred on each goal-line midpoint and
-## drawn as a half-circle bulging back toward the centre of the ground —
-## the portion of the real AFL arc that actually falls inside the field.
+## drawn as a half-circle bulging back toward the centre of the ground.
+##
+## Clipped to the boundary, the way Field._arc_inside_oval() clips the
+## 3D one: a 50m circle struck from the goal line is wider than the
+## ground at that end, so the untrimmed half-circle sweeps outside the
+## oval and hangs in the margin either side of each goal square. Ink-dark
+## that read as a mistake; at the lighter marking weight it reads as one
+## too.
 func _draw_scoring_arcs(centre: Vector2, scale: float) -> void:
 	var radius := Tuning.SCORING_ARC_RADIUS * scale
-	var attack_goal := _to_screen(centre, Vector3(Tuning.FIELD_HALF_LENGTH, 0.0, 0.0), scale)
-	var defence_goal := _to_screen(centre, Vector3(-Tuning.FIELD_HALF_LENGTH, 0.0, 0.0), scale)
-	# Screen angles: 0 = +X (right), increasing clockwise (since +Y is down).
-	# Facing the centre from the attacking (top) goal means the arc spans
-	# the bottom half of that circle (angles 0..PI, i.e. right-down-left).
-	draw_arc(attack_goal, radius, 0.0, PI, ARC_SEGMENTS, LINE_ART_COLOUR, 1.0, true)
-	# Facing the centre from the defensive (bottom) goal means the arc
-	# spans the top half of that circle (angles PI..TAU).
-	draw_arc(defence_goal, radius, PI, TAU, ARC_SEGMENTS, LINE_ART_COLOUR, 1.0, true)
+	var radius_x := Tuning.FIELD_HALF_WIDTH * scale
+	var radius_y := Tuning.FIELD_HALF_LENGTH * scale
+	for direction: float in [1.0, -1.0]:
+		var goal := _to_screen(centre,
+			Vector3(direction * Tuning.FIELD_HALF_LENGTH, 0.0, 0.0), scale)
+		# Screen angles: 0 = +X (right), increasing clockwise (+Y is down).
+		# From the attacking (top) goal the arc bulges into the bottom half
+		# of its circle; from the defensive (bottom) goal, the top half.
+		var start := 0.0 if direction > 0.0 else PI
+		_draw_clipped_arc(goal, radius, start, centre, radius_x, radius_y)
+
+
+## Walks the arc and emits it as runs of consecutive points that fall
+## inside the oval, breaking the polyline wherever it leaves — a single
+## polyline over the filtered points would draw a chord straight across
+## the gap.
+func _draw_clipped_arc(origin: Vector2, radius: float, start_angle: float,
+		centre: Vector2, radius_x: float, radius_y: float) -> void:
+	var run := PackedVector2Array()
+	for i in ARC_SEGMENTS + 1:
+		var t := start_angle + PI * float(i) / float(ARC_SEGMENTS)
+		var point := origin + Vector2(cos(t), sin(t)) * radius
+		var normalised := (point - centre) / Vector2(radius_x, radius_y)
+		if normalised.length_squared() <= 1.0:
+			run.append(point)
+			continue
+		if run.size() >= 2:
+			draw_polyline(run, MARKING_COLOUR, MARKING_WIDTH, true)
+		run = PackedVector2Array()
+	if run.size() >= 2:
+		draw_polyline(run, MARKING_COLOUR, MARKING_WIDTH, true)
 
 
 ## A goal square at each end: GOAL_SQUARE_DEPTH deep (running from the
@@ -152,8 +214,7 @@ func _draw_goal_squares(centre: Vector2, scale: float) -> void:
 		var inward_x := goal_line_x - sign_dir * depth
 		var a := _to_screen(centre, Vector3(goal_line_x, 0.0, -half_post), scale)
 		var b := _to_screen(centre, Vector3(inward_x, 0.0, half_post), scale)
-		var rect := Rect2(a, b - a).abs()
-		draw_rect(rect, LINE_ART_COLOUR, false, 1.0)
+		_draw_box(Rect2(a, b - a).abs())
 
 
 ## 4 goal posts (inner pair, taller/thicker) and 2 behind posts per side
@@ -182,11 +243,11 @@ func _draw_post(centre: Vector2, scale: float, world_x: float, world_z: float,
 	var outward := -signf(world_x)
 	var top_left := base + Vector2(-width * 0.5, 0.0)
 	var rect_size := Vector2(width, outward * length)
-	draw_rect(Rect2(top_left, rect_size).abs(), LINE_ART_COLOUR, true)
+	draw_rect(Rect2(top_left, rect_size).abs(), LINE_ART_COLOUR, true, -1.0, true)
 
 
 func _draw_label(point: Vector2, text: String, muted := false) -> void:
-	var colour := LINE_ART_COLOUR if muted else LABEL_COLOUR
+	var colour := CAPTION_COLOUR if muted else LABEL_COLOUR
 	var text_size := _font.get_string_size(text, HORIZONTAL_ALIGNMENT_CENTER, -1.0, LABEL_FONT_SIZE)
 	var offset := Vector2(-text_size.x * 0.5, DOT_RADIUS + text_size.y + 1.0) if not muted \
 		else Vector2(-text_size.x * 0.5, text_size.y * 0.5)

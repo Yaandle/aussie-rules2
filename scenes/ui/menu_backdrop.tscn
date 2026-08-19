@@ -9,14 +9,35 @@ script = ExtResource("1_backdrop")
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = ExtResource("2_env")
 
+; Afternoon sun, travelling (-0.35, -0.72, -0.60) — i.e. downward, at
+; about 46 degrees of elevation.
+;
+; The transform this replaces was the transposed one docs/HANDOVER.md
+; warns about: the 12 numbers in a Transform3D literal are the basis
+; ROWS, while basis.x/y/z are its COLUMNS, so writing an axis along a
+; triple instead of down them yields the transpose. That is still
+; orthonormal, so it loads without complaint and the light looks
+; configured — but here it left basis.z = (0.574, -0.628, 0.527), meaning
+; the sun travelled *upward* at 39 degrees. Every horizontal surface in
+; the match scenes, the whole ground included, was therefore lit by sky
+; ambient alone: green turf under a blue-only ambient rendered dark teal,
+; and nothing in the scene cast a shadow worth the name.
+;
+; character_backdrop.tscn had already been corrected; that file's own note
+; flags that the same literal was still in four other scenes. This is one
+; of them.
 [node name="Sun" type="DirectionalLight3D" parent="."]
-transform = Transform3D(0.81915, 0, 0.57358, 0.43938, 0.64279, -0.62751, -0.36868, 0.76604, 0.52654, 0, 40, 0)
-light_energy = 2.6
+transform = Transform3D(0.8637, -0.3627, 0.3499, 0, 0.6943, 0.7197, -0.5039, -0.6216, 0.5998, 0, 40, 0)
+; 2.6 was brute force compensating for a sun that pointed at the sky —
+; with the direction corrected the same number blows the montage out.
+light_energy = 0.95
 shadow_enabled = false
 
+; Cool sky bounce from the opposite side, keeping the shaded faces of the
+; posts and players in the palette rather than letting them fall to grey.
 [node name="FillLight" type="DirectionalLight3D" parent="."]
 rotation_degrees = Vector3(-40, -140, 0)
-light_energy = 1.3
+light_energy = 0.28
 light_color = Color(0.82, 0.9, 1, 1)
 shadow_enabled = false
 
