@@ -17,11 +17,20 @@ extends Node3D
 ## in §6, in the smallest honest form it can take before there is a
 ## second team to have a play focus between.
 
+## CHASE is the rig described above — this is Full Game's "3rd Person"
+## option. FULL_SIDE is a real broadcast full-ground rig: mounted outside
+## the boundary and elevated, panning to track play rather than orbiting
+## behind one player — offered as a Full Game settings option
+## (Settings.full_game_camera_mode) alongside it, not a replacement for it.
+## See _update_full_side().
+enum Mode { CHASE, FULL_SIDE }
+
 @export var distance := Tuning.CAM_DISTANCE
 
 ## What the rig frames. Set by whoever owns the scene.
 var target: Node3D = null
 var ball: Ball = null
+var mode: Mode = Mode.CHASE
 
 @onready var _yaw_pivot: Node3D = $Yaw
 @onready var _pitch_pivot: Node3D = $Yaw/Pitch
@@ -53,10 +62,45 @@ func _process(delta: float) -> void:
 		return
 	if is_instance_valid(_dialogue_left) and is_instance_valid(_dialogue_right):
 		_update_dialogue_framing(delta)
+	elif mode == Mode.FULL_SIDE:
+		_update_full_side(delta)
+	else:
+		_update_rotation(delta)
+		_update_focus(delta)
+		_update_fov(delta)
+	_clamp_camera_height()
+
+
+## Switches the rig's behaviour. Safe to call at any time, including
+## mid-match — the target mode's own update function fully repositions
+## the rig on its very next _process(), so there is nothing to hand off
+## explicitly between modes beyond what recenter() already resets.
+func set_mode(new_mode: Mode) -> void:
+	if mode == new_mode:
 		return
-	_update_rotation(delta)
-	_update_focus(delta)
-	_update_fov(delta)
+	mode = new_mode
+	recenter()
+
+
+## The SpringArm3D's own shapecast keeps the camera from clipping through
+## geometry *in front of* it, but nothing stops a steep upward-look pitch
+## from swinging the lens *below* the ground plane behind/under the rig —
+## concretely, CAM_PITCH_MAX combined with the arm's length and the focus
+## point's chest-height offset can put the camera's own Y below zero, so
+## the pitch itself was never the bug, just one of several inputs (pitch,
+## dialogue's collapsed arm, a future mode) that can produce the same
+## underground lens. Clamping the one thing that actually matters — the
+## rendered lens height — after every mode's update runs is robust to all
+## of them at once, rather than re-deriving a safe bound for each. Pushes
+## the whole rig up by the shortfall rather than editing the camera's own
+## local transform directly, so yaw/pitch/arm framing stays exactly as
+## each mode computed it, just translated clear of the ground.
+const MIN_CAMERA_HEIGHT := 0.4   # m
+
+func _clamp_camera_height() -> void:
+	var shortfall := MIN_CAMERA_HEIGHT - _camera.global_position.y
+	if shortfall > 0.0:
+		global_position.y += shortfall
 
 
 ## Side-on two-shot of `left` and `right` (design brief: coach on one side,
@@ -172,6 +216,52 @@ func _update_dialogue_framing(delta: float) -> void:
 
 	_arm.spring_length = lerpf(_arm.spring_length, 0.05, rate)
 	_camera.fov = lerpf(_camera.fov, Tuning.CAM_DIALOGUE_FOV, rate)
+
+
+## Full-Side (design brief; this project's earlier working title for it
+## was "orthodox" — Prototype 1's own camera style is what it started
+## from). A real broadcast full-ground rig, not a blimp hovering over the
+## ball: the pivot itself sits at a fixed position outside the field
+## (Tuning.CAM_FULL_SIDE_SIDE_OFFSET past the boundary, CAM_FULL_SIDE_
+## HEIGHT up), panning along the field's length to track which end play is
+## at, and looking back across at the play rather than straight down —
+## "outside the field in the air", not the old version's steep top-down
+## pitch reached by leaning on the spring arm's length. The look-down pitch
+## is derived from the real geometry (elevation vs. horizontal distance to
+## the play) each frame rather than a fixed guessed angle, so it's never
+## aimed above or below the actual ball as play moves along the ground —
+## the "do not simply rotate the camera downward" instruction this was
+## built against, satisfied by computing the angle instead of picking one.
+## Full Game only (see Settings.full_game_camera_mode's own doc comment) —
+## kick_to_kick has no second team or tactical shape for this view to
+## show, so it keeps the chase cam unconditionally.
+func _update_full_side(delta: float) -> void:
+	var focus_point := target.global_position
+	if is_instance_valid(ball):
+		focus_point = focus_point.lerp(ball.global_position, 0.5)
+	focus_point.y = 0.0
+
+	var rig_target := Vector3(
+		focus_point.x, Tuning.CAM_FULL_SIDE_HEIGHT, Tuning.CAM_FULL_SIDE_SIDE_OFFSET)
+	var rate := 1.0 - exp(-Tuning.CAM_FULL_SIDE_FOLLOW_RATE * delta)
+	_focus = _focus.lerp(rig_target, rate)
+	global_position = _focus
+
+	var to_play := focus_point - Vector3(global_position.x, 0.0, global_position.z)
+	var desired_yaw := _yaw
+	if to_play.length_squared() > 1.0:
+		desired_yaw = atan2(-to_play.x, -to_play.z)
+	_yaw = lerp_angle(_yaw, desired_yaw, rate)
+
+	var desired_pitch := -atan2(Tuning.CAM_FULL_SIDE_HEIGHT, maxf(to_play.length(), 1.0))
+	_pitch = lerpf(_pitch, desired_pitch, rate)
+
+	_yaw_pivot.rotation.y = _yaw
+	_pitch_pivot.rotation.x = _pitch
+
+	_arm.spring_length = lerpf(_arm.spring_length, Tuning.CAM_FULL_SIDE_ARM, rate)
+	_camera.fov = lerpf(_camera.fov, Tuning.CAM_FULL_SIDE_FOV,
+		1.0 - exp(-Tuning.CAM_FOV_RATE * delta))
 
 
 func _update_focus(delta: float) -> void:

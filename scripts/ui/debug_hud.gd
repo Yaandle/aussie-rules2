@@ -58,8 +58,9 @@ func _compose() -> String:
 
 	if is_instance_valid(player):
 		var speed := player.speed()
-		lines.append("speed    %5.2f m/s  %s  %s" % [
-			speed, _gait_label(speed), _bar(speed / Tuning.SPRINT_SPEED)])
+		var tag := "  BACKPEDAL" if player.is_backpedaling() else ""
+		lines.append("speed    %5.2f m/s  %s  %s%s" % [
+			speed, _gait_label(speed), _bar(speed / Tuning.SPRINT_SPEED), tag])
 		var blend := player.locomotion_blend()
 		lines.append("blend    strafe %+0.2f   forward %+0.2f" % [blend.x, blend.y])
 		lines.append("anim     %s" % player.animation_state())
@@ -70,6 +71,8 @@ func _compose() -> String:
 		if player.is_protected():
 			mark_bits.append("PROTECTED %0.1fs" % player.protected_seconds())
 		lines.append("mark     %s" % (" / ".join(mark_bits) if not mark_bits.is_empty() else "-"))
+		if player.is_ruck_contestant():
+			lines.append("ruck     CONTESTING — RB to hit out")
 		if player.is_carrying():
 			var overdue := "  BOUNCE NOW" if player.bounce_overdue() else ""
 			lines.append("carry    %5.1f m / %0.0f m%s" % [

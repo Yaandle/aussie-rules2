@@ -41,6 +41,27 @@ signal mark_missed(tier: Tuning.Action)
 ## the consequence is the next piece.
 signal holding_the_ball_called(tackler: PlayerController)
 
+## Fired from _get_tackled only in the *neutral* case — tackled inside
+## Tuning.PRIOR_OPPORTUNITY_GRACE, the mirror image of
+## holding_the_ball_called above (RULES_REFERENCE.md §4: "tackled inside
+## the grace window is neutral, a ball-up"). Whoever owns match flow
+## resolves the actual ball-up through the shared ruck contest — see
+## FullGame._begin_ruck_contest.
+signal field_ball_up_called(tackler: PlayerController, tackled: PlayerController)
+
+## Fired when a ruck contest's Hit-Out resolves — see _resolve_hit_out.
+## `connected` is false on a clean miss (nothing about the ball changes).
+signal hit_out_resolved(player: PlayerController, connected: bool)
+
+## Fired on the bumper when a Bump connects (design brief priority 7).
+## `clean` reflects timing (Tuning.BUMP_APPROACH_DOT_MIN), not legality —
+## whether contact was *dangerous* enough to warrant a free kick is a real
+## AFL rule this project has no numbers for yet (RULES_REFERENCE.md has no
+## distance/angle/force/timing threshold for "high contact"), so nothing
+## here judges that. This signal exists so a future pass that *does* have
+## real numbers has an event to hook rather than needing to re-derive one.
+signal bump_landed(bumper: PlayerController, carrier: PlayerController, clean: bool)
+
 @export var team: Tuning.Team = Tuning.Team.HOME
 
 ## Uniform multiplier over WALK/JOG/SPRINT_SPEED — 1.0 leaves Full Game
@@ -101,6 +122,24 @@ var _mark_readying := false
 ## down for a continuous battering (see _try_spoil).
 var _spoil_cooldown := 0.0
 
+## True while nominated into a live ruck contest (centre bounce / field
+## ball-up / boundary throw-in — see FullGame._begin_ruck_contest and
+## set_ruck_contestant below) — the only context RB reads as a Hit-Out.
+## Self-expires via _ruck_contest_timer so it can never linger past the
+## one contest it was armed for.
+var _is_ruck_contestant := false
+var _ruck_contest_timer := 0.0
+
+## Seconds left before another Bump attempt can commit — a real hit-stick
+## commitment, not spammable (see _try_bump).
+var _bump_cooldown := 0.0
+
+## Residual horizontal knockback velocity from being bumped, decaying via
+## BRAKING each frame — see _update_locomotion's early branch and
+## receive_bump(). While nonzero this overrides normal input-driven
+## movement entirely: the hit is what's moving the body, not the stick.
+var _knockback := Vector3.ZERO
+
 ## Seconds this player personally has held the ball since their own last
 ## gather/mark. Distinct from MatchState.possession_seconds(), which
 ## tracks the whole TEAM's unbroken hold and does not reset on a same-team
@@ -116,6 +155,18 @@ var _heading := Vector3.FORWARD
 var _wish_dir := Vector3.ZERO
 var _speed := 0.0
 var _facing_yaw := 0.0
+
+## True while reading the play backward — see the Backpedal section of
+## Tuning. Feet answer the stick directly (heading = wish_dir, no turn-rate
+## sweep); facing is deliberately left alone by _update_facing while this
+## is true, which is the whole mechanic: eyes stay on the play, only the
+## feet move.
+var _backpedaling := false
+
+## Seconds left of the acceleration spike that fires the instant a
+## backpedal resolves into a real direction (Tuning.TURN_BURST_*) — see
+## _update_locomotion.
+var _turn_burst_timer := 0.0
 
 var _carried_ball: Ball = null
 var _gather_cooldown := 0.0
@@ -159,9 +210,15 @@ func _ready() -> void:
 
 	# Own the gather shape rather than editing the one in the .tscn, so
 	# GATHER_RADIUS stays single-sourced in Tuning and instances of this
-	# scene do not share a mutated resource.
+	# scene do not share a mutated resource. Sized to the largest reach a
+	# sprinting player could ever get (GATHER_LUNGE_MAX) rather than the
+	# base radius — the physics shape only has to generate candidates, the
+	# real speed-scaled cutoff is an explicit distance test in
+	# _try_gather(), same pattern _update_ground_pickup already uses. That
+	# avoids resizing a live Area3D shape and querying its (one-physics-
+	# -step-stale) overlap list in the same frame.
 	var reach := SphereShape3D.new()
-	reach.radius = Tuning.GATHER_RADIUS
+	reach.radius = Tuning.GATHER_RADIUS + Tuning.GATHER_LUNGE_MAX
 	($GatherZone/CollisionShape3D as CollisionShape3D).shape = reach
 
 
@@ -176,10 +233,17 @@ func _physics_process(delta: float) -> void:
 	_stun_timer = maxf(0.0, _stun_timer - delta)
 	_protected_timer = maxf(0.0, _protected_timer - delta)
 	_spoil_cooldown = maxf(0.0, _spoil_cooldown - delta)
+	_bump_cooldown = maxf(0.0, _bump_cooldown - delta)
 	_possession_held_seconds = _possession_held_seconds + delta if is_carrying() else 0.0
+	if _is_ruck_contestant:
+		_ruck_contest_timer = maxf(0.0, _ruck_contest_timer - delta)
+		if _ruck_contest_timer <= 0.0:
+			_is_ruck_contestant = false
 
 	_update_charge(delta)
 	_update_marking(delta)
+	_update_ruck_contest(delta)
+	_update_bump(delta)
 	_update_action(delta)
 
 	if is_on_floor():
@@ -214,6 +278,22 @@ func _physics_process(delta: float) -> void:
 # ── Locomotion ───────────────────────────────────────────────────────
 
 func _update_locomotion(delta: float) -> void:
+	# A bump's knockback overrides normal input-driven movement entirely
+	# while it's still decaying — the hit is what's moving this body right
+	# now, not the stick (see receive_bump()). Applied here, before
+	# anything reads velocity for _speed/_heading, so the knocked-back
+	# motion is what the rest of this frame (animation blend included)
+	# actually sees.
+	if _knockback.length_squared() > 0.0001:
+		velocity.x = _knockback.x
+		velocity.z = _knockback.z
+		_knockback = _knockback.move_toward(Vector3.ZERO, Tuning.BRAKING * delta)
+		var horizontal_kb := Vector3(velocity.x, 0.0, velocity.z)
+		_speed = horizontal_kb.length()
+		if _speed > Tuning.PIVOT_SPEED_THRESHOLD:
+			_heading = horizontal_kb / _speed
+		return
+
 	var wish := _brain.wish_direction(self)
 	var gait := 0.0 if _stun_timer > 0.0 else _brain.gait()
 
@@ -237,32 +317,74 @@ func _update_locomotion(delta: float) -> void:
 	if _speed > Tuning.PIVOT_SPEED_THRESHOLD:
 		_heading = horizontal / _speed
 
+	_turn_burst_timer = maxf(0.0, _turn_burst_timer - delta)
+
 	var target_speed := 0.0
 	if wish.length_squared() > 0.000001:
 		_wish_dir = wish.normalized()
 
-		# From a near standstill there is no momentum to fight, so the
-		# heading just snaps to intent. Without this a player stopped
-		# facing north who presses south would compute a target speed of
-		# zero forever and never get moving.
-		if _speed <= Tuning.PIVOT_SPEED_THRESHOLD:
+		# Backpedal gate: how far behind where the body is currently
+		# *facing* (not travelling) the new input is. Hysteresis between
+		# ENTER/EXIT so a diagonal push near the threshold doesn't flicker
+		# in and out every frame.
+		var facing_alignment := _yaw_direction(_facing_yaw).dot(_wish_dir)
+		if facing_alignment <= Tuning.BACKPEDAL_ENTER_DOT \
+				and _speed <= Tuning.JOG_SPEED + Tuning.BACKPEDAL_ENTRY_SPEED_MARGIN:
+			_backpedaling = true
+		elif facing_alignment >= Tuning.BACKPEDAL_EXIT_DOT:
+			if _backpedaling:
+				# _heading was tracking the *old* (backward) wish_dir every
+				# frame of the backpedal, not this frame's new one — left
+				# stale it would read as a full reversal against the new
+				# wish_dir below (alignment -1, REVERSE_SPEED_SCALE braking,
+				# exactly the plant-and-pivot's brake instead of a drive-off).
+				# Snap it to the new direction now: facing is already there
+				# (that is what just triggered the exit), so there is
+				# nothing left to turn through, only to drive off from —
+				# that drive-off is the burst.
+				_heading = _wish_dir
+				_turn_burst_timer = Tuning.TURN_BURST_DURATION
+			_backpedaling = false
+		# Else: inside the hysteresis band — hold whatever state we're already in.
+
+		if _backpedaling:
+			# A defensive shuffle, not a sprint commitment: feet answer the
+			# stick directly every frame, capped at BACKPEDAL_SPEED
+			# regardless of gait input — you cannot backpedal at a sprint
+			# with any control. _update_facing() leaves facing alone while
+			# this is true.
 			_heading = _wish_dir
+			# _stun_timer forces gait to 0 above for every other path via
+			# Tuning.speed_for_gait(0) == 0; BACKPEDAL_SPEED is a flat
+			# constant that never reads gait, so it needs the same guard
+			# explicitly or a stunned player could still shuffle backward.
+			target_speed = Tuning.BACKPEDAL_SPEED * speed_scale if _stun_timer <= 0.0 else 0.0
+		else:
+			# From a near standstill there is no momentum to fight, so the
+			# heading just snaps to intent. Without this a player stopped
+			# facing north who presses south would compute a target speed
+			# of zero forever and never get moving.
+			if _speed <= Tuning.PIVOT_SPEED_THRESHOLD:
+				_heading = _wish_dir
 
-		# How much of your requested speed you get, given how far off your
-		# current momentum it is. Dead ahead is full, square across is
-		# half, straight back is REVERSE_SPEED_SCALE.
-		var alignment := _heading.dot(_wish_dir)
-		target_speed = Tuning.speed_for_gait(gait) * speed_scale \
-			* remap(alignment, -1.0, 1.0, Tuning.REVERSE_SPEED_SCALE, 1.0)
+			# How much of your requested speed you get, given how far off
+			# your current momentum it is. Dead ahead is full, square
+			# across is half, straight back is REVERSE_SPEED_SCALE — this
+			# is the plant-and-pivot case, a full-speed reversal, distinct
+			# from the backpedal shuffle above.
+			var alignment := _heading.dot(_wish_dir)
+			target_speed = Tuning.speed_for_gait(gait) * speed_scale \
+				* remap(alignment, -1.0, 1.0, Tuning.REVERSE_SPEED_SCALE, 1.0)
 
-		var speed_ratio := clampf(_speed / Tuning.SPRINT_SPEED, 0.0, 1.0)
-		var turn_rate := deg_to_rad(
-			lerpf(Tuning.TURN_RATE_STANDING, Tuning.TURN_RATE_SPRINT, speed_ratio))
-		var to_turn := _heading.signed_angle_to(_wish_dir, Vector3.UP)
-		var step := clampf(to_turn, -turn_rate * delta, turn_rate * delta)
-		_heading = _heading.rotated(Vector3.UP, step).normalized()
+			var speed_ratio := clampf(_speed / Tuning.SPRINT_SPEED, 0.0, 1.0)
+			var turn_rate := deg_to_rad(
+				lerpf(Tuning.TURN_RATE_STANDING, Tuning.TURN_RATE_SPRINT, speed_ratio))
+			var to_turn := _heading.signed_angle_to(_wish_dir, Vector3.UP)
+			var step := clampf(to_turn, -turn_rate * delta, turn_rate * delta)
+			_heading = _heading.rotated(Vector3.UP, step).normalized()
 	else:
 		_wish_dir = Vector3.ZERO
+		_backpedaling = false
 
 	# Planting to kick or handball costs you your legs for a moment; the
 	# kick stance ahead of that (LT held, still aiming/repositioning) costs
@@ -277,9 +399,15 @@ func _update_locomotion(delta: float) -> void:
 	elif _mark_readying:
 		target_speed *= Tuning.MARK_SAFE_SPEED_SCALE
 
-	var accel := Tuning.ACCELERATION if target_speed > _speed else Tuning.BRAKING
-	if not is_on_floor():
+	var accel: float
+	if _backpedaling:
+		accel = Tuning.BACKPEDAL_ACCELERATION
+	elif not is_on_floor():
 		accel = Tuning.AIR_ACCELERATION
+	else:
+		accel = Tuning.ACCELERATION if target_speed > _speed else Tuning.BRAKING
+	if _turn_burst_timer > 0.0 and target_speed > _speed:
+		accel *= Tuning.TURN_BURST_ACCEL_MULT
 	_speed = move_toward(_speed, target_speed, accel * delta)
 
 	velocity.x = _heading.x * _speed
@@ -287,6 +415,11 @@ func _update_locomotion(delta: float) -> void:
 
 
 func _update_facing(delta: float) -> void:
+	# The whole backpedal mechanic: the body keeps reading the play instead
+	# of chasing the direction the feet are shuffling in. Facing simply
+	# doesn't move — see _update_locomotion for where the feet do.
+	if _backpedaling:
+		return
 	var desired := _heading
 	if _speed <= Tuning.PIVOT_SPEED_THRESHOLD and _wish_dir != Vector3.ZERO:
 		desired = _wish_dir
@@ -303,6 +436,19 @@ func _update_facing(delta: float) -> void:
 ## space earn its keep even in a game where you mostly run forwards.
 func locomotion_blend() -> Vector2:
 	var horizontal := Vector3(velocity.x, 0.0, velocity.z)
+	# This is called after move_and_slide() has already run for the frame
+	# (see _physics_process), so `velocity` here is move_and_slide's own
+	# collision-response output, not the value _update_locomotion() set —
+	# a standing player's velocity can pick up sub-millimetre horizontal
+	# noise from the floor-contact slide resolution even when nothing is
+	# actually moving. The deadzone in _update_locomotion() guards a
+	# different, earlier read of velocity and does not catch this one;
+	# this is the read that actually feeds the AnimationTree, so it needs
+	# its own guard, applied at the one place its output is used, rather
+	# than trusting an upstream snap that runs before move_and_slide has
+	# had its say.
+	if horizontal.length_squared() < Tuning.LOCOMOTION_VELOCITY_DEADZONE ** 2:
+		horizontal = Vector3.ZERO
 	var forward := -global_transform.basis.z
 	var right := global_transform.basis.x
 	return Vector2(
@@ -371,6 +517,26 @@ func is_protected() -> bool:
 	return _protected_timer > 0.0
 
 
+## Grants tackle immunity for `duration` seconds — the exact same
+## _protected_timer a legal mark already uses (design brief priority 5:
+## "do not build a new protection system... reuse _protected_timer/
+## is_protected() directly"), for a protected kick-in's goal-square
+## immunity. Already clears itself early the moment this player disposes
+## (_dispose()'s existing "playing on forfeits protection" line) — a
+## kick-in that plays on loses its immunity exactly like a mark that does,
+## with no extra code needed here for that.
+func grant_protection(duration: float) -> void:
+	_protected_timer = maxf(_protected_timer, duration)
+
+
+## Public entry point onto the same shared attach/possession/signal path
+## every other way of gaining the ball already goes through
+## (_complete_gather) — for placements that hand a player the ball outright
+## rather than having them reach for it, like a protected kick-in.
+func give_possession(ball: Ball) -> void:
+	_complete_gather(ball)
+
+
 ## Let go without disposing — for resets and, later, for a tackle
 ## stripping the ball.
 func drop_ball() -> void:
@@ -408,6 +574,12 @@ func speed() -> float:
 	return _speed
 
 
+## Diagnostic — see DebugHud. True while reading the play backward (see the
+## Backpedal section of Tuning / _update_locomotion).
+func is_backpedaling() -> bool:
+	return _backpedaling
+
+
 func kick_charge() -> float:
 	return _kick_charge
 
@@ -425,10 +597,20 @@ func _track_carry_distance(previous_position: Vector3) -> void:
 	_carry_distance += moved.length()
 
 
+## Passive walk-over gather (design brief: bringing the ball to hand must be
+## affected by the player's speed at the moment of contact rather than being
+## independent of movement). The Area3D shape is sized generously (see
+## _ready()); the real cutoff is this explicit distance test against the
+## current speed-scaled reach, so a player running through a bounce
+## genuinely gets more reach than one standing still over it — not by much,
+## GATHER_LUNGE_MAX keeps it well short of the deliberate GROUND_PICKUP
+## reach, but real.
 func _try_gather() -> void:
 	if is_carrying() or _gather_cooldown > 0.0 or _action != Tuning.Action.NONE \
 			or _stun_timer > 0.0:
 		return
+	var reach := Tuning.GATHER_RADIUS \
+		+ minf(_speed * Tuning.GATHER_LUNGE_PER_SPEED, Tuning.GATHER_LUNGE_MAX)
 	for body in _gather_zone.get_overlapping_bodies():
 		if not (body is Ball):
 			continue
@@ -436,6 +618,8 @@ func _try_gather() -> void:
 		if ball.is_held:
 			continue
 		if ball.linear_velocity.length() > Tuning.GATHER_MAX_BALL_SPEED:
+			continue
+		if _carry_point.global_position.distance_to(ball.global_position) > reach:
 			continue
 		_complete_gather(ball)
 		return
@@ -498,6 +682,8 @@ func _get_tackled(by: PlayerController) -> void:
 		ball.apply_central_impulse(scatter * Tuning.TACKLE_SPILL_SPEED * ball.mass)
 	if holding_the_ball:
 		holding_the_ball_called.emit(by)
+	else:
+		field_ball_up_called.emit(by, self)
 
 
 ## Smother (X tap, not carrying): close down an opponent before their kick
@@ -537,6 +723,104 @@ func _get_smothered(by: PlayerController) -> void:
 		scatter.y = 0.3
 		scatter = scatter.normalized() if scatter.length_squared() > 0.0001 else Vector3.FORWARD
 		ball.knock(scatter * Tuning.SMOTHER_SPILL_SPEED * ball.mass)
+
+
+# ── Bump ─────────────────────────────────────────────────────────────
+# Design brief priority 7: LB hold + Right Stick flick, Madden's hit-stick
+# model. Out-of-possession only, same as tackle/spoil/smother. The flick
+# gesture itself lives in InputManager (a raw device primitive that didn't
+# exist before this pass); this section only decides what a completed
+# flick, while stance is held, actually does.
+
+func _update_bump(_delta: float) -> void:
+	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE:
+		return
+	if not _brain.wants_bump_stance():
+		return
+	var flick := InputManager.flick_vector()
+	if flick == Vector2.ZERO:
+		return
+	_try_bump(flick)
+
+
+## `flick_raw` is the stick's raw (x, y) at the instant the gesture
+## completed — converted to a world-space direction the same camera-
+## relative way HumanBrain.wish_direction() already converts movement
+## input, so "flick right" means the same thing on screen a bump does as
+## it does for running.
+func _flick_world_direction(flick_raw: Vector2) -> Vector3:
+	var forward := Vector3.FORWARD
+	var right := Vector3.RIGHT
+	if is_instance_valid(camera):
+		var flat := -camera.global_transform.basis.z
+		flat.y = 0.0
+		if flat.length_squared() > 0.000001:
+			forward = flat.normalized()
+			right = Vector3(-forward.z, 0.0, forward.x)
+	var dir := right * flick_raw.x + forward * flick_raw.y
+	return dir.normalized() if dir.length_squared() > 0.0001 else forward
+
+
+## No target to lock onto ahead of time — a bump is a physical swing, not a
+## selection. Range/cone gate whether the flick actually connected with
+## whoever's nearby, the same "physically doing the right thing is what
+## resolves it" stance every other contest here already takes.
+func _try_bump(flick_raw: Vector2) -> void:
+	if _bump_cooldown > 0.0:
+		return
+	var carrier := _nearest_opposing_carrier()
+	if carrier == null:
+		return
+	var to_carrier := carrier.global_position - global_position
+	to_carrier.y = 0.0
+	if to_carrier.length() > Tuning.BUMP_RANGE or to_carrier.length_squared() < 0.0001:
+		return
+
+	var flick_dir := _flick_world_direction(flick_raw)
+	var aim_error := flick_dir.angle_to(to_carrier.normalized())
+	if aim_error > deg_to_rad(Tuning.BUMP_CONE_DEG):
+		return   # swung at empty air — physically nothing to connect with, no signal
+
+	_bump_cooldown = Tuning.BUMP_COOLDOWN
+
+	# "Timing relative to the ball carrier's approach determines the
+	# outcome" (design brief): landed while they're genuinely closing on
+	# the bumper is clean; landed on someone stationary or moving away
+	# still connects (they were in range and in the cone) but glances
+	# rather than lands properly.
+	var carrier_velocity := Vector3(carrier.velocity.x, 0.0, carrier.velocity.z)
+	var approach_dot := 0.0
+	if carrier_velocity.length_squared() > 0.01:
+		approach_dot = carrier_velocity.normalized().dot(-to_carrier.normalized())
+	var clean := approach_dot >= Tuning.BUMP_APPROACH_DOT_MIN
+	var scale := 1.0 if clean else Tuning.BUMP_MISTIMED_SCALE
+
+	carrier.receive_bump(flick_dir * Tuning.BUMP_KNOCKBACK_SPEED * scale,
+		Tuning.BUMP_STUN_DURATION * scale, self)
+	bump_landed.emit(self, carrier, clean)
+
+
+func _nearest_opposing_carrier() -> PlayerController:
+	var best: PlayerController = null
+	var best_dist := INF
+	for node in get_tree().get_nodes_in_group(&"players"):
+		var other := node as PlayerController
+		if other == null or other == self or other.team == team or not other.is_carrying():
+			continue
+		var dist := global_position.distance_to(other.global_position)
+		if dist < best_dist:
+			best_dist = dist
+			best = other
+	return best
+
+
+## Called on the bumped player, by the bumper. A knockback that overrides
+## normal movement until it decays (see _update_locomotion) plus a short
+## stun — distinct from a tackle, which strips the ball outright; a bump
+## only ever disrupts balance (real AFL: dispossession is a tackle's job).
+func receive_bump(impulse: Vector3, stun_duration: float, _by: PlayerController) -> void:
+	_knockback = Vector3(impulse.x, 0.0, impulse.z)
+	_stun_timer = maxf(_stun_timer, stun_duration)
 
 
 # ── Marking ──────────────────────────────────────────────────────────
@@ -684,6 +968,67 @@ func _ball_in_catch_reach(ball: Ball, reach_scale: float) -> bool:
 ## target without needing its own copy of where "the hands" are.
 func catch_point_position() -> Vector3:
 	return _carry_point.global_position
+
+
+# ── Ruck contests ────────────────────────────────────────────────────
+# Design brief priority 4: centre bounce, field ball-up and boundary
+# throw-in all resolve through the same contest — see Tuning's own "Ruck
+# contests" section and FullGame._begin_ruck_contest, which is the one
+# place that decides *where* a contest happens and *who* contests it. This
+# section only knows how to contest one, the same way regardless of which
+# situation nominated it.
+
+## Called by whoever is orchestrating a contest (FullGame._begin_ruck_
+## contest) on exactly the two nominated players. Self-expiring — see
+## _ruck_contest_timer in _physics_process — so a ruckman can't hold RB's
+## Hit-Out meaning past the one contest they were nominated into.
+func set_ruck_contestant(value: bool) -> void:
+	_is_ruck_contestant = value
+	_ruck_contest_timer = Tuning.RUCK_CONTEST_WINDOW if value else 0.0
+
+
+func is_ruck_contestant() -> bool:
+	return _is_ruck_contestant
+
+
+func _update_ruck_contest(_delta: float) -> void:
+	if not _is_ruck_contestant or is_carrying() or _stun_timer > 0.0 \
+			or _action != Tuning.Action.NONE:
+		return
+	var ball := _live_ball()
+	if not is_instance_valid(ball) or ball.is_held or not ball.is_airborne():
+		return
+	if not _brain.wants_hit_out():
+		return
+	if ball.global_position.distance_to(_carry_point.global_position) > Tuning.RUCK_CONTEST_JUMP_RANGE:
+		return
+	_begin_hit_out()
+
+
+## Commits to the leap immediately, exactly like _begin_aggressive_mark —
+## same _pending_jump hand-off into the existing gravity integration, no
+## separate arc code (design brief: "reuse the existing aggressive-mark
+## jump impulse pattern... let the existing gravity integration handle the
+## jump arc").
+func _begin_hit_out() -> void:
+	_pending_jump = true
+	_begin(Tuning.Action.HIT_OUT)
+
+
+## Fires at the jump's contact instant, same timing as an aggressive mark's
+## own resolution (Tuning.ACTION_CONTACT — HIT_OUT copies MARK_AGGRESSIVE's
+## row verbatim, see Tuning's comment there). A palm, not a catch: knocks
+## the ball away rather than gathering it, same knock() primitive spoil/
+## smother already use for "an external hit that doesn't take control".
+## Facing-directed — a tap has no separate aim source the way a kick does.
+func _resolve_hit_out() -> void:
+	var ball := _live_ball()
+	var connected := is_instance_valid(ball) and not ball.is_held \
+		and ball.global_position.distance_to(_carry_point.global_position) <= Tuning.RUCK_HIT_OUT_REACH
+	if connected:
+		var direction := -global_transform.basis.z
+		ball.knock(direction * Tuning.RUCK_HIT_OUT_SPEED + Vector3.UP * Tuning.RUCK_HIT_OUT_UP_SPEED)
+	hit_out_resolved.emit(self, connected)
 
 
 ## The one ball in the scene, found by group rather than a wired reference —
@@ -926,6 +1271,8 @@ func _update_action(delta: float) -> void:
 		match _action:
 			Tuning.Action.MARK_AGGRESSIVE:
 				_resolve_aggressive_mark()
+			Tuning.Action.HIT_OUT:
+				_resolve_hit_out()
 			Tuning.Action.MARK_SAFE, Tuning.Action.MARK_RUNNING:
 				pass   # already caught in _update_marking(); this leg is cosmetic only
 			_:

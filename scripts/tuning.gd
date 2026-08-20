@@ -28,7 +28,7 @@ enum Team { HOME, AWAY, NONE }
 ## Appended-only: ACTION_DURATION/ACTION_CONTACT below are indexed
 ## positionally by this enum's int value, so KICK/HANDBALL/BOUNCE must keep
 ## their existing slots. New actions always go on the end.
-enum Action { NONE, KICK, HANDBALL, BOUNCE, MARK_SAFE, MARK_RUNNING, MARK_AGGRESSIVE }
+enum Action { NONE, KICK, HANDBALL, BOUNCE, MARK_SAFE, MARK_RUNNING, MARK_AGGRESSIVE, HIT_OUT }
 
 
 # ── Ground geometry (metres) ─────────────────────────────────────────
@@ -102,6 +102,35 @@ const PIVOT_SPEED_THRESHOLD := 0.4     # m/s
 # Sub-cm/s residue is collision-response noise, not intent; letting it
 # through made a standing-still player's animation blend visibly twitch.
 const LOCOMOTION_VELOCITY_DEADZONE := 0.03   # m/s
+
+# Backpedal (design brief: "backpedal-to-turn transitions for defenders
+# reading the play"). Distinct from the plant-and-pivot above, which is
+# what a full-speed sprint reversal already gets from the
+# REVERSE_SPEED_SCALE/turn-rate coupling — this is the other technique:
+# reading the play from a standstill or a jog, eyes (facing) locked on
+# whatever they were already on while the feet answer the stick directly
+# at a capped shuffle speed. See PlayerController._update_locomotion/
+# _update_facing.
+#
+# Gated on wish-direction-vs-*facing* (not heading) so it only engages
+# when the input is genuinely behind where the body is looking, and only
+# from a modest starting speed — a player already sprinting who reverses
+# gets the existing plant-and-pivot instead, a faster, more committed
+# move for a different moment (chasing/leading) than this one (holding a
+# defensive cushion).
+const BACKPEDAL_ENTER_DOT := -0.25     # facing . wish_dir at/below this enters backpedal
+const BACKPEDAL_EXIT_DOT := 0.15       # facing . wish_dir at/above this exits + arms a turn burst
+const BACKPEDAL_ENTRY_SPEED_MARGIN := 0.5   # m/s above JOG_SPEED still allowed to enter
+const BACKPEDAL_SPEED := 3.0           # m/s, capped backward shuffle
+const BACKPEDAL_ACCELERATION := 7.0    # m/s^2 — deliberate, a shade under ACCELERATION
+
+# The moment a backpedal resolves into a real direction (design brief:
+# "acceleration bursts when starting a lead or chase") — heading is
+# already aligned (backpedal tracks wish_dir directly, no turn-rate sweep
+# to catch up on), so the burst is purely an accel spike driving off the
+# plant, not a turn-rate change.
+const TURN_BURST_DURATION := 0.22      # s
+const TURN_BURST_ACCEL_MULT := 1.8
 
 # The rig's facing turns faster than the velocity heading does, so the
 # body leads the change of direction and the velocity lags behind it.
@@ -233,8 +262,12 @@ const KICK_MOUSE_REACH_SENSITIVITY := 0.0035
 # generated from them (see humanoid_animations.gd). When real mocap/Mixamo
 # clips arrive, contact becomes a call track on the animation and the
 # CONTACT row is deleted; nothing else changes.
-const ACTION_DURATION := [0.0, 0.78, 0.45, 0.50, 0.55, 0.40, 0.95]
-const ACTION_CONTACT := [0.0, 0.42, 0.20, 0.22, 0.08, 0.06, 0.40]
+## HIT_OUT's timing is a straight copy of MARK_AGGRESSIVE's, not a new
+## number — it is the identical jump (see PlayerController._begin_hit_out),
+## just resolved as a palm instead of a catch, so it should peak and land
+## on exactly the same clock.
+const ACTION_DURATION := [0.0, 0.78, 0.45, 0.50, 0.55, 0.40, 0.95, 0.95]
+const ACTION_CONTACT := [0.0, 0.42, 0.20, 0.22, 0.08, 0.06, 0.40, 0.40]
 
 # AFL rule: a player running with the ball must bounce or touch it to
 # ground every 15 metres. Carried over unchanged from Prototype 1's
@@ -244,6 +277,14 @@ const BOUNCE_INTERVAL := 15.0          # metres of carry between bounces
 # An actual arm's reach. P1's LOOSE_BALL_GATHER_RADIUS was 4.0 units — a
 # positional abstraction for "close enough", not a reach.
 const GATHER_RADIUS := 0.85            # m
+# Speed at the moment of contact matters (design brief): a player running
+# through a bounce or a loose ball gets a bit more reach than one standing
+# over it, same idea as GROUND_PICKUP_LUNGE_PER_SPEED's deliberate reach,
+# just gentler since this is the passive walk-over gather, not a button
+# press. Capped well short of GROUND_PICKUP's own bonus so the two stay
+# distinguishable — a deliberate reach should still out-range a passive one.
+const GATHER_LUNGE_PER_SPEED := 0.04   # m of extra reach per m/s of current speed
+const GATHER_LUNGE_MAX := 0.5          # m
 const GATHER_MAX_BALL_SPEED := 14.0    # m/s above which the ball is going too fast to gather
 const GATHER_COOLDOWN := 0.45          # s after disposal before you can regather your own kick
 const RELEASE_GRACE := 0.25            # s the disposed ball ignores its own kicker
@@ -278,9 +319,20 @@ const CAM_PUNCH_DECAY := 3.5
 # flight, so you watch your own kick land instead of watching your
 # player's back. This is §6's "follows the ball/play focus point" in its
 # simplest honest form.
-const CAM_BALL_FOCUS_MAX := 0.55       # max weight the ball takes of the focus point
+# Both cut after a direct "follows the ball a bit too long, and swivels
+# too much right after a kick" report. MAX was 0.55 — over half the focus
+# point's position could slide toward the ball, which is what read as a
+# swivel the instant a kick sent the ball moving fast (the focus point,
+# not the camera's own orientation, translates toward it; the apparent
+# "swing" is the whole rig's vantage point shifting while the yaw itself
+# stays exactly where the player was looking). RATE was 3.0 either
+# direction, so recovery back to the player after the ball lands/is held
+# was exactly as slow as the initial commit toward it; raised so letting
+# go is snappier without also making the initial pull twitchy (still
+# smoothed, just over a shorter window).
+const CAM_BALL_FOCUS_MAX := 0.35       # max weight the ball takes of the focus point
 const CAM_BALL_FOCUS_MIN_HEIGHT := 1.6 # m, ball must be above this to pull focus
-const CAM_BALL_FOCUS_RATE := 3.0
+const CAM_BALL_FOCUS_RATE := 4.5
 const CAM_MAX_FRAMING_DISTANCE := 45.0 # m, beyond which the ball stops pulling harder
 
 # Two-shot conversation framing for the training-coach dialogue (see the
@@ -292,6 +344,23 @@ const CAM_DIALOGUE_DISTANCE := 3.2     # m to the side of the coach<->player lin
 const CAM_DIALOGUE_HEIGHT := 1.7       # m
 const CAM_DIALOGUE_PITCH := -6.0       # deg
 const CAM_DIALOGUE_FOV := 42.0         # deg, tighter for an intimate two-shot
+
+# Full-Side (design brief; this project's own working title for it was
+# "orthodox") — see BroadcastCamera._update_full_side(). A real broadcast
+# full-ground rig: mounted outside the boundary and elevated, not hovering
+# over the ball. Unlike the old top-down version this replaces, the rig's
+# pivot sits at a genuinely fixed position outside the field on the Z axis
+# (SIDE_OFFSET, well past Field.SURROUND_MARGIN's fence at ~76.5m) rather
+# than reaching "outside" only as a side effect of enough arm-length/pitch
+# tuning — "positioned outside the field" is where the rig actually lives.
+# ARM stays short on purpose: HEIGHT does the elevation directly now
+# (global_position.y), so the spring arm isn't being asked to carry both
+# jobs the way the old fixed-pitch version needed it to.
+const CAM_FULL_SIDE_SIDE_OFFSET := 100.0   # m outside the boundary (Z) — where the rig is mounted
+const CAM_FULL_SIDE_HEIGHT := 34.0         # m elevation
+const CAM_FULL_SIDE_ARM := 6.0             # m — short; position/height already do the work
+const CAM_FULL_SIDE_FOV := 50.0
+const CAM_FULL_SIDE_FOLLOW_RATE := 2.2     # slower than CAM_FOLLOW_RATE — a deliberate pan, not a chase
 
 
 # ── Input feel ───────────────────────────────────────────────────────
@@ -323,6 +392,7 @@ const QUARTERS_PER_MATCH := 4
 const QUARTER_BREAK_DURATION := 4.0    # s, paused between quarters
 const SCORE_PAUSE_DURATION := 3.0      # s, paused after a goal/behind
 const CENTRE_BOUNCE_DELAY := 1.0       # s from formation-set to the bounce
+const OUT_OF_BOUNDS_PAUSE_DURATION := 2.0   # s, paused for a boundary throw-in
 
 
 # ── Contests ─────────────────────────────────────────────────────────
@@ -357,6 +427,47 @@ const PRIOR_OPPORTUNITY_GRACE := 0.5   # s
 # Blocked at the boot means the ball barely moves, unlike a tackle's spill.
 const SMOTHER_RADIUS := 1.1            # m
 const SMOTHER_SPILL_SPEED := 1.5       # m/s
+
+
+# ── Bump ─────────────────────────────────────────────────────────────
+# LB hold + Right Stick flick (design brief priority 7): Madden's hit-stick
+# model. A bump disrupts balance — knockback plus a short stun — it does
+# not itself strip the ball the way a tackle does (real AFL: a legal bump
+# can put a carrier off their line or to ground; dispossessing them is a
+# tackle's job, not a bump's). Every number below is a physics-simulation
+# parameter (impulse speed, cooldown, a detection cone/window), the same
+# category SPOIL_IMPULSE_SPEED/TACKLE_SPILL_SPEED already are — none of
+# them are AFL rule thresholds.
+#
+# CRITICAL, per the brief: dangerous/high contact needs a free-kick
+# consequence under the real rules, and RULES_REFERENCE.md has zero
+# numbers for that judgement (no distance/angle/force/timing threshold to
+# call something "dangerous" by). That half is deliberately NOT built here
+# — see PlayerController.bump_landed's own doc comment — rather than
+# guessing a number and presenting it as an official rule.
+const BUMP_RANGE := 2.0                # m, contact range for an attempt to even register
+const BUMP_CONE_DEG := 55.0            # deg the flick can be off dead-on the carrier and still count as aimed at them
+const BUMP_KNOCKBACK_SPEED := 5.5      # m/s, a clean connect
+const BUMP_STUN_DURATION := 0.4        # s — shorter than TACKLE_STUN_DURATION; a bump unbalances, it doesn't wrap someone up
+const BUMP_COOLDOWN := 1.0             # s between attempts — a real commitment, not spammable
+# "Timing relative to the ball carrier's approach determines the outcome"
+# (design brief): a bump landed while the carrier is genuinely closing on
+# the bumper is clean (full strength); one landed on a carrier who isn't
+# closing (stationary, or moving away) still connects if in range/cone,
+# but glances rather than connects properly.
+const BUMP_APPROACH_DOT_MIN := 0.1     # carrier velocity . (toward bumper) at/above this = clean timing
+const BUMP_MISTIMED_SCALE := 0.35      # knockback/stun fraction applied when timing wasn't clean
+
+# Flick-gesture detection (design brief: "nothing equivalent currently
+# exists" — held-axis reads and tap-edges are the only two input shapes
+# InputManager had before this). A flick is the stick sweeping from near-
+# neutral to a strong deflection inside FLICK_WINDOW — the shape a real
+# hit-stick swing actually has — not just "the stick happens to be pushed"
+# the way get_look_vector() reports every frame regardless of how it got
+# there. See InputManager.flick_vector().
+const FLICK_WINDOW := 0.15             # s the sweep has to complete within
+const FLICK_MIN_MAGNITUDE := 0.75      # deflection that counts as "the flick landed"
+const FLICK_NEUTRAL_MAGNITUDE := 0.30  # deflection below this counts as "was neutral"
 
 
 # ── Marking / aerial contests ────────────────────────────────────────
@@ -413,6 +524,39 @@ const MARK_AGGRESSIVE_JUMP_SPEED := 4.0    # m/s
 const MARK_CONTEST_RANGE := 6.0            # m
 
 const RUMBLE_MARK := Vector3(0.20, 0.35, 0.12)
+
+
+# ── Ruck contests ────────────────────────────────────────────────────
+# Design brief priority 4: one shared contest mechanic for the centre
+# bounce, a field ball-up (a tackle resolved inside PRIOR_OPPORTUNITY_GRACE
+# — the neutral case, RULES_REFERENCE.md §4) and a boundary throw-in. All
+# three differ only in where the contest happens and which two players are
+# nominated to contest it (see FullGame._begin_ruck_contest and its call
+# sites) — the contest itself, below, is the same every time.
+#
+# Ruckmen contest it with the exact same vertical jump a spectacular mark
+# already uses (MARK_AGGRESSIVE_JUMP_SPEED, via PlayerController.
+# _pending_jump — no separate arc code, see _begin_hit_out), so REACH is
+# deliberately the aggressive mark's own catch radius, not a new number:
+# it is the identical leap, just resolved as a palm instead of a grab.
+const RUCK_HIT_OUT_REACH := MARK_CATCH_RADIUS * MARK_AGGRESSIVE_REACH_SCALE
+## How far out a hit-out attempt can even be committed from — tighter than
+## MARK_CONTEST_RANGE, since a ruck contest is point-blank by nature (two
+## players standing either side of where the ball is about to come down),
+## not a leap in from open play.
+const RUCK_CONTEST_JUMP_RANGE := 3.0    # m
+## The palm itself — a physical velocity given to the ball on a successful
+## hit-out, same "invented physics parameter, not an invented rule number"
+## category as SPOIL_IMPULSE_SPEED/TACKLE_SPILL_SPEED elsewhere in this
+## file. Facing-directed (see _resolve_hit_out): no separate aim source for
+## a tap the way a kick has one.
+const RUCK_HIT_OUT_SPEED := 6.0         # m/s, horizontal
+const RUCK_HIT_OUT_UP_SPEED := 1.5      # m/s of lift, so it reads as a palm, not a grounder
+## How long a nominated contestant reads RB as a hit-out at all (see
+## PlayerController.set_ruck_contestant) — self-expiring like
+## _protected_timer, so the flag can't linger past the one contest it was
+## armed for.
+const RUCK_CONTEST_WINDOW := 1.5        # s
 
 # The same A press that attempts a Safe Mark becomes this once the ball
 # isn't in the air (design brief: the action comes from "ball state +
@@ -566,7 +710,7 @@ static func action_speed_scale(action: Action) -> float:
 			return MARK_SAFE_SPEED_SCALE
 		Action.MARK_RUNNING:
 			return MARK_RUNNING_SPEED_SCALE
-		Action.MARK_AGGRESSIVE:
+		Action.MARK_AGGRESSIVE, Action.HIT_OUT:
 			return MARK_AGGRESSIVE_SPEED_SCALE
 		_:
 			return ACTION_SPEED_SCALE

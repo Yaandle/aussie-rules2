@@ -17,7 +17,12 @@ extends MeshInstance3D
 ## only where a human is actually looking closely at one figure.
 
 const LINE_COLOUR := Color("#4E9F5B")   ## SoftBrutalist.ACCENT_PRIMARY
-const LINE_WIDTH := 0.012               ## rendered as a thin quad, not a GL line —
+## Widened from 0.012 (design brief: "make the outer body wireframe more
+## visible") — the body meshes it overlays are semi-transparent now
+## (CharacterBackdrop.BODY_ALPHA), so the wireframe reads through them
+## instead of only ever peeking past the silhouette edge, and a thicker
+## line reads as a real rig rather than a hairline at that distance.
+const LINE_WIDTH := 0.022               ## rendered as a thin quad, not a GL line —
                                          ## GL_LINES ignores width on most backends,
                                          ## a camera-facing quad per bone doesn't.
 
@@ -107,7 +112,7 @@ func _material() -> StandardMaterial3D:
 	mat.albedo_color = Color(LINE_COLOUR, 0.9)
 	mat.emission_enabled = true
 	mat.emission = LINE_COLOUR
-	mat.emission_energy_multiplier = 1.4
+	mat.emission_energy_multiplier = 1.8   ## brighter, same "more visible" ask as LINE_WIDTH above
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	mat.no_depth_test = false
 	return mat

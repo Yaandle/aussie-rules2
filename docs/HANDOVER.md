@@ -1811,3 +1811,723 @@ same limitation as every prior entry — so the deadzone fix is verified
 as "compiles and runs error-free through the same physics paths every
 other pass exercises," not as "confirmed the twitch is gone on screen."
 That confirmation needs eyes on the actual character screen.
+
+---
+
+## Handover — six-item playtest punch list: jitter round 2, scrim, out-of-bounds, centre-bounce formation, camera, mouse kick, landing shadow (Agent: UI/visual model)
+
+A batch of direct playtest reports, spanning well outside this agent's
+usual UI/visual lane (camera tuning, match phase logic, input mapping).
+Handled directly rather than deferred, since no other agent was
+available in-session and each item was small/targeted enough to reason
+about in isolation — flagged per item below since several of these cross
+into `player_controller.gd`/mechanics/camera territory prior sessions
+kept separate.
+
+### 1. Character-screen jitter, actually fixed this time
+
+The previous pass's deadzone fix was in the wrong place. It zeroed
+`velocity.x`/`.z` at the *top* of `_update_locomotion()` — before
+`move_and_slide()` runs later in `_physics_process()`. But
+`locomotion_blend()` (the function that actually feeds the
+AnimationTree) is called at the very *end* of `_physics_process()`,
+*after* `move_and_slide()` — so it was reading whatever collision-
+response noise `move_and_slide()` introduced that frame, completely
+unprotected by the earlier snap. The deadzone was real and correctly
+reasoned about, just guarding a read nothing downstream actually used.
+
+Fixed by adding the same deadzone check directly inside
+`locomotion_blend()` itself (`player_controller.gd`), immediately before
+the dot-product framing — the one place whose output actually matters,
+independent of whatever `_update_locomotion()`'s own bookkeeping is
+doing. Left the original `_update_locomotion()` guard in place too (it's
+not wrong, just insufficient alone — it still matters for `_speed`/
+`_heading` derivation).
+
+### 2. Character-screen scrim opacity
+
+`ui_side_scrim.gdshader`'s `tint.a` cut 0.18 → 0.10 (already reduced
+twice in earlier sessions, see the shader's own comment history) after a
+direct "I want to see more of the field" report. At this screen's dim
+studio lighting (Sun energy 0.14), even a low-alpha cream wash reads
+brighter than the turf behind it — cutting alpha further mattered more
+here than narrowing the wash's screen-width window did last time.
+
+### 3. Boundary out-of-bounds: real stoppage, not a silent nudge
+
+`full_game.gd._check_out_of_bounds()` already pulled a settled ball back
+inside the oval — but silently, on a still-live ball, with zero signal
+anything happened, which is indistinguishable from "not implemented" in
+play. Rebuilt as a real (if simplified) stoppage using the exact
+pause/callback shape every other dead-ball moment in this file already
+uses (goals, quarter breaks) rather than a bespoke third mechanism:
+`GameState.Phase.STOPPAGE` (declared since the earliest version of this
+file, per its own doc comment "ball-up / boundary throw-in", never
+previously entered by anything), `MatchState.clock_running = false`, a
+`"OUT OF BOUNDS"` scoreboard flash, `Tuning.OUT_OF_BOUNDS_PAUSE_DURATION`
+(2.0s) pause, then the same radial pull-back math as before delivering
+the throw-in point once play resumes. Added a `_pause_timer > 0.0` guard
+at the top of `_check_out_of_bounds()` so it can't re-trigger itself
+every remaining frame of its own pause window (the ball doesn't actually
+move until the callback fires).
+
+**Not built**: a real umpire/possession model or a "deliberate out of
+bounds" free kick — both need the same adjudication apparatus
+holding-the-ball's ruling was already left waiting on (see the marking/
+spoil/smother entry above); this pass only makes the stoppage itself
+real, not who gets the ball out of it (still "contestable by whoever's
+nearest," unchanged).
+
+### 4. Centre-bounce formation: ruck + 3 on-ballers around the circle, not a 30m line
+
+`_reposition_kickoff()` used the same wide `_kickoff_slot()` spread
+(`KICKOFF_DEPTH` = 30m back) for *every* centre bounce, including every
+restart after a goal — real AFL only allows one ruck plus three
+on-ballers per team inside the centre square for a bounce, and this
+project's `Tuning.TEAM_SIZE` (4) happens to equal exactly that
+allowance, so "the whole team gathers at the circle" and "a correct
+centre-bounce formation" are the same thing at this roster size. New
+`_centre_bounce_slot()`: index 0 (ruck) plants 1.3m either side of the
+exact centre point, facing the opposing ruck across it; indices 1-3 ring
+the centre circle at 7m radius (outside `CENTRE_CIRCLE_OUTER`'s 5m,
+inside `CENTRE_SQUARE_SIZE`'s 50m) across three angles, mirrored per team
+by `attack_direction` so the two teams' arcs don't overlap. Used only by
+`_reposition_kickoff()` (i.e. every centre bounce); `_kickoff_slot()`/
+`KICKOFF_DEPTH` are untouched and still used by `_spawn_team()` for the
+initial pre-match layout, which is a different moment or the design.
+
+**Known gap**: `AIBrain.home_position` (each player's "return here when
+idle" anchor) is set once at spawn to the wide kickoff slot and is *not*
+updated by the new centre-bounce reposition — so a player not actively
+contesting the ball will start drifting back toward their original
+30m-back anchor once the bounce contest settles. The formation is
+correct *at the moment of the bounce* (confirmed by inspection of the
+new maths), which is what was asked for; whether the post-bounce drift
+is worth fixing too is a follow-up, not attempted here.
+
+### 5. Camera: ground-clip fix, ball-focus tuning, orthodox mode + settings
+
+**Ground clip, root-caused.** `CAM_PITCH_MAX` (22°, upward look) combined
+with `CAM_DISTANCE` (7.5m arm) and `CAM_FOCUS_HEIGHT` (1.35m, chest
+height) put the camera's own Y below zero at the extreme of the existing
+pitch range — `1.35 - 7.5·sin(22°) ≈ -1.45m` — genuinely underground, not
+a rare edge case. Fixed with a height floor applied *after* whichever
+mode's update runs (`BroadcastCamera._clamp_camera_height()`, `MIN_
+CAMERA_HEIGHT` = 0.4m): pushes the whole rig up by however much the
+lens dipped below the floor, preserving yaw/pitch/arm framing exactly as
+computed, just translated clear of the ground. Deliberately a floor on
+the one thing that actually matters (rendered lens height) rather than a
+re-derived safe pitch bound — robust to the orthodox mode below or any
+future distance/height tuning without re-deriving anything by hand.
+
+**Ball-focus swivel/lingering, tuned.** `CAM_BALL_FOCUS_MAX` (how much of
+the focus point's position can slide toward the ball) cut 0.55 → 0.35,
+`CAM_BALL_FOCUS_RATE` (how fast that slide commits *and* releases,
+symmetric) raised 3.0 → 4.5. The "swivel" after a kick was never the
+camera's own yaw — that stays exactly where the player was looking — it
+was the whole rig's *position* sliding toward the ball while orientation
+held, which reads as a swing from a shifted vantage point. Less maximum
+slide, and a faster release once the ball lands/is held, address both
+"follows the ball a bit too long" and "swivels too much" as the same
+root tuning, not two separate fixes.
+
+**Orthodox camera mode, new.** `BroadcastCamera.Mode` (`CHASE`/
+`ORTHODOX`), `set_mode()`. `ORTHODOX` reuses the existing yaw/pitch/
+spring-arm rig wholesale — no new nodes — just drives it differently:
+fixed pitch (`CAM_ORTHODOX_PITCH`, -62°), no player yaw/pitch input, arm
+length reused as elevation (`CAM_ORTHODOX_HEIGHT`, 34m) at that steep
+pitch, slower pan (`CAM_ORTHODOX_FOLLOW_RATE`, 2.2 vs `CAM_FOLLOW_RATE`'s
+9.0) tracking the midpoint of the controlled player and the ball rather
+than snapping to either — Prototype 1's own high strategic-view style,
+per direct request, as an *option* alongside the chase cam rather than a
+replacement. Full Game only, wired through `Settings.
+full_game_camera_mode` (see below); `kick_to_kick.gd` reads nothing here
+and keeps the chase cam unconditionally, per the brief's explicit "kick-
+to-kick stays the same."
+
+### 6. New: `Settings` autoload — the project's first real persisted settings
+
+`settings_screen.gd` was, by its own header comment, "deliberately not a
+functioning settings system" — every row was in-memory display only,
+reset on reopen. Two new features this round both needed a real,
+persisted, live-applied setting (camera mode; which mouse button aims
+vs. kicks), so this pass built the first one: `scripts/autoload/
+settings.gd` (`Settings`), `ConfigFile`-backed (`user://settings.cfg`),
+two values (`full_game_camera_mode`, `mouse_kick_swapped`), each with a
+property setter that applies the change immediately (camera mode emits
+`camera_mode_changed`, full_game.gd listens live; mouse-kick rewrites the
+InputMap on the spot — see below) rather than only taking effect on next
+load. `SettingsScreen.Row` gained an optional `on_change` callback so its
+existing cycle-left/right UI could drive real state without changing its
+shape; the three original placeholder rows (volume/control scheme/screen
+shake) are untouched and still inert — nothing reads those yet, so
+wiring them would mean inventing values, not implementing a feature.
+`_back()` now calls `Settings.save()` on the way out.
+
+### 7. Mouse kick controls: right-click aim, left-click execute, swappable
+
+A much earlier session explicitly avoided binding any mouse *button*
+(only mouse motion) because there was no way to headless-verify Godot 4's
+`InputEventMouseButton` resource text format by hand, and getting it
+wrong silently would corrupt `project.godot`. This session has a working
+Godot binary, so rather than hand-typing the format, a throwaway
+headless `--script` (extends `SceneTree`, not committed) constructed the
+two `InputEventMouseButton` resources via the real engine API
+(`ProjectSettings.set_setting()` + `.save()`) and let Godot itself write
+the correct serialization — diffed before/after to confirm it touched
+only the two intended actions, nothing else in the file. Result: `kick_
+stance` (aim) now also fires on right-click, `kick_execute` (kick) on
+left-click, alongside the existing LT/RT gamepad and K/F keyboard
+bindings — `human_brain.gd` needed zero changes, since it already just
+reads `Input.is_action_pressed(&"kick_stance")`/`is_action_just_pressed
+(&"kick_execute")`, and actions don't care which physical input fired
+them.
+
+**Swappable, via the InputMap, not a branch.** `Settings.mouse_kick_
+swapped` (default false = right-click aim / left-click kick, matching
+the request verbatim) is applied by `Settings._apply_mouse_kick_
+binding()`, which erases whichever `InputEventMouseButton` currently
+sits on each action and re-adds the correct one — so every existing
+`is_action_pressed`-style read anywhere in the project keeps working
+unchanged regardless of which physical button is currently bound to
+which logical action, rather than threading a swap flag through
+`HumanBrain`. Wired into `SettingsScreen` as a new "MOUSE KICK BUTTONS"
+row.
+
+**Not verified by feel.** Headless has no way to synthesize a real mouse
+click for an end-to-end test; confirmed only that the InputMap entries
+exist with the right button indices and that every affected scene still
+boots and runs clean. Needs a hands-on pass.
+
+### 8. Landing shadow marker
+
+New `scripts/ball/landing_shadow.gd` (`LandingShadow`), a child of `Ball`
+in `ball.tscn` — one per ball, not per player, so the cost is flat
+regardless of team size. Visible whenever `Ball.is_airborne()` is true
+(any kick, lob, or spoiled deflection back into the air — not gated to
+the kicker or to a human's own charge, unlike `KickTrajectory`'s pre-kick
+preview), showing a small flat "(v)" chevron at the estimated landing
+point. Reuses `KickTrajectory._simulate()`'s exact gravity+drag step
+rather than a second implementation of the same approximation, just run
+from the ball's live position/velocity each frame instead of a
+not-yet-launched one, and only keeps the final point (nothing here needs
+the whole path). `top_level = true` so the marker's own orientation
+never inherits the ball's spin.
+
+### Verification
+
+Every touched scene re-run headless after each change and again as a
+full batch at the end — main scene (300 frames), `kick_to_kick.tscn`,
+`full_game.tscn` (both 200+, and once each for an extra 1800-frame/30s
+pass specifically to give centre-bounce/out-of-bounds/scoring code paths
+time to actually fire, not just parse), `character_screen.tscn`,
+`settings_screen.tscn`, `main_menu.tscn` — all exit 0, zero errors,
+including one pass with `full_game_camera_mode` forced to `ORTHODOX` and
+`mouse_kick_swapped` forced `true` via a throwaway `user://settings.cfg`
+(deleted afterward, along with the scratch scripts used to write it and
+the mouse-button InputMap entries) to actually exercise both new code
+paths rather than only the defaults. `--headless --editor --quit`
+class-cache rescan run after every new `class_name` script (`Settings`,
+`LandingShadow`). No visual/feel verification was possible in this
+environment for any of the eight items above — every fix here is
+verified as "reasoned-through and runs error-free," not as "confirmed
+correct on screen." All eight want a real playtest pass before being
+trusted beyond that.
+
+---
+
+## Handover — movement backpedal/burst, ruck contests, kick-ins, holding-the-ball, camera rename, bump (Agent: mechanics/engine + UI)
+
+A pass through the design brief's own priority order (movement first, then
+ruck/kick-in/camera, then bump/holding-the-ball as room allowed) plus the
+character-screen punch list. Same no-GUI limitation every prior entry has
+flagged — verification here is real, scripted Jolt-physics runs (a new
+`.tscn`+`.gd` scratch harness per system, positional-scene-argument form so
+autoloads resolve, deleted after — same discipline the marking/spoil/
+smother entry set), not eyeballing, plus the standard headless boots. Two
+real test-harness bugs were caught and fixed *in the tests*, not the game
+code, worth naming since both looked like game bugs at first: a scratch
+player floating with no floor under it (`AIR_ACCELERATION` firing instead
+of ground `ACCELERATION`, which happened to make a burst multiplier look
+absent), and a scripted tackle fired before the match's own opening centre
+bounce had finished (so `_on_holding_the_ball`'s `phase != PLAY` guard
+correctly no-opped, which looked like the ruling not firing). Both are
+recorded under their own sections below since the same trap is worth
+recognising quickly next time, not just once here.
+
+### 1. Movement (priority 1) — a real backpedal, not just a bigger read of the existing plant-and-pivot
+
+`player_controller.gd`'s existing model (asymmetric ACCELERATION/BRAKING,
+speed-coupled turn rate, `REVERSE_SPEED_SCALE = 0` driving a full-speed
+reversal to a hard brake-and-swing) already gives the "plant-and-drive"
+half of the brief unchanged — verified again by reading, not rebuilt. What
+it had no way to express is the *other* named technique: "backpedal-to-
+turn transitions for defenders reading the play" — a defender holding a
+cushion, eyes on the ball, shuffling backward, not sprinting-then-
+reversing. Structurally these are different moves at different speeds/
+contexts, not one dial.
+
+**New state**: `_backpedaling`/`_turn_burst_timer` on `PlayerController`,
+gated in `_update_locomotion()` on how far the *new* wish direction is
+from where the body is currently **facing** (not travelling) —
+`Tuning.BACKPEDAL_ENTER_DOT`/`_EXIT_DOT` (hysteresis band so a diagonal
+push near the threshold doesn't flicker), and only from a speed at/under
+`JOG_SPEED + BACKPEDAL_ENTRY_SPEED_MARGIN` — a player already at sprint
+who reverses still gets the existing plant-and-pivot, a faster, more
+committed move for a different moment (chasing/leading) than this one
+(holding a defensive cushion). While backpedaling, `_heading` tracks
+`_wish_dir` directly every frame (a shuffle answers the stick immediately,
+it isn't a turn-rate-limited sprint commitment) at a flat capped
+`BACKPEDAL_SPEED`, and `_update_facing()` returns immediately without
+touching `_facing_yaw` at all — the entire mechanic *is* that one early
+return: eyes stay on the play, only the feet move.
+
+**The burst** ("acceleration bursts when starting a lead or chase"): the
+instant the wish direction swings back toward where the body is already
+facing (`facing_alignment >= EXIT_DOT`), `_turn_burst_timer` arms for
+`Tuning.TURN_BURST_DURATION` and accel gets `TURN_BURST_ACCEL_MULT` for
+as long as it's counting down and still accelerating. **A real bug caught
+by the scratch test, not by reading**: the first version left `_heading`
+holding whatever the backpedal shuffle had last set it to (the *old*,
+backward wish direction) instead of snapping it to the new one on exit —
+so the very next frame's alignment check read a full reversal against the
+stale heading and applied `REVERSE_SPEED_SCALE` braking instead of a
+drive-off, i.e. exactly backwards from the intended effect. Fixed by
+snapping `_heading = _wish_dir` in the same branch that arms the burst —
+facing is already there (that's what triggered the exit), so there's
+nothing left to turn through, only to drive off from. Verified
+numerically after the fix: 14 frames into the burst window, speed had
+climbed to 6.51 m/s from a 3.0 m/s backpedal-speed start, against a
+computed "no burst" prediction of ~5.10 m/s at plain `ACCELERATION` over
+the same window — comfortably distinguishing burst-applied from not.
+
+**Speed-dependent gather** ("bringing the ball to hand must be affected by
+the player's speed at the moment of contact"): the passive walk-over
+`_try_gather()` used a flat `GATHER_RADIUS` regardless of how fast the
+player was moving, unlike the deliberate `_update_ground_pickup()` (A
+press on a loose ball) which already had a speed-scaled lunge. Gave the
+passive path the same idea, gentler: `GatherZone`'s physics shape is now
+sized to the *maximum* possible reach (`GATHER_RADIUS + GATHER_LUNGE_MAX`)
+so it always has the real candidate available, and `_try_gather()` adds an
+explicit distance test against `GATHER_RADIUS + speed * GATHER_LUNGE_PER_
+SPEED` (capped at `GATHER_LUNGE_MAX`) on top — deliberately *not* just
+resizing the live Area3D shape and reading `get_overlapping_bodies()` in
+the same frame, since that list is a physics-step-stale cache, not a
+live query (same reasoning `_update_ground_pickup()`'s own explicit
+distance test already used, now shared). Verified: a player sprinting
+through a stationary ball (starting 15m back, at full speed by arrival)
+gathered it at ~1.20m from the carry point — meaningfully past the 0.85m
+base radius, and consistent with the vertical carry-point-to-ball offset
+plus the expected horizontal lunge budget at 8.4 m/s.
+
+**Not changed**: `ACCELERATION`/`BRAKING`/`TURN_RATE_*` themselves — no
+evidence either way without a human hand on a pad, and the brief's own
+"real cost to changing direction" / "no instantaneous changes" asks were
+already satisfied by the existing model on inspection. `REVERSE_SPEED_
+SCALE` stays 0.0, untouched — the plant-and-pivot is a separately-verified,
+already-tuned system this pass was careful not to disturb.
+
+### 2. Ruck contests (priority 4) — one shared mechanic, three launch sites
+
+New "Ruck contests" sections in `Tuning`/`PlayerController`/`full_game.gd`.
+Per the brief: reuses `PlayerController._begin_aggressive_mark`'s exact
+jump pattern (`_pending_jump` into the existing gravity integration — no
+new arc code) for the leap, and the existing gravity/`is_on_floor()`
+machinery handles the rest, same as every other airborne frame already
+does.
+
+**The shared piece** (`FullGame._begin_ruck_contest(spot, contestant_a,
+contestant_b)`): nominates two players (`PlayerController.
+set_ruck_contestant(true)`, self-expiring after `Tuning.RUCK_CONTEST_
+WINDOW` via a new `_ruck_contest_timer`, same shape `_protected_timer`
+already uses), bounces the ball straight up from `spot`, and sets phase/
+clock live. Three call sites, differing *only* in where and who (exactly
+the brief's "vary only in setup/launch conditions"):
+
+- **Centre bounce**: `_bounce_off()` now calls it with `_home_players[0]`/
+  `_away_players[0]` — the existing centre-bounce formation (already
+  built, a prior pass) already puts index 0 at the ruck contest spot, so
+  this needed no new positioning code, only the launch itself moved into
+  the shared function.
+- **Field ball-up**: the *neutral* half of holding-the-ball
+  (RULES_REFERENCE.md §4 — tackled inside `PRIOR_OPPORTUNITY_GRACE` is
+  nobody's fault). `PlayerController._get_tackled` already computed this
+  condition and did nothing with it (the marking-pass entry above left it
+  silent on purpose); it now emits a new `field_ball_up_called(tackler,
+  tackled)` signal, and `FullGame._on_field_ball_up` freezes the ball at
+  the tackle spot (same "reposition/settle before the pause, not after"
+  shape `_prepare_centre_bounce` already uses, so nobody can wander over
+  and gather a still-tumbling ball during the pause) and contests it
+  between the tackler and tackled — already the two nearest players by
+  construction, since a tackle only lands within `TACKLE_RADIUS`.
+- **Boundary throw-in**: `_resume_after_out_of_bounds` (existing, from an
+  earlier pass) previously just repositioned the ball with a bare
+  `reset_at`. Now selects the nearest player per side to the throw-in
+  point (`_nearest_player`, P1's own "nearest player per side" model per
+  this project's memory of `contest_minigame.py`) and runs the same
+  contest. This is real, working code, not just "compatible" — priority
+  6's out-of-bounds foundation gets most of its remaining scope for free
+  from this.
+
+**RB = Hit-Out**: new `Tuning.Action.HIT_OUT` (appended, per the enum's
+own append-only rule — `ACTION_DURATION`/`ACTION_CONTACT` copy `MARK_
+AGGRESSIVE`'s row verbatim, since it's the identical jump, not a new
+timing to invent), new `hit_out` input action (`J` / gamepad button 10 —
+**RB**, confirmed against this project's own already-verified mapping:
+button 11 matches `debug_hud.gd`'s documented "F3/D-pad Up", which
+anchors the rest of the enum, and button 10 was only ever bound to
+`team_menu`, which nothing reads during an actual match — grepped before
+assuming, not after). `PlayerController._update_ruck_contest` gates RB to
+nominated contestants only, in range (`RUCK_CONTEST_JUMP_RANGE`), on a
+live airborne ball; `_begin_hit_out()`/`_resolve_hit_out()` mirror
+aggressive mark's begin/resolve shape exactly, except the connect knocks
+the ball away (`Ball.knock()`, the same external-hit primitive spoil/
+smother already use) rather than gathering it — a palm, not a catch.
+`RUCK_HIT_OUT_REACH` is deliberately `MARK_CATCH_RADIUS *
+MARK_AGGRESSIVE_REACH_SCALE`, not a new number — same leap, same reach.
+Verified end to end with a scripted two-player contest: nomination,
+timed RB press, ball knocked off its straight-up path in the hitter's
+facing direction, `hit_out_resolved(player, connected=true)` fired.
+
+**AI never attempts a hit-out** (no `wants_hit_out()` override on
+`AIBrain`) — matches this project's existing "deliberately simple, not a
+tactics system" AI baseline for every other contest tier, not an
+oversight.
+
+### 3. Full Game ball-up formation (priority 3) — already done, now fed by the contest above
+
+The two-ruck/three-on-baller centre-bounce formation was already built
+(an earlier pass, see above) and needed no changes — `_bounce_off()` just
+now launches through the shared contest instead of a bare `Ball.launch()`
+call. Confirmed still correct via the extended `full_game.tscn` runs
+below.
+
+### 4. Protected kick-in (priority 5) — and a real pre-existing rules bug found while building it
+
+Per the brief: reuses `_protected_timer`/`is_protected()` directly, no new
+protection system. New `PlayerController.grant_protection(duration)` (sets
+`_protected_timer`, already clears itself early on disposal via the
+existing `_dispose()`/`drop_ball()` logic — "playing on forfeits
+protection" already applies here with zero extra code) and
+`give_possession(ball)` (a public name for the existing shared
+`_complete_gather()` path, for placements that hand a player the ball
+outright rather than having them reach for it).
+
+**The bug**: `full_game.gd._on_scored` sent *every* score — goals and
+behinds alike — to a centre bounce. Real AFL: a goal restarts with a
+centre bounce, a behind restarts with a kick-in by the team that
+conceded, no centre bounce at all. `_on_scored` now branches on
+`is_goal`; `_prepare_kick_in(scoring_team)` finds the nearest defending
+player to the goal square at the scoring end (`_nearest_player`, the same
+helper the throw-in above uses), places them in it, gives them the ball,
+and protects them for `MARK_HOLD_DURATION` (5s — the same number stand-
+the-mark protection already uses, not a new invented threshold; an
+earlier pass on this project's own notes flagged this exact reuse as the
+plan). Verified: after a forced behind credited to HOME, the AWAY kicker
+ended up at the +X goal square (`x≈76.5`, matching `goal_line_x(1) -
+GOAL_SQUARE_DEPTH/2`), carrying, protected for ~4.95s.
+
+**Not built**: retreat distance for the non-kicking team, a shot clock, or
+anything about the kicker actually *choosing* to shoot for goal versus
+play on — this project has no set-shot apparatus at all yet, and the
+brief's ask was specifically the placement/possession/immunity triad, not
+a full kick-in flow.
+
+### 5. Holding-the-ball consequence (priority 8) — the free-kick half, reusing the same triad
+
+The *ruling* already fired correctly (`holding_the_ball_called`, an
+earlier pass); nothing consumed it. `FullGame._on_holding_the_ball` now
+does, and deliberately reuses exactly what the kick-in above reuses
+(`give_possession`/`grant_protection`) rather than a third bespoke
+mechanism — the tackler gets the ball back at the tackle spot, protected
+long enough to dispose of it. Per the brief: the existing ruling logic
+(`PlayerController._get_tackled`) was **not** touched — no bug was
+identified there, only a consumer was missing. Also deliberately minimal:
+no separate set-shot apparatus, same scope boundary as the kick-in.
+Verified with a scripted scenario (a player held the ball ~0.6s, past
+`PRIOR_OPPORTUNITY_GRACE`, then was tackled): `holding_the_ball_called`
+fired, play paused (`STOPPAGE`, clock stopped), and after the pause the
+tackler was carrying, protected (~4.77s remaining), phase back to `PLAY`.
+
+### 6. Camera: Full-Side / 3rd Person rename, and a real reposition, not a rotate
+
+Renamed throughout (code and Settings UI, not just labels) per the brief:
+`BroadcastCamera.Mode.ORTHODOX` → `FULL_SIDE`, `Settings.
+FullGameCameraMode.BROADCAST/ORTHODOX` → `THIRD_PERSON/FULL_SIDE` (kept
+the same ordinal order so an existing `user://settings.cfg` int still
+resolves correctly), Settings screen row now reads "3RD PERSON"/
+"FULL-SIDE". `BroadcastCamera.Mode.CHASE` (the 3rd Person rig) keeps its
+internal name — a legitimate technical term, not a player-facing label
+that needed to match.
+
+**The reposition** (brief: "do not simply rotate the existing camera
+downward... reposition to achieve the perspective of a camera situated
+outside the field"): the old orthodox mode hovered its rig directly above
+the play at a steep -62° pitch — reaching "elevated" honestly, but never
+actually "outside the field," and reading as a blimp/drone shot, not a
+broadcast one. `_update_full_side()` now puts the rig's own pivot at a
+**fixed position outside the boundary** (`Tuning.CAM_FULL_SIDE_SIDE_
+OFFSET` = 100m on Z, well past the fence at ~76.5m) and a fixed elevation
+(`CAM_FULL_SIDE_HEIGHT` = 34m, direct on `global_position.y` now rather
+than smuggled in through spring-arm length) — "outside the field" is
+where the rig actually lives, not a side effect of enough arm-length/
+pitch tuning. It pans along the field's length (X) to track which end
+play is at, and the look-down pitch is *computed* each frame from the
+real geometry (`atan2(height, horizontal distance)`), not a fixed guessed
+angle — so it's never aimed above or below the actual ball as play moves,
+satisfying "do not just rotate it" by computing the angle instead of
+picking one. Verified: after settling, the rig sits at `z≈100` (outside
+`FIELD_HALF_WIDTH`=67.5m), elevated ~34-36m, pitch settling around
+-18° to -19° — genuinely side-on, not top-down.
+
+**3rd Person** (ball-follow/swivel/ground-clip): all three were already
+addressed by the immediately-prior session on this same uncommitted work
+(`CAM_BALL_FOCUS_MAX`/`_RATE` tuned down/up, `_clamp_camera_height()`
+added) in direct response to this same feedback. Re-read and left as-is —
+no new evidence to justify re-tuning numbers that were just tuned against
+the identical complaint, and the brief's own engineering constraints ask
+for small, evidenced changes over speculative re-tuning.
+
+**kick_to_kick unchanged**, confirmed by inspection — it never calls
+`BroadcastCamera.set_mode()`, so it stays on `CHASE` regardless of the
+Settings value, exactly as the brief requires.
+
+### 7. Bump (priority 7) — a real flick primitive, and a real, documented control conflict resolved
+
+**The flick primitive** (`InputManager.flick_vector()`/`_update_flick()`):
+tracks the last time the right stick's *raw* magnitude (before MOVE/
+LOOK_CURVE shaping — that curve exists for camera/kick feel, not for
+deciding whether a swing counts) was below `Tuning.FLICK_NEUTRAL_
+MAGNITUDE`, and fires once, edge-triggered, if the stick then reaches
+`FLICK_MIN_MAGNITUDE` within `FLICK_WINDOW` seconds of that neutral
+moment — a genuine sweep-shaped gesture, not a held-axis read pretending
+to be one (nothing like this existed before; the brief was explicit that
+it shouldn't be faked from `get_look_vector()`). Re-arms once the stick
+returns to neutral. Works unmodified on keyboard: a digital arrow-key tap
+is already an instant 0→1 jump, trivially satisfying "swept from neutral
+to full within the window" with no separate keyboard path needed.
+
+**A real control conflict, found and resolved, not guessed past**: the
+brief specifies LB hold for bump stance. LB (gamepad button 9) was
+already bound to `switch_player` — and unlike `team_menu` (which hit_out
+above shares RB with safely, since nothing reads it mid-match),
+`switch_player` **is** read live during a match
+(`full_game.gd._unhandled_input`), so sharing LB unmodified would fire a
+player switch the instant LB is pressed, before any flick could ever
+register — not a hypothetical, a guaranteed break of a verified feature.
+Relocated `switch_player`'s gamepad binding to D-pad Left (button 13,
+confirmed completely unused anywhere in the input map before this — a
+natural fit for "cycle to the next player" besides), keeping its keyboard
+Tab binding untouched, and bound the new `bump_stance` action to LB
+instead. This is a deliberate, reasoned rebind of a verified control
+where a literal conflict was identified by direct inspection — not the
+kind of speculative change the controller-diagnostic section warns
+against (that warning is about not guessing at *why* an Xbox input isn't
+registering; this is a *known, certain* two-actions-one-button collision
+found by grepping every existing `button_index` before adding a new one,
+same audit discipline the marking pass already established as this
+project's own precedent for exactly this situation).
+
+**The mechanic** (`PlayerController._update_bump`/`_try_bump`, out-of-
+possession only): finds the nearest opposing ball carrier in
+`BUMP_RANGE`, checks the flick's world-space direction (camera-relative,
+same conversion `HumanBrain.wish_direction()` already uses, so "flick
+right" means the same thing on screen a bump does as it does for
+running) against the real bearing to them within `BUMP_CONE_DEG` — no
+target lock, a physical swing that has to actually line up, matching
+every other contest here's "physically doing the right thing resolves
+it" stance. "Timing relative to the carrier's approach" (brief) is a real
+dot product against the carrier's live velocity: closing on the bumper
+lands clean (full knockback/stun), anything else still connects (they
+were in range and cone) but glances (`BUMP_MISTIMED_SCALE`).
+
+**Knockback needed a new mechanism, not just an impulse** — a real bug
+class avoided by testing, not just reasoning: `_update_locomotion()`
+overwrites `velocity.x`/`.z` from internal `_heading`/`_speed` state every
+single frame, unconditionally, so a naive `velocity += impulse` on the
+bumped player would have been silently steamrolled the very next physics
+tick with zero visible effect. New `_knockback` vector: while nonzero,
+`_update_locomotion()` returns immediately after driving `_speed`/
+`_heading` straight from it (decaying via `BRAKING` each frame) instead of
+reading any brain input at all — the hit is what's moving the body, not
+the stick. Verified directly: a scripted `receive_bump(Vector3(6,0,0),
+0.4, ...)` moved a stationary player +0.29m in three physics frames with
+velocity decaying exactly as expected (6.0 → 5.53 m/s over three frames
+at `BRAKING`).
+
+**Deliberately not built, per the brief's own explicit instruction**: any
+dangerous/high-contact free-kick consequence. `RULES_REFERENCE.md` has no
+distance/angle/force/timing threshold for "high contact" to judge
+against — `bump_landed(bumper, carrier, clean)` fires on every connect so
+a future pass with real numbers has an event to hook, but nothing here
+judges legality. Flagged in the signal's own doc comment, not silently
+dropped.
+
+### 8. Character screen (priority 9)
+
+**Background wash**: `ui_side_scrim.gdshader`'s `tint.a` cut a fourth time,
+0.10 → 0.06, per the brief's explicit "do not leave the current opacity
+unchanged."
+
+**Wireframe visibility + body transparency**: the skeleton wireframe
+(`SkeletonWireframe`, an earlier pass) already tracked real bone poses
+every frame — "bone-following" was already true, it just had nothing to
+show *through*: the placeholder body meshes in front of it are fully
+opaque, so it only ever peeked past the silhouette edge. `CharacterBackdrop`
+now sets every body mesh's material to `TRANSPARENCY_ALPHA` at
+`BODY_ALPHA = 0.55` for this preview only — safe to mutate directly
+because `HumanoidRig._materials` is a plain per-instance dict, not shared/
+static (checked before touching it, not after), so this can't leak into
+any on-field player's own materials. `SkeletonWireframe.LINE_WIDTH`
+0.012→0.022 and its emission multiplier 1.4→1.8 for the "more visible"
+half of the same ask.
+
+**Jitter — investigated thoroughly, no further code-level cause found**.
+Traced both mechanisms this project's own history has previously
+implicated, from scratch, with numbers:
+1. **Locomotion-blend noise** (the `move_and_slide()` collision-response
+   residue leaking into the animation blend, "fixed" twice already by
+   earlier passes). Verified directly: a scripted player with zero brain
+   input, settled on a real floor, sampled for 270 physics frames —
+   `locomotion_blend()` and horizontal velocity were bit-exact
+   `Vector2.ZERO`/`Vector3.ZERO` on every single frame. This path is
+   provably silent now.
+2. **The idle animation clip's own keyframe data**
+   (`HumanoidAnimations.GAITS["idle"]`) — a comment already on disk
+   records two earlier rounds of shrinking idle's sway parameters toward
+   zero and *still* reading as a twitch, landing on exact zero as a last
+   resort ("revisit... if idle sway is wanted again later"). Re-derived
+   `_gait_pose()` by hand against the current all-zero idle dict: every
+   term in that function is linear in `stride`/`knee_lift`/`bob`/`lean`/
+   `twist`/`abduct`/`yaw_bias`/`roll`, all of which are 0 or defaulted to
+   0 for idle — so all 14 generated keyframes are mathematically
+   *identical* (the same `Quaternion.from_euler(Vector3.ZERO)` /
+   `Vector3(0, hip_height, 0)` called with the same input 14 times).
+   Cubic interpolation between bit-identical control points has zero
+   tangent and zero curvature to overshoot around — this clip cannot
+   itself introduce per-frame variation, full stop, regardless of the
+   interpolation-overshoot mechanism the on-disk comment still names as
+   the suspected (but not re-confirmed) cause.
+
+Attempted a third, independent check — pixel-diffing rendered frames of
+the actual `character_screen.tscn`, the same technique the original
+visual-pass session used — but this headless build's rendering driver is
+the dummy/null one (`texture_2d_get` on a null texture, confirmed by
+hitting the error directly), so `get_viewport().get_texture()` never
+produces a real image here; that verification path isn't available in
+this environment. **Net**: both previously-suspected mechanisms are now
+provably eliminated at the code level. If jitter is still visible on a
+real screen, the cause is something neither this nor prior sessions have
+identified yet, and needs eyes on an actual GUI session to localise —
+recorded here so the next session doesn't have to re-derive either proof
+from scratch.
+
+### 9. Out-of-bounds (priority 6) — mostly inherited from §2 above; one gap identified, not guessed past
+
+Detection/stoppage/restart were already real (an earlier pass); the
+restart now goes through the shared ruck contest (§2). **Not built**:
+"out on the full" (RULES_REFERENCE.md §4 — a kick crossing the boundary
+*in the air* is a free kick to the other side, distinct from a neutral
+ball-up) isn't distinguished from a rolled-out ball at all — both hit the
+same "settled outside the oval → neutral throw-in contest" path today.
+Building the distinction needs checking the ball's flight *as it crosses*
+the boundary while still airborne (a per-frame bisection against the
+flight segment, per this project's own memory of Prototype 1's approach),
+and awarding it needs the same missing free-kick/set-shot apparatus the
+kick-in and holding-the-ball sections above already stop short of.
+Identified and left, not guessed at — RULES_REFERENCE.md already lists
+this as a known, not-yet-reached rule.
+
+### 10. Controller diagnostics (priority 10)
+
+`DebugHud`'s F3 diagnostic (`last gamepad button/axis`) is untouched and
+still the intended next step for the reported Xbox marking/defensive-
+action issue — nobody in this session had a controller attached to
+generate new raw-index evidence, so no bindings were changed on the
+strength of a guess. The one binding this session *did* change
+(`switch_player`'s gamepad button, §7) was a certain, grepped-and-
+confirmed logical conflict with a brand-new action, not a response to the
+Xbox-registration report, and is called out on its own above rather than
+folded in quietly.
+
+### Verification
+
+Every touched scene re-run headless after each system landed and again as
+a full batch at the end: `--headless --editor --quit` class-cache rescan
+(no new `class_name` scripts this pass, so nothing new to register, but
+run anyway per this project's own standing discipline), then `main_menu`/
+`kick_to_kick`/`full_game`/`character_screen`/`settings_screen`, all exit
+0, zero errors — plus one extended `full_game.tscn` run at 9000 frames
+(2.5 simulated minutes, well past `QUARTER_LENGTH`) specifically to give
+repeated centre bounces, kick-ins, tackles and quarter transitions time to
+actually fire against each other under real AI play, not just parse.
+Beyond the headless boots, **seven** separate scripted-physics scratch
+harnesses (positional-scene-argument form, real autoloads, deleted after
+— none committed) numerically verified: backpedal entry/cap/facing-freeze,
+the turn-burst acceleration spike (and the stale-heading bug it caught),
+speed-scaled gather reach, a full ruck contest's nomination→jump→hit-out→
+knock chain, the protected kick-in's placement/possession/protection,
+Full-Side's settled position/elevation/pitch, the flick primitive plus
+bump connect/timing/knockback-displacement, and the holding-the-ball
+ruling→pause→free-kick chain end to end. Two of those runs hit real
+test-harness bugs before landing (see this entry's own opening paragraph)
+— both diagnosed and fixed in the test, confirmed not to be game bugs by
+re-deriving the actual cause rather than assuming.
+
+**No human/pad verification was possible in this environment** — same
+limitation every mechanics-agent entry in this file has flagged from the
+start. Everything above is verified as "reasoned through, numerically
+checked against real physics, and runs error-free," not as "confirmed to
+feel right." Movement in particular — the brief's own highest priority —
+most needs a real hands-on pass before any of `BACKPEDAL_SPEED`/
+`BACKPEDAL_ACCELERATION`/`TURN_BURST_DURATION`/`TURN_BURST_ACCEL_MULT`
+(all first-guess numbers, same as every other movement constant's own
+history in this file) should be trusted beyond "does what it says".
+
+### Known limitations / unresolved
+
+- **Dangerous-contact free-kick consequences for Bump**: not built,
+  per explicit instruction — `RULES_REFERENCE.md` has no numeric
+  threshold. `bump_landed` is the hook for whenever one exists.
+- **"Out on the full"** vs. a rolled-out ball: not distinguished. See §9.
+- **AI**: no hit-out, no bump, no spoil/smother attempts — matches this
+  project's existing, deliberate "not a tactics system" AI baseline for
+  every other contest tier, not new scope creep or an oversight.
+- **Stand-the-mark** (the mark-taker's opponent frozen in place) is still
+  not modelled — `is_protected()`/`grant_protection()` stop the *tackle*,
+  nothing stops the opponent repositioning. Same gap an earlier pass
+  already flagged, now shared by three protection use sites instead of
+  one.
+- **Character-screen jitter**: see §8 — two previously-suspected causes
+  eliminated at the code level; if still visible, needs a live GUI
+  session to actually localise, which no session in this project's
+  history has had.
+- **Free-kick/set-shot apparatus**: both the kick-in and holding-the-ball
+  consequences stop at "possession + protection at the right spot" —
+  retreat distance, a shot clock, and choosing to shoot vs. play on are
+  all still unbuilt, same scope boundary an earlier pass's own notes
+  already anticipated.
+
+### Files changed
+
+`scripts/tuning.gd` (backpedal/turn-burst, gather lunge, ruck contest,
+bump, flick — all new constants; Full-Side's `CAM_ORTHODOX_*` renamed/
+redesigned), `scripts/player/player_controller.gd` (backpedal/burst
+locomotion, speed-scaled gather, ruck contest section, bump section,
+kick-in/free-kick support methods, two new signals), `scripts/autoload/
+input_manager.gd` (flick primitive), `scripts/mechanics/player_brain.gd`/
+`human_brain.gd` (`wants_hit_out`/`wants_bump_stance`), `scripts/modes/
+full_game.gd` (shared ruck-contest launch, kick-in, holding-the-ball
+consumer, camera-mode rename), `scripts/camera/broadcast_camera.gd`
+(Full-Side rename + reposition), `scripts/autoload/settings.gd` /
+`scripts/ui/settings_screen.gd` (camera-mode rename), `scripts/ui/
+debug_hud.gd` (backpedal/ruck diagnostic lines), `scripts/ui/
+character_backdrop.gd` (body transparency), `scripts/player/
+skeleton_wireframe.gd` (visibility), `assets/shaders/ui_side_scrim.
+gdshader` (opacity), `project.godot` (`[input]` only: new `hit_out`/
+`bump_stance` actions, `switch_player`'s gamepad button relocated — see
+§7). Not touched: `scripts/ball/ball.gd`/`landing_shadow.gd` (both
+already correct for this pass's needs — `Ball.knock()` already existed
+and was reused as-is for the hit-out palm), `scripts/field/field.gd`,
+`humanoid_rig.gd`/`humanoid_animations.gd` (read, not edited — see §8's
+jitter investigation), anything coach/challenge-related.

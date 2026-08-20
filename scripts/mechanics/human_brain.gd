@@ -73,3 +73,11 @@ func wants_spoil() -> bool:
 
 func wants_smother() -> bool:
 	return Input.is_action_just_pressed(&"smother")
+
+
+func wants_hit_out() -> bool:
+	return Input.is_action_just_pressed(&"hit_out")
+
+
+func wants_bump_stance() -> bool:
+	return Input.is_action_pressed(&"bump_stance")

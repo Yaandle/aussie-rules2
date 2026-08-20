@@ -100,3 +100,21 @@ func wants_spoil() -> bool:
 ## (X tap, not carrying) — see PlayerController._try_smother.
 func wants_smother() -> bool:
 	return false
+
+
+## Edge-triggered: true for the one frame a ruck contestant should attempt
+## a Hit-Out (RB tap) — see PlayerController._update_ruck_contest. Only
+## read while the controller has been nominated into a live contest
+## (set_ruck_contestant); meaningless otherwise, same as every other
+## wants_* here being read only in the context that gives it meaning.
+func wants_hit_out() -> bool:
+	return false
+
+
+## Held-down semantics, exactly like wants_kick()/wants_mark_safe(): true
+## for as long as bump stance should be held (LB on a pad) — see
+## PlayerController._update_bump. The flick that actually commits a bump
+## comes from InputManager.flick_vector() directly, not through a brain
+## method, since it's a raw device gesture rather than a per-player intent.
+func wants_bump_stance() -> bool:
+	return false
