@@ -22,16 +22,19 @@ shader_type canvas_item;
 // key-hint legend sat past UV.x 0.4 where the wash had already decayed to
 // almost nothing.
 
-// Cut down twice now — first from 0.56/0.82 to 0.34/0.52, which still
-// read as covering too much of the pitch. This pass goes further on both
-// axes at once: alpha down to 0.18 (a hazy wash at 0.34 over saturated
-// turf green was still a visible white veil even confined to a third of
-// the screen) and the hold/fade window pulled in to roughly match where
-// the stat text itself actually sits (LEFT_MARGIN=58px, values ending
-// well under half the 1280px width) instead of past it. A steeper
-// falloff (2.2, was 1.5) keeps what's left concentrated right at the
-// text edge rather than spread thin across the whole window.
-uniform vec4 tint : source_color = vec4(0.965, 0.957, 0.933, 0.18);
+// Cut down four times now — 0.56/0.82 to 0.34/0.52 (still covered too
+// much of the pitch), then to 0.18 with a tighter hold/fade window
+// (roughly matching where the stat text sits, LEFT_MARGIN=58px), then
+// to 0.10 after a direct "I want to see more of the field" report —
+// with the studio lighting this dim (Sun energy 0.14, §7 of the
+// handover), even a low-alpha cream wash reads brighter than the turf
+// behind it, so bringing it down further mattered more here than
+// narrowing the window did the previous time. A steeper falloff (2.2,
+// was 1.5) keeps what's left concentrated right at the text edge rather
+// than spread thin across the whole window. Still read as "too opaque" —
+// cut again to 0.06, the wash is a legibility aid under the text now, not
+// something that should be visible as a wash in its own right.
+uniform vec4 tint : source_color = vec4(0.965, 0.957, 0.933, 0.06);
 /// UV.x at which the wash starts fading, and where it reaches zero.
 uniform float hold : hint_range(0.0, 1.0) = 0.05;
 uniform float fade_to : hint_range(0.0, 1.0) = 0.30;

@@ -34,6 +34,14 @@ var gameplay_input_enabled := true
 
 var _mouse_look := Vector2.ZERO
 
+## Flick-gesture state (design brief priority 7, Bump: "add a proper
+## flick-gesture input primitive to InputManager... nothing equivalent
+## currently exists"). See flick_vector() and _update_flick() below.
+var _flick_neutral_since := -1.0
+var _flick_armed := true
+var _flick_clock := 0.0
+var _pending_flick := Vector2.ZERO
+
 ## Diagnostic only (see last_joy_button_debug()/last_joy_axis_debug(),
 ## surfaced on DebugHud) — the most recent raw gamepad button/axis Godot
 ## actually received, independent of whatever Input Map action(s) it's
@@ -49,6 +57,10 @@ var _last_joy_axis_value := 0.0
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+
+
+func _physics_process(delta: float) -> void:
+	_update_flick(delta)
 
 
 func _input(event: InputEvent) -> void:
@@ -158,6 +170,45 @@ func kick_reach_strength() -> float:
 	if not gameplay_input_enabled or device != Device.GAMEPAD:
 		return -1.0
 	return clampf(get_look_vector().y, 0.0, 1.0)
+
+
+## Right-stick flick detector (design brief priority 7's Bump). A flick is
+## the stick sweeping from near-neutral (below FLICK_NEUTRAL_MAGNITUDE) to
+## a strong deflection (at/above FLICK_MIN_MAGNITUDE) inside FLICK_WINDOW
+## seconds — a real gesture with a start and an end, not the same held-axis
+## read get_look_vector() already returns every frame a stick happens to be
+## pushed. Sampled off the *raw* vector, not get_look_vector()'s shaped one
+## — MOVE/LOOK_CURVE and their deadzones exist for camera/kick feel, which
+## has nothing to do with whether a flick counts as one. Works identically
+## on keyboard: a digital arrow-key tap is already an instant 0->1 jump,
+## which trivially satisfies "swept from neutral to full within the
+## window" with no separate keyboard-specific gesture logic needed.
+##
+## Returns Vector2.ZERO on every frame except the one the sweep completes
+## on, when it carries that frame's raw direction — edge-triggered, same
+## shape as wants_kick_execute() elsewhere in this project, just read here
+## instead of through a brain method since it's a raw device gesture, not
+## a semantic per-player "want".
+func flick_vector() -> Vector2:
+	return _pending_flick
+
+
+func _update_flick(delta: float) -> void:
+	_flick_clock += delta
+	var raw := Input.get_vector(&"camera_left", &"camera_right", &"camera_down", &"camera_up", 0.0)
+	var magnitude := raw.length()
+
+	if magnitude < Tuning.FLICK_NEUTRAL_MAGNITUDE:
+		_flick_neutral_since = _flick_clock
+		_flick_armed = true
+
+	_pending_flick = Vector2.ZERO
+	if not gameplay_input_enabled or not _flick_armed:
+		return
+	if magnitude >= Tuning.FLICK_MIN_MAGNITUDE and _flick_neutral_since >= 0.0 \
+			and _flick_clock - _flick_neutral_since <= Tuning.FLICK_WINDOW:
+		_pending_flick = raw.normalized()
+		_flick_armed = false   # one flick per neutral->full sweep; re-arms once the stick returns to neutral
 
 
 func rumble(profile: Vector3) -> void:

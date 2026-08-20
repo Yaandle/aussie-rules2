@@ -41,6 +41,13 @@ func _ready() -> void:
 
 	_field.scored.connect(_on_scored)
 
+	# Full Game is the one mode this option applies to (see Settings'
+	# own doc comment on full_game_camera_mode) — read the saved choice
+	# now, and keep it live if changed mid-match from a paused settings
+	# screen rather than only taking effect on the next match.
+	_apply_camera_mode(Settings.full_game_camera_mode)
+	Settings.camera_mode_changed.connect(_apply_camera_mode)
+
 	_spawn_teams()
 	_hud.player = _home_players[_controlled_index]
 	_hud.ball = _ball
@@ -67,6 +74,11 @@ func _physics_process(delta: float) -> void:
 		_end_quarter()
 
 
+func _apply_camera_mode(setting: Settings.FullGameCameraMode) -> void:
+	_camera.set_mode(BroadcastCamera.Mode.FULL_SIDE \
+		if setting == Settings.FullGameCameraMode.FULL_SIDE else BroadcastCamera.Mode.CHASE)
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"switch_player"):
 		_switch_human_player()
@@ -87,6 +99,10 @@ func _spawn_teams() -> void:
 	_camera.target = _home_players[0]
 	_camera.ball = _ball
 	_camera.recenter()
+
+	for player in _home_players + _away_players:
+		player.field_ball_up_called.connect(_on_field_ball_up)
+		player.holding_the_ball_called.connect(_on_holding_the_ball)
 
 
 func _spawn_team(team: Tuning.Team, attack_direction: float) -> Array[PlayerController]:
@@ -142,11 +158,36 @@ func _kickoff_slot(index: int, attack_direction: float) -> Vector3:
 	return Vector3(x, 0.0, z)
 
 
+## Real AFL only allows one ruck plus three on-ballers per team inside the
+## centre square for a bounce — everyone else has to be outside it. This
+## project's TEAM_SIZE (4) happens to equal exactly that "1 ruck + 3
+## on-ballers" allowance, so at this roster size a centre-bounce formation
+## and "the whole team gathers at the circle" are the same thing; the
+## generic KICKOFF_DEPTH spread above is deliberately not reused here — a
+## bounce needs two rucks planted either side of the exact centre spot
+## the umpire bounces the ball, not a line 30m back.
+const RUCK_CONTEST_OFFSET := 1.3   ## m either side of centre, ruck vs ruck
+const ON_BALLER_RING_RADIUS := 7.0 ## m from centre — outside CENTRE_CIRCLE_OUTER (5m),
+                                    ## inside CENTRE_SQUARE_SIZE (50m)
+const ON_BALLER_ANGLES_DEG: Array[float] = [-55.0, 0.0, 55.0]
+
+## `index` 0 is the ruck; 1..3 are the three on-ballers ringed around the
+## circle. `attack_direction` biases each team to its own half of the
+## circle so the two teams' arcs don't overlap — sign-symmetric the same
+## way _kickoff_slot's own attack_direction split already is.
+func _centre_bounce_slot(index: int, attack_direction: float) -> Vector3:
+	if index == 0:
+		return Vector3(-attack_direction * RUCK_CONTEST_OFFSET, 0.0, 0.0)
+	var angle := deg_to_rad(ON_BALLER_ANGLES_DEG[(index - 1) % ON_BALLER_ANGLES_DEG.size()])
+	return Vector3(-attack_direction * ON_BALLER_RING_RADIUS * cos(angle), 0.0,
+		ON_BALLER_RING_RADIUS * sin(angle))
+
+
 func _reposition_kickoff() -> void:
 	for i in _home_players.size():
-		_home_players[i].global_position = _kickoff_slot(i, 1.0)
+		_home_players[i].global_position = _centre_bounce_slot(i, 1.0)
 	for i in _away_players.size():
-		_away_players[i].global_position = _kickoff_slot(i, -1.0)
+		_away_players[i].global_position = _centre_bounce_slot(i, -1.0)
 
 
 # ── Match flow ───────────────────────────────────────────────────────
@@ -167,9 +208,98 @@ func _prepare_centre_bounce() -> void:
 
 
 func _bounce_off() -> void:
+	# Index 0 of each team is the designated ruck for a centre bounce (see
+	# _centre_bounce_slot) — the same shared contest every stoppage in this
+	# file now goes through, see _begin_ruck_contest.
+	_begin_ruck_contest(_field.centre(), _home_players[0], _away_players[0])
+
+
+# ── Ruck contests ────────────────────────────────────────────────────
+# Design brief priority 4: one shared mechanic for the centre bounce
+# (above), a field ball-up (a tackle inside the prior-opportunity grace —
+# the neutral case, RULES_REFERENCE.md §4) and a boundary throw-in (see
+# _resume_after_out_of_bounds). They differ only in where the contest
+# happens and which two players are nominated into it — never in how the
+# contest itself resolves (Tuning's "Ruck contests" section /
+# PlayerController._update_ruck_contest own that).
+
+## The one place every stoppage's bounce/throw-up actually launches from.
+## Nominates the two contestants to read RB as a Hit-Out for
+## Tuning.RUCK_CONTEST_WINDOW and bounces the ball straight up between
+## them — exactly the same physical launch _bounce_off() always used, now
+## shared rather than duplicated at each call site.
+func _begin_ruck_contest(spot: Vector3, contestant_a: PlayerController,
+		contestant_b: PlayerController) -> void:
+	contestant_a.set_ruck_contestant(true)
+	contestant_b.set_ruck_contestant(true)
+	_ball.reset_at(spot + Vector3.UP * 0.4)
 	_ball.launch(Vector3.UP, Tuning.BOUNCE_SPEED, Vector3.ZERO, null)
 	GameState.phase = GameState.Phase.PLAY
 	MatchState.clock_running = true
+
+
+## The neutral half of holding-the-ball (RULES_REFERENCE.md §4): tackled
+## before PRIOR_OPPORTUNITY_GRACE elapses is nobody's fault, so instead of
+## just leaving the tackle's own spill to a free-for-all scramble (the old
+## behaviour — this signal previously had no listener at all), it becomes
+## a real, brief stoppage at the tackle spot, contested by the two players
+## who were already right there. The free-kick half (holding_the_ball_
+## called) is a separate, harder problem — see docs/HANDOVER.md.
+func _on_field_ball_up(tackler: PlayerController, tackled: PlayerController) -> void:
+	if GameState.phase != GameState.Phase.PLAY:
+		return
+	var spot := tackled.global_position
+	MatchState.clock_running = false
+	GameState.phase = GameState.Phase.STOPPAGE
+	_scoreboard.flash("BALL UP", Tuning.CENTRE_BOUNCE_DELAY)
+	# Freeze the ball at the stoppage spot immediately, same shape
+	# _prepare_centre_bounce() already uses (reposition/settle before the
+	# pause, not after) — otherwise the ball would keep tumbling from the
+	# tackle's own spill impulse for the whole pause, and whoever it rolls
+	# to would have a scramble, not a ball-up.
+	_ball.reset_at(spot + Vector3.UP * 0.5)
+	_start_pause(Tuning.CENTRE_BOUNCE_DELAY, _begin_ruck_contest.bind(spot, tackler, tackled))
+
+
+## The free-kick half of holding-the-ball (RULES_REFERENCE.md §4, design
+## brief priority 8). The *ruling* already fires correctly
+## (PlayerController._get_tackled) — nothing consumed it before this pass.
+## Deliberately minimal, reusing exactly what the protected kick-in already
+## reuses (give_possession/grant_protection): no separate set-shot
+## apparatus (aiming for goal on a shot clock, opponents actually retreating
+## a real distance) exists in this project, so this stops at "the tackler
+## gets the ball back where the infringement happened, protected long
+## enough to dispose of it" — the same primitive an earlier pass on this
+## project explicitly flagged as the natural next step here.
+func _on_holding_the_ball(tackler: PlayerController) -> void:
+	if GameState.phase != GameState.Phase.PLAY:
+		return
+	var spot := tackler.global_position
+	MatchState.clock_running = false
+	GameState.phase = GameState.Phase.STOPPAGE
+	_scoreboard.flash("HOLDING THE BALL — FREE KICK", Tuning.CENTRE_BOUNCE_DELAY)
+	_start_pause(Tuning.CENTRE_BOUNCE_DELAY, _award_free_kick.bind(spot, tackler))
+
+
+func _award_free_kick(spot: Vector3, tackler: PlayerController) -> void:
+	for player in _home_players + _away_players:
+		player.drop_ball()
+	_ball.reset_at(spot + Vector3.UP * 0.3)
+	tackler.give_possession(_ball)
+	tackler.grant_protection(Tuning.MARK_HOLD_DURATION)
+	GameState.phase = GameState.Phase.PLAY
+	MatchState.clock_running = true
+
+
+func _nearest_player(players: Array[PlayerController], spot: Vector3) -> PlayerController:
+	var best: PlayerController = null
+	var best_dist := INF
+	for player in players:
+		var dist := player.global_position.distance_to(spot)
+		if dist < best_dist:
+			best_dist = dist
+			best = player
+	return best
 
 
 func _on_scored(team: Tuning.Team, is_goal: bool) -> void:
@@ -181,7 +311,46 @@ func _on_scored(team: Tuning.Team, is_goal: bool) -> void:
 	var label := "GOAL" if is_goal else "BEHIND"
 	_scoreboard.flash("%s! %s" % [label, _team_name(team)], Tuning.SCORE_PAUSE_DURATION)
 	_camera.punch(Tuning.CAM_PUNCH_KICK)
-	_start_pause(Tuning.SCORE_PAUSE_DURATION, _prepare_centre_bounce)
+	# AFL restarts a GOAL with a centre bounce; a BEHIND restarts with a
+	# protected kick-in by the team that conceded it (design brief
+	# priority 5) — not another centre bounce, which is what every score
+	# used to get here regardless of which it was.
+	if is_goal:
+		_start_pause(Tuning.SCORE_PAUSE_DURATION, _prepare_centre_bounce)
+	else:
+		_start_pause(Tuning.SCORE_PAUSE_DURATION, _prepare_kick_in.bind(team))
+
+
+## Protected kick-in (design brief priority 5): the team that just conceded
+## the behind gets the ball back from inside their own goal square, immune
+## to being tackled until they play on — reuses PlayerController's existing
+## _protected_timer/is_protected() and give_possession() directly rather
+## than a parallel state machine. `scoring_team` is who was credited with
+## the behind; the kick-in goes to the other side, from the goal square at
+## the same end (the one they were just defending).
+func _prepare_kick_in(scoring_team: Tuning.Team) -> void:
+	GameState.phase = GameState.Phase.STOPPAGE
+	var defending_team := Tuning.Team.AWAY if scoring_team == Tuning.Team.HOME else Tuning.Team.HOME
+	var direction := 1 if scoring_team == Tuning.Team.HOME else -1
+	var defenders := _home_players if defending_team == Tuning.Team.HOME else _away_players
+	var square_centre := Vector3(
+		_field.goal_line_x(direction) - float(direction) * Tuning.GOAL_SQUARE_DEPTH * 0.5,
+		0.0, 0.0)
+
+	for player in _home_players + _away_players:
+		player.drop_ball()
+
+	var kicker := _nearest_player(defenders, square_centre)
+	kicker.global_position = square_centre
+	_ball.reset_at(square_centre + Vector3.UP * 0.3)
+	kicker.give_possession(_ball)
+	# Same duration a legal mark protects its taker for — this project's own
+	# established number for "safe to take your time with the footy in
+	# hand", not a new invented threshold.
+	kicker.grant_protection(Tuning.MARK_HOLD_DURATION)
+
+	GameState.phase = GameState.Phase.PLAY
+	MatchState.clock_running = true
 
 
 func _end_quarter() -> void:
@@ -216,10 +385,16 @@ func _start_pause(duration: float, on_complete: Callable) -> void:
 
 
 # ── Ball out of bounds ───────────────────────────────────────────────
-# No throw-in ritual (design doc scope for this milestone, see
-# RULES_REFERENCE.md) — the ball is placed back just inside the boundary
-# at roughly the point it left and stays live, contestable by whoever's
-# nearest.
+# A real (if simplified) boundary throw-in: no separate umpire/possession
+# model (design doc scope for this milestone, see RULES_REFERENCE.md —
+# there is no "deliberate out of bounds" free kick either, since that
+# needs the same adjudication apparatus holding-the-ball's ruling is
+# already waiting on, per an earlier session's note), but the moment now
+# actually stops play rather than the ball just quietly sliding back in
+# under everyone's feet mid-contest with zero signal that anything
+# happened — same STOPPAGE phase / pause-and-callback shape every other
+# dead-ball moment in this file already uses (goals, quarter breaks),
+# not a bespoke third mechanism.
 
 ## How far below the ground the ball has to fall before it counts as lost
 ## rather than merely airborne. Mirrors scripts/main.gd's BALL_LOST_BELOW
@@ -227,7 +402,11 @@ func _start_pause(duration: float, on_complete: Callable) -> void:
 const BALL_LOST_BELOW := -5.0
 
 func _check_out_of_bounds() -> void:
-	if _ball.is_held:
+	# Mid-pause (this stoppage, a goal, a quarter break) the ball is either
+	# already being handled or about to be reset elsewhere — re-entering
+	# here would re-trigger on the same still-out-of-bounds position every
+	# remaining frame of the pause.
+	if _pause_timer > 0.0 or _ball.is_held:
 		return
 	var pos := _ball.global_position
 
@@ -244,10 +423,39 @@ func _check_out_of_bounds() -> void:
 
 	if not _ball.is_settled() or _field.is_inside_oval(pos):
 		return
+	_trigger_out_of_bounds(pos)
+
+
+## Pulls the settled-out-of-bounds point back to just inside the
+## boundary line, along the same radial the old silent version used —
+## unchanged maths, just now reached through a real stoppage instead of
+## happening invisibly under a still-live ball.
+func _throw_in_point(pos: Vector3) -> Vector3:
 	var radial := sqrt(pow(pos.x / Tuning.FIELD_HALF_LENGTH, 2.0)
 		+ pow(pos.z / Tuning.FIELD_HALF_WIDTH, 2.0))
 	var scale := 0.97 / maxf(radial, 0.001)
-	_ball.reset_at(Vector3(pos.x * scale, 0.3, pos.z * scale))
+	return Vector3(pos.x * scale, 0.3, pos.z * scale)
+
+
+func _trigger_out_of_bounds(pos: Vector3) -> void:
+	var throw_in_point := _throw_in_point(pos)
+	MatchState.clock_running = false
+	GameState.phase = GameState.Phase.STOPPAGE
+	_scoreboard.flash("OUT OF BOUNDS", Tuning.OUT_OF_BOUNDS_PAUSE_DURATION)
+	_start_pause(Tuning.OUT_OF_BOUNDS_PAUSE_DURATION,
+		_resume_after_out_of_bounds.bind(throw_in_point))
+
+
+## Boundary throw-in, through the same shared contest as the centre bounce
+## and a field ball-up (design brief priority 4/6) — "nearest player per
+## side" for who contests it, per Prototype 1's own throw-in/ball-up model
+## (see this project's memory of P1's contest_minigame.py approach).
+func _resume_after_out_of_bounds(throw_in_point: Vector3) -> void:
+	for player in _home_players + _away_players:
+		player.drop_ball()
+	var home := _nearest_player(_home_players, throw_in_point)
+	var away := _nearest_player(_away_players, throw_in_point)
+	_begin_ruck_contest(throw_in_point, home, away)
 
 
 ## Manual safety net (bound to "debug_reset", same key as the milestone-1

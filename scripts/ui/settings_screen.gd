@@ -1,14 +1,18 @@
 class_name SettingsScreen
 extends CanvasLayer
 
-## Visual placeholder for a future settings screen (design brief).
+## Settings screen (design brief).
 ##
-## Deliberately not a functioning settings system: rows are inert display
-## values only, nothing here is read from or written to any persisted
-## config. Left/right on a row just cycles its own display-only string in
-## memory — closing and reopening this screen resets every row. Built
-## in _ready() from SoftBrutalist, same hand-built pattern as
-## pause_screen.gd / team_list_screen.gd.
+## The first three rows (Master Volume / Control Scheme / Screen Shake)
+## remain inert display placeholders — nothing in the project reads
+## audio/haptics settings yet, and inventing values for options nothing
+## consumes would just be decoration. The two rows below them,
+## FULL GAME CAMERA and MOUSE KICK BUTTONS, are real: they read from and
+## write to the Settings autoload, which persists them to
+## user://settings.cfg and applies each one live the moment it changes
+## (see settings.gd) — so, unlike the row above them, these survive
+## closing and reopening this screen, and even take effect immediately
+## if changed while a match is already running.
 
 const CARD_WIDTH := 560.0
 const ROW_HEIGHT := 56.0
@@ -18,17 +22,26 @@ class Row:
 	var title: String
 	var options: Array[String]
 	var index: int
+	## Called with the new index whenever cycle() changes it — the
+	## live/persisted rows use this to push into Settings; the
+	## placeholder rows above just leave it unset and stay inert exactly
+	## as before.
+	var on_change: Callable
 
-	func _init(p_title: String, p_options: Array[String]) -> void:
+	func _init(p_title: String, p_options: Array[String], p_index := 0,
+			p_on_change := Callable()) -> void:
 		title = p_title
 		options = p_options
-		index = 0
+		index = p_index
+		on_change = p_on_change
 
 	func value() -> String:
 		return options[index]
 
 	func cycle(step: int) -> void:
 		index = (index + step + options.size()) % options.size()
+		if on_change.is_valid():
+			on_change.call(index)
 
 
 var _rows: Array[Row] = []
@@ -45,6 +58,10 @@ func _ready() -> void:
 		Row.new("MASTER VOLUME", ["—", "25%", "50%", "75%", "100%"]),
 		Row.new("CONTROL SCHEME", ["—", "KEYBOARD", "GAMEPAD"]),
 		Row.new("SCREEN SHAKE", ["—", "OFF", "ON"]),
+		Row.new("FULL GAME CAMERA", ["3RD PERSON", "FULL-SIDE"],
+			Settings.full_game_camera_mode, _set_camera_mode),
+		Row.new("MOUSE KICK BUTTONS", ["RIGHT AIM · LEFT KICK", "LEFT AIM · RIGHT KICK"],
+			1 if Settings.mouse_kick_swapped else 0, _set_mouse_kick_swapped),
 	]
 
 	var root := Control.new()
@@ -136,7 +153,16 @@ func _back() -> void:
 	if _busy:
 		return
 	_busy = true
+	Settings.save()
 	SceneWipe.change_scene("res://scenes/ui/main_menu.tscn")
+
+
+func _set_camera_mode(index: int) -> void:
+	Settings.full_game_camera_mode = index as Settings.FullGameCameraMode
+
+
+func _set_mouse_kick_swapped(index: int) -> void:
+	Settings.mouse_kick_swapped = index == 1
 
 
 func _refresh() -> void:

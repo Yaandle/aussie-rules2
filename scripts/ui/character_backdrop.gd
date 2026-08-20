@@ -39,6 +39,17 @@ const RING_HEIGHT := 0.03
 ## this scene spawns, so nothing about the shared player scene changes.
 const SUBJECT_LAYER := 2
 
+## Body alpha for this preview only (design brief: "increase transparency
+## appropriately so the wireframe/body structure can be seen through the
+## character") — the wireframe already exists and already follows the
+## bones (SkeletonWireframe), it just used to have nothing to show through:
+## the placeholder meshes it runs underneath are fully opaque, so it only
+## ever peeked past the body's silhouette edge. Safe to mutate here:
+## HumanoidRig._materials is a plain per-instance dict (see humanoid_rig.gd),
+## not shared/static, so this only ever touches the one rig this screen
+## spawns — every on-field player builds and owns its own materials.
+const BODY_ALPHA := 0.55
+
 ## Framing: far enough back that the figure fills a little under half the
 ## frame height, low enough that the eye line is roughly chest height.
 ## The camera is deliberately level (no pitch) — it puts the horizon
@@ -76,7 +87,14 @@ func _ready() -> void:
 	# boxes there are meshes to move. owned=false because they are made at
 	# runtime and so belong to no scene.
 	for mesh in instance.find_children("*", "MeshInstance3D", true, false):
-		(mesh as MeshInstance3D).layers = SUBJECT_LAYER
+		var mesh_instance := mesh as MeshInstance3D
+		mesh_instance.layers = SUBJECT_LAYER
+		var material := mesh_instance.material_override as StandardMaterial3D
+		if material != null:
+			material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			var colour := material.albedo_color
+			colour.a = BODY_ALPHA
+			material.albedo_color = colour
 
 	# The skeleton wireframe overlay: this is a preview screen where one
 	# figure is looked at up close, so it's the one place in the project
