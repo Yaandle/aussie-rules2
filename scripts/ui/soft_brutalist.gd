@@ -29,6 +29,15 @@ const MUTED := Color("#808780")
 const DISABLED_BG := Color("#E5E2D9")
 const DISABLED_BORDER := Color("#A8ADA4")
 
+## Standard Xbox face-button colours, for the contest prompt over a
+## receiver's head (MarkPrompt) — A/X/Y already read as green/blue/yellow to
+## anyone who has held a pad, so the prompt borrows that convention rather
+## than inventing a new one nobody's ever seen. ACCENT_PRIMARY already is
+## this same green; the other two are new, this palette's only members.
+const BUTTON_A := ACCENT_PRIMARY
+const BUTTON_X := Color("#2F6FED")
+const BUTTON_Y := Color("#F2C230")
+
 ## Panel/card edge. Deliberately not INK: a near-black 3px rule around
 ## every element is the loudest thing in the old chrome, and the brief
 ## asks for soft edges and lower contrast rather than heavy outlines.

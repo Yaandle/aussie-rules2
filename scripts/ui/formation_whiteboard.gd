@@ -10,8 +10,12 @@ extends Control
 ## and world.z (width) mapped to screen X, so the oval reads as a real
 ## portrait-oriented AFL ground rather than the landscape 3D-world layout.
 ##
-## Read-only/no drag-select (see the Team Edit brief) — this only ever
-## visualises what TeamFormation's data says.
+## Read-only/no drag-select — this only ever visualises what TeamFormation's
+## data says, plus (Team Edit expansion, polish-pass brief) an optional
+## `selected_indices` set the owning screen can drive to ring a chosen few
+## dots, so a formation *preset* picker (cycling between a few curated
+## whole-team choices) has somewhere to show its selection without this
+## control growing click-to-assign editing of its own.
 ##
 ## Drawn with plain Control._draw() calls rather than a 3D scene reused
 ## from Field — Field's geometry generator builds real meshes sized in
@@ -76,6 +80,18 @@ const LINE_COLOURS := {
 
 var _font: Font = ThemeDB.fallback_font
 
+## Indices into TeamFormation.SLOTS to ring in RETRO_ACCENT-style highlight
+## (see _draw_dot) — empty (default) draws every dot plain, unchanged from
+## before this field existed.
+var selected_indices: PackedInt32Array = PackedInt32Array():
+	set(value):
+		selected_indices = value
+		queue_redraw()
+
+const SELECTED_RING_COLOUR := Color("#C2542F")   ## TeamListScreen's own RETRO_ACCENT
+const SELECTED_RING_WIDTH := 2.5
+const SELECTED_RING_PAD := 3.0                   ## clear of the dot's own border
+
 
 func _draw() -> void:
 	var half_length := Tuning.FIELD_HALF_LENGTH
@@ -114,11 +130,15 @@ func _to_screen(centre: Vector2, world: Vector3, scale: float) -> Vector2:
 
 
 func _draw_formation(centre: Vector2, scale: float) -> void:
-	for slot: Dictionary in TeamFormation.SLOTS:
+	for i in TeamFormation.SLOTS.size():
+		var slot: Dictionary = TeamFormation.SLOTS[i]
 		var world := TeamFormation.world_position(slot, 1.0)
 		var point := _to_screen(centre, world, scale)
 		var colour: Color = LINE_COLOURS[slot["line"]]
 		_draw_dot(point, colour)
+		if selected_indices.has(i):
+			draw_arc(point, DOT_RADIUS + SELECTED_RING_PAD, 0.0, TAU, 24,
+				SELECTED_RING_COLOUR, SELECTED_RING_WIDTH, true)
 		_draw_label(point, String(slot["label"]))
 
 

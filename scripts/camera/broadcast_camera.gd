@@ -43,6 +43,11 @@ var _focus := Vector3.ZERO
 var _ball_weight := 0.0
 var _punch := 0.0
 
+## Counts down from CAM_SWITCH_PAN_DURATION after switch_target() — while
+## positive, _update_rotation() eases yaw/pitch toward the new target's
+## facing instead of reading stick/mouse input. See switch_target().
+var _switch_timer := 0.0
+
 ## Training-coach two-shot (see Tuning's "Training coaches" section): a
 ## fixed side-on framing of two parties instead of the follow-cam's spring
 ## arm behind one target, entered/exited explicitly rather than falling
@@ -60,6 +65,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if not is_instance_valid(target):
 		return
+	_switch_timer = maxf(0.0, _switch_timer - delta)
 	if is_instance_valid(_dialogue_left) and is_instance_valid(_dialogue_right):
 		_update_dialogue_framing(delta)
 	elif mode == Mode.FULL_SIDE:
@@ -142,6 +148,24 @@ func recenter() -> void:
 	_camera.fov = Tuning.CAM_FOV_BASE
 
 
+## Swings the rig across onto `new_target` instead of recenter()'s instant
+## cut — the human-controlled-player switch's own entry point, not a second
+## way to do what recenter() already does. Position needs nothing special:
+## _update_focus()'s existing per-frame lerp (CAM_FOLLOW_RATE) carries
+## global_position across to the new focus point smoothly all by itself the
+## moment `target` changes, since nothing here calls recenter() to hard-set
+## it. Only yaw/pitch need help — normal play never re-aims them except from
+## stick/mouse input, so left alone they would keep facing wherever they
+## last pointed, at whatever stale angle that was to the new target, for as
+## long as nobody touched the camera stick. _switch_timer gates a short
+## window (CAM_SWITCH_PAN_DURATION) where _update_rotation() eases them
+## toward the new target's facing instead, then hands control back.
+func switch_target(new_target: Node3D) -> void:
+	target = new_target
+	_ball_weight = 0.0
+	_switch_timer = Tuning.CAM_SWITCH_PAN_DURATION
+
+
 ## A transient FOV nudge on a key moment — §6's "tightens on contests and
 ## goals". Negative tightens.
 func punch(amount: float) -> void:
@@ -166,6 +190,10 @@ func _update_rotation(delta: float) -> void:
 		recenter()
 		return
 
+	if _switch_timer > 0.0:
+		_ease_toward_switch_target(delta)
+		return
+
 	var stick := InputManager.get_look_vector()
 	var mouse := InputManager.take_mouse_look()
 
@@ -175,6 +203,21 @@ func _update_rotation(delta: float) -> void:
 		deg_to_rad(Tuning.CAM_PITCH_MIN), deg_to_rad(Tuning.CAM_PITCH_MAX))
 
 	var rate := 1.0 - exp(-Tuning.CAM_ROTATE_RATE * delta)
+	_yaw_pivot.rotation.y = lerp_angle(_yaw_pivot.rotation.y, _yaw, rate)
+	_pitch_pivot.rotation.x = lerpf(_pitch_pivot.rotation.x, _pitch, rate)
+
+
+## The switch_target() window's yaw/pitch tail — same lerp shape
+## _update_rotation()'s own tail end uses, just easing toward the new
+## target's facing (recenter()'s own formula for "behind them looking
+## forward") instead of toward stick/mouse input, and at the slower,
+## deliberately cinematic CAM_SWITCH_YAW_RATE rather than CAM_ROTATE_RATE.
+func _ease_toward_switch_target(delta: float) -> void:
+	var forward := -target.global_transform.basis.z
+	var desired_yaw := atan2(-forward.x, -forward.z)
+	var rate := 1.0 - exp(-Tuning.CAM_SWITCH_YAW_RATE * delta)
+	_yaw = lerp_angle(_yaw, desired_yaw, rate)
+	_pitch = lerpf(_pitch, deg_to_rad(Tuning.CAM_PITCH_DEFAULT), rate)
 	_yaw_pivot.rotation.y = lerp_angle(_yaw_pivot.rotation.y, _yaw, rate)
 	_pitch_pivot.rotation.x = lerpf(_pitch_pivot.rotation.x, _pitch, rate)
 

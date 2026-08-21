@@ -134,6 +134,15 @@ var _ruck_contest_timer := 0.0
 ## commitment, not spammable (see _try_bump).
 var _bump_cooldown := 0.0
 
+## Tackle lunge (see _update_tackle_lunge): while _lunge_timer is positive,
+## _update_locomotion overrides normal input-driven movement with a
+## committed dash toward _lunge_direction, same "external velocity owns the
+## body for a window" shape _knockback already uses below.
+var _lunge_timer := 0.0
+var _lunge_cooldown := 0.0
+var _lunge_direction := Vector3.FORWARD
+var _tackle_was_pressed := false
+
 ## Residual horizontal knockback velocity from being bumped, decaying via
 ## BRAKING each frame — see _update_locomotion's early branch and
 ## receive_bump(). While nonzero this overrides normal input-driven
@@ -234,6 +243,7 @@ func _physics_process(delta: float) -> void:
 	_protected_timer = maxf(0.0, _protected_timer - delta)
 	_spoil_cooldown = maxf(0.0, _spoil_cooldown - delta)
 	_bump_cooldown = maxf(0.0, _bump_cooldown - delta)
+	_lunge_cooldown = maxf(0.0, _lunge_cooldown - delta)
 	_possession_held_seconds = _possession_held_seconds + delta if is_carrying() else 0.0
 	if _is_ruck_contestant:
 		_ruck_contest_timer = maxf(0.0, _ruck_contest_timer - delta)
@@ -244,6 +254,7 @@ func _physics_process(delta: float) -> void:
 	_update_marking(delta)
 	_update_ruck_contest(delta)
 	_update_bump(delta)
+	_update_tackle_lunge(delta)
 	_update_action(delta)
 
 	if is_on_floor():
@@ -292,6 +303,16 @@ func _update_locomotion(delta: float) -> void:
 		_speed = horizontal_kb.length()
 		if _speed > Tuning.PIVOT_SPEED_THRESHOLD:
 			_heading = horizontal_kb / _speed
+		return
+
+	# Tackle lunge owns the body the same way knockback does above, just
+	# driving forward at a fixed speed instead of decaying — a committed
+	# dash, not a bounce being absorbed. See _update_tackle_lunge.
+	if _lunge_timer > 0.0:
+		_heading = _lunge_direction
+		_speed = Tuning.TACKLE_LUNGE_SPEED
+		velocity.x = _heading.x * _speed
+		velocity.z = _heading.z * _speed
 		return
 
 	var wish := _brain.wish_direction(self)
@@ -645,10 +666,52 @@ func _complete_gather(ball: Ball) -> void:
 # ball-up) — see RULES_REFERENCE.md §4 — a successful tackle always spills
 # the ball loose for a fresh contest.
 
+## FIFA-style ball-steal assist (polish-pass brief: "it's a bit hard to get
+## the ball off the AI"). See Tuning's own "Tackle lunge" comment for the
+## actual diagnosis (AI_PRESSURE_RADIUS forces a disposal outside
+## TACKLE_RADIUS, so a defender closing at normal run speed rarely gets
+## there in time) and why this is a speed burst rather than a radius/chance
+## change. Triggers on the tackle button's rising edge, not the held state
+## _try_tackle() reads directly — holding tackle at standing range still
+## works exactly as it always has; this only adds a commit option the one
+## time it's actually needed, just out of that reach.
+func _update_tackle_lunge(delta: float) -> void:
+	var pressed := _brain.wants_tackle()
+	var just_pressed := pressed and not _tackle_was_pressed
+	_tackle_was_pressed = pressed
+
+	if _lunge_timer > 0.0:
+		_lunge_timer -= delta
+		return
+	if not just_pressed or _lunge_cooldown > 0.0 \
+			or is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE:
+		return
+
+	var carrier := _nearest_opposing_carrier()
+	if carrier == null or carrier.is_protected():
+		return
+	var to_carrier := carrier.global_position - global_position
+	to_carrier.y = 0.0
+	var dist := to_carrier.length()
+	if dist <= Tuning.TACKLE_RADIUS or dist > Tuning.TACKLE_LUNGE_RANGE:
+		return   # already close enough for a standing tackle, or too far to commit to
+	var direction := to_carrier / dist
+	if (-global_transform.basis.z).dot(direction) < Tuning.TACKLE_LUNGE_MIN_DOT:
+		return   # not roughly facing them — no lunging sideways or backward
+
+	_lunge_direction = direction
+	_lunge_timer = Tuning.TACKLE_LUNGE_DURATION
+	_lunge_cooldown = Tuning.TACKLE_LUNGE_COOLDOWN
+
+
 func _try_tackle() -> void:
 	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE or _mark_readying:
 		return
-	if not _brain.wants_tackle():
+	# A lunge in progress is a commitment — it still has to land the same
+	# proximity test below, but it doesn't need the button held throughout,
+	# same as an aggressive mark's jump or a bump's flick don't need theirs
+	# held either once launched.
+	if not _brain.wants_tackle() and _lunge_timer <= 0.0:
 		return
 	for node in get_tree().get_nodes_in_group(&"players"):
 		var other := node as PlayerController
@@ -968,6 +1031,26 @@ func _ball_in_catch_reach(ball: Ball, reach_scale: float) -> bool:
 ## target without needing its own copy of where "the hands" are.
 func catch_point_position() -> Vector3:
 	return _carry_point.global_position
+
+
+## Madden-style contest prompt (polish-pass brief: an (A)/(X)/(Y) icon over
+## the receiver's head showing which mark tiers are live right now).
+## Reuses the exact reach tests _update_aerial_contest itself resolves
+## against — MARK_CONTEST_RANGE for Aggressive (a leap has to be committed
+## to from a real distance out, before the ball is actually in reach) and
+## _ball_in_catch_reach for Safe/Running — rather than a UI-only
+## approximation that could drift out of sync with what actually connects.
+func live_mark_prompts(ball: Ball) -> Array[Tuning.Action]:
+	var live: Array[Tuning.Action] = []
+	if not is_instance_valid(ball) or is_carrying() or not ball.is_airborne():
+		return live
+	if _ball_in_catch_reach(ball, Tuning.MARK_SAFE_REACH_SCALE):
+		live.append(Tuning.Action.MARK_SAFE)
+	if _ball_in_catch_reach(ball, Tuning.MARK_RUNNING_REACH_SCALE):
+		live.append(Tuning.Action.MARK_RUNNING)
+	if ball.global_position.distance_to(_carry_point.global_position) <= Tuning.MARK_CONTEST_RANGE:
+		live.append(Tuning.Action.MARK_AGGRESSIVE)
+	return live
 
 
 # ── Ruck contests ────────────────────────────────────────────────────

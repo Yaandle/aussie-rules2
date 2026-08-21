@@ -2531,3 +2531,209 @@ already correct for this pass's needs — `Ball.knock()` already existed
 and was reused as-is for the hit-out palm), `scripts/field/field.gd`,
 `humanoid_rig.gd`/`humanoid_animations.gd` (read, not edited — see §8's
 jitter investigation), anything coach/challenge-related.
+
+---
+
+## Handover — camera-switch pan, Madden-style mark prompt, tackle-lunge assist, kick-to-kick rival, Team Edit formation picker (Agent: mechanics/engine + UI)
+
+A broad polish-pass brief covering code quality, accessibility/gameplay
+clarity, and several named feature asks, worked in the order the brief's
+own closing lines emphasised (camera-switch feel and general gameplay
+first) plus every concretely-specified item (Madden-style contest icons,
+a ball-steal assist, kick-to-kick and Team Edit expansion). Not attempted
+this pass, and called out honestly rather than silently dropped: a full
+line-by-line redundant-code/accessibility sweep of the whole codebase,
+and character-interaction polish beyond what's listed below — this
+entry's own scope is already large; see "Known limitations" for the rest
+of the original brief still sitting on the table.
+
+### 1. Camera-switch pan, no longer an instant cut
+
+`BroadcastCamera.recenter()` hard-sets position, yaw and pitch in one
+frame — correct for "camera, get back on me" (exiting dialogue, entering
+a mode) but read as a teleport on a mid-match player switch (`switch_
+player`), which the brief named directly. New `switch_target(new_target)`
+(`broadcast_camera.gd`) leaves `_update_focus()`'s own per-frame lerp
+(`CAM_FOLLOW_RATE`) to carry `global_position` across on its own — nothing
+here calls `recenter()`, so nothing snaps it — and adds a short
+`_switch_timer` window (`CAM_SWITCH_PAN_DURATION` = 0.6s) where `_update_
+rotation()` eases yaw/pitch toward the new target's facing at a dedicated,
+deliberately cinematic `CAM_SWITCH_YAW_RATE` (5.0, slower than `CAM_
+ROTATE_RATE`'s 12.0) instead of reading stick/mouse input, then hands
+control back. `FullGame._switch_human_player()` now calls `switch_target()`
+instead of `target = next; recenter()`.
+
+### 2. Madden-style mark-tier prompt — (A)/(X)/(Y) over the receiver's head
+
+The three-tier mark system (Safe/Running/Aggressive) already maps exactly
+onto Xbox A/X/Y — confirmed against `project.godot`'s own joypad bindings
+(`mark_safe`→button 0/A, `mark_running`→button 2/X, `mark_aggressive`→
+button 3/Y) before building anything, not assumed. New `PlayerController.
+live_mark_prompts(ball)` reuses the exact reach tests `_update_aerial_
+contest` itself resolves against (`_ball_in_catch_reach` for Safe/Running,
+`MARK_CONTEST_RANGE` for Aggressive) rather than a UI-only approximation
+that could drift out of sync. New `scripts/ui/mark_prompt.gd` (`MarkPrompt`,
+same instantiate-and-assign-`player`/`ball` pattern as `KickCrosshair`/
+`DebugHud`) projects the live player's head position via `Camera3D.
+unproject_position()`/`is_position_behind()` and draws stacked colour
+badges — green/blue/yellow, `SoftBrutalist.BUTTON_A/X/Y`, the same
+convention anyone who's held an Xbox pad already has memorised rather than
+a new one invented for this screen. Wired into both `full_game.gd` (kept
+in sync on every `_switch_human_player()`) and `kick_to_kick.gd`.
+
+### 3. Tackle lunge — the actual fix for "hard to get the ball off the AI"
+
+Diagnosed before writing any code: tackling itself was never chance-based
+(a tackle in `TACKLE_RADIUS` always spills the ball), and the AI's own
+`AI_PRESSURE_RADIUS` (4.0m) forces a disposal well outside `TACKLE_RADIUS`
+(1.4m) — a defender closing at ordinary run speed essentially never
+reaches tackle range before the AI has already kicked or handballed away.
+The fix is a genuine speed burst, not a radius or chance change (same
+"physical, not a dice roll" stance every other contest in this file
+already takes): tapping tackle (the rising edge, not `wants_tackle()`'s
+held state `_try_tackle()` already reads directly — holding it at standing
+range still works exactly as before) while an opposing carrier is between
+`TACKLE_RADIUS` and `TACKLE_LUNGE_RANGE` (2.4m) and roughly in front
+(`TACKLE_LUNGE_MIN_DOT`) commits to a `TACKLE_LUNGE_DURATION` (0.35s) dash
+at `TACKLE_LUNGE_SPEED` (7.5 m/s, faster than sprint) toward them —
+`PlayerController._update_tackle_lunge()`, overriding `_update_locomotion`
+the same way `_knockback` already does for a bump's hit. A miss just
+leaves the lunger having sprinted past/short — no separate whiff penalty
+invented on top of `TACKLE_LUNGE_COOLDOWN`'s (1.1s) real commitment cost.
+Reuses the existing `_nearest_opposing_carrier()` bump already added.
+
+### 4. Kick-to-kick rival — a live opponent, not just scripted deliveries
+
+The brief asked for kick-to-kick to actually be usable for testing — it
+previously had exactly one player and nobody to tackle, bump, or contest a
+mark against; every contest mechanic in the game was literally untestable
+there. `kick_to_kick.gd._spawn_rival()` adds a second `PlayerController`
+(`Team.AWAY`, `KICK_TO_KICK_RIVAL_OFFSET` clear of both coach zones) with
+a stock `AIBrain` — reused wholesale rather than a bespoke "practice
+partner" behaviour, since chase/mark/dispose/press-and-tackle already *is*
+a sparring partner, and a chase-and-return loop against one real opponent
+is also just what "kick to kick" already means. Frozen outright
+(`set_physics_process(false)`) for the duration of any coach dialogue/
+challenge so a drill stays a clean 1-on-0 loop, resuming the instant
+`_coach_state` clears.
+
+Caught by the verification harness, not by inspection: the harness's own
+defender and carrier both defaulted to `Team.HOME` (`player.tscn`'s own
+export default), which silently made `_nearest_opposing_carrier()` see no
+target at all and reported zero tackles — not a lunge bug, a test-setup
+bug, but exactly the kind of team-filtering mistake `_spawn_rival()` had
+to get right for real, so it was worth fixing in the harness and
+re-confirming rather than waving off.
+
+### 5. Team Edit expansion — a matchday formation picker, wired into a real match
+
+`TeamListScreen` and `FormationWhiteboard` both carried their own explicit
+"editing is out of scope for this pass" notes across several prior
+sessions — not a hard wall, a breadcrumb: `TeamFormation.world_positions()`
+was already built and already commented "used by a testing mode spawning
+fewer than 18 a side," describing `full_game.gd`'s own `TEAM_SIZE` (4)
+exactly, and simply never connected. This pass connects it, scoped down
+from "edit any of 18 named roles freely" (which would need a real
+roster/persistence system this project has repeatedly and deliberately
+not built yet — see `character_screen.gd`'s own header) to picking between
+three curated 4-a-side presets drawn from the real 18-slot AFL data:
+`Settings.FORMATION_PRESETS` (BALANCED/ATTACKING/DEFENSIVE, persisted to
+`user://settings.cfg` same as `full_game_camera_mode`/`mouse_kick_swapped`
+already are). `TeamListScreen`'s old static "18 A-SIDE" info card is now
+a real ui_left/ui_right picker (same cycle convention `settings_screen.
+gd`'s `Row` rows use) that also rings the chosen four dots on the
+whiteboard (`FormationWhiteboard.selected_indices`, additive — empty by
+default, so nothing else that draws the board changes). `FullGame.
+_kickoff_slot()` now reads `Settings.home_formation_slots()` for HOME
+directly, so a choice made on the Team List screen changes where the
+human side actually lines up in the next match — AWAY keeps the old even
+spread, since it's an opponent, not the side being edited.
+
+### 6. Code-quality pass
+
+- `BALL_LOST_BELOW` (the ball-out-of-bounds-below-the-map safety net) was
+  three independent copies of the same number (`main.gd`, `kick_to_kick.
+  gd`, `full_game.gd`, the last of which even said so in its own comment).
+  Single-sourced to `Tuning.BALL_LOST_BELOW`.
+- `for player in _home_players + _away_players: player.drop_ball()` was
+  the same two lines copy-pasted at five call sites in `full_game.gd`.
+  Collapsed to `_drop_all_balls()`.
+
+### Verification
+
+Every touched scene rescanned (`--headless --editor --quit`) then run
+headless: `main_menu`/`kick_to_kick`/`full_game`/`character_screen`/
+`settings_screen`/`team_list_screen`, all exit 0, zero errors.
+
+Method note for whoever runs headless verification next: `--quit-after N`
+alone, without `--fixed-fps 60`, does **not** reliably mean N physics
+frames in this environment — an unthrottled headless main loop can iterate
+far faster than physics catches up, so a scripted scratch harness that
+needs its state machine to actually reach a later phase produced zero
+output at `--quit-after 400` until `--fixed-fps 60` was added, which
+locks idle/physics stepping together and made the same 400 iterations
+behave as the intended ~6.7 simulated seconds. Doesn't affect a plain
+boot/parse smoke test (those don't need to *reach* anything), only a
+harness that scripts a sequence of state over time — this project's own
+memory of the Godot binary/CLI incantations has been updated with this.
+
+Beyond the headless boots, a scripted-physics scratch harness (positional-
+scene-argument form, real autoloads, deleted after — not committed)
+numerically verified all three new mechanics end to end in one run: the
+tackle lunge does *not* fire beyond `TACKLE_LUNGE_RANGE` (carrier at 3.0m
+keeps the ball) and *does* close a 2.0m gap and complete the tackle within
+its commitment window; the camera-switch pan is provably not an instant
+snap (position hasn't already reached the new target one frame after
+`switch_target()`) and does converge on the new target's position and
+facing within tolerance; and `live_mark_prompts()` returns the right tier
+set at close range (all three live), mid range (only Aggressive, per
+`MARK_CONTEST_RANGE`), and beyond it (none).
+
+**No human/pad verification was possible in this environment** — the same
+limitation every mechanics-agent entry in this file has flagged from the
+start. The tackle-lunge's numbers in particular (`TACKLE_LUNGE_SPEED`/
+`RANGE`/`DURATION`/`COOLDOWN`) are first-guess, same as every other new
+movement constant's own history in this file — numerically verified to do
+what they say, not confirmed to feel right at the stick.
+
+### Known limitations / unresolved
+
+- **Kick-to-kick rival is the stock match AI**, not a purpose-built
+  practice partner — it will chase, mark, tackle and dispose exactly like
+  a Full Game defender/attacker, including kicking "toward goal" in a mode
+  with no goals. Reads fine as a sparring partner in practice, but it is
+  literally `AIBrain` with no kick-to-kick-specific tuning.
+- **Team Edit is still three curated presets, not free assignment** —
+  picking which named role goes where, or fielding named/persisted
+  players, remains the scope boundary `character_screen.gd`'s own header
+  already documents (no multi-profile persistence exists yet).
+- **The rest of the original brief is untouched this pass**: a systematic
+  redundant-code/simplification sweep beyond the two items in §6, a
+  dedicated accessibility pass (colour/contrast, remapping, readability),
+  and character-interaction polish (coach dialogue, the placeholder prompt
+  label) were all named in the brief and are not addressed here — this
+  entry covers camera/gameplay-feel and the concretely-specified feature
+  asks only.
+- **Dangerous-contact free-kick consequences for Bump**, **"out on the
+  full"**, **stand-the-mark**, and the **free-kick/set-shot apparatus**:
+  unchanged from the previous entry, still open for the same reasons
+  already documented there.
+
+### Files changed
+
+`scripts/tuning.gd` (camera-switch, tackle-lunge, mark-prompt, kick-to-
+kick-rival constants; `BALL_LOST_BELOW`), `scripts/camera/broadcast_
+camera.gd` (`switch_target`/`_ease_toward_switch_target`), `scripts/
+player/player_controller.gd` (`live_mark_prompts`, tackle-lunge state +
+`_update_tackle_lunge`, locomotion override), `scripts/ui/mark_prompt.gd`
+(new), `scripts/ui/soft_brutalist.gd` (`BUTTON_A/X/Y`), `scripts/modes/
+full_game.gd` (`switch_target` call, `_drop_all_balls`, `_kickoff_slot`
+formation lookup, `BALL_LOST_BELOW` dedup), `scripts/modes/kick_to_kick.gd`
+(`_spawn_rival`, rival freeze/drop wiring, `BALL_LOST_BELOW` dedup),
+`scripts/main.gd` (`BALL_LOST_BELOW` dedup), `scripts/autoload/settings.gd`
+(`FORMATION_PRESETS`/`home_formation_index`, persistence), `scripts/ui/
+team_list_screen.gd` (formation picker, replaces the static info card),
+`scripts/ui/formation_whiteboard.gd` (`selected_indices` highlight). Not
+touched: `scripts/ai/team_formation.gd` (already had exactly the API this
+needed — `world_position()` — nothing to add), roster/persistence, coach/
+dialogue UI, anything animation- or rig-related.

@@ -15,12 +15,16 @@ extends CanvasLayer
 ## which is a drop-in replacement for what used to be a plain _card()
 ## built on SoftBrutalist.panel_style()/soften().
 ##
-## Read-only: roster editing (which real players fill which slot) and
-## picking between multiple named formations are out of scope for this
-## pass, and the previous team_size / start-positions controls have been
-## removed now that the roster is fixed at the full 18-a-side (4 on the
-## interchange bench, informational only) — this screen just previews
-## TeamFormation.SLOTS's one data-driven layout.
+## Roster editing (which named real player fills which of the 18 slots) is
+## still out of scope — the project has no multi-player roster/persistence
+## system yet (see character_screen.gd's own header). What IS now editable
+## (Team Edit expansion, polish-pass brief): which of Settings.
+## FORMATION_PRESETS' curated 4-a-side shapes Full Game actually spawns the
+## HOME side into — Ui-left/right cycles it in the MATCHDAY FORMATION card
+## below, persisted via Settings.save() same as settings_screen.gd's own
+## rows, and highlighted live on the whiteboard. FullGame._kickoff_slot()
+## reads the same Settings.home_formation_slots() this screen writes, so a
+## choice made here changes where the human side actually lines up.
 ##
 ## ── Layout ──────────────────────────────────────────────────────────
 ## One centred content column, not a full-width spread. The board is a
@@ -69,7 +73,7 @@ const RETRO_BORDER_WIDTH := 4
 const RETRO_RADIUS := 6                   ## chunky, not the rest of the app's 16px soft round
 const RETRO_SHADOW_OFFSET := Vector2(7.0, 7.0)
 
-const ROSTER_HEIGHT := 88.0
+const FORMATION_CARD_HEIGHT := 88.0   ## was ROSTER_HEIGHT — this card is the formation picker now, not roster info
 ## Six legend rows plus their heading and the card padding. Fixed rather
 ## than expanding: a legend stretched to the full height of the board
 ## beside it is mostly empty card, and the slack reads better as space
@@ -78,6 +82,7 @@ const LEGEND_HEIGHT := 296.0
 
 var _busy := false
 var _whiteboard: FormationWhiteboard
+var _formation_name_label: Label
 
 
 func _ready() -> void:
@@ -103,6 +108,7 @@ func _ready() -> void:
 	_build_header(bands)
 	_build_body(bands)
 	_build_hint(bands)
+	_refresh_formation_display()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -110,13 +116,33 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed(&"pause") or event.is_action_pressed(&"team_menu"):
 		_exit_to_menu()
+	elif event.is_action_pressed(&"ui_left"):
+		_cycle_formation(-1)
+	elif event.is_action_pressed(&"ui_right"):
+		_cycle_formation(1)
 
 
 func _exit_to_menu() -> void:
 	if _busy:
 		return
 	_busy = true
+	Settings.save()
 	SceneWipe.change_scene("res://scenes/ui/main_menu.tscn")
+
+
+func _cycle_formation(step: int) -> void:
+	# Wraps rather than clamps — same convention settings_screen.gd's own
+	# Row.cycle() uses for every other left/right picker in the project.
+	var count := Settings.FORMATION_PRESETS.size()
+	Settings.home_formation_index = (Settings.home_formation_index + step + count) % count
+	_refresh_formation_display()
+
+
+func _refresh_formation_display() -> void:
+	if is_instance_valid(_whiteboard):
+		_whiteboard.selected_indices = PackedInt32Array(Settings.home_formation_slots())
+	if is_instance_valid(_formation_name_label):
+		_formation_name_label.text = Settings.home_formation_name()
 
 
 # ── Build ────────────────────────────────────────────────────────────
@@ -270,28 +296,42 @@ func _build_legend(parent: Control) -> void:
 		line_row.add_child(name_label)
 
 
-## Small static info card filling the slot the old editable "TEAM SIZE" /
-## "START POSITIONS" panel used to occupy — the roster is fixed now, so
-## this is read-only context rather than a control.
+## Replaces the old static "18 A-SIDE" info card with the one real control
+## this screen now has (Team Edit expansion, polish-pass brief): Ui-left/
+## right cycles Settings.home_formation_index through FORMATION_PRESETS,
+## same left/right-cycle convention settings_screen.gd's own Row rows use.
+## The 4 chosen slots ring themselves on the whiteboard via
+## _refresh_formation_display() — this card only owns the name readout and
+## the ‹ › affordance, not the highlight itself.
 func _build_info_panel(parent: Control) -> void:
-	var inner := _card(parent, Vector2(COLUMN_WIDTH, ROSTER_HEIGHT))
+	var inner := _card(parent, Vector2(COLUMN_WIDTH, FORMATION_CARD_HEIGHT))
 
 	var column := VBoxContainer.new()
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.alignment = BoxContainer.ALIGNMENT_CENTER
 	column.add_theme_constant_override(&"separation", 4)
 	inner.add_child(column)
-	column.add_child(SoftBrutalist.label("ROSTER", SoftBrutalist.SIZE_CAPTION,
+	column.add_child(SoftBrutalist.label("MATCHDAY FORMATION", SoftBrutalist.SIZE_CAPTION,
 		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_REGULAR, SoftBrutalist.TRACK_LABEL))
 
-	# Autowrapped rather than trusting it to fit: this line used to be set
-	# at a size that overran the card it sits in by about 20px, printing
-	# "INTERCHANGE" straight through the right border onto the page.
-	var value := SoftBrutalist.label("18 A-SIDE · 4 ON INTERCHANGE", SoftBrutalist.SIZE_BODY,
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_2))
+	column.add_child(row)
+
+	row.add_child(SoftBrutalist.label("‹", SoftBrutalist.SIZE_HEADING, RETRO_ACCENT,
+		SoftBrutalist.WEIGHT_BOLD))
+
+	var value := SoftBrutalist.label(Settings.home_formation_name(), SoftBrutalist.SIZE_BODY,
 		SoftBrutalist.INK, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_NONE)
-	value.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	column.add_child(value)
+	value.custom_minimum_size.x = 150.0
+	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	row.add_child(value)
+	_formation_name_label = value
+
+	row.add_child(SoftBrutalist.label("›", SoftBrutalist.SIZE_HEADING, RETRO_ACCENT,
+		SoftBrutalist.WEIGHT_BOLD))
 
 
 func _build_whiteboard(parent: Control) -> void:
@@ -320,4 +360,7 @@ func _build_hint(parent: Control) -> void:
 	var hints := KeyHintBar.new()
 	hints.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(hints)
-	hints.set_hints([{"keys": "T / Esc", "label": "Back to menu"}])
+	hints.set_hints([
+		{"keys": "← / →", "label": "Change formation"},
+		{"keys": "T / Esc", "label": "Back to menu"},
+	])

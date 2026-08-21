@@ -30,6 +30,7 @@ var _home_players: Array[PlayerController] = []
 var _away_players: Array[PlayerController] = []
 var _controlled_index := 0
 var _crosshair: KickCrosshair
+var _mark_prompt: MarkPrompt
 
 var _pause_timer := 0.0
 var _pause_callback := Callable()
@@ -55,6 +56,11 @@ func _ready() -> void:
 	_crosshair = KickCrosshair.new()
 	_crosshair.player = _home_players[_controlled_index]
 	add_child(_crosshair)
+
+	_mark_prompt = MarkPrompt.new()
+	_mark_prompt.player = _home_players[_controlled_index]
+	_mark_prompt.ball = _ball
+	add_child(_mark_prompt)
 
 	_start_match()
 
@@ -133,7 +139,7 @@ func _spawn_team(team: Tuning.Team, attack_direction: float) -> Array[PlayerCont
 		# yet, so there's no parent transform to resolve a global position
 		# against. FullGame itself sits at identity, so the two are the
 		# same value once this becomes its child.
-		var slot := _kickoff_slot(i, attack_direction)
+		var slot := _kickoff_slot(i, attack_direction, team)
 		instance.position = slot
 		add_child(instance)
 
@@ -147,10 +153,19 @@ func _spawn_team(team: Tuning.Team, attack_direction: float) -> Array[PlayerCont
 	return players
 
 
-## A simple spread in the team's own half — not a real formation, just
-## enough that a kickoff doesn't start with everyone stacked on the
-## centre circle. TEAM_SIZE evenly spans the width at one depth.
-func _kickoff_slot(index: int, attack_direction: float) -> Vector3:
+## HOME (Team Edit expansion, polish-pass brief) lines up in whichever of
+## Settings.FORMATION_PRESETS the Team List screen last left selected —
+## TeamFormation.SLOTS' own depth/lateral fractions, the same data the
+## whiteboard preview draws from, so choosing a formation there now
+## actually changes where the human side kicks off from here. AWAY keeps
+## the old even spread — a simple "not stacked on the centre circle"
+## baseline, not a real formation, and not worth letting the human edit
+## since it's an opponent, not their own side.
+func _kickoff_slot(index: int, attack_direction: float, team: Tuning.Team) -> Vector3:
+	if team == Tuning.Team.HOME:
+		var slots := Settings.home_formation_slots()
+		if index < slots.size():
+			return TeamFormation.world_position(TeamFormation.SLOTS[slots[index]], attack_direction)
 	var spread := Tuning.FIELD_WIDTH * 0.6
 	var z := lerpf(-spread * 0.5, spread * 0.5,
 		float(index) / maxf(1.0, float(Tuning.TEAM_SIZE - 1)))
@@ -200,8 +215,7 @@ func _start_match() -> void:
 func _prepare_centre_bounce() -> void:
 	GameState.phase = GameState.Phase.CENTRE_BOUNCE
 	MatchState.clock_running = false
-	for player in _home_players + _away_players:
-		player.drop_ball()
+	_drop_all_balls()
 	_reposition_kickoff()
 	_ball.reset_at(_field.centre())
 	_start_pause(Tuning.CENTRE_BOUNCE_DELAY, _bounce_off)
@@ -282,13 +296,20 @@ func _on_holding_the_ball(tackler: PlayerController) -> void:
 
 
 func _award_free_kick(spot: Vector3, tackler: PlayerController) -> void:
-	for player in _home_players + _away_players:
-		player.drop_ball()
+	_drop_all_balls()
 	_ball.reset_at(spot + Vector3.UP * 0.3)
 	tackler.give_possession(_ball)
 	tackler.grant_protection(Tuning.MARK_HOLD_DURATION)
 	GameState.phase = GameState.Phase.PLAY
 	MatchState.clock_running = true
+
+
+## Every stoppage (bounce/ball-up/free-kick/out-of-bounds/reset) clears
+## whoever's currently holding the ball first — was the same five-line loop
+## copy-pasted at each call site.
+func _drop_all_balls() -> void:
+	for player in _home_players + _away_players:
+		player.drop_ball()
 
 
 func _nearest_player(players: Array[PlayerController], spot: Vector3) -> PlayerController:
@@ -337,8 +358,7 @@ func _prepare_kick_in(scoring_team: Tuning.Team) -> void:
 		_field.goal_line_x(direction) - float(direction) * Tuning.GOAL_SQUARE_DEPTH * 0.5,
 		0.0, 0.0)
 
-	for player in _home_players + _away_players:
-		player.drop_ball()
+	_drop_all_balls()
 
 	var kicker := _nearest_player(defenders, square_centre)
 	kicker.global_position = square_centre
@@ -396,11 +416,6 @@ func _start_pause(duration: float, on_complete: Callable) -> void:
 # dead-ball moment in this file already uses (goals, quarter breaks),
 # not a bespoke third mechanism.
 
-## How far below the ground the ball has to fall before it counts as lost
-## rather than merely airborne. Mirrors scripts/main.gd's BALL_LOST_BELOW
-## safety net, which Full Game never had one of.
-const BALL_LOST_BELOW := -5.0
-
 func _check_out_of_bounds() -> void:
 	# Mid-pause (this stoppage, a goal, a quarter break) the ball is either
 	# already being handled or about to be reset elsewhere — re-entering
@@ -415,7 +430,7 @@ func _check_out_of_bounds() -> void:
 	# ball in freefall past the edge of the world never settles (gravity
 	# keeps accelerating it), so gating this on is_settled() like the
 	# in-bounds case below would mean it's never caught.
-	if pos.y < BALL_LOST_BELOW \
+	if pos.y < Tuning.BALL_LOST_BELOW \
 			or absf(pos.x) > Tuning.FIELD_HALF_LENGTH + Field.SURROUND_MARGIN \
 			or absf(pos.z) > Tuning.FIELD_HALF_WIDTH + Field.SURROUND_MARGIN:
 		_reset_ball()
@@ -451,8 +466,7 @@ func _trigger_out_of_bounds(pos: Vector3) -> void:
 ## side" for who contests it, per Prototype 1's own throw-in/ball-up model
 ## (see this project's memory of P1's contest_minigame.py approach).
 func _resume_after_out_of_bounds(throw_in_point: Vector3) -> void:
-	for player in _home_players + _away_players:
-		player.drop_ball()
+	_drop_all_balls()
 	var home := _nearest_player(_home_players, throw_in_point)
 	var away := _nearest_player(_away_players, throw_in_point)
 	_begin_ruck_contest(throw_in_point, home, away)
@@ -462,8 +476,7 @@ func _resume_after_out_of_bounds(throw_in_point: Vector3) -> void:
 ## sandbox's R) — brings the ball back to the centre if it ever ends up
 ## somewhere _check_out_of_bounds can't reason about.
 func _reset_ball() -> void:
-	for player in _home_players + _away_players:
-		player.drop_ball()
+	_drop_all_balls()
 	_ball.reset_at(_field.centre())
 
 
@@ -486,8 +499,8 @@ func _switch_human_player() -> void:
 
 	next.set_brain(HumanBrain.new())
 	next.camera = _camera.camera()
-	_camera.target = next
-	_camera.recenter()
+	_camera.switch_target(next)
 
 	_hud.player = next
 	_crosshair.player = next
+	_mark_prompt.player = next

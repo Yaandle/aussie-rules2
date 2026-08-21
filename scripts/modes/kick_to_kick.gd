@@ -19,8 +19,8 @@ extends Node3D
 ## are rough placeholders standing in for UI this agent doesn't own.
 
 const BALL_RESET_AHEAD := 3.0
-const BALL_LOST_BELOW := -5.0
 
+const PLAYER_SCENE := preload("res://scenes/player/player.tscn")
 const COACH_SCENE := preload("res://scenes/mechanics/coach_npc.tscn")
 const KICK_CHALLENGE_SCENE := preload("res://scenes/mechanics/kick_challenge.tscn")
 const MARK_CHALLENGE_SCENE := preload("res://scenes/mechanics/mark_challenge.tscn")
@@ -48,6 +48,8 @@ var _mark_challenge: MarkChallenge
 var _coach_state := CoachState.NONE
 var _active_coach: CoachKind = CoachKind.KICKING
 var _crosshair: KickCrosshair
+var _mark_prompt: MarkPrompt
+var _rival: PlayerController
 
 ## PLACEHOLDER: a bare Label standing in for the real coach dialogue
 ## bubble / hint UI (design brief describes a proper chat bubble; UI is
@@ -78,7 +80,14 @@ func _ready() -> void:
 	_crosshair.player = _player
 	add_child(_crosshair)
 
+	_mark_prompt = MarkPrompt.new()
+	_mark_prompt.player = _player
+	_mark_prompt.ball = _ball
+	add_child(_mark_prompt)
+
 	_player.ball_disposed.connect(_on_ball_disposed)
+
+	_spawn_rival()
 
 	_ball.reset_at(_field.centre())
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
@@ -111,7 +120,7 @@ func _physics_process(_delta: float) -> void:
 	# Safety net, same as the sandbox's — the ball is a real rigid body,
 	# so it can genuinely be lost off the map.
 	var where := _ball.global_position
-	if where.y < BALL_LOST_BELOW \
+	if where.y < Tuning.BALL_LOST_BELOW \
 			or absf(where.x) > Tuning.FIELD_HALF_LENGTH + Field.SURROUND_MARGIN \
 			or absf(where.z) > Tuning.FIELD_HALF_WIDTH + Field.SURROUND_MARGIN:
 		_reset_ball()
@@ -124,6 +133,12 @@ func _physics_process(_delta: float) -> void:
 		if not _check_coach_in_range(CoachKind.KICKING):
 			_check_coach_in_range(CoachKind.MARKING)
 
+	# Frozen for the duration of any coach dialogue/challenge (see Tuning's
+	# own "Kick-to-kick rival" comment) so a drill stays a clean 1-on-0 loop
+	# — resumes chasing/marking/tackling the instant the coach state clears.
+	if is_instance_valid(_rival):
+		_rival.set_physics_process(_coach_state == CoachState.NONE)
+
 
 func _reset_ball() -> void:
 	if is_instance_valid(_challenge):
@@ -131,8 +146,36 @@ func _reset_ball() -> void:
 	if is_instance_valid(_mark_challenge):
 		_mark_challenge.force_miss()
 	_player.drop_ball()
+	if is_instance_valid(_rival):
+		_rival.drop_ball()
 	var ahead := -_player.global_transform.basis.z * BALL_RESET_AHEAD
 	_ball.reset_at(_player.global_position + ahead + Vector3.UP * 0.3)
+
+
+## A live sparring partner (design brief: "build out kick-to-kick so we can
+## use this for testing"), not just the coaches' scripted deliveries —
+## reuses AIBrain wholesale (see Tuning's own comment) rather than a bespoke
+## behaviour, positioned clear of both coach zones so it never interferes
+## with a drill while free-roaming (it's frozen outright during one anyway
+## — see _physics_process).
+func _spawn_rival() -> void:
+	var rival := PLAYER_SCENE.instantiate() as PlayerController
+	rival.team = Tuning.Team.AWAY
+	# Set before add_child(), same reasoning full_game.gd's own spawn code
+	# documents: HumanoidRig._ready() reads away_kit on its first build, and
+	# the physics server latches the spawn transform at add_child() time.
+	(rival.get_node("Rig") as HumanoidRig).away_kit = true
+	var stand := _field.centre() + Tuning.KICK_TO_KICK_RIVAL_OFFSET
+	rival.position = stand
+	add_child(rival)
+
+	var brain := AIBrain.new()
+	brain.ball = _ball
+	brain.home_position = stand
+	brain.attack_direction = 1.0
+	rival.set_brain(brain)
+
+	_rival = rival
 
 
 func _check_coach_in_range(kind: CoachKind) -> bool:

@@ -141,6 +141,13 @@ const FACING_TURN_RATE := 720.0        # deg/s
 
 const GRAVITY := 9.80665               # m/s^2
 
+## How far below the ground the ball has to fall before a mode's own
+## out-of-bounds safety net gives up on it and resets it, rather than
+## leaving it to fall forever. Was three independent copies of the same
+## number (scripts/main.gd, kick_to_kick.gd, full_game.gd) — single-sourced
+## here since none of them mean anything different by it.
+const BALL_LOST_BELOW := -5.0          # m
+
 # Force the player imparts to loose rigid bodies it walks into, as a
 # multiple of the ball's mass. Running through a ball should shift it.
 const PLAYER_PUSH_FORCE := 4.5
@@ -362,6 +369,17 @@ const CAM_FULL_SIDE_ARM := 6.0             # m — short; position/height alread
 const CAM_FULL_SIDE_FOV := 50.0
 const CAM_FULL_SIDE_FOLLOW_RATE := 2.2     # slower than CAM_FOLLOW_RATE — a deliberate pan, not a chase
 
+# Player-switch pan. recenter()'s instant snap (position + yaw + pitch all
+# set in one frame) is correct for "camera, get back on me" moments —
+# exiting dialogue, entering a mode — but read as a teleport on a mid-match
+# player switch, which was a named rough edge in the polish-pass brief.
+# BroadcastCamera.switch_target() leaves _update_focus()'s own per-frame
+# lerp (CAM_FOLLOW_RATE) to carry position across on its own; only yaw/pitch
+# need a dedicated rate here, since normal play only ever turns the rig from
+# stick/mouse input, never re-aims it at a target on its own.
+const CAM_SWITCH_PAN_DURATION := 0.6       # s the rig eases toward the new target's facing
+const CAM_SWITCH_YAW_RATE := 5.0           # slower than CAM_ROTATE_RATE — a swing across, not a snap
+
 
 # ── Input feel ───────────────────────────────────────────────────────
 # §4's per-action deadzones and response curves. Movement wants a
@@ -402,6 +420,22 @@ const OUT_OF_BOUNDS_PAUSE_DURATION := 2.0   # s, paused for a boundary throw-in
 const TACKLE_RADIUS := 1.4             # m, more generous than GATHER_RADIUS
 const TACKLE_STUN_DURATION := 0.5      # s the tackled player can't act
 const TACKLE_SPILL_SPEED := 3.0        # m/s the loose ball scatters at
+
+# Tackle lunge (polish-pass brief: "it's a bit hard to get the ball off the
+# AI" / FIFA-style assist). Not a change to TACKLE_RADIUS or a success-chance
+# roll — the actual bottleneck is AI_PRESSURE_RADIUS forcing a disposal well
+# outside TACKLE_RADIUS, so a defender closing at normal run speed rarely
+# reaches tackle range before the ball is gone. This gives the player a
+# committed dash (a genuine speed burst, not a scripted snap onto the
+# target) to close that exact gap, same "physical, not a dice roll" stance
+# every other contest in this file already takes — a miss just leaves the
+# lunger having sprinted past/short, no separate whiff penalty invented on
+# top of that.
+const TACKLE_LUNGE_RANGE := 2.4        # m — beyond TACKLE_RADIUS, short enough to require real proximity first
+const TACKLE_LUNGE_SPEED := 7.5        # m/s, faster than SPRINT_SPEED — the point of committing
+const TACKLE_LUNGE_DURATION := 0.35    # s the dash overrides normal locomotion
+const TACKLE_LUNGE_COOLDOWN := 1.1     # s between attempts — a real commitment, not spammable
+const TACKLE_LUNGE_MIN_DOT := 0.5      # facing . to-carrier must clear this — no lunging sideways/backward
 
 # Punch/Spoil (LT tap, not carrying, near an aerial contest): knocking a
 # high ball away is easier than controlling it, so the reach is more
@@ -524,6 +558,12 @@ const MARK_AGGRESSIVE_JUMP_SPEED := 4.0    # m/s
 const MARK_CONTEST_RANGE := 6.0            # m
 
 const RUMBLE_MARK := Vector3(0.20, 0.35, 0.12)
+
+# Madden-style contest prompt (polish-pass brief: an (A)/(X)/(Y) icon over
+# the receiver's head showing which mark tiers are live right now). Height
+# is above the player's own origin, not the chest-height CAM_FOCUS_HEIGHT —
+# a Madden-style prompt floats over the head, a camera frames the chest.
+const MARK_PROMPT_HEIGHT := 2.05       # m above player origin
 
 
 # ── Ruck contests ────────────────────────────────────────────────────
@@ -667,6 +707,18 @@ const MARK_COACH_STAND_OFFSET := Vector3(-18.0, 0.0, 10.0)   # opposite half, cl
 
 const KICK_CHALLENGE_TARGET_DISTANCE := 40.0   # m downfield of the player when accepted
 const KICK_CHALLENGE_TARGET_RADIUS := 3.0      # m, hit tolerance
+
+# Kick-to-kick rival (polish-pass brief: "build out kick-to-kick so we can
+# use this for testing" — a solo sandbox has nobody to tackle, bump, or
+# contest a mark against, so none of Full Game's live contests could ever
+# actually be practised here). Reuses AIBrain outright rather than a new
+# "practice partner" behaviour tree — the same chase/mark/dispose/press-and-
+# tackle loop Full Game's AI already runs is exactly the sparring partner
+# this needs, and a chase-and-return loop against one real opponent is also
+# just what "kick to kick" already means. Frozen (KickToKick.set_physics_
+# process(false)) for the duration of a coach dialogue/challenge so a drill
+# stays a clean 1-on-0 loop — see kick_to_kick.gd's _coach_state gate.
+const KICK_TO_KICK_RIVAL_OFFSET := Vector3(0.0, 0.0, -18.0)   # from field centre, clear of both coach zones
 const KICK_CHALLENGE_ATTEMPTS := 5
 
 const MARK_CHALLENGE_ATTEMPTS := 6

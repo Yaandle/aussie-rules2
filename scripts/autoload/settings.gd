@@ -50,8 +50,45 @@ var mouse_kick_swapped := false:
 		_apply_mouse_kick_binding()
 		mouse_kick_binding_changed.emit(value)
 
+## Matchday formation (Team Edit expansion, polish-pass brief): which 4 of
+## TeamFormation's 18 named AFL slots the HOME side actually lines up in
+## for Full Game, replacing the flat even-spread _kickoff_slot() used
+## unconditionally before this. Indices into TeamFormation.SLOTS — each
+## preset a plausible, curated 4-a-side shape (one from the back/centre/
+## forward lines plus a ruck, weighted toward attack, or weighted toward
+## defence) rather than a free "any 4 of 18" picker, which stays in scope
+## for a future pass. AWAY keeps the old generic spread — only the side
+## the human plays as is worth letting them shape.
+const FORMATION_PRESETS := [
+	{"name": "BALANCED", "slots": [3, 7, 9, 15]},     # CHB, C, CHF, RK
+	{"name": "ATTACKING", "slots": [7, 9, 12, 17]},   # C, CHF, FF, ROV
+	{"name": "DEFENSIVE", "slots": [0, 3, 7, 15]},    # FB, CHB, C, RK
+]
+
+var home_formation_index := 0:
+	set(value):
+		value = clampi(value, 0, FORMATION_PRESETS.size() - 1)
+		if home_formation_index == value:
+			return
+		home_formation_index = value
+		formation_changed.emit(value)
+
+
+## The currently-selected preset's slot indices into TeamFormation.SLOTS —
+## the one thing FullGame._kickoff_slot() and TeamListScreen's whiteboard
+## highlight both actually need, so neither has to know the preset table's
+## own shape.
+func home_formation_slots() -> Array:
+	return FORMATION_PRESETS[home_formation_index]["slots"]
+
+
+func home_formation_name() -> String:
+	return FORMATION_PRESETS[home_formation_index]["name"]
+
+
 signal camera_mode_changed(mode: FullGameCameraMode)
 signal mouse_kick_binding_changed(swapped: bool)
+signal formation_changed(index: int)
 
 
 func _ready() -> void:
@@ -67,12 +104,15 @@ func _load() -> void:
 		full_game_camera_mode) as FullGameCameraMode
 	mouse_kick_swapped = config.get_value(SECTION, "mouse_kick_swapped",
 		mouse_kick_swapped) as bool
+	home_formation_index = config.get_value(SECTION, "home_formation_index",
+		home_formation_index) as int
 
 
 func save() -> void:
 	var config := ConfigFile.new()
 	config.set_value(SECTION, "full_game_camera_mode", full_game_camera_mode)
 	config.set_value(SECTION, "mouse_kick_swapped", mouse_kick_swapped)
+	config.set_value(SECTION, "home_formation_index", home_formation_index)
 	config.save(SAVE_PATH)
 
 
