@@ -102,13 +102,18 @@ const BAND_GAP := int(SoftBrutalist.SPACE_4)        ## 32
 const CHROME_HEIGHT := 20.0
 const FOOTER_HEIGHT := 28.0
 const CARD_SEPARATION := int(SoftBrutalist.SPACE_3) ## 24
-const CARD_MIN_WIDTH := 240.0
-const CARD_MIN_HEIGHT := 300.0
-const CARD_PAD := SoftBrutalist.SPACE_3             ## 24
-const CARD_RADIUS := SoftBrutalist.RADIUS_LG
-const BADGE_SIZE := 44.0
-const ARROW_BADGE_SIZE := 34.0
-const TEXT_BLOCK_HEIGHT := 76.0
+## Smaller than a full-bleed hero tile on purpose — these sit centred over
+## the live 3D backdrop (menu_backdrop.tscn) with room left on every side,
+## so the montage behind them stays visible rather than getting crowded out.
+const CARD_MIN_WIDTH := 190.0
+const CARD_MIN_HEIGHT := 235.0
+const CARD_PAD := SoftBrutalist.SPACE_2             ## 16
+## Above SoftBrutalist.RADIUS_LG (22) — at this smaller card size, that
+## reads as clearly rounded rather than barely-there.
+const CARD_RADIUS := 28.0
+const BADGE_SIZE := 36.0
+const ARROW_BADGE_SIZE := 28.0
+const TEXT_BLOCK_HEIGHT := 62.0
 
 ## Shader saturation / scale-pop tween length — longer than SoftBrutalist's
 ## button-hover transitions (0.12-0.18s) since this is the screen's one
@@ -131,7 +136,7 @@ const DIM_LOCKED := 0.58
 ## Opacity of the cream wash over the 3D camera montage (menu_backdrop.tscn)
 ## — high enough that chrome text stays legible, low enough that the
 ## montage still reads as a background rather than a hidden layer.
-const BACKDROP_OVERLAY_ALPHA := 0.88
+const BACKDROP_OVERLAY_ALPHA := 0.6
 
 class CardWidgets:
 	var frame: Control
@@ -262,6 +267,10 @@ func _build_card_row(parent: Control) -> void:
 	# header and footer do not use, so the cards are sized by the layout
 	# rather than by a constant that has to be kept in step with it.
 	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	# Cards are shrink-sized (see _build_card), so without this they would
+	# bunch against the row's left edge instead of sitting in the middle of
+	# the space the band leaves for them.
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override(&"separation", CARD_SEPARATION)
 	parent.add_child(row)
 
@@ -341,8 +350,11 @@ func _build_card(entry: Entry, index: int) -> CardWidgets:
 
 	var frame := Control.new()
 	frame.custom_minimum_size = Vector2(CARD_MIN_WIDTH, CARD_MIN_HEIGHT)
-	frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	frame.size_flags_vertical = Control.SIZE_FILL
+	# Shrink to that minimum rather than filling the row/band — the whole
+	# point of a smaller card is that the live backdrop shows around it, not
+	# just that its own artwork is smaller while still stretching to fill.
+	frame.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	frame.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	widgets.frame = frame
 
@@ -381,14 +393,6 @@ func _build_card(entry: Entry, index: int) -> CardWidgets:
 	frame.add_child(image)
 	widgets.image = image
 	widgets.material = material
-
-	var scrim := TextureRect.new()
-	scrim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	scrim.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	scrim.stretch_mode = TextureRect.STRETCH_SCALE
-	scrim.texture = _bottom_scrim_texture()
-	frame.add_child(scrim)
 
 	var badge := _build_icon_badge(entry.icon_name, BADGE_SIZE)
 	badge.set_anchors_preset(Control.PRESET_TOP_LEFT)
@@ -521,27 +525,6 @@ func _placeholder_texture(tint: Color) -> ImageTexture:
 	var image := Image.create(8, 8, false, Image.FORMAT_RGB8)
 	image.fill(tint)
 	return ImageTexture.create_from_image(image)
-
-
-## A generated (not imported) top-transparent/bottom-dark vertical
-## gradient, so the white title/subtitle text on every card stays legible
-## over whatever the photo is doing underneath, same job a broadcast
-## lower-third scrim does. Three stops rather than two: a straight linear
-## ramp to 0.7 puts its steepest change right behind the title, which
-## reads as a visible band edge across the artwork.
-func _bottom_scrim_texture() -> GradientTexture2D:
-	var gradient := Gradient.new()
-	gradient.colors = PackedColorArray([
-		Color(0, 0, 0, 0), Color(0, 0, 0, 0.22), Color(0, 0, 0, 0.62)])
-	gradient.offsets = PackedFloat32Array([0.3, 0.62, 1.0])
-	var texture := GradientTexture2D.new()
-	texture.gradient = gradient
-	texture.fill = GradientTexture2D.FILL_LINEAR
-	texture.fill_from = Vector2(0.0, 0.0)
-	texture.fill_to = Vector2(0.0, 1.0)
-	texture.width = 4
-	texture.height = 256
-	return texture
 
 
 # ── Refresh ──────────────────────────────────────────────────────────

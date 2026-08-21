@@ -2737,3 +2737,152 @@ team_list_screen.gd` (formation picker, replaces the static info card),
 touched: `scripts/ai/team_formation.gd` (already had exactly the API this
 needed — `world_position()` — nothing to add), roster/persistence, coach/
 dialogue UI, anything animation- or rig-related.
+
+---
+
+## Handover — Team Edit tactics (ball movement + defensive pressure), mark prompt single-tier fix (Agent: mechanics/engine + UI)
+
+Direct follow-up to the entry above, on two specific pieces of feedback:
+Team Edit should change actual match behaviour, not just where the team
+lines up at kickoff; and the mark prompt was showing every tier that
+would technically connect instead of the one actually relevant right now.
+
+### 1. Team Edit: two new tactics settings that genuinely change the AI
+
+Matchday Formation (previous entry) only ever changed *where* players
+start. This adds two settings that change *how* HOME's AI actually
+plays, both read once per spawn/hand-back the same way formation already
+is — no live mid-match re-tuning, since Team List is only reachable from
+the main menu.
+
+- **Ball Movement** (`Settings.BallMovementPreference`: CORRIDOR/MUTUAL/
+  BOUNDARY) — `AIBrain._lateral_target_z(pos)` pulls a lateral world-Z
+  target toward whichever boundary `pos` is already nearer to, scaled by
+  a new `lateral_bias` field (0.05/0.40/0.85 per preference, `Settings.
+  BALL_MOVEMENT_BIAS`). Consumed by both `_think_carrying` (a carrier's
+  disposal aim — `goal_point.z` used to be hardcoded 0) and
+  `_think_support` (an off-ball teammate's run target, half-weighted so
+  it colours rather than overrides the existing home/ball anchor). The
+  kick-range/pressure distance check in `_think_carrying` deliberately
+  still measures straight-line distance to the goal *line*, not to the
+  now-off-centre aim point — using the biased point there too would have
+  made a strong boundary bias misreport "too far to shoot" for a carrier
+  who is actually well within range straight down the middle.
+- **Defensive Pressure** (`Settings.DefensivePressure`: LOOSE/BALANCED/
+  TIGHT) — a new `press_intensity` field (0.65/1.0/1.3, `Settings.
+  DEFENSIVE_PRESSURE_INTENSITY`) scales both the chase gait and the
+  tackle-commit distance in `_think_defend` together, not as two
+  separately-invented numbers: TIGHT closes at full gait and commits to
+  an actual tackle attempt from further out; LOOSE closes more slowly
+  *and* holds off the commit until much closer; BALANCED (1.0) is this
+  file's original, un-tuned behaviour.
+
+Both settings are HOME-only (AWAY keeps `AIBrain`'s bare defaults) and
+apply the moment a `AIBrain` is created — `FullGame._configure_ai_brain()`
+is now the one place that happens, used by both the initial kickoff spawn
+and `_switch_human_player()`'s hand-back brain, so the two call sites
+can't drift about which settings a HOME player's AI actually gets the
+moment nobody's driving them (hand-back previously built its `AIBrain`
+inline with no tactics applied at all).
+
+**Team List screen restructured** to carry three real settings instead
+of one: reuses `SettingsScreen.Row` directly (title/options/index/cycle,
+the exact same shape a second implementation would have just copied) for
+all three rows, with the same up/down-select, left/right-cycle input
+convention `settings_screen.gd` already established — not a new
+convention invented for this screen. Three separate `_card()` shells (each
+paying the full `CARD_PAD` border/shadow overhead) did not fit this
+column's existing height budget, so all three rows now live in one
+lighter-weight card instead. `home_formation_name()`, added last entry,
+is gone again — the `Row` pattern already owns display strings via its
+own `options` array, so a second lookup for the same string was dead
+code the moment this screen adopted `Row`; same reasoning removed the
+unused `Settings.formation_changed` signal (declared last entry, never
+connected to anything).
+
+### 2. Mark prompt: exactly one badge, not a stack of every live tier
+
+`live_mark_prompts()` (plural) tested each tier independently and could
+easily return all three at once — Safe's reach always covers Running's
+narrower one, and Aggressive's `MARK_CONTEST_RANGE` is wider again, so
+nearly every live moment had all three "live" simultaneously, which the
+UI then drew as a stack. Replaced with singular `live_mark_prompt()`,
+picking exactly one by the same speed-scale reasoning the tiers
+themselves are already built on (Tuning's own "Safe plants you properly;
+Running barely interrupts your stride" comment): Running only while
+actually moving faster than `JOG_SPEED`; Safe the instant you're not;
+Aggressive only while the ball hasn't reached normal catching reach yet
+(once it has, a leap stops being the natural read even though it would
+still technically connect). `MarkPrompt` draws that one badge at the
+player's head position — no more stacking offset, no more looping over an
+array.
+
+### Verification
+
+Rescanned (`--headless --editor --quit`) then all five touched/adjacent
+scenes run headless (`--fixed-fps 60`, see the previous entry's own note
+on why that flag matters for anything beyond a bare boot check):
+`team_list_screen`/`full_game`/`main_menu`/`settings_screen`/
+`kick_to_kick`, all exit 0, zero errors.
+
+A second scratch harness (same positional-scene-argument, real-autoloads
+shape as the previous entry's, deleted after) verified the actual
+behaviour change, not just that it compiles: `lateral_bias` 0.0 vs 0.9
+produced clearly opposite-signed lateral aim directions from the same
+starting position; `press_intensity` LOOSE/BALANCED/TIGHT at a fixed
+1.8m defender-to-holder distance produced the expected gait (0.65/1.0/
+1.0) *and* the expected tackle-commit decision (false/false/true) —
+distance chosen specifically to sit between BALANCED's and TIGHT's commit
+thresholds so only TIGHT would fire; and `live_mark_prompt()` returned
+exactly the expected single tier in four cases (stationary+close → Safe,
+moving+close after a real ~1.5s speed ramp → Running, mid-range →
+Aggressive, beyond `MARK_CONTEST_RANGE` → None). All passed on the first
+run — no bugs caught this time, unlike the previous entry's team-
+assignment miss.
+
+**No human/pad verification was possible in this environment**, same
+standing limitation as every entry in this file. The three new intensity/
+bias numbers (`BALL_MOVEMENT_BIAS`, `DEFENSIVE_PRESSURE_INTENSITY`) are
+first-guess, same as every other new tuning number's own history here —
+numerically confirmed to move the AI's behaviour in the intended
+direction, not confirmed to feel like three genuinely distinct tactical
+identities at the stick. The Team List screen's new three-row card height
+(`TACTICS_CARD_HEIGHT`) is a hand-computed budget against the same left-
+column space the whiteboard already shares — not visually confirmed; see
+the screen's own header comment if it turns out to overflow in an actual
+editor session.
+
+### Known limitations / unresolved
+
+- **Ball Movement/Defensive Pressure only affect HOME's off-ball/defending
+  AI** — a human-controlled player's own aim and tackle timing are
+  entirely player-input, same as Matchday Formation only ever affected
+  HOME's spawn positions. Working as designed, not a gap, but worth
+  stating plainly since "Team Edit" now covers three settings with three
+  different reach.
+- **Still no free assignment** of which of the 18 named roles plays where,
+  or independent tuning of formation vs. tactics per named player — same
+  scope boundary the previous entry already documented, unchanged.
+- Everything the previous entry's own "Known limitations" section listed
+  as still open (redundant-code sweep beyond what's been touched directly,
+  a dedicated accessibility pass, coach-dialogue polish, the rest of the
+  original brief) remains open — this entry only covers the two items it
+  was asked for.
+
+### Files changed
+
+`scripts/autoload/settings.gd` (`BallMovementPreference`/
+`DefensivePressure` enums + presets + persistence; removed
+`home_formation_name()`/`formation_changed`), `scripts/mechanics/
+ai_brain.gd` (`lateral_bias`/`press_intensity` fields, `_lateral_
+target_z()`, `_think_carrying`/`_think_support`/`_think_defend` updated),
+`scripts/modes/full_game.gd` (`_configure_ai_brain()`, both AIBrain call
+sites routed through it), `scripts/tuning.gd` (`AI_BOUNDARY_LEAN_
+FRACTION`), `scripts/ui/team_list_screen.gd` (rebuilt around `Settings
+Screen.Row`, three-row tactics card, up/down navigation), `scripts/
+player/player_controller.gd` (`live_mark_prompts` → singular `live_mark_
+prompt`), `scripts/ui/mark_prompt.gd` (single-badge draw, no more
+stacking). Not touched: `scripts/ui/settings_screen.gd` (its `Row` class
+was reused as-is, nothing about it needed to change), `scripts/ui/
+formation_whiteboard.gd` (last entry's `selected_indices` highlight
+already covers what this needed).

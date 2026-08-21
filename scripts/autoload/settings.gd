@@ -67,28 +67,72 @@ const FORMATION_PRESETS := [
 
 var home_formation_index := 0:
 	set(value):
-		value = clampi(value, 0, FORMATION_PRESETS.size() - 1)
-		if home_formation_index == value:
-			return
-		home_formation_index = value
-		formation_changed.emit(value)
+		home_formation_index = clampi(value, 0, FORMATION_PRESETS.size() - 1)
 
 
 ## The currently-selected preset's slot indices into TeamFormation.SLOTS —
 ## the one thing FullGame._kickoff_slot() and TeamListScreen's whiteboard
 ## highlight both actually need, so neither has to know the preset table's
-## own shape.
+## own shape. Display names live in TeamListScreen's own Row definition
+## (same convention settings_screen.gd's rows already use), not here.
 func home_formation_slots() -> Array:
 	return FORMATION_PRESETS[home_formation_index]["slots"]
 
 
-func home_formation_name() -> String:
-	return FORMATION_PRESETS[home_formation_index]["name"]
+## Ball movement preference (Team Edit expansion): where the HOME side
+## prefers to move the ball up the field. Consumed by AIBrain._lateral_
+## target_z() — a carrying AI's own disposal aim, and an off-ball
+## teammate's support run, both lean toward the boundary by the matching
+## fraction below rather than each having its own independently-tuned
+## number. CORRIDOR keeps play dead through the middle; BOUNDARY commits
+## hard to whichever wing a player already happens to be nearer to;
+## MUTUAL (default) is a middling blend of both — not "no preference",
+## an actual third choice, same as the formation presets above are three
+## real shapes rather than "off plus two options".
+enum BallMovementPreference { CORRIDOR, MUTUAL, BOUNDARY }
+
+const BALL_MOVEMENT_BIAS := {
+	BallMovementPreference.CORRIDOR: 0.05,
+	BallMovementPreference.MUTUAL: 0.40,
+	BallMovementPreference.BOUNDARY: 0.85,
+}
+
+var home_ball_movement: BallMovementPreference = BallMovementPreference.MUTUAL:
+	set(value):
+		home_ball_movement = value as BallMovementPreference
+
+
+func home_lateral_bias() -> float:
+	return BALL_MOVEMENT_BIAS[home_ball_movement]
+
+
+## Defensive pressure (Team Edit expansion): how tightly the HOME side
+## marks the ball carrier when defending. Consumed by AIBrain._think_
+## defend() — scales both the chase gait closing on the carrier and the
+## distance a defender commits to an actual tackle attempt from, together,
+## rather than as two separately-invented numbers. TIGHT closes and
+## commits earlier/from further out; LOOSE holds off longer on both;
+## BALANCED (default) is this project's original, un-tuned _think_defend
+## behaviour (multiplier 1.0) — not a new baseline, the existing one.
+enum DefensivePressure { LOOSE, BALANCED, TIGHT }
+
+const DEFENSIVE_PRESSURE_INTENSITY := {
+	DefensivePressure.LOOSE: 0.65,
+	DefensivePressure.BALANCED: 1.0,
+	DefensivePressure.TIGHT: 1.3,
+}
+
+var home_defensive_pressure: DefensivePressure = DefensivePressure.BALANCED:
+	set(value):
+		home_defensive_pressure = value as DefensivePressure
+
+
+func home_press_intensity() -> float:
+	return DEFENSIVE_PRESSURE_INTENSITY[home_defensive_pressure]
 
 
 signal camera_mode_changed(mode: FullGameCameraMode)
 signal mouse_kick_binding_changed(swapped: bool)
-signal formation_changed(index: int)
 
 
 func _ready() -> void:
@@ -106,6 +150,10 @@ func _load() -> void:
 		mouse_kick_swapped) as bool
 	home_formation_index = config.get_value(SECTION, "home_formation_index",
 		home_formation_index) as int
+	home_ball_movement = config.get_value(SECTION, "home_ball_movement",
+		home_ball_movement) as BallMovementPreference
+	home_defensive_pressure = config.get_value(SECTION, "home_defensive_pressure",
+		home_defensive_pressure) as DefensivePressure
 
 
 func save() -> void:
@@ -113,6 +161,8 @@ func save() -> void:
 	config.set_value(SECTION, "full_game_camera_mode", full_game_camera_mode)
 	config.set_value(SECTION, "mouse_kick_swapped", mouse_kick_swapped)
 	config.set_value(SECTION, "home_formation_index", home_formation_index)
+	config.set_value(SECTION, "home_ball_movement", home_ball_movement)
+	config.set_value(SECTION, "home_defensive_pressure", home_defensive_pressure)
 	config.save(SAVE_PATH)
 
 

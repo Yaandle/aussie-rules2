@@ -143,14 +143,28 @@ func _spawn_team(team: Tuning.Team, attack_direction: float) -> Array[PlayerCont
 		instance.position = slot
 		add_child(instance)
 
-		var brain := AIBrain.new()
-		brain.ball = _ball
-		brain.home_position = slot
-		brain.attack_direction = attack_direction
-		instance.set_brain(brain)
+		instance.set_brain(_configure_ai_brain(AIBrain.new(), team, attack_direction, slot))
 
 		players.append(instance)
 	return players
+
+
+## Threads Team Edit's ball-movement/defensive-pressure tactics (formation
+## is handled separately, via _kickoff_slot — this is the other half) into
+## a freshly-created AIBrain. Used both here and by _switch_human_player()'s
+## own hand-back AIBrain, so the two call sites can't drift about which
+## settings a HOME player's AI actually gets the moment nobody's driving
+## them. AWAY always keeps AIBrain's own un-tuned defaults — only the
+## human's own team is something Team Edit lets them shape.
+func _configure_ai_brain(brain: AIBrain, team: Tuning.Team, attack_direction: float,
+		home_position: Vector3) -> AIBrain:
+	brain.ball = _ball
+	brain.home_position = home_position
+	brain.attack_direction = attack_direction
+	if team == Tuning.Team.HOME:
+		brain.lateral_bias = Settings.home_lateral_bias()
+		brain.press_intensity = Settings.home_press_intensity()
+	return brain
 
 
 ## HOME (Team Edit expansion, polish-pass brief) lines up in whichever of
@@ -490,10 +504,7 @@ func _switch_human_player() -> void:
 	_controlled_index = (_controlled_index + 1) % count
 	var next := _home_players[_controlled_index]
 
-	var ai := AIBrain.new()
-	ai.ball = _ball
-	ai.home_position = previous.global_position
-	ai.attack_direction = 1.0
+	var ai := _configure_ai_brain(AIBrain.new(), Tuning.Team.HOME, 1.0, previous.global_position)
 	previous.set_brain(ai)
 	previous.camera = null
 

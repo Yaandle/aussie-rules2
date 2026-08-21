@@ -1033,24 +1033,35 @@ func catch_point_position() -> Vector3:
 	return _carry_point.global_position
 
 
-## Madden-style contest prompt (polish-pass brief: an (A)/(X)/(Y) icon over
-## the receiver's head showing which mark tiers are live right now).
+## Madden-style contest prompt (polish-pass brief) — the single tier
+## actually relevant right now, not every tier that would technically
+## connect (an early version of this showed all three simultaneously,
+## since Safe's reach always covers Running's narrower one and Aggressive's
+## MARK_CONTEST_RANGE is wider again — nearly every live moment had all
+## three "live" at once, which is correct but not useful as a prompt).
+##
 ## Reuses the exact reach tests _update_aerial_contest itself resolves
-## against — MARK_CONTEST_RANGE for Aggressive (a leap has to be committed
-## to from a real distance out, before the ball is actually in reach) and
-## _ball_in_catch_reach for Safe/Running — rather than a UI-only
-## approximation that could drift out of sync with what actually connects.
-func live_mark_prompts(ball: Ball) -> Array[Tuning.Action]:
-	var live: Array[Tuning.Action] = []
+## against, picking exactly one to recommend by the same speed-scale
+## reasoning the tiers themselves are already built on (Tuning's "Safe
+## plants you properly; Running barely interrupts your stride" comment):
+## Running is only the natural read while actually moving at pace: Safe is
+## the default the instant you're not; Aggressive is only ever the one
+## live option while the ball hasn't reached normal catching reach yet —
+## once it has, a leap stops being the natural action even though it
+## would still technically connect, so it stops being recommended.
+func live_mark_prompt(ball: Ball) -> Tuning.Action:
 	if not is_instance_valid(ball) or is_carrying() or not ball.is_airborne():
-		return live
+		return Tuning.Action.NONE
+	var running_live := _ball_in_catch_reach(ball, Tuning.MARK_RUNNING_REACH_SCALE)
+	if running_live and _speed > Tuning.JOG_SPEED:
+		return Tuning.Action.MARK_RUNNING
 	if _ball_in_catch_reach(ball, Tuning.MARK_SAFE_REACH_SCALE):
-		live.append(Tuning.Action.MARK_SAFE)
-	if _ball_in_catch_reach(ball, Tuning.MARK_RUNNING_REACH_SCALE):
-		live.append(Tuning.Action.MARK_RUNNING)
+		return Tuning.Action.MARK_SAFE
+	if running_live:
+		return Tuning.Action.MARK_RUNNING
 	if ball.global_position.distance_to(_carry_point.global_position) <= Tuning.MARK_CONTEST_RANGE:
-		live.append(Tuning.Action.MARK_AGGRESSIVE)
-	return live
+		return Tuning.Action.MARK_AGGRESSIVE
+	return Tuning.Action.NONE
 
 
 # ── Ruck contests ────────────────────────────────────────────────────

@@ -686,6 +686,13 @@ const AI_KICK_RANGE := 45.0            # m from goal at which a carrier shoots
 const AI_PRESSURE_RADIUS := 4.0        # m opponent proximity that forces a quick disposal
 const AI_SUPPORT_PULL := 0.35          # 0..1, how far off-ball players drift toward the ball
 
+## Team Edit expansion (polish-pass brief: Ball Movement preference — see
+## AIBrain._lateral_target_z()). How close to the actual boundary a fully
+## boundary-committed lateral target sits — short of 1.0 so "commits to the
+## wing" still means "runs it down the flank", not "hugs the out-of-bounds
+## line".
+const AI_BOUNDARY_LEAN_FRACTION := 0.85
+
 # A human notices a loose ball and starts moving with a beat of reaction
 # time; an AI polling ball.holder() every frame does not. Without this, AI
 # wins effectively every race to a loose ball (it also defaults to sprint
