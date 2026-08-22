@@ -41,6 +41,7 @@ func _ready() -> void:
 	_hud.player = _player
 	_hud.ball = _ball
 
+	AudioManager.register_player(_player)
 	_player.ball_disposed.connect(_on_ball_disposed)
 
 	_ball.reset_at(_field.centre())

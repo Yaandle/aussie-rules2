@@ -70,6 +70,8 @@ func _compose() -> String:
 			mark_bits.append("READYING")
 		if player.is_protected():
 			mark_bits.append("PROTECTED %0.1fs" % player.protected_seconds())
+		if player.is_standing_the_mark():
+			mark_bits.append("STANDING THE MARK")
 		lines.append("mark     %s" % (" / ".join(mark_bits) if not mark_bits.is_empty() else "-"))
 		if player.is_ruck_contestant():
 			lines.append("ruck     CONTESTING — RB to hit out")
@@ -90,8 +92,9 @@ func _compose() -> String:
 
 	lines.append("")
 	lines.append("WASD move   Ctrl walk   Shift sprint   arrows/mouse camera   C recentre")
-	lines.append("K hold+release kick   Q handball   Space bounce   E tackle   R reset ball   F3 hud")
-	lines.append("G hold safe mark/pickup   Q running mark   H aggressive mark (jump)")
+	lines.append("K hold kick stance (aim)   F kick execute   Q handball   Space bounce   E tackle")
+	lines.append("G hold safe mark/pickup   Q running mark   H aggressive mark (jump)   P spoil   L bump stance")
+	lines.append("J hit-out (ruck contest only)   R reset ball   F3 hud")
 	return "\n".join(lines)
 
 

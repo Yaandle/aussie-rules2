@@ -409,6 +409,7 @@ const QUARTER_LENGTH := 120.0          # s
 const QUARTERS_PER_MATCH := 4
 const QUARTER_BREAK_DURATION := 4.0    # s, paused between quarters
 const SCORE_PAUSE_DURATION := 3.0      # s, paused after a goal/behind
+const MATCH_END_FLASH_DURATION := 3.0  # s the "FULL TIME" scoreboard flash holds before MatchEndScreen
 const CENTRE_BOUNCE_DELAY := 1.0       # s from formation-set to the bounce
 const OUT_OF_BOUNDS_PAUSE_DURATION := 2.0   # s, paused for a boundary throw-in
 
@@ -454,6 +455,19 @@ const SPOIL_COOLDOWN := 0.6            # s between attempts — a tap, not a bat
 # set-shot/free-kick apparatus this project doesn't have yet, so nothing
 # consumes the signal today — a known, tracked gap, not a silent one.
 const PRIOR_OPPORTUNITY_GRACE := 0.5   # s
+
+# Free-kick/mark retreat distance — real AFL's "get back 10 metres" rule,
+# distinct from stand-the-mark (MARK_STAND_MIN_DISTANCE above): the ONE
+# nearest opponent stands exactly still (PlayerController.stand_the_mark),
+# while every OTHER opponent within this radius of wherever protection was
+# granted (a mark, a kick-in, a holding-the-ball free kick, an out-on-the-
+# full free kick) must clear out to it. Simplified to a freeze rather than
+# an active retreat-and-return (see PlayerController.grant_protection) —
+# same MVP scope as everywhere else "possession + protection at the right
+# spot" has been the deliberate stopping point (see docs/HANDOVER.md). This
+# is a real, well-known rule number, unlike Bump's dangerous-contact
+# threshold below, which genuinely has none to use.
+const FREE_KICK_RETREAT_DISTANCE := 10.0   # m
 
 # Smother (X tap, not carrying): closing down an opponent before their kick
 # leaves the boot. SMOTHER_RADIUS is deliberately tighter than TACKLE_RADIUS
@@ -704,13 +718,17 @@ const AI_LOOSE_BALL_REACTION_MAX := 0.40   # s
 
 
 # ── Training coaches ────────────────────────────────────────────────
-# Second of three (design brief): a kicking coach, now a marking coach and
-# a tackling coach later, all sharing the same proximity-trigger / dialogue
-# / challenge shape (kick_to_kick.gd's CoachKind-parameterised state
-# machine) — wiring any of this into Full Game is explicitly later work.
+# All three now exist (design brief): kicking, marking, and tackling —
+# all sharing the same proximity-trigger / dialogue / challenge shape
+# (kick_to_kick.gd's CoachKind-parameterised state machine) — wiring any of
+# this into Full Game is explicitly later work.
 const COACH_INTERACT_RADIUS := 2.5             # m, proximity that shows the prompt
 const COACH_STAND_OFFSET := Vector3(18.0, 0.0, 10.0)   # from field centre, kick_to_kick only
 const MARK_COACH_STAND_OFFSET := Vector3(-18.0, 0.0, 10.0)   # opposite half, clear of the kicking drill's target zone
+## Same X as the rival's own stand offset below, mirrored to +Z so it's
+## clear of both the kicking/marking coaches' shared Z=10 row and the
+## rival's own Z=-18 anchor.
+const TACKLE_COACH_STAND_OFFSET := Vector3(0.0, 0.0, 18.0)
 
 const KICK_CHALLENGE_TARGET_DISTANCE := 40.0   # m downfield of the player when accepted
 const KICK_CHALLENGE_TARGET_RADIUS := 3.0      # m, hit tolerance
@@ -735,6 +753,24 @@ const MARK_CHALLENGE_MAX_DISTANCE := 28.0      # m
 const MARK_CHALLENGE_TARGET_SPREAD := 4.0      # m random offset from the player's current spot per delivery
 const MARK_CHALLENGE_DELIVERY_DELAY := 1.4     # s, the coach "calling for it" before the ball leaves
 const MARK_CHALLENGE_NEXT_DELAY := 1.6         # s after an attempt resolves before the next delivery
+
+# Tackling coach (design brief's third and final planned coach): unlike the
+# other two, the "delivery" is the kick-to-kick rival itself, given the
+# ball and left to run on its own already-proven AIBrain — see
+# TackleChallenge's own header for why a live opponent rather than a
+# target/lobbed-ball drill.
+const TACKLE_CHALLENGE_ATTEMPTS := 5
+# How far ahead of the player (along the rival's own attack direction,
+# i.e. the direction it will actually run) each attempt starts it — close
+# enough that a committed chase can realistically close the gap, far
+# enough that ambling over there does not.
+const TACKLE_CHALLENGE_LEAD_DISTANCE := 9.0    # m
+const TACKLE_CHALLENGE_LATERAL_SPREAD := 3.0   # m random offset per attempt, same idea as MARK_CHALLENGE_TARGET_SPREAD
+# The safety valve every other challenge here gets for free from Ball.
+# is_settled() — a live AI carrier never "settles", so a hard time limit is
+# what actually ends an attempt nobody resolves in time.
+const TACKLE_CHALLENGE_TIME_LIMIT := 5.0       # s
+const TACKLE_CHALLENGE_NEXT_DELAY := 1.6       # s after an attempt resolves before the next one, matches MARK_CHALLENGE_NEXT_DELAY's pacing
 
 
 ## Maps a 0..1 gait scalar onto the three named speeds, so WALK_SPEED,

@@ -24,6 +24,7 @@ MatchState="*res://scripts/autoload/match_state.gd"
 CharacterProfile="*res://scripts/autoload/character_profile.gd"
 SceneWipe="*res://scripts/autoload/scene_wipe.gd"
 Settings="*res://scripts/autoload/settings.gd"
+AudioManager="*res://scripts/autoload/audio_manager.gd"
 
 [display]
 

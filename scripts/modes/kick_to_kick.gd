@@ -9,12 +9,12 @@ extends Node3D
 ## was left on (CharacterProfile) to the player it spawns.
 ##
 ## Also where the training coaches live (design brief): walk up to a coach,
-## X to talk, confirm to start a challenge. Two of the planned three are
-## here — kicking (kick at a downfield target) and marking (catch the
-## coach's deliveries) — sharing one CoachKind-parameterised prompt/
-## dialogue/challenge state machine rather than one copy per coach; a
-## tackling coach is the remaining, explicitly later, one. kick_to_kick
-## only for now — wiring any of this into Full Game is also later work.
+## X to talk, confirm to start a challenge. All three planned coaches are
+## here — kicking (kick at a downfield target), marking (catch the coach's
+## deliveries) and tackling (run down and tackle the rival before it gets
+## rid of the ball) — sharing one CoachKind-parameterised prompt/dialogue/
+## challenge state machine rather than one copy per coach. kick_to_kick
+## only for now — wiring any of this into Full Game is later work.
 ## See docs/HANDOVER.md for the full writeup, including which pieces here
 ## are rough placeholders standing in for UI this agent doesn't own.
 
@@ -24,16 +24,17 @@ const PLAYER_SCENE := preload("res://scenes/player/player.tscn")
 const COACH_SCENE := preload("res://scenes/mechanics/coach_npc.tscn")
 const KICK_CHALLENGE_SCENE := preload("res://scenes/mechanics/kick_challenge.tscn")
 const MARK_CHALLENGE_SCENE := preload("res://scenes/mechanics/mark_challenge.tscn")
+const TACKLE_CHALLENGE_SCENE := preload("res://scenes/mechanics/tackle_challenge.tscn")
+const PAUSE_SCREEN_SCENE := preload("res://scenes/ui/pause_screen.tscn")
 
 enum CoachState { NONE, PROMPT, DIALOGUE, CHALLENGE }
 
 ## Which coach _coach_state currently refers to. A player can only be in
 ## interact range of one coach at a time (they stand well apart), so one
-## shared prompt/dialogue/challenge state machine serves both rather than
-## duplicating it per coach — see _setup_coach/_spawn_coach and every
-## _active_coach branch below. Extend here, not by copy-pasting the state
-## machine, when the tackling coach (design brief's third) arrives.
-enum CoachKind { KICKING, MARKING }
+## shared prompt/dialogue/challenge state machine serves all three rather
+## than duplicating it per coach — see _setup_coach/_spawn_coach and every
+## _active_coach branch below.
+enum CoachKind { KICKING, MARKING, TACKLING }
 
 @onready var _field: Field = $Field
 @onready var _ball: Ball = $Ball
@@ -43,8 +44,10 @@ enum CoachKind { KICKING, MARKING }
 
 var _kicking_coach: CoachNPC
 var _marking_coach: CoachNPC
+var _tackling_coach: CoachNPC
 var _challenge: KickChallenge
 var _mark_challenge: MarkChallenge
+var _tackle_challenge: TackleChallenge
 var _coach_state := CoachState.NONE
 var _active_coach: CoachKind = CoachKind.KICKING
 var _crosshair: KickCrosshair
@@ -67,6 +70,7 @@ func _ready() -> void:
 	_player.kick_power_scale = CharacterProfile.kick_power
 	_player.kick_accuracy = CharacterProfile.kick_accuracy
 	(_player.get_node("Rig") as Node3D).scale = Vector3.ONE * CharacterProfile.height_scale()
+	AudioManager.register_player(_player)
 
 	_camera.target = _player
 	_camera.ball = _ball
@@ -98,8 +102,7 @@ func _ready() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"pause"):
-		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
-		SceneWipe.change_scene("res://scenes/ui/main_menu.tscn")
+		_open_pause_menu()
 		return
 	if event.is_action_pressed(&"debug_reset"):
 		_reset_ball()
@@ -116,6 +119,22 @@ func _unhandled_input(event: InputEvent) -> void:
 				_end_dialogue()
 
 
+## Esc used to hard-cut straight to the main menu — PauseScreen already
+## existed fully built and simply wasn't wired to anything (see
+## docs/FEATURE_AUDIT.md). Same paused-overlay shape full_game.gd now
+## uses; the one difference here is the mouse capture this scene sets in
+## _ready(), which has to be released while the (keyboard/gamepad-only)
+## pause menu is up and re-captured on resume.
+func _open_pause_menu() -> void:
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	var pause_screen := PAUSE_SCREEN_SCENE.instantiate()
+	pause_screen.process_mode = Node.PROCESS_MODE_ALWAYS
+	pause_screen.resumed.connect(func() -> void:
+		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED))
+	add_child(pause_screen)
+	get_tree().paused = true
+
+
 func _physics_process(_delta: float) -> void:
 	# Safety net, same as the sandbox's — the ball is a real rigid body,
 	# so it can genuinely be lost off the map.
@@ -130,14 +149,20 @@ func _physics_process(_delta: float) -> void:
 	# _on_coach_range_entered) and then dropped/disposed it while still
 	# standing there needs a live re-check, not just the one-shot signal.
 	if _coach_state == CoachState.NONE and not _player.is_carrying():
-		if not _check_coach_in_range(CoachKind.KICKING):
-			_check_coach_in_range(CoachKind.MARKING)
+		if not _check_coach_in_range(CoachKind.KICKING) and not _check_coach_in_range(CoachKind.MARKING):
+			_check_coach_in_range(CoachKind.TACKLING)
 
 	# Frozen for the duration of any coach dialogue/challenge (see Tuning's
 	# own "Kick-to-kick rival" comment) so a drill stays a clean 1-on-0 loop
 	# — resumes chasing/marking/tackling the instant the coach state clears.
+	# One deliberate exception: the tackling challenge IS the rival running
+	# around with the ball, so it stays live through exactly that one
+	# CHALLENGE state, frozen everywhere else (including its own PROMPT/
+	# DIALOGUE, same as the other two coaches).
 	if is_instance_valid(_rival):
-		_rival.set_physics_process(_coach_state == CoachState.NONE)
+		var rival_active := _coach_state == CoachState.NONE \
+			or (_coach_state == CoachState.CHALLENGE and _active_coach == CoachKind.TACKLING)
+		_rival.set_physics_process(rival_active)
 
 
 func _reset_ball() -> void:
@@ -145,6 +170,8 @@ func _reset_ball() -> void:
 		_challenge.force_miss()
 	if is_instance_valid(_mark_challenge):
 		_mark_challenge.force_miss()
+	if is_instance_valid(_tackle_challenge):
+		_tackle_challenge.force_miss()
 	_player.drop_ball()
 	if is_instance_valid(_rival):
 		_rival.drop_ball()
@@ -168,6 +195,7 @@ func _spawn_rival() -> void:
 	var stand := _field.centre() + Tuning.KICK_TO_KICK_RIVAL_OFFSET
 	rival.position = stand
 	add_child(rival)
+	AudioManager.register_player(rival)
 
 	var brain := AIBrain.new()
 	brain.ball = _ball
@@ -210,6 +238,12 @@ func _setup_coach() -> void:
 	_mark_challenge.challenge_ended.connect(_on_mark_challenge_ended)
 	_mark_challenge.hint_changed.connect(_set_hint_text)
 
+	_tackling_coach = _spawn_coach(Tuning.TACKLE_COACH_STAND_OFFSET, CoachKind.TACKLING)
+	_tackle_challenge = TACKLE_CHALLENGE_SCENE.instantiate()
+	add_child(_tackle_challenge)
+	_tackle_challenge.challenge_ended.connect(_on_tackle_challenge_ended)
+	_tackle_challenge.hint_changed.connect(_set_hint_text)
+
 
 ## Position before add_child(), same reasoning full_game.gd documents for
 ## spawning players: KickToKick sits at identity, so .position and
@@ -231,7 +265,13 @@ func _spawn_coach(stand_offset: Vector3, kind: CoachKind) -> CoachNPC:
 
 
 func _coach_node(kind: CoachKind) -> CoachNPC:
-	return _marking_coach if kind == CoachKind.MARKING else _kicking_coach
+	match kind:
+		CoachKind.MARKING:
+			return _marking_coach
+		CoachKind.TACKLING:
+			return _tackling_coach
+		_:
+			return _kicking_coach
 
 
 func _on_coach_range_entered(player: PlayerController, kind: CoachKind) -> void:
@@ -254,8 +294,14 @@ func _begin_dialogue() -> void:
 	var coach := _coach_node(_active_coach)
 	coach.face_toward(_player.global_position)
 	_camera.enter_dialogue(coach, _player)
-	var offer := "Want to practice your kicking?" if _active_coach == CoachKind.KICKING \
-		else "Want to work on your marking?"
+	var offer: String
+	match _active_coach:
+		CoachKind.MARKING:
+			offer = "Want to work on your marking?"
+		CoachKind.TACKLING:
+			offer = "Want to work on your tackling?"
+		_:
+			offer = "Want to practice your kicking?"
 	_set_hint_text("Coach: \"%s\"   Y: Yes   N: No" % offer)
 
 
@@ -283,10 +329,13 @@ func _accept_challenge() -> void:
 	# right here — nothing to kick unless a fresh ball is put in their
 	# hands, same placement _reset_ball()'s safety net already uses.
 	_reset_ball()
-	if _active_coach == CoachKind.MARKING:
-		_mark_challenge.begin(_ball, _player, _coach_node(CoachKind.MARKING).global_position)
-	else:
-		_challenge.begin(_ball, _pick_target_position())
+	match _active_coach:
+		CoachKind.MARKING:
+			_mark_challenge.begin(_ball, _player, _coach_node(CoachKind.MARKING).global_position)
+		CoachKind.TACKLING:
+			_tackle_challenge.begin(_ball, _player, _rival)
+		_:
+			_challenge.begin(_ball, _pick_target_position())
 
 
 func _pick_target_position() -> Vector3:
@@ -307,6 +356,12 @@ func _on_kick_challenge_ended(hits: int, attempts_total: int) -> void:
 func _on_mark_challenge_ended(hits: int, attempts_total: int) -> void:
 	_coach_state = CoachState.NONE
 	_set_hint_text("Practice done — %d/%d marked. Walk back to the coach to go again."
+		% [hits, attempts_total])
+
+
+func _on_tackle_challenge_ended(hits: int, attempts_total: int) -> void:
+	_coach_state = CoachState.NONE
+	_set_hint_text("Practice done — %d/%d tackled. Walk back to the coach to go again."
 		% [hits, attempts_total])
 
 

@@ -105,6 +105,25 @@ var _stun_timer := 0.0
 ## protection mechanism a future kick-in's goal square will use.
 var _protected_timer := 0.0
 
+## Seconds left frozen in place — the *other* half of stand-the-mark
+## (RULES_REFERENCE.md's MARK_STAND_MIN_DISTANCE entry): a legal mark
+## doesn't just protect the taker from being tackled, it obliges the
+## nearest opponent to stand where they are until the mark-taker plays on.
+## Purely a movement freeze (see _update_locomotion) — unlike _stun_timer,
+## a frozen player can still act, they just can't reposition. Set on the
+## OPPONENT by _apply_stand_the_mark(), not on the mark-taker themselves.
+var _frozen_timer := 0.0
+
+## Every opponent this player is currently obliging to hold position, for
+## whatever reason — the one direct opponent standing the mark exactly
+## (_apply_stand_the_mark) plus anyone else caught inside the 10m retreat
+## radius (grant_protection's own _apply_retreat_freeze) — kept so a
+## disposal can release all of them early (real AFL: everyone's free to
+## move the instant the kick is taken or the mark-taker plays on, not just
+## once the full 5s window lapses). Cleared alongside _protected_timer in
+## _dispose()/drop_ball().
+var _frozen_opponents: Array[PlayerController] = []
+
 ## True for exactly one physics frame: set by _begin_aggressive_mark(),
 ## consumed by the gravity block in _physics_process so the jump impulse
 ## lands after the floor-snap/gravity assignment rather than being
@@ -241,6 +260,7 @@ func _physics_process(delta: float) -> void:
 	_gather_cooldown = maxf(0.0, _gather_cooldown - delta)
 	_stun_timer = maxf(0.0, _stun_timer - delta)
 	_protected_timer = maxf(0.0, _protected_timer - delta)
+	_frozen_timer = maxf(0.0, _frozen_timer - delta)
 	_spoil_cooldown = maxf(0.0, _spoil_cooldown - delta)
 	_bump_cooldown = maxf(0.0, _bump_cooldown - delta)
 	_lunge_cooldown = maxf(0.0, _lunge_cooldown - delta)
@@ -313,6 +333,16 @@ func _update_locomotion(delta: float) -> void:
 		_speed = Tuning.TACKLE_LUNGE_SPEED
 		velocity.x = _heading.x * _speed
 		velocity.z = _heading.z * _speed
+		return
+
+	# Stand-the-mark: this player has been obliged to hold their ground by
+	# an opponent's legal mark (see _apply_stand_the_mark). Input is simply
+	# ignored for movement purposes — facing/actions are untouched, only
+	# repositioning is blocked, same as the real rule.
+	if _frozen_timer > 0.0:
+		_speed = 0.0
+		velocity.x = 0.0
+		velocity.z = 0.0
 		return
 
 	var wish := _brain.wish_direction(self)
@@ -548,6 +578,27 @@ func is_protected() -> bool:
 ## with no extra code needed here for that.
 func grant_protection(duration: float) -> void:
 	_protected_timer = maxf(_protected_timer, duration)
+	_apply_retreat_freeze(duration)
+
+
+## True while obliged to stand the mark — see _frozen_timer.
+func is_standing_the_mark() -> bool:
+	return _frozen_timer > 0.0
+
+
+## Called on the opponent by whoever just took a legal mark
+## (_apply_stand_the_mark) — freezes movement for `duration` seconds.
+func stand_the_mark(duration: float) -> void:
+	_frozen_timer = maxf(_frozen_timer, duration)
+
+
+## Releases early — called on every entry in _frozen_opponents the instant
+## the mark-taker/free-kick-taker disposes, so a frozen player isn't held
+## past the moment the rule actually requires (real AFL: free to move once
+## the kick is taken or the mark-taker plays on, not just once the full
+## window lapses).
+func release_stand_the_mark() -> void:
+	_frozen_timer = 0.0
 
 
 ## Public entry point onto the same shared attach/possession/signal path
@@ -574,6 +625,7 @@ func drop_ball() -> void:
 	_hip_fire_kick = false
 	_gather_cooldown = Tuning.GATHER_COOLDOWN
 	_protected_timer = 0.0
+	_release_frozen_opponents()
 	if MatchState.possession == team:
 		MatchState.possession = Tuning.Team.NONE
 
@@ -863,6 +915,64 @@ func _try_bump(flick_raw: Vector2) -> void:
 	bump_landed.emit(self, carrier, clean)
 
 
+## Stand-the-mark (RULES_REFERENCE.md's MARK_STAND_MIN_DISTANCE entry): a
+## legal mark obliges the nearest opponent — no player-marking assignment
+## exists in this project, so "nearest at the moment of the mark" stands in
+## for "whoever the umpire would call the mark against" — to hold their
+## ground until this player disposes. Scoped to marks only, not free kicks/
+## kick-ins: those already reuse _protected_timer for the taker's own
+## immunity, but the broader "every other opponent retreats 10m" rule is a
+## separate, bigger piece of work (see docs/FEATURE_AUDIT.md) left for when
+## the rest of the free-kick/set-shot apparatus gets built.
+func _apply_stand_the_mark() -> void:
+	var opponent := _nearest_opponent()
+	if opponent == null:
+		return
+	opponent.stand_the_mark(Tuning.MARK_HOLD_DURATION)
+	if opponent not in _frozen_opponents:
+		_frozen_opponents.append(opponent)
+
+
+## The general "get back 10 metres" rule (Tuning.FREE_KICK_RETREAT_
+## DISTANCE) — every opponent within range of THIS player's current
+## position, not just the one _apply_stand_the_mark() names. Called from
+## grant_protection() itself so all four moments that grant it (a legal
+## mark, a protected kick-in, a holding-the-ball free kick, an out-on-the-
+## full free kick) get the same retreat for free, with nothing extra
+## needed at any of those call sites.
+func _apply_retreat_freeze(duration: float) -> void:
+	for node in get_tree().get_nodes_in_group(&"players"):
+		var other := node as PlayerController
+		if other == null or other == self or other.team == team:
+			continue
+		if global_position.distance_to(other.global_position) > Tuning.FREE_KICK_RETREAT_DISTANCE:
+			continue
+		other.stand_the_mark(duration)
+		if other not in _frozen_opponents:
+			_frozen_opponents.append(other)
+
+
+func _release_frozen_opponents() -> void:
+	for opponent in _frozen_opponents:
+		if is_instance_valid(opponent):
+			opponent.release_stand_the_mark()
+	_frozen_opponents.clear()
+
+
+func _nearest_opponent() -> PlayerController:
+	var best: PlayerController = null
+	var best_dist := INF
+	for node in get_tree().get_nodes_in_group(&"players"):
+		var other := node as PlayerController
+		if other == null or other == self or other.team == team:
+			continue
+		var dist := global_position.distance_to(other.global_position)
+		if dist < best_dist:
+			best_dist = dist
+			best = other
+	return best
+
+
 func _nearest_opposing_carrier() -> PlayerController:
 	var best: PlayerController = null
 	var best_dist := INF
@@ -977,7 +1087,8 @@ func _complete_mark(ball: Ball, tier: Tuning.Action) -> void:
 	var legal_mark := ball.is_mark_eligible()
 	_complete_gather(ball)
 	if legal_mark:
-		_protected_timer = Tuning.MARK_HOLD_DURATION
+		grant_protection(Tuning.MARK_HOLD_DURATION)
+		_apply_stand_the_mark()
 	_mark_readying = false
 	_begin(tier)
 	if _brain is HumanBrain:
@@ -1007,7 +1118,8 @@ func _resolve_aggressive_mark() -> void:
 		var legal_mark := ball.is_mark_eligible()
 		_complete_gather(ball)
 		if legal_mark:
-			_protected_timer = Tuning.MARK_HOLD_DURATION
+			grant_protection(Tuning.MARK_HOLD_DURATION)
+			_apply_stand_the_mark()
 		if _brain is HumanBrain:
 			InputManager.rumble(Tuning.RUMBLE_MARK)
 		mark_caught.emit(Tuning.Action.MARK_AGGRESSIVE, legal_mark)
@@ -1488,6 +1600,7 @@ func _dispose() -> void:
 	_carry_distance = 0.0
 	_gather_cooldown = Tuning.GATHER_COOLDOWN
 	_protected_timer = 0.0   # playing on forfeits stand-the-mark protection
+	_release_frozen_opponents()
 	if _action != Tuning.Action.BOUNCE:
 		MatchState.possession = Tuning.Team.NONE
 	if _brain is HumanBrain:

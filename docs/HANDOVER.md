@@ -2886,3 +2886,625 @@ stacking). Not touched: `scripts/ui/settings_screen.gd` (its `Row` class
 was reused as-is, nothing about it needed to change), `scripts/ui/
 formation_whiteboard.gd` (last entry's `selected_indices` highlight
 already covers what this needed).
+
+---
+
+## Handover — feature audit, then stand-the-mark, out-on-the-full, pause/match-end wiring (Agent: general)
+
+First pass working down `docs/FEATURE_AUDIT.md`'s own priority roadmap
+(new this session — a from-scratch inventory of the whole project against
+current code, not assumed from this file's own prose; see that doc for
+the full current-state breakdown). This entry covers the "implemented but
+buggy" and "partially implemented" items that were unambiguous enough to
+build without a design call, plus the two "present in code but not
+exposed" screens. Left alone, deliberately: bump's dangerous-contact free
+kick and the AI behaviour gaps (spoil/smother/bump/hit-out/Running-
+Aggressive marks) — both need a real decision from the user (AFL rule
+numbers that don't exist yet in RULES_REFERENCE.md, and a scope call on
+whether "not a tactics system" should still hold), not a guess.
+
+### 1. Buggy fixes
+
+`scripts/ui/debug_hud.gd`'s control-hint text still described the
+pre-ADS-stance kick model (`"K hold+release kick"`) and had never
+mentioned spoil/bump/hit-out at all. Rewritten to match the actual current
+bindings. `README.md` was rewritten wholesale — it still described the
+milestone-1 sandbox (one player, "no menus... yet", a 446-line
+`player_controller.gd`) despite the real file being well over 3x that and
+the project having had a full menu system, marking, ruck, bump, kick-ins
+and Team Edit for a long time. Points to `docs/FEATURE_AUDIT.md` and this
+file for anything more detailed than a README should carry, rather than
+re-inlining a per-file line-count table that goes stale within a session.
+
+### 2. Stand-the-mark
+
+`RULES_REFERENCE.md`'s `MARK_STAND_MIN_DISTANCE` entry was already half
+built — `is_protected()`/`_protected_timer` stop the mark-taker being
+tackled, but nothing stopped the *opponent* just walking up and
+repositioning, which is the actual rule. New, symmetrical mechanism on
+`PlayerController`: `_frozen_timer` (parallel to `_protected_timer`, same
+duration) plus `stand_the_mark()`/`is_standing_the_mark()`/
+`release_stand_the_mark()`. Purely a movement freeze — an early branch in
+`_update_locomotion()` right after the knockback/lunge overrides, zeroing
+velocity and returning before any brain input is read — so a frozen player
+can still act, just not reposition, matching the real rule.
+
+This project has no player-marking assignment (no concept of "whose
+opponent" anyone is), so `_apply_stand_the_mark()` uses the nearest
+opponent at the moment of the mark, the same "nearest player" pattern
+`full_game.gd`'s own kick-in/throw-in code already uses elsewhere. Called
+from both `_complete_mark()` (Safe/Running) and `_resolve_aggressive_mark()`
+— both already compute `legal_mark`, so the hook is one line each. The
+mark-taker tracks `_stood_opponent` and calls `release_stand_the_mark()` on
+them from both `_dispose()` and `drop_ball()` — real AFL releases the man
+on the mark the instant the kick is taken or the mark-taker plays on, not
+only once the full 5s window lapses, so an early release needed its own
+explicit hook rather than just letting the timer run out.
+
+Deliberately scoped to legal marks only, not free kicks/kick-ins — those
+already reuse `_protected_timer` for the *taker's* immunity, but "every
+other opponent retreats 10m" is a bigger, separate piece of the free-kick/
+set-shot apparatus `docs/FEATURE_AUDIT.md` flags as still open, not folded
+in here as a guess.
+
+### 3. Out on the full
+
+`Ball` gained `_kick_team` (set alongside `_is_kick_flight`/`_flight_origin`
+in `launch()`, cleared everywhere `_is_kick_flight` already gets cleared —
+landing, `attach_to()`, `knock()`, `reset_at()`) and two public getters,
+`is_kick_flight()` (like `is_mark_eligible()` but with no
+`MARK_STAND_MIN_DISTANCE` floor — out on the full has no minimum-distance
+rule the way a legal mark does) and `kick_team()`. `_carrier` itself
+couldn't be reused for this — it's cleared after `RELEASE_GRACE` (0.25s),
+long before a kick's actual flight time.
+
+`full_game.gd._check_out_of_bounds()` now also runs
+`_check_out_on_the_full()` every frame a kick is a live, airborne,
+uninterrupted flight: tracks the previous frame's position, and the moment
+it was inside the oval last frame and outside this frame, bisects the
+segment between them (8 iterations against `Field.is_inside_oval`) for the
+actual crossing point, per this project's own memory of how Prototype 1
+approached the same problem. `_trigger_out_on_the_full()` awards the free
+kick to the non-kicking side from that point, reusing the exact same
+`give_possession()`/`grant_protection()` triad the protected kick-in and
+the holding-the-ball free kick already reuse from each other — freezing the
+ball at the crossing spot immediately (same "settle before the pause, not
+after" shape every other stoppage in this file uses) rather than letting it
+keep sailing out over the fence for the 2s pause window.
+`_throw_in_point()` (previously only used for a settled-outside ball) is
+reused as-is for the crossing point too — the same radial pull-back works
+regardless of how far out the input point is.
+
+### 4. PauseScreen and MatchEndScreen wired in
+
+Both screens were fully built and simply never instantiated — Esc mid-match
+hard-cut straight to the main menu with zero confirmation
+(`get_tree().change_scene_to_file` direct in both `full_game.gd` and
+`kick_to_kick.gd`), and full time dead-ended in a scoreboard flash held for
+`999999.0` seconds with no way onward. `PauseScreen.resume()`'s own header
+comment already documented exactly how to wire it as a real overlay; this
+pass did that literally. `full_game.gd._open_pause_menu()`/
+`kick_to_kick.gd._open_pause_menu()`: instantiate `PauseScreen`, set
+`process_mode = PROCESS_MODE_ALWAYS` (the one thing that lets it keep
+receiving input while `get_tree().paused` freezes everything else — every
+other node in both scenes is default `PROCESS_MODE_INHERIT`, so setting
+`paused = true` genuinely freezes players/ball/the mode's own
+`_physics_process` exactly where they are), `add_child`, then
+`get_tree().paused = true`. `PauseScreen` gained a `resumed` signal, emitted
+right before it frees itself on the RESUME path (not the QUIT path, which
+changes scene instead) — `kick_to_kick.gd` listens for it to re-capture the
+mouse cursor it explicitly releases while the pause menu is up (this
+scene's own `_ready()` captures it; `full_game.gd` never uses mouse capture,
+so it doesn't need the same hook, but the signal exists generically either
+way).
+
+`full_game.gd._finish_match()` now holds the "FULL TIME" flash for
+`Tuning.MATCH_END_FLASH_DURATION` (3.0s, new constant) via the same
+`_start_pause()`/callback mechanism every other stoppage in this file
+already uses, then calls `SceneWipe.change_scene(MATCH_END_SCREEN_PATH)` —
+`MatchEndScreen` reads `MatchState.scoreline()` fresh in its own `_ready()`,
+untouched by anything in between since nothing resets `MatchState` until a
+new match actually starts, so no data needs passing across the scene swap.
+
+### Verification
+
+`--headless --editor --quit` rescan (`PauseScreen`'s new `signal resumed`
+needed nothing re-registered, but run anyway per this project's own
+standing discipline), then all six scenes this project's memory documents
+as the standard smoke-test set (`full_game`/`kick_to_kick`/`main_menu`/
+`character_screen`/`team_list_screen`/`settings_screen`), all exit 0, zero
+errors, both before and after every change in this pass.
+
+Beyond the headless boots, two scripted-physics scratch harnesses
+(positional-scene-argument form, real autoloads, deleted after — not
+committed, same discipline every prior entry in this file has used):
+
+1. **Stand-the-mark + out-on-the-full**, driving real `Player`/`Ball`/
+   `Field` scenes (stand-the-mark) and a real `full_game.tscn` instance
+   with every player but one scripted actor frozen via
+   `set_physics_process(false)` (out-on-the-full, to eliminate any chance
+   of ambient AI interference) under real Jolt physics. Results: a legal
+   Safe Mark correctly set both `home.is_protected()` and
+   `away.is_standing_the_mark()`; the frozen opponent drifted 0.0075m over
+   0.5s of continuously-held rightward input; `drop_ball()` released them
+   immediately (`is_standing_the_mark()` false the very next frame), and
+   they then moved 0.878m in the following 0.4s, confirming genuine
+   release rather than just a flag flip. A HOME player kicked from 58m
+   downfield of the +Z boundary correctly triggered `GameState.phase ==
+   STOPPAGE` at t=1.10s (still well inside a kick's multi-second flight
+   time), and the stoppage resolved into an AWAY player carrying,
+   protected, positioned at `z=65.40` (just inside the `z=67.5` boundary).
+2. **Pause overlay + match-end wiring**, nested under a
+   `PROCESS_MODE_ALWAYS` test driver (a real bug in the test itself, not
+   the game, on the first attempt: the driver's own `_physics_process`
+   deadlocked the instant it set `get_tree().paused = true`, since it
+   hadn't given *itself* the same `PROCESS_MODE_ALWAYS` every real caller
+   needs — silent zero-output hang at `--quit-after 300` until fixed,
+   worth recording as the same "looks like a bug, is actually the test"
+   category this project's own history already has an example of). Once
+   fixed: `_open_pause_menu()` set `get_tree().paused` true, produced a
+   `PauseScreen` child with `PROCESS_MODE_ALWAYS` set; `resume()` unpaused
+   immediately and the node was confirmed freed one frame later;
+   `_finish_match()` set `GameState.phase == FINISHED`, armed
+   `_pause_timer` at `Tuning.MATCH_END_FLASH_DURATION` (read back as
+   2.98s, matching the ~1-frame decrement already elapsed by the time the
+   check ran), and `_pause_callback` was confirmed bound to
+   `_show_match_end_screen` by name via `Callable.get_method()`. The
+   actual `SceneWipe.change_scene()` scene-swap was deliberately not
+   forced to run for real inside this harness — replacing
+   `get_tree().current_scene` would have torn down the test's own root
+   out from under itself, since `full_game` was nested as a child rather
+   than booted as the real scene root — so this checks the new glue
+   (timer, callback, target path existing via `ResourceLoader.exists()`)
+   and trusts `SceneWipe.change_scene()` itself, which is already proven
+   by heavy existing use elsewhere in this project (main menu, character
+   screen, team list, settings screen all transition through it
+   successfully today).
+
+**No human/pad verification was possible in this environment** — same
+standing limitation every mechanics-focused entry in this file has flagged
+from the start. Everything above is verified as reasoned-through and
+numerically confirmed against real physics/state, not confirmed to feel
+right at the stick — stand-the-mark's freeze in particular will want a
+human check for whether "input simply does nothing" reads as intended or
+needs its own feedback (a HUD callout beyond `DebugHud`'s diagnostic line
+already exists for it).
+
+### Known limitations / unresolved (carried forward, from `docs/FEATURE_AUDIT.md`)
+
+- **The rest of the free-kick/set-shot apparatus** — a shot clock, real
+  opponent retreat distance (beyond the one direct opponent stand-the-mark
+  now covers), and an explicit shoot-vs-play-on moment — is still open.
+  Stand-the-mark and out-on-the-full close two named pieces of it; the
+  rest needs design decisions this pass didn't have (how long a shot
+  clock, how "10m retreat" should read given no player-marking assignment
+  exists).
+- **Bump's dangerous-contact free kick** — still not built, still blocked
+  on `RULES_REFERENCE.md` having no distance/angle/force/timing threshold
+  to judge "dangerous" by. `bump_landed(bumper, carrier, clean)` remains
+  the hook.
+- **AI never attempts Running/Aggressive marks, spoil, smother, bump, or a
+  ruck Hit-Out** — unchanged, still a deliberate scope decision per this
+  project's own "not a tactics system" baseline, not touched this pass.
+- **Audio** — still entirely absent. Nearly every mechanic touched this
+  session (a completed mark, a frozen opponent, an awarded free kick, a
+  paused/resumed match, full time) is exactly the kind of moment that
+  wants a sound and doesn't have one yet.
+
+### Files changed
+
+`scripts/ui/debug_hud.gd` (control hints, stand-the-mark diagnostic line),
+`README.md` (rewritten), `scripts/player/player_controller.gd`
+(stand-the-mark state/methods), `scripts/ball/ball.gd` (`_kick_team`,
+`is_kick_flight()`, `kick_team()`), `scripts/modes/full_game.gd`
+(out-on-the-full detection/award, pause overlay, match-end hand-off),
+`scripts/modes/kick_to_kick.gd` (pause overlay), `scripts/ui/
+pause_screen.gd` (`resumed` signal, doc comment), `scripts/tuning.gd`
+(`MATCH_END_FLASH_DURATION`). New: `docs/FEATURE_AUDIT.md` (this
+session's own starting point — a full current-state inventory and
+priority roadmap, written before any of the above was touched). Not
+touched: `scripts/ui/match_end_screen.gd` (used exactly as it already
+was — no changes needed to make it a valid hand-off target), anything
+mark/animation-, camera-, or AI-behaviour-related.
+
+---
+
+## Handover — 10m retreat rule, placeholder SFX pass (Agent: general)
+
+Direct continuation of the entry above, same session: asked to keep going
+down `docs/FEATURE_AUDIT.md`'s roadmap. Two of the three open items from
+last entry got a real default rather than staying blocked — the third
+(bump's dangerous-contact free kick) stays untouched on purpose, for the
+same reason as before: no AFL number exists anywhere in this project to
+judge "dangerous" by, and inventing one contradicts `RULES_REFERENCE.md`'s
+own explicit stance against exactly that. The set-shot apparatus's
+remaining half (a shot clock, an explicit shoot-vs-play-on moment) is pure
+invented feel with no rule number to anchor it either, so it's also left
+for a real design pass rather than guessed at here.
+
+### 1. The general 10m retreat rule
+
+Real AFL: the one opponent standing the mark (built last entry) holds
+their exact ground, but *every other* opponent within 10 metres of the
+mark/free-kick/kick-in spot has to clear out to it too — a real, widely-
+known rule number, unlike Bump's threshold. `PlayerController._stood_
+opponent` (singular) became `_frozen_opponents` (`Array[PlayerController]`),
+and a new `_apply_retreat_freeze(duration)` walks every opposing player
+within `Tuning.FREE_KICK_RETREAT_DISTANCE` (10.0m, new constant) and calls
+the same `stand_the_mark()`/`release_stand_the_mark()` pair the direct-
+opponent rule already uses — no new freeze mechanism, just a second way to
+arm the one that already existed.
+
+The natural hook turned out to be `grant_protection()` itself: every place
+that already calls it (`full_game.gd`'s kick-in, holding-the-ball free
+kick, and this session's earlier out-on-the-full award) now gets the
+retreat for free, with zero changes needed at any of those three call
+sites. Marks used to set `_protected_timer` directly instead of calling
+`grant_protection()` — changed to call it (`_complete_mark`/
+`_resolve_aggressive_mark`), which behaves identically for the timer itself
+(`maxf(_protected_timer, duration)` vs. a plain assignment are the same
+thing starting from a fresh mark) and picks up the retreat as a side
+effect, alongside the existing explicit `_apply_stand_the_mark()` call for
+the one direct opponent. A pack mark can now legitimately freeze 2-3
+opponents at once at this roster size (`Tuning.TEAM_SIZE = 4`), which is
+the correct, realistic outcome of a contested mark near goal, not a bug.
+
+Deliberately still a freeze, not an active retreat-and-return — same MVP
+scope every other "possession + protection at the right spot" moment in
+this project has already settled for (see the previous entry, and every
+kick-in/holding-the-ball entry before it). An opponent already standing
+inside 10m when protection is granted stays exactly where they are rather
+than being walked backward to the line; worth revisiting if it reads as
+wrong once played.
+
+### 2. Placeholder SFX
+
+New autoload `AudioManager` (`scripts/autoload/audio_manager.gd`), added
+to `project.godot` after `Settings`. Every clip is synthesized in code at
+startup — a short sine or noise burst shaped by an exponential decay
+envelope, nothing filtered or layered beyond that — the same "prove the
+system, no imported assets" stance this project has taken with the rig and
+every mesh/animation since milestone 1; `assets/audio/` stays an empty
+`.gitkeep`. A small 8-voice round-robin pool of plain `AudioStreamPlayer`
+nodes (non-positional — this is a broadcast-camera game, not first-person,
+so flat 2D audio reads fine for a placeholder pass) handles overlap by
+stealing the oldest voice rather than growing dynamically.
+
+**Wired to signals that already existed, not new hooks invented for
+audio.** `AudioManager.register_player(player)` — called once per spawn
+site (`full_game.gd._spawn_team`, `kick_to_kick.gd._ready`/`_spawn_rival`,
+`main.gd._ready`, the same explicit-wiring-at-spawn convention `full_game.
+gd` already used for `field_ball_up_called`/`holding_the_ball_called`) —
+connects `ball_disposed` (kick/handball/bounce), `mark_caught`/
+`mark_missed`, `hit_out_resolved`, `bump_landed`, and both tackle signals
+(`holding_the_ball_called`/`field_ball_up_called`, which — per their own
+doc comments — only ever fire on the tackled player, covering every tackle
+between them). `AudioManager.register_field(field)` (full_game.gd only —
+kick_to_kick has no scoring) connects `Field.scored` for goal/behind.
+Match-flow moments with no natural per-instance signal (stoppage whistles,
+full time) are called directly from `full_game.gd`, at the exact same
+lines that already call `Scoreboard.flash()` for the same moments — the
+established "this is where a match beat gets announced" convention in that
+file, not a new pattern.
+
+**Master Volume, made real.** `settings_screen.gd`'s own header comment
+already flagged this row as pure decoration ("nothing in the project reads
+audio... settings yet") — no longer true, so it's wired: `Settings.
+master_volume` (0..1, persisted alongside the other four settings in
+`user://settings.cfg`, default 1.0 so audio is on unless a player turns it
+down), a `VOLUME_STEPS` table (`0/0.25/0.5/0.75/1.0`) maps the row's five
+options either way, and `AudioManager._play()` reads it directly on every
+playback (`linear_to_db(Settings.master_volume)` added to each clip's own
+`volume_db`) — no signal needed the way `full_game_camera_mode`'s live-
+apply needs one, since this is only ever read at the moment a sound
+actually fires, never cached ahead of time. `master_volume <= 0.0` short-
+circuits `_play()` before it touches the voice pool at all, so muting is a
+real gate, not just an inaudibly-quiet playback.
+
+**Not done, on purpose.** Music, crowd ambience, and UI navigation sounds
+(menu move/confirm) — none of those have an existing signal this pass
+could hook the same way, and inventing menu-sound design wasn't part of
+what was asked. `Ball.landed` (a ball touching down) was deliberately not
+wired — `is_airborne()`'s height-threshold definition means a single kick
+landing and rolling could cross that threshold repeatedly as it bounces
+down the field, and wiring it without checking for that risked a noisy,
+spammy result; left for a session that can actually listen to it.
+
+### Verification
+
+`--headless --editor --quit` rescan, then the full seven-scene smoke-test
+set this project's memory now documents (`main`/`full_game`/`kick_to_kick`/
+`main_menu`/`character_screen`/`team_list_screen`/`settings_screen`), all
+exit 0, zero errors, both before and after every change.
+
+Two more scripted-physics scratch harnesses (same discipline as the entry
+above — positional-scene-argument form, real autoloads, deleted after):
+
+1. **10m retreat**, three real players (`Player`/`Ball`/`Field`, real Jolt
+   physics): an opponent 5m from a legal mark (inside both the retreat
+   radius and, incidentally, the nearest-opponent stand-the-mark test) came
+   up frozen; one at 12m (outside the retreat, not the nearest) stayed
+   free — confirming the two mechanisms are actually distinguishing by
+   distance, not just both firing on anything nearby. `drop_ball()`
+   released the 5m opponent immediately, as expected.
+2. **AudioManager**, no scene beyond a bare test root (no field/physics
+   needed — this exercises signal wiring and the synth/playback pipeline,
+   not gameplay): confirmed the voice pool is the configured size and
+   `_clip_kick` actually contains synthesized sample data (not null/empty);
+   a direct call started real playback on the expected voice with the
+   expected clip; setting `Settings.master_volume = 0.0` and repeating the
+   same call left the voice pool completely untouched (`_play()`'s early
+   return, not just an inaudible volume); a *real* `PlayerController`,
+   registered via `register_player()`, emitting its own `mark_caught`
+   signal reached a voice correctly end to end, not just the direct-call
+   path; and `settings_screen.tscn`'s actual MASTER VOLUME row seeded at
+   "100%" from `Settings.master_volume` and cycling it left set
+   `Settings.master_volume` to exactly 0.75, confirming the row's `on_
+   change` wiring works through the real screen, not just the setter in
+   isolation.
+
+**No human ears have heard any of this** — the same standing limitation
+every entry in this file has flagged for anything requiring a human sense,
+now extended from "no eyes" to "no eyes or ears." Godot's headless build
+uses a dummy audio driver: playback state (`AudioStreamPlayer.playing`,
+which voice/clip got used) is real and was verified for real, but nothing
+about how any of these clips actually *sound* — pitch choices, decay
+rates, whether "sine burst" reads as intended per event — has been
+confirmed, only reasoned about from first principles (percussive events
+get noise, signal events get a clean tone). Wants a real playthrough with
+speakers on before any of the specific synth parameters
+(`_build_clips()`'s durations/decays/frequencies) should be trusted beyond
+"plays, doesn't crash, roughly the right shape of sound for the event."
+
+### Known limitations / unresolved (carried forward)
+
+- **Bump's dangerous-contact free kick** — still not built, still
+  genuinely blocked on a missing rule number, not a guess away from done.
+- **Shot clock / explicit shoot-vs-play-on** — the 10m retreat closes the
+  distance half of the set-shot apparatus; the timing half is still open,
+  and still needs a real design pass rather than an invented number.
+- **AI behaviour scope** (spoil/smother/bump/hit-out/Running-Aggressive
+  marks) — untouched, still the project's own "not a tactics system"
+  baseline.
+- **Music, crowd ambience, UI sounds** — see "Not done, on purpose" above.
+- **`Ball.landed` unwired** — same section; needs a spam-check before it's
+  safe to hook.
+
+### Files changed
+
+`scripts/tuning.gd` (`FREE_KICK_RETREAT_DISTANCE`), `scripts/player/
+player_controller.gd` (`_frozen_opponents` array, `_apply_retreat_freeze`,
+marks now call `grant_protection()`), `scripts/autoload/settings.gd`
+(`master_volume`, persistence), `scripts/ui/settings_screen.gd` (MASTER
+VOLUME row wired live, `_volume_index`/`_set_master_volume`), `scripts/
+modes/full_game.gd` (`register_field`/`register_player` calls,
+`play_whistle()`/`play_full_time()` at existing `Scoreboard.flash()`
+sites), `scripts/modes/kick_to_kick.gd` (`register_player` for `_player`/
+`_rival`), `scripts/main.gd` (`register_player` for the milestone-1
+sandbox), `project.godot` (`AudioManager` autoload only). New:
+`scripts/autoload/audio_manager.gd`. Not touched: anything animation-,
+camera-, or AI-decision-related; `Ball.gd` itself (retreat/audio both
+reached it only through PlayerController/Field signals it already emits).
+
+---
+
+## Handover — tackling coach, post-match stats, keyboard remapping (Agent: general)
+
+Third pass this same session, continuing straight down `docs/
+FEATURE_AUDIT.md`'s P1/P2 list per the same "keep going" instruction as
+the entry above. Three substantial, well-specified items — no open design
+questions this round, unlike the two still deliberately left alone
+(bump's dangerous contact, the shot-clock half of the set-shot apparatus).
+
+### 1. Tackling coach — the third and final planned coach
+
+The kick-to-kick rival (an existing, proven `AIBrain`-driven
+`PlayerController` sparring partner) becomes the tackling dummy rather
+than a second dedicated NPC being spawned — `TackleChallenge`
+(`scripts/mechanics/tackle_challenge.gd` + `.tscn`) positions it ahead of
+the player along its own attack direction, hands it the ball
+(`give_possession()`, the same shared entry point every protected restart
+in `full_game.gd` already uses), and lets its stock AI carry on exactly as
+it always does: run toward its own goal, and — this project's own
+`_think_carrying` logic, untouched — get rid of the ball under pressure.
+Unlike `KickChallenge`/`MarkChallenge`, there's no target zone or
+"did-it-land" check; success is `PlayerController.holding_the_ball_called`/
+`field_ball_up_called` firing on the rival (a real tackle landed, either
+ruling), and failure is either `ball_disposed` firing on the rival first
+(it got the kick/handball away) or a hard time limit expiring — the safety
+valve every other challenge here gets for free from `Ball.is_settled()`; a
+live AI carrier never settles, so this needed its own.
+
+`kick_to_kick.gd`'s rival-freeze logic (frozen for every coach
+dialogue/challenge, so drills stay a clean 1-on-0 loop) gained one
+deliberate exception: it now stays live through exactly the tackling
+challenge's own `CHALLENGE` state, since the rival running around *is* the
+drill, frozen everywhere else (its own `PROMPT`/`DIALOGUE`, and every
+other coach's full sequence) exactly as before. `CoachKind` gained
+`TACKLING`; every switch/match statement already keyed on `CoachKind`
+(`_coach_node`, `_begin_dialogue`'s offer text, `_accept_challenge`) took
+its third branch with no restructuring, confirming the enum-parameterised
+shape from two coaches ago was actually general, not just reused twice by
+coincidence.
+
+**Real, not forced, outcome distribution** — worth recording since it
+wasn't what was originally guessed at: a scripted test that left the
+player brain doing nothing found the rival disposing of the ball well
+inside the 5s time limit on every single unpressured attempt (AI_KICK_RANGE
+being 45m against this drill's short setup distances means an unpressured
+"carrier" just kicks forward regardless of pressure), never the pure
+timeout path. The timeout branch is still real code, still exercised every
+frame the countdown runs, just not the thing that happened to end an
+attempt in this particular test — recorded so a future session doesn't
+read "never observed timing out" as evidence something's wrong with it.
+
+### 2. Post-match box-score stats
+
+`MatchState` gained `kicks`/`handballs`/`marks`/`tackles`
+(`{Team.HOME: int, Team.AWAY: int}`, same shape `goals`/`behinds` already
+use) and `record_disposal()`/`record_mark()`/`record_tackle()`, all reset
+alongside score in `reset()`. Bounces aren't tracked — not a real AFL
+box-score stat. `full_game.gd._spawn_teams()` connects two more signals per
+player (`ball_disposed`, `mark_caught`, both `.bind(player)`'d since
+neither signal itself carries a reference to who acted) alongside the
+tackle signals it already connected; the two existing tackle handlers
+(`_on_field_ball_up`/`_on_holding_the_ball`) gained one line each
+recording the tackler's team. Kick-to-Kick never touches any of this —
+it has no clock or scoring either, and never calls `MatchState.reset()`,
+so wiring stats there would only ever contaminate whatever a later Full
+Game match displays.
+
+`MatchEndScreen` grew a four-row stat table under the existing score
+block (same card, taller now, laid out via computed offsets rather than
+the previous version's hand-placed constants since there's real content
+to fit beneath the score this time), reading `MatchState`'s four
+dictionaries by name through `Object.get()` so the row table
+(`STAT_ROWS`) is the only place that would need to change if another stat
+gets tracked later. HOME/AWAY columns reuse `Scoreboard.COLOUR_HOME/
+COLOUR_AWAY` directly rather than picking new colours — same guernsey
+palette the scoreboard and match-end score block already share.
+
+### 3. Keyboard control remapping
+
+New `RemapScreen` (`scripts/ui/remap_screen.gd` + `.tscn`), reachable from
+Settings' own REMAP CONTROLS row (replacing the previously-inert CONTROL
+SCHEME row outright — it had no real purpose device switching doesn't
+already handle automatically via `InputManager`). Deliberately scoped to
+the keyboard binding on 18 discrete action buttons — not the WASD/arrow
+movement-camera axes (a clean "press a key" flow doesn't extend cleanly to
+a four-way direction), not gamepad bindings (no axis/button capture flow
+built), not mouse buttons (`Settings.mouse_kick_swapped` already owns
+those). A bounded first version, not a claim this is remapping "done".
+
+Two-column layout (9 rows each) navigated as one linear list; select a
+row, Enter/`ui_accept` enters a "PRESS A KEY…" listening state, the next
+non-echo `InputEventKey` becomes the new binding, Escape always cancels
+without changing anything — Escape is reserved as the universal cancel key
+across every remappable action, not stealable by design.
+
+**Conflict handling**: rebinding a key already held by a different
+remappable action takes it away from that other action outright (no
+fallback to a remembered original — `InputMap.action_erase_event()`
+doesn't remember what it erased), the standard "last one wins" remap UX.
+Only checked against the 18 actions this screen itself manages, not every
+action in the project — a player can still knowingly bind a remappable
+action onto a movement/camera key; documented as a known, accepted
+limitation rather than guarded against, since guarding it would mean
+enumerating every action in `project.godot`, not just this screen's own
+list.
+
+**Persistence lives in `Settings.gd`**, not the screen — `keybind_overrides`
+(`Dictionary[StringName, int]`, only ever holding entries a player has
+actually changed), `apply_keybind()`/`clear_keyboard_binding()`/
+`keyboard_keycode()` as the InputMap-mutation primitives, applied to the
+live InputMap once at `_ready()` for whatever `_load()` restored from
+`user://settings.cfg` — same "InputMap is the live source of truth, not
+project.godot's baked-in defaults" pattern `_apply_mouse_kick_binding()`
+already established for the mouse-kick swap, now shared by a second
+feature instead of being one-off.
+
+`settings_screen.gd`'s trailing REMAP CONTROLS row is a new shape for that
+file: not a `Row` (nothing to cycle, just a destination), one extra index
+past `_rows.size()` that `ui_accept` activates instead — the same "one
+extra action row past the real ones" pattern `character_screen.gd`'s own
+PLAY row already established, applied here for the first time outside
+that file. The screen's stale "PLACEHOLDER · NOT SAVED" subtitle (wrong
+since Master Volume/Full Game Camera/Mouse Kick Buttons all went live
+across this session) was also fixed while touching this file for
+something else in the same area — Screen Shake is the one row actually
+covered by "not yet wired" now.
+
+### Verification
+
+`--headless --editor --quit` rescan (`TackleChallenge`, `RemapScreen`
+both new `class_name` scripts), then the full eight-scene smoke-test set
+this project's memory now documents (`main`/`full_game`/`kick_to_kick`/
+`main_menu`/`character_screen`/`team_list_screen`/`settings_screen`/
+`remap_screen`), all exit 0, zero errors, both before and after every
+change.
+
+Three more scripted-physics/state scratch harnesses (same discipline as
+every entry above — deleted after, not committed):
+
+1. **Tackling coach**, driving a real `kick_to_kick.tscn` instance (the
+   coach-approach/dialogue UI itself skipped deliberately — already proven
+   by the other two coaches, not what's new here — by setting
+   `_coach_state`/`_active_coach` directly, the same effect a real
+   "confirm" press has). Five real attempts: one scripted chase (player
+   teleported to point-blank range, tackle held) landed a genuine
+   `tackle_hit`; the other four, left with no player input at all,
+   resolved via the rival disposing before the timer ran out (see §1's own
+   note on why the pure-timeout path wasn't the one observed); final
+   `challenge_ended(1, 5)` matched exactly.
+2. **Post-match stats**, spawning a real `full_game.tscn`, emitting real
+   signals on real spawned players (`ball_disposed`, `mark_caught`, both
+   tackle signal shapes — the second deliberately re-armed
+   `GameState.phase` back to `PLAY` first, since the tackle handlers'
+   own pre-existing phase guard correctly no-ops a second ruling fired
+   mid-stoppage, which is exactly what happens for real after any real
+   tackle — a test-sequencing detail caught and fixed in the test, not a
+   game bug), confirming zero cross-team contamination throughout. Then a
+   real `match_end_screen.tscn` instance's built node tree was walked by
+   child index to confirm the Kicks row actually displays "2"/"0" — caught
+   and fixed one real indexing mistake in the test itself along the way
+   (`SoftBrutalist.soften()` inserts a `SoftShadow` at child index 0 of
+   whatever it's given, shifting every hand-counted index after it by
+   one — the same "looks like a bug, is actually the test" category this
+   file has flagged before, this time from a UI helper's own documented
+   behaviour rather than test sequencing).
+3. **Keyboard remapping**, driving a real `remap_screen.tscn` instance
+   end to end: a real rebind changed `tackle`'s live `InputMap` binding to
+   T; rebinding `walk` onto the same T key correctly stripped it back off
+   `tackle`; Escape cancelled a listen with zero side effects; `Settings.
+   save()` was confirmed to have actually written the new override to the
+   real `user://settings.cfg` on disk by reading that file back with a
+   fresh `ConfigFile`, not just trusting the in-memory dictionary. The
+   test restored the original (empty) `keybind_overrides` and re-saved
+   before exiting, confirmed by reading the file directly afterward —
+   this session's own real settings file was not left with test data in
+   it.
+
+**No human hands, eyes, or ears on any of this**, same standing limitation
+every entry in this file carries forward. The tackling drill's actual
+feel (is a 9m/5s window fair, does the rival's stock AI read as a
+sensible practice partner rather than either a pushover or hopeless),
+the stat card's on-screen layout, and whether "press a key" reads clearly
+without a human ever having navigated the remap list — none of it is
+confirmed beyond "runs the real code paths correctly, verified
+numerically." All first-guess numbers (`TACKLE_CHALLENGE_LEAD_DISTANCE`/
+`_TIME_LIMIT`, the remap screen's own column/row geometry) carry the same
+caveat every other constant introduced this way in this project already
+does.
+
+### Known limitations / unresolved (carried forward)
+
+- **Bump's dangerous-contact free kick, the shot-clock/play-on half of
+  the set-shot apparatus, AI behaviour scope** — unchanged from the entry
+  above, still open for the same reasons.
+- **Remapping stays keyboard-only** — no gamepad rebinding, no
+  movement/camera-axis remapping, both explicitly out of this pass's
+  scope (see §3).
+- **Screen Shake is Settings' last inert row** — nothing in the project
+  reads a screen-shake value yet.
+- **Real controller hardware, free player/roster assignment, Goal
+  Kicking mode, real art import, Scenario mode, automated test harness**
+  — all still open, unchanged from `docs/FEATURE_AUDIT.md`'s own roadmap.
+
+### Files changed
+
+`scripts/mechanics/tackle_challenge.gd` (new), `scenes/mechanics/
+tackle_challenge.tscn` (new), `scripts/modes/kick_to_kick.gd` (`TACKLING`
+coach wiring, rival-freeze exception), `scripts/tuning.gd`
+(`TACKLE_COACH_STAND_OFFSET`, `TACKLE_CHALLENGE_*`), `scripts/autoload/
+match_state.gd` (`kicks`/`handballs`/`marks`/`tackles`,
+`record_disposal`/`record_mark`/`record_tackle`), `scripts/modes/
+full_game.gd` (stat-recording signal connections + two tackle-handler
+lines), `scripts/ui/match_end_screen.gd` (stat table), `scripts/ui/
+remap_screen.gd` (new), `scenes/ui/remap_screen.tscn` (new),
+`scripts/autoload/settings.gd` (`keybind_overrides`,
+`apply_keybind`/`clear_keyboard_binding`/`keyboard_keycode`,
+persistence), `scripts/ui/settings_screen.gd` (CONTROL SCHEME row removed,
+REMAP CONTROLS action row added, stale subtitle fixed). Not touched:
+anything mark/animation-, camera-, ball-physics-, or AI-decision-related;
+`scripts/ball/ball.gd` (none of this round's work needed it — every hook
+was a `PlayerController`/`Field`/`MatchState` signal or a UI screen).

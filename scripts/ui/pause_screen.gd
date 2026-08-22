@@ -1,12 +1,22 @@
 class_name PauseScreen
 extends CanvasLayer
 
-## Minimal Soft Brutalist pause placeholder (design brief's pause overlay).
+## Soft Brutalist pause overlay (design brief's pause overlay).
 ##
-## Not yet wired into any live match scene — see the comment on `resume()`
-## below. Built entirely in _ready() from SoftBrutalist, following the
+## Pushed as a paused in-place overlay by full_game.gd/kick_to_kick.gd's
+## own `pause` handlers: instantiate, set process_mode = PROCESS_MODE_ALWAYS
+## (so this node — and only this node — keeps receiving input while the
+## tree is paused), add as a child of the match scene, then
+## get_tree().paused = true. RESUME/`resume()` below already handles that
+## exact shape. Built entirely in _ready() from SoftBrutalist, following the
 ## same hand-built-Control pattern as team_list_screen.gd / main_menu.gd
 ## rather than a .tscn-authored tree.
+
+## Emitted right before this frees itself via the RESUME path (not the QUIT
+## path, which changes scene instead) — for whoever pushed the overlay to
+## restore anything it suspended going in (kick_to_kick.gd re-captures the
+## mouse cursor this way, for example).
+signal resumed
 
 const CARD_WIDTH := 420.0
 const CARD_HEIGHT := 280.0
@@ -103,20 +113,18 @@ func _select() -> void:
 	row.action.call()
 
 
-## Placeholder resume: this screen is not currently pushed as an overlay
-## from any live match scene (see full_game.gd's `pause` action, which
-## just swaps straight to the main menu today), so there is no "previous
-## scene" to hand control back to generically. Until pause is wired as an
-## in-place overlay (add_child this as a CanvasLayer child of the match
-## scene, set get_tree().paused = true and this node's process_mode to
-## PROCESS_MODE_ALWAYS, then have RESUME just free/hide it and unpause),
-## RESUME behaves the same as QUIT and returns to the main menu.
+## The normal case: pushed as a paused overlay (see this file's header) —
+## unpause, tell whoever pushed us, and free ourselves, handing control
+## straight back to the match scene underneath exactly where it left off.
+## Falls back to a menu return if this is somehow shown unpaused (e.g. a
+## future non-match caller), rather than freeing into a broken state.
 func resume() -> void:
 	if _busy:
 		return
 	_busy = true
 	if get_tree().paused:
 		get_tree().paused = false
+		resumed.emit()
 		queue_free()
 		return
 	SceneWipe.change_scene("res://scenes/ui/main_menu.tscn")

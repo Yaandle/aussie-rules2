@@ -131,6 +131,29 @@ func home_press_intensity() -> float:
 	return DEFENSIVE_PRESSURE_INTENSITY[home_defensive_pressure]
 
 
+## Master SFX volume, 0..1 — read directly by AudioManager on every
+## playback (no signal needed the way full_game_camera_mode's live-apply
+## does: AudioManager only ever reads this at the moment a sound actually
+## plays, so there's nothing to push a change into ahead of time). Default
+## 1.0 (audio on) rather than SettingsScreen.Row's own index-0 default —
+## see settings_screen.gd's MASTER VOLUME row, which now seeds its cursor
+## from this value instead of always starting at "MUTE".
+var master_volume := 1.0:
+	set(value):
+		master_volume = clampf(value, 0.0, 1.0)
+
+
+## Keyboard remaps (docs/FEATURE_AUDIT.md's control-remapping item, see
+## RemapScreen): action name -> physical keycode, holding only entries a
+## player has actually changed — an action with no entry here keeps
+## whatever project.godot's own [input] section already bound it to.
+## InputMap is the live source of truth from the moment this loads, same
+## "rewrite the InputMap directly, don't branch in the code that reads
+## Input" pattern _apply_mouse_kick_binding() below already established for
+## the mouse-kick swap.
+var keybind_overrides: Dictionary = {}
+
+
 signal camera_mode_changed(mode: FullGameCameraMode)
 signal mouse_kick_binding_changed(swapped: bool)
 
@@ -138,6 +161,8 @@ signal mouse_kick_binding_changed(swapped: bool)
 func _ready() -> void:
 	_load()
 	_apply_mouse_kick_binding()
+	for action in keybind_overrides.keys():
+		_apply_keybind_to_inputmap(StringName(action), int(keybind_overrides[action]))
 
 
 func _load() -> void:
@@ -154,6 +179,13 @@ func _load() -> void:
 		home_ball_movement) as BallMovementPreference
 	home_defensive_pressure = config.get_value(SECTION, "home_defensive_pressure",
 		home_defensive_pressure) as DefensivePressure
+	master_volume = config.get_value(SECTION, "master_volume", master_volume) as float
+	# Loaded as a plain dict here, not applied to the InputMap yet — _ready()
+	# does that once, after this returns, via _apply_keybind_to_inputmap()
+	# for every entry (keeping "read the save data" and "mutate the live
+	# InputMap" as two separate steps, same split every apply_keybind()
+	# caller already goes through).
+	keybind_overrides = config.get_value(SECTION, "keybind_overrides", {}) as Dictionary
 
 
 func save() -> void:
@@ -163,6 +195,8 @@ func save() -> void:
 	config.set_value(SECTION, "home_formation_index", home_formation_index)
 	config.set_value(SECTION, "home_ball_movement", home_ball_movement)
 	config.set_value(SECTION, "home_defensive_pressure", home_defensive_pressure)
+	config.set_value(SECTION, "master_volume", master_volume)
+	config.set_value(SECTION, "keybind_overrides", keybind_overrides)
 	config.save(SAVE_PATH)
 
 
@@ -185,3 +219,53 @@ func _rebind_mouse_button(action: StringName, button_index: MouseButton) -> void
 	var new_event := InputEventMouseButton.new()
 	new_event.button_index = button_index
 	InputMap.action_add_event(action, new_event)
+
+
+# ── Keyboard remaps (RemapScreen) ────────────────────────────────────
+# Conflict resolution (deciding which OTHER action loses this key) is
+# RemapScreen's job, since it's the one that knows the full remappable
+# set to scan — these three are the primitive InputMap mutation +
+# persistence-bookkeeping calls it's built on, kept here so every live
+# setting in this project persists through the same one place.
+
+func apply_keybind(action: StringName, physical_keycode: int) -> void:
+	keybind_overrides[action] = physical_keycode
+	_apply_keybind_to_inputmap(action, physical_keycode)
+
+
+## Removes a keyboard binding entirely (no fallback to whatever
+## project.godot originally had — InputMap.action_erase_event() doesn't
+## remember that once erased) — used when a rebind elsewhere takes this
+## action's key away from it. Gamepad/mouse events on the same action are
+## untouched.
+func clear_keyboard_binding(action: StringName) -> void:
+	keybind_overrides.erase(action)
+	_erase_keyboard_event(action)
+
+
+## KEY_NONE if `action` has no keyboard event bound at all (cleared, or
+## never had one). Reads the live InputMap, not just keybind_overrides, so
+## this reports correctly for an action's original project.godot default
+## too, not only ones a player has actually remapped.
+func keyboard_keycode(action: StringName) -> int:
+	if not InputMap.has_action(action):
+		return KEY_NONE
+	for event in InputMap.action_get_events(action):
+		if event is InputEventKey:
+			return (event as InputEventKey).physical_keycode
+	return KEY_NONE
+
+
+func _apply_keybind_to_inputmap(action: StringName, physical_keycode: int) -> void:
+	_erase_keyboard_event(action)
+	var event := InputEventKey.new()
+	event.physical_keycode = physical_keycode
+	InputMap.action_add_event(action, event)
+
+
+func _erase_keyboard_event(action: StringName) -> void:
+	if not InputMap.has_action(action):
+		return
+	for event in InputMap.action_get_events(action):
+		if event is InputEventKey:
+			InputMap.action_erase_event(action, event)
