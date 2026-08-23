@@ -11,6 +11,18 @@ extends PlayerBrain
 ## PlayerController already exposed for this — not to a camera this brain
 ## owns, so switching who's human-controlled is just handing a different
 ## controller the same camera reference (see FullGame._switch_human_player).
+##
+## Every edge-triggered want (a tap, not a hold) reads through
+## InputManager.consume_buffered_press() instead of a bare
+## Input.is_action_just_pressed() — fundamentals-pass input buffering (see
+## InputManager.BUFFERED_ACTIONS). Safe here with no further changes
+## needed anywhere else: every call site already only reads one of these
+## once it's past its own blocking guards (action lock, cooldowns,
+## stun) — the guard runs first and returns early otherwise, so a press
+## arriving during a blocked frame is never even read, let alone consumed,
+## and stays pending in the buffer for a later frame to pick up. Held-down
+## wants (kick stance, tackle, Safe mark, bump stance) are untouched —
+## is_action_pressed() has no single-frame edge to lose in the first place.
 
 
 func wish_direction(controller: PlayerController) -> Vector3:
@@ -36,7 +48,7 @@ func wants_kick() -> bool:
 
 
 func wants_kick_execute() -> bool:
-	return Input.is_action_just_pressed(&"kick_execute")
+	return InputManager.consume_buffered_press(&"kick_execute")
 
 
 func kick_charge_override() -> float:
@@ -44,11 +56,11 @@ func kick_charge_override() -> float:
 
 
 func wants_handball() -> bool:
-	return Input.is_action_just_pressed(&"handball")
+	return InputManager.consume_buffered_press(&"handball")
 
 
 func wants_bounce() -> bool:
-	return Input.is_action_just_pressed(&"bounce")
+	return InputManager.consume_buffered_press(&"bounce")
 
 
 func wants_tackle() -> bool:
@@ -60,23 +72,23 @@ func wants_mark_safe() -> bool:
 
 
 func wants_mark_running() -> bool:
-	return Input.is_action_just_pressed(&"mark_running")
+	return InputManager.consume_buffered_press(&"mark_running")
 
 
 func wants_mark_aggressive() -> bool:
-	return Input.is_action_just_pressed(&"mark_aggressive")
+	return InputManager.consume_buffered_press(&"mark_aggressive")
 
 
 func wants_spoil() -> bool:
-	return Input.is_action_just_pressed(&"spoil")
+	return InputManager.consume_buffered_press(&"spoil")
 
 
 func wants_smother() -> bool:
-	return Input.is_action_just_pressed(&"smother")
+	return InputManager.consume_buffered_press(&"smother")
 
 
 func wants_hit_out() -> bool:
-	return Input.is_action_just_pressed(&"hit_out")
+	return InputManager.consume_buffered_press(&"hit_out")
 
 
 func wants_bump_stance() -> bool:

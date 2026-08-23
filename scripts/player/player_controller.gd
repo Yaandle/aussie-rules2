@@ -747,8 +747,19 @@ func _update_tackle_lunge(delta: float) -> void:
 	if _lunge_timer > 0.0:
 		_lunge_timer = _tick_down(_lunge_timer, delta)
 		return
-	if not just_pressed or _lunge_cooldown > 0.0 \
-			or is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE:
+	if _lunge_cooldown > 0.0 or is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE:
+		return
+
+	# A press landing a frame or two before the guards above actually
+	# cleared shouldn't just vanish (fundamentals-pass input buffering) —
+	# fall back to InputManager's short buffer window before giving up on
+	# this frame. Checked only after every other blocking guard, so a
+	# buffered press is never consumed on a frame it wouldn't actually
+	# fire on. Human only: AI's wants_tackle() is a fresh proximity
+	# decision every physics frame, not a real button press — there's
+	# nothing to buffer for it.
+	if not just_pressed \
+			and not (_brain is HumanBrain and InputManager.consume_buffered_press(&"tackle")):
 		return
 
 	var carrier := _nearest_opposing_carrier()

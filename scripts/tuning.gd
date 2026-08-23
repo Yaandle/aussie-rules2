@@ -86,23 +86,38 @@ const GAIT_JOG := 0.70
 # roughly 3-4 m/s^2 to top speed; braking is always quicker than getting
 # going. These are deliberately a shade brisker than reality so a
 # controller still feels responsive.
-const ACCELERATION := 9.0              # m/s^2 speeding up
+#
+# Fundamentals-pass retune: ACCELERATION nudged up from 9.0 — the model
+# itself (real momentum, not instant-start/instant-stop) is staying, per
+# design doc §5 and every contest in this file leaning on it, but the brief
+# was "more responsive, forgiving" within that model, not a redesign. A
+# slightly punchier get-going without touching BRAKING (already the
+# quicker of the two, correctly) is the smallest lever toward that.
+const ACCELERATION := 10.5             # m/s^2 speeding up
 const BRAKING := 14.0                  # m/s^2 slowing down
 const AIR_ACCELERATION := 2.0          # m/s^2 while airborne (very little authority)
 
 # Turn rate falls off with speed — this is the single biggest contributor
 # to "weight". At a standstill you pivot on the spot; at a full sprint you
 # describe an arc. Turn radius = speed / turn_rate, so SPRINT here gives
-# 8.4 / 2.79 rad/s ~= 3.0m — tight enough to stay playable, wide enough
-# that a sprint commits you.
+# 8.4 / 3.32 rad/s ~= 2.5m (was ~3.0m at the old 160 deg/s) — a touch
+# tighter/quicker to recover from without losing the commitment a sprint
+# is supposed to carry.
 const TURN_RATE_STANDING := 900.0      # deg/s at zero speed
-const TURN_RATE_SPRINT := 160.0        # deg/s at SPRINT_SPEED
+const TURN_RATE_SPRINT := 190.0        # deg/s at SPRINT_SPEED
 
 # How much a change of direction costs you in speed. Running back against
-# your own momentum drives target speed to REVERSE_SPEED_SCALE, so you
+# your own momentum drives target speed toward REVERSE_SPEED_SCALE, so you
 # brake, and braking raises your turn rate, so you plant and swing round.
 # Two coupled rules, one emergent plant-and-pivot — no special case.
-const REVERSE_SPEED_SCALE := 0.0       # target speed multiplier at 180 deg off heading
+#
+# Fundamentals-pass retune: was 0.0 — a dead-stop on any reversal, which is
+# the single biggest thing that read as "unresponsive" rather than "has
+# weight". Raised off zero so a hard reversal still costs real speed (this
+# is still meant to hurt enough that backpedal/plant-and-pivot stay the
+# genuinely better techniques for reading the play, not a free direction
+# change) without fully arresting momentum first.
+const REVERSE_SPEED_SCALE := 0.18      # target speed multiplier at 180 deg off heading
 
 # Below this speed there is no momentum worth fighting, so the heading
 # snaps straight to intent and you simply turn on the spot.
@@ -327,10 +342,18 @@ const CAM_YAW_SPEED := 180.0           # deg/s at full right-stick deflection
 const CAM_PITCH_SPEED := 110.0         # deg/s
 const CAM_MOUSE_SENSITIVITY := 0.14    # deg per pixel of mouse motion
 
-const CAM_FOLLOW_RATE := 9.0           # exponential smoothing rate for the focus point
+# Fundamentals-pass retune: FOLLOW_RATE down from 9.0 (was ~86% converged
+# in a third of a second — tight enough that a fast direction change reads
+# as the rig snapping rather than following) and LOOKAHEAD pulled in from
+# 0.45s/3.5m — at full sprint the old value pushed the focus point nearly
+# 3.5m ahead of the player, which on a plant-and-pivot flips almost
+# instantly and was very likely a real chunk of the reported jarring,
+# independent of the ball entirely. Both are still real, both just settle
+# slower now.
+const CAM_FOLLOW_RATE := 6.0           # exponential smoothing rate for the focus point
 const CAM_ROTATE_RATE := 12.0          # ditto for yaw/pitch
-const CAM_LOOKAHEAD_TIME := 0.45       # s of the target's velocity to lead by
-const CAM_LOOKAHEAD_MAX := 3.5         # m cap on that lead
+const CAM_LOOKAHEAD_TIME := 0.30       # s of the target's velocity to lead by
+const CAM_LOOKAHEAD_MAX := 2.5         # m cap on that lead
 
 const CAM_FOV_BASE := 68.0
 const CAM_FOV_SPRINT_GAIN := 10.0      # deg added at SPRINT_SPEED — speed you can feel
@@ -353,9 +376,16 @@ const CAM_PUNCH_DECAY := 3.5
 # was exactly as slow as the initial commit toward it; raised so letting
 # go is snappier without also making the initial pull twitchy (still
 # smoothed, just over a shorter window).
-const CAM_BALL_FOCUS_MAX := 0.35       # max weight the ball takes of the focus point
+#
+# Fundamentals-pass retune: cut again, same direction as that first pass —
+# MAX 0.35 -> 0.25 (the ball can pull noticeably less of the focus now),
+# RATE 4.5 -> 3.0 (slower to commit toward it in the first place). Still a
+# real, smoothed blend, never a snap; just looser than before, per "follows
+# the player and the ball with some blend/lag" rather than tracking the
+# ball tightly.
+const CAM_BALL_FOCUS_MAX := 0.25       # max weight the ball takes of the focus point
 const CAM_BALL_FOCUS_MIN_HEIGHT := 1.6 # m, ball must be above this to pull focus
-const CAM_BALL_FOCUS_RATE := 4.5
+const CAM_BALL_FOCUS_RATE := 3.0
 const CAM_MAX_FRAMING_DISTANCE := 45.0 # m, beyond which the ball stops pulling harder
 
 # Two-shot conversation framing for the training-coach dialogue (see the
@@ -408,6 +438,15 @@ const MOVE_CURVE := 1.35               # >1 = finer control near centre
 const LOOK_DEADZONE := 0.12
 const LOOK_CURVE := 2.0
 
+# Input buffering (fundamentals-pass brief: a press slightly early or late
+# shouldn't be silently dropped just because the game wasn't in the exact
+# right state on that one physics frame). See InputManager.
+# consume_buffered_press() — a press is remembered for this long after the
+# real Input edge, consumed (cleared) the instant whatever was blocking it
+# actually acts on it. Short enough that a buffered press still reads as
+# "that responded fast", not as input queuing up.
+const INPUT_BUFFER_WINDOW := 0.12      # s
+
 const RUMBLE_KICK := Vector3(0.35, 0.55, 0.18)     # (weak, strong, duration)
 const RUMBLE_GATHER := Vector3(0.12, 0.0, 0.08)
 
@@ -449,7 +488,16 @@ const TACKLE_SPILL_SPEED := 3.0        # m/s the loose ball scatters at
 # lunger having sprinted past/short, no separate whiff penalty invented on
 # top of that.
 const TACKLE_LUNGE_RANGE := 2.4        # m — beyond TACKLE_RADIUS, short enough to require real proximity first
-const TACKLE_LUNGE_SPEED := 7.5        # m/s, faster than SPRINT_SPEED — the point of committing
+# Fundamentals-pass fix: this was 7.5 — *slower* than SPRINT_SPEED (8.4)
+# despite its own comment saying otherwise. SPRINT_SPEED was evidently
+# raised at some point after this was tuned and this never got revisited.
+# The one tool the player has for closing a gap on an AI carrier (who
+# always runs at full sprint gait the instant it has the ball — see
+# AIBrain._think_carrying) was quietly worse than not lunging at all, which
+# is a large part of why the AI could feel un-catchable. Now a genuine
+# ~25% burst over sprint, same short DURATION/COOLDOWN keeping it a real
+# commitment rather than a new top speed.
+const TACKLE_LUNGE_SPEED := 10.5       # m/s, faster than SPRINT_SPEED — the point of committing
 const TACKLE_LUNGE_DURATION := 0.35    # s the dash overrides normal locomotion
 const TACKLE_LUNGE_COOLDOWN := 1.1     # s between attempts — a real commitment, not spammable
 const TACKLE_LUNGE_MIN_DOT := 0.5      # facing . to-carrier must clear this — no lunging sideways/backward
@@ -630,12 +678,21 @@ const MARK_PROMPT_HEIGHT := 2.05       # m above player origin
 # RUNNING/AGGRESSIVE share one profile — their existing REACH_SCALE spread
 # (0.8 vs 1.4) already carries the difficulty difference between them, so
 # timing itself doesn't need to.
+# Fundamentals-pass retune: RUNNING/AGGRESSIVE were 0.12/0.24 — tight
+# enough that a well-positioned player mistiming a press by what's a very
+# ordinary margin under real reaction pressure (more so while still
+# learning the mechanic) would drop a catch that needed no timing skill at
+# all before this feature existed. That's very likely a real chunk of
+# "catching feels unreliable even when positioned right" — the reach math
+# itself isn't at fault, the window it's being graded against was too
+# small. Widened, still meaningfully tighter than SAFE's 0.35/0.65 so the
+# tier spread survives.
 const MARK_SAFE_IDEAL_WINDOW := 0.35   # s
 const MARK_SAFE_OK_WINDOW := 0.65      # s
-const MARK_RUNNING_IDEAL_WINDOW := 0.12   # s
-const MARK_RUNNING_OK_WINDOW := 0.24      # s
-const MARK_AGGRESSIVE_IDEAL_WINDOW := 0.12   # s
-const MARK_AGGRESSIVE_OK_WINDOW := 0.24      # s
+const MARK_RUNNING_IDEAL_WINDOW := 0.20   # s
+const MARK_RUNNING_OK_WINDOW := 0.38      # s
+const MARK_AGGRESSIVE_IDEAL_WINDOW := 0.20   # s
+const MARK_AGGRESSIVE_OK_WINDOW := 0.38      # s
 
 ## Reach multiplier for a contested (in-OK, outside-IDEAL) attempt — applied
 ## to the tier's own REACH_SCALE before MARK_ASSIST_RADIUS_BONUS, same
@@ -645,7 +702,13 @@ const MARK_AGGRESSIVE_OK_WINDOW := 0.24      # s
 ## contest today, not a softened one — MARK_ASSIST_RADIUS_BONUS's flat
 ## +0.35m is the only forgiveness a bad-timed attempt keeps, same as it
 ## already applies uniformly to every tier regardless of timing.
-const MARK_TIMING_OK_REACH_MULT := 0.55
+##
+## Fundamentals-pass retune: OK_REACH_MULT 0.55 -> 0.65 — a contested catch
+## should still feel meaningfully live, not barely-there. MISS_REACH_SCALE
+## stays at 0.0 on purpose: the wider windows above are the actual fix for
+## "unreliable", not softening what a genuine drop means once you're
+## outside them — that would blur the exact distinction the user asked for.
+const MARK_TIMING_OK_REACH_MULT := 0.65
 const MARK_TIMING_MISS_REACH_SCALE := 0.0
 
 ## Below this closing speed, mark_timing_offset() stops dividing distance by
