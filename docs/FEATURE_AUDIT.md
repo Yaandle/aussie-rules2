@@ -64,7 +64,7 @@ numerically via scripted physics against the real Jolt simulation" — not
 | Kick (ADS stance + hip-fire) | `player_controller.gd` `_update_charge` | Two-stage LT-hold/RT-tap, aim decoupled from facing (starts from camera yaw), live reversible power off stick/mouse/keyboard, aim-assist toward teammates. |
 | Handball, Bounce | `player_controller.gd` `_dispose` | Handball aims at stick direction, bounce is body-forward. |
 | Gathering | `_try_gather`, `_update_ground_pickup` | Passive walk-over (speed-scaled lunge) + deliberate ground pickup (wider, faster reach). |
-| Marking (3-tier) | `_update_aerial_contest` | Safe/Running/Aggressive, reach-radius tests against live ball position, no RNG. 15m legal-mark rule (`Ball.is_mark_eligible`) correctly gates stand-the-mark protection. |
+| Marking (3-tier) | `_update_aerial_contest` | Safe/Running/Aggressive, reach-radius tests against live ball position, no RNG. Timing-graded: `PlayerController.mark_timing_offset()` narrows the effective reach off-centre and drops it outside the window entirely (still physical, never a roll) — Running/Aggressive tightly, Safe leniently by design. 15m legal-mark rule (`Ball.is_mark_eligible`) correctly gates stand-the-mark protection. |
 | Tackling (+ lunge assist) | `_try_tackle`, `_update_tackle_lunge` | Always spills the ball on contact; lunge is a committed dash closing the gap AI pressure otherwise makes unreachable. |
 | Spoil, Smother | `_try_spoil`, `_try_smother` | Physical deflect / kick-cancel, both out-of-possession only. |
 | Bump | `_update_bump`, `_try_bump` | Real flick-gesture detection (`InputManager.flick_vector`), timing-based clean/mistimed knockback. |

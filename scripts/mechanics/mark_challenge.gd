@@ -50,12 +50,8 @@ func begin(ball: Ball, player: PlayerController, coach_position: Vector3) -> voi
 	_armed = false
 	_connect_player()
 	challenge_started.emit(Tuning.MARK_CHALLENGE_ATTEMPTS)
-	hint_changed.emit("Marking practice — hold G for a safe mark, tap Q on the run, tap H to go up for it.")
+	hint_changed.emit("Marking practice — hold G for a safe mark, tap Q on the run, tap H to go up for it. Watch the ring above your head and time your press to when it closes.")
 	_schedule(Tuning.MARK_CHALLENGE_DELIVERY_DELAY, _deliver)
-
-
-func is_active() -> bool:
-	return _active
 
 
 ## Called by kick_to_kick.gd whenever it has to reposition the ball out

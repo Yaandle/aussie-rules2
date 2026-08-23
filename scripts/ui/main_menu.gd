@@ -48,24 +48,22 @@ class Entry:
 	var subtitle: String
 	var scene_path: String
 	var unlocked: bool
-	var icon_name: StringName
 	var image_key: String
 
 	func _init(p_title: String, p_subtitle: String, p_scene_path: String, p_unlocked: bool,
-			p_icon_name: StringName, p_image_key: String) -> void:
+			p_image_key: String) -> void:
 		title = p_title
 		subtitle = p_subtitle
 		scene_path = p_scene_path
 		unlocked = p_unlocked
-		icon_name = p_icon_name
 		image_key = p_image_key
 
 
 var _entries: Array[Entry] = [
 	Entry.new("FULL GAME", "4-a-side, real clock, quarters, scoring",
-		"res://scenes/modes/full_game.tscn", true, &"football", "menuscreen_field"),
-	Entry.new("SCENARIO", "Practice a set situation", "", false, &"cone", "menuscreen_board"),
-	Entry.new("GOAL KICKING", "Shots on goal from the arc", "", false, &"goalpost",
+		"res://scenes/modes/full_game.tscn", true, "menuscreen_field"),
+	Entry.new("SCENARIO", "Practice a set situation", "", false, "menuscreen_board"),
+	Entry.new("GOAL KICKING", "Shots on goal from the arc", "", false,
 		"menuscreen_ball"),
 ]
 
@@ -111,7 +109,6 @@ const CARD_PAD := SoftBrutalist.SPACE_2             ## 16
 ## Above SoftBrutalist.RADIUS_LG (22) — at this smaller card size, that
 ## reads as clearly rounded rather than barely-there.
 const CARD_RADIUS := 28.0
-const BADGE_SIZE := 36.0
 const ARROW_BADGE_SIZE := 28.0
 const TEXT_BLOCK_HEIGHT := 62.0
 
@@ -393,11 +390,6 @@ func _build_card(entry: Entry, index: int) -> CardWidgets:
 	frame.add_child(image)
 	widgets.image = image
 	widgets.material = material
-
-	var badge := _build_icon_badge(entry.icon_name, BADGE_SIZE)
-	badge.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	badge.position = Vector2(CARD_PAD, CARD_PAD)
-	frame.add_child(badge)
 
 	# Anchored to the card's bottom edge with a gap kept clear on the
 	# right for the arrow badge, so the text block reflows with the card

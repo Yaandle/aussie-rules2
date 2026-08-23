@@ -28,7 +28,18 @@ enum Team { HOME, AWAY, NONE }
 ## Appended-only: ACTION_DURATION/ACTION_CONTACT below are indexed
 ## positionally by this enum's int value, so KICK/HANDBALL/BOUNCE must keep
 ## their existing slots. New actions always go on the end.
-enum Action { NONE, KICK, HANDBALL, BOUNCE, MARK_SAFE, MARK_RUNNING, MARK_AGGRESSIVE, HIT_OUT }
+##
+## MARK_SAFE_MISS/MARK_RUNNING_MISS: the cosmetic reaction played when a
+## timing-graded attempt on that tier fails outside the window (see
+## PlayerController._attempt_running_mark and _update_marking's grounded
+## branch) — a distinct clip from the catch one, not a new gameplay
+## resolution path. MARK_AGGRESSIVE has no _MISS twin: its catch already
+## resolves mid-clip (see ACTION_CONTACT's own comment below), and there is
+## no cheap way to fork an already-playing AnimationNodeStateMachine state
+## without a visible pop, so its miss stays feedback-only (rumble/SFX/ring),
+## same clip either way.
+enum Action { NONE, KICK, HANDBALL, BOUNCE, MARK_SAFE, MARK_RUNNING, MARK_AGGRESSIVE, HIT_OUT,
+	MARK_SAFE_MISS, MARK_RUNNING_MISS }
 
 
 # ── Ground geometry (metres) ─────────────────────────────────────────
@@ -273,8 +284,13 @@ const KICK_MOUSE_REACH_SENSITIVITY := 0.0035
 ## number — it is the identical jump (see PlayerController._begin_hit_out),
 ## just resolved as a palm instead of a catch, so it should peak and land
 ## on exactly the same clock.
-const ACTION_DURATION := [0.0, 0.78, 0.45, 0.50, 0.55, 0.40, 0.95, 0.95]
-const ACTION_CONTACT := [0.0, 0.42, 0.20, 0.22, 0.08, 0.06, 0.40, 0.40]
+##
+## MARK_SAFE_MISS/MARK_RUNNING_MISS (indices 8/9): short on purpose — a
+## whiffed reach reads as a quick stumble-and-reset, not a settle-into-
+## carry, so both are noticeably shorter than the catch clips they sit
+## beside (MARK_SAFE/MARK_RUNNING at indices 4/5).
+const ACTION_DURATION := [0.0, 0.78, 0.45, 0.50, 0.55, 0.40, 0.95, 0.95, 0.35, 0.30]
+const ACTION_CONTACT := [0.0, 0.42, 0.20, 0.22, 0.08, 0.06, 0.40, 0.40, 0.10, 0.10]
 
 # AFL rule: a player running with the ball must bounce or touch it to
 # ground every 15 metres. Carried over unchanged from Prototype 1's
@@ -573,11 +589,72 @@ const MARK_CONTEST_RANGE := 6.0            # m
 
 const RUMBLE_MARK := Vector3(0.20, 0.35, 0.12)
 
+# Timing-mechanic haptics (user brief: "subtle... on the press itself" plus
+# "a distinct pulse for a successful mark vs a missed one"). PRESS is
+# deliberately tiny — a tick confirming the input registered, not a second
+# RUMBLE_MARK — fired at the moment of a graded press (Safe's first held
+# frame, Aggressive's jump commit; Running resolves the same physics frame
+# as its tap, so a separate press pulse there would just be clobbered by
+# the outcome pulse a moment later — see PlayerController._attempt_running_
+# mark). MISS is duller/longer than RUMBLE_MARK on purpose, so a catch and
+# a drop are felt as different, not just "rumble happened."
+const RUMBLE_MARK_PRESS := Vector3(0.05, 0.0, 0.05)
+const RUMBLE_MARK_MISS := Vector3(0.30, 0.10, 0.20)
+
 # Madden-style contest prompt (polish-pass brief: an (A)/(X)/(Y) icon over
 # the receiver's head showing which mark tiers are live right now). Height
 # is above the player's own origin, not the chest-height CAM_FOCUS_HEIGHT —
 # a Madden-style prompt floats over the head, a camera frames the chest.
 const MARK_PROMPT_HEIGHT := 2.05       # m above player origin
+
+# Timing-based skill mechanic (user brief): a graded press against the
+# ball's live arrival, synced to its actual flight rather than a fixed
+# timer — see PlayerController.mark_timing_offset(). Inside IDEAL_WINDOW is
+# a full-strength attempt; inside OK_WINDOW but outside IDEAL is a
+# contested one (reach narrowed by MARK_TIMING_OK_REACH_MULT, still
+# physically resolved, never a probability roll — RULES_REFERENCE.md §3:
+# "contests are decided by collision, timing and momentum, not by a
+# probability table"); outside OK_WINDOW entirely is a drop, same as a
+# missed contest today.
+#
+# SAFE's window is deliberately ~3x wider than RUNNING/AGGRESSIVE's, not
+# uniform across tiers: Safe's whole reason to exist is "generous, reliable
+# default, no timing skill required" (see this file's own comment on
+# MARK_SAFE_REACH_SCALE below) — a tight gate on a held button would either
+# punish the normal "plant early and wait" play style or, if graded
+# leniently enough not to, do nothing at all. At realistic ball closing
+# speeds a 0.65s window corresponds to a distance well outside any tier's
+# reach radius, so reach — not timing — stays the practical gate for Safe;
+# the window still bites at the genuine margins (a very late first hold, a
+# ball that's already grounding) without eroding the tier's identity.
+# RUNNING/AGGRESSIVE share one profile — their existing REACH_SCALE spread
+# (0.8 vs 1.4) already carries the difficulty difference between them, so
+# timing itself doesn't need to.
+const MARK_SAFE_IDEAL_WINDOW := 0.35   # s
+const MARK_SAFE_OK_WINDOW := 0.65      # s
+const MARK_RUNNING_IDEAL_WINDOW := 0.12   # s
+const MARK_RUNNING_OK_WINDOW := 0.24      # s
+const MARK_AGGRESSIVE_IDEAL_WINDOW := 0.12   # s
+const MARK_AGGRESSIVE_OK_WINDOW := 0.24      # s
+
+## Reach multiplier for a contested (in-OK, outside-IDEAL) attempt — applied
+## to the tier's own REACH_SCALE before MARK_ASSIST_RADIUS_BONUS, same
+## layering that bonus itself already uses. A genuine miss (outside OK
+## entirely) scales reach to nothing at all: the user asked for "too early,
+## too late, or not at all" to read as a real drop, same as a missed
+## contest today, not a softened one — MARK_ASSIST_RADIUS_BONUS's flat
+## +0.35m is the only forgiveness a bad-timed attempt keeps, same as it
+## already applies uniformly to every tier regardless of timing.
+const MARK_TIMING_OK_REACH_MULT := 0.55
+const MARK_TIMING_MISS_REACH_SCALE := 0.0
+
+## Below this closing speed, mark_timing_offset() stops dividing distance by
+## an near-zero rate (which would blow up toward +/-inf) and instead reports
+## the flat PAST_PEAK sentinel — the ball is no longer meaningfully closing
+## on this player, whether because it's already arrived or because it's
+## drifting past/away.
+const MARK_TIMING_MIN_CLOSING_SPEED := 0.6   # m/s
+const MARK_TIMING_PAST_PEAK_OFFSET := 1.0    # s — sentinel, larger than every OK window above
 
 
 # ── Ruck contests ────────────────────────────────────────────────────
@@ -801,9 +878,9 @@ static func action_contact_time(action: Action) -> float:
 ## point of choosing between them (see the Marking section above).
 static func action_speed_scale(action: Action) -> float:
 	match action:
-		Action.MARK_SAFE:
+		Action.MARK_SAFE, Action.MARK_SAFE_MISS:
 			return MARK_SAFE_SPEED_SCALE
-		Action.MARK_RUNNING:
+		Action.MARK_RUNNING, Action.MARK_RUNNING_MISS:
 			return MARK_RUNNING_SPEED_SCALE
 		Action.MARK_AGGRESSIVE, Action.HIT_OUT:
 			return MARK_AGGRESSIVE_SPEED_SCALE

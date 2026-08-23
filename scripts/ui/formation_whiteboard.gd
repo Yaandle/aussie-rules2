@@ -1,21 +1,17 @@
 class_name FormationWhiteboard
 extends Control
 
-## Top-down whiteboard preview of a team's starting layout: a schematic
-## oval outline plus one dot per player, drawn from TeamFormation.SLOTS
-## (all 18, back line first).
+## Top-down tactics board: a schematic oval plus one marker per fielded
+## HOME player, positioned from TeamFormation.SLOTS and then displaced by
+## the three Team Edit tactics dials — a FIFA/NBA 2K-style coaching board,
+## not a static AFL position chart with a highlight on it (see HANDOVER.md
+## for that earlier, retired design: every one of the 18 named slots always
+## drawn, with a coloured ring around whichever the chosen preset used).
 ##
 ## Drawn vertically — attack direction points toward the top of the panel
 ## — with world.x (the length/attack axis) mapped to screen Y (inverted)
 ## and world.z (width) mapped to screen X, so the oval reads as a real
 ## portrait-oriented AFL ground rather than the landscape 3D-world layout.
-##
-## Read-only/no drag-select — this only ever visualises what TeamFormation's
-## data says, plus (Team Edit expansion, polish-pass brief) an optional
-## `selected_indices` set the owning screen can drive to ring a chosen few
-## dots, so a formation *preset* picker (cycling between a few curated
-## whole-team choices) has somewhere to show its selection without this
-## control growing click-to-assign editing of its own.
 ##
 ## Drawn with plain Control._draw() calls rather than a 3D scene reused
 ## from Field — Field's geometry generator builds real meshes sized in
@@ -29,11 +25,15 @@ extends Control
 ## (accent primary/secondary at the ends) distinguishing the six position
 ## lines: a simple, slightly blocky "indie pixel screen" read rather than
 ## a photoreal field.
+##
+## ── Public surface (driven by TeamListScreen) ──────────────────────────
+## `formation_index`/`ball_movement`/`defensive_pressure` mirror Settings'
+## own three tactics dials; setting any of them retargets the board (see
+## _retarget()/_retarget_engagement()) and animates there via Tween rather
+## than snapping. `show_opposition` toggles a static, unanimated mirrored
+## 18-marker "generic balanced" reference side — no tactics logic of its
+## own, just a shape to gauge your own spacing against.
 
-## Inset from the panel edge. Has to clear the goal-post ticks (which
-## poke GOAL_POST_LENGTH past the boundary at each end) *and* the ATTACK
-## caption above them, or the caption prints over the posts — which is
-## what a 28px inset did.
 const MARGIN := 44.0
 const DOT_RADIUS := 9.0
 const ELLIPSE_SEGMENTS := 96
@@ -80,17 +80,136 @@ const LINE_COLOURS := {
 
 var _font: Font = ThemeDB.fallback_font
 
-## Indices into TeamFormation.SLOTS to ring in RETRO_ACCENT-style highlight
-## (see _draw_dot) — empty (default) draws every dot plain, unchanged from
-## before this field existed.
-var selected_indices: PackedInt32Array = PackedInt32Array():
+# ── Tactics inputs ───────────────────────────────────────────────────
+
+var formation_index := 0:
 	set(value):
-		selected_indices = value
+		formation_index = value
+		_retarget()
+
+var ball_movement: Settings.BallMovementPreference = Settings.BallMovementPreference.MUTUAL:
+	set(value):
+		ball_movement = value
+		_retarget()
+
+var defensive_pressure: Settings.DefensivePressure = Settings.DefensivePressure.BALANCED:
+	set(value):
+		defensive_pressure = value
+		_retarget_engagement()
 		queue_redraw()
 
-const SELECTED_RING_COLOUR := Color("#C2542F")   ## TeamListScreen's own RETRO_ACCENT
-const SELECTED_RING_WIDTH := 2.5
-const SELECTED_RING_PAD := 3.0                   ## clear of the dot's own border
+## Static mirrored 18-marker reference side — see header comment. Doesn't
+## animate (nothing about it ever moves), so this can queue_redraw() flat.
+var show_opposition := false:
+	set(value):
+		show_opposition = value
+		queue_redraw()
+
+# ── Depth (Matchday Formation) / width (Ball Movement) offset tables ───
+# Small [preset]x[line] lookup tables (design brief), not per-player: any
+# new position later only ever needs a Line to fall under, never its own
+# tuning entry.
+#
+# DEPTH: a whole-team "push" toward one end (positive = toward the
+# attacking end, TeamFormation's own +depth convention), split across
+# lines by weight rather than every line moving the same amount — a real
+# attacking/defensive mentality surges the front line hardest and only
+# edges the back line up/back, it doesn't march the whole XI forward in
+# lockstep (which is what a flat per-line shift would look like, and
+# exactly what "apply as a per-line multiplier" in the brief is guarding
+# against). FOLLOWERS (ruck/rovers) barely move — they live at the
+# centre-square hinge regardless of mentality.
+const FORMATION_DEPTH_PUSH := {
+	0: 0.0,    # BALANCED — Settings.FORMATION_PRESETS index order
+	1: 0.16,   # ATTACKING
+	2: -0.16,  # DEFENSIVE
+}
+
+const LINE_DEPTH_WEIGHT := {
+	TeamFormation.Line.BACK: 0.30,
+	TeamFormation.Line.HALF_BACK: 0.80,
+	TeamFormation.Line.CENTRE: 0.20,
+	TeamFormation.Line.HALF_FORWARD: 0.80,
+	TeamFormation.Line.FORWARD: 1.0,
+	TeamFormation.Line.FOLLOWERS: 0.12,
+}
+
+## WIDTH: a multiplicative scale on each slot's own `lateral` fraction —
+## naturally proportional to how far off-centre a slot already sits (a
+## slot sitting dead on the centre line, lateral 0.0, stays at 0.0 under
+## any scale), so a single per-line weight is enough; no separate "how far
+## from centre" term needed the way depth's additive push needed one.
+const WIDTH_PUSH := {
+	Settings.BallMovementPreference.CORRIDOR: -0.35,
+	Settings.BallMovementPreference.MUTUAL: 0.0,
+	Settings.BallMovementPreference.BOUNDARY: 0.35,
+}
+
+const LINE_WIDTH_WEIGHT := {
+	TeamFormation.Line.BACK: 1.0,
+	TeamFormation.Line.HALF_BACK: 1.0,
+	TeamFormation.Line.CENTRE: 1.0,
+	TeamFormation.Line.HALF_FORWARD: 1.0,
+	TeamFormation.Line.FORWARD: 1.0,
+	TeamFormation.Line.FOLLOWERS: 0.4,   ## already hug the centre; move less
+}
+
+## Clamp headroom so an aggressive push/scale can never place a marker on
+## or past the boundary line itself.
+const OFFSET_CLAMP := 0.95
+
+# ── Pressure (Defensive Pressure) — an engagement line, not a player move
+# Per the design brief, pressure never touches a player marker's own
+# position; it only moves this dashed line and (with the opposition
+# overlay on) restyles the marking-distance connector lines below.
+const PRESSURE_ENGAGEMENT_DEPTH := {
+	Settings.DefensivePressure.LOOSE: -0.55,     ## deep, near defensive 50
+	Settings.DefensivePressure.BALANCED: 0.0,    ## ground midpoint
+	Settings.DefensivePressure.TIGHT: 0.45,      ## pushed up, high engagement
+}
+const ENGAGEMENT_LINE_COLOUR := SoftBrutalist.ACCENT_PRIMARY
+const ENGAGEMENT_LINE_WIDTH := 1.6
+const ENGAGEMENT_DASH := 9.0
+const ENGAGEMENT_GAP := 6.0
+
+## Marking-distance connector style per pressure (opposition overlay only)
+## — dash <= 0 draws solid. Tight marking reads as a short, unbroken line;
+## loose coverage as a long, sparse dash.
+const PRESSURE_LINK_DASH := {
+	Settings.DefensivePressure.TIGHT: {"dash": -1.0, "gap": 0.0},
+	Settings.DefensivePressure.BALANCED: {"dash": 7.0, "gap": 5.0},
+	Settings.DefensivePressure.LOOSE: {"dash": 11.0, "gap": 9.0},
+}
+const MARKING_LINE_COLOUR := SoftBrutalist.LINE
+const MARKING_LINE_ALPHA := 0.5
+const MARKING_LINE_WIDTH := 1.2
+
+const OPPOSITION_COLOUR := SoftBrutalist.MUTED
+const OPPOSITION_LINE_WIDTH := 1.4
+const OPPOSITION_DOT_SCALE := 0.75
+
+const TWEEN_DURATION := 0.35
+const TWEEN_TRANS := Tween.TRANS_CUBIC
+const TWEEN_EASE := Tween.EASE_IN_OUT
+
+## Per-fielded-slot animation state, keyed by TeamFormation.SLOTS index.
+## An index enters this dict fading in from alpha 0 the first time it's
+## fielded, and is dropped once it finishes fading out after a formation
+## change stops fielding it — see _retarget()/_on_tween_finished().
+## Shape: {start_pos, target_pos, start_alpha, target_alpha, display_pos,
+## display_alpha}, all in TeamFormation's depth/lateral-fraction Vector3
+## (world_position() shape), not screen pixels — screen mapping happens
+## once, at draw time, so a resize doesn't require replaying the tween.
+var _anim: Dictionary = {}
+var _tween: Tween
+
+var _engagement_current := 0.0
+var _engagement_tween: Tween
+
+
+func _ready() -> void:
+	_retarget()
+	_retarget_engagement()
 
 
 func _draw() -> void:
@@ -117,6 +236,9 @@ func _draw() -> void:
 	_draw_scoring_arcs(centre, scale)
 	_draw_goal_squares(centre, scale)
 	_draw_goal_posts(centre, scale)
+	_draw_engagement_line(centre, scale)
+	_draw_opposition(centre, scale)
+	_draw_marking_lines(centre, scale)
 	_draw_formation(centre, scale)
 
 	_draw_label(centre + Vector2(0.0, -h * 0.5 - CAPTION_OFFSET), "ATTACK ↑", true)
@@ -129,26 +251,227 @@ func _to_screen(centre: Vector2, world: Vector3, scale: float) -> Vector2:
 	return centre + Vector2(world.z * scale, -world.x * scale)
 
 
+# ── Tactics: retarget + animate ─────────────────────────────────────
+
+func _depth_offset(line: int) -> float:
+	return float(FORMATION_DEPTH_PUSH.get(formation_index, 0.0)) * float(LINE_DEPTH_WEIGHT[line])
+
+
+func _width_scale(line: int) -> float:
+	return 1.0 + float(WIDTH_PUSH[ball_movement]) * float(LINE_WIDTH_WEIGHT[line])
+
+
+## Depth/lateral-fraction target for slot `idx`, tactics offsets applied —
+## reuses TeamFormation.world_position() itself (a temp adjusted slot dict)
+## rather than re-deriving its depth/lateral -> world-metres formula here.
+func _target_position(idx: int) -> Vector3:
+	var slot: Dictionary = TeamFormation.SLOTS[idx]
+	var line: int = slot["line"]
+	var adjusted := {
+		"depth": clampf(float(slot["depth"]) + _depth_offset(line), -OFFSET_CLAMP, OFFSET_CLAMP),
+		"lateral": clampf(float(slot["lateral"]) * _width_scale(line), -OFFSET_CLAMP, OFFSET_CLAMP),
+	}
+	return TeamFormation.world_position(adjusted, 1.0)
+
+
+## Recomputes every fielded slot's target and starts one Tween animating
+## the whole board there. A slot leaving the fielded set (a formation
+## preset swap can field an entirely different 4 of the 18, not just move
+## the same 4 — e.g. BALANCED's RK isn't in ATTACKING's set at all) fades
+## out in place rather than sliding anywhere, since it has no correct new
+## position to slide to; a slot newly entering fades in already at its own
+## resting spot. Called for both a formation and a ball-movement change —
+## either can move a fielded slot's target position.
+func _retarget() -> void:
+	var fielded: Array = Settings.FORMATION_PRESETS[
+		clampi(formation_index, 0, Settings.FORMATION_PRESETS.size() - 1)]["slots"]
+	var fielded_set := {}
+	for idx in fielded:
+		fielded_set[idx] = true
+
+	for idx in fielded:
+		var target := _target_position(idx)
+		if _anim.has(idx):
+			var e: Dictionary = _anim[idx]
+			e["start_pos"] = e["display_pos"]
+			e["start_alpha"] = e["display_alpha"]
+			e["target_pos"] = target
+			e["target_alpha"] = 1.0
+		else:
+			_anim[idx] = {
+				"start_pos": target, "target_pos": target,
+				"start_alpha": 0.0, "target_alpha": 1.0,
+				"display_pos": target, "display_alpha": 0.0,
+			}
+
+	for idx in _anim.keys():
+		if fielded_set.has(idx):
+			continue
+		var e: Dictionary = _anim[idx]
+		e["start_pos"] = e["display_pos"]
+		e["target_pos"] = e["display_pos"]   ## hold in place, fade only
+		e["start_alpha"] = e["display_alpha"]
+		e["target_alpha"] = 0.0
+
+	_start_tween()
+
+
+func _start_tween() -> void:
+	if is_instance_valid(_tween):
+		_tween.kill()
+	if not is_inside_tree():
+		# Nothing to animate from/to yet (first property set can land
+		# before this control has entered the tree) — resolve immediately
+		# so the first real _draw() already shows the correct state.
+		for idx in _anim.keys():
+			var e: Dictionary = _anim[idx]
+			e["display_pos"] = e["target_pos"]
+			e["display_alpha"] = e["target_alpha"]
+		return
+	_tween = create_tween()
+	_tween.set_trans(TWEEN_TRANS).set_ease(TWEEN_EASE)
+	_tween.tween_method(_on_tween_step, 0.0, 1.0, TWEEN_DURATION)
+	_tween.finished.connect(_on_tween_finished)
+
+
+func _on_tween_step(t: float) -> void:
+	for idx in _anim.keys():
+		var e: Dictionary = _anim[idx]
+		e["display_pos"] = (e["start_pos"] as Vector3).lerp(e["target_pos"], t)
+		e["display_alpha"] = lerpf(e["start_alpha"], e["target_alpha"], t)
+	queue_redraw()
+
+
+func _on_tween_finished() -> void:
+	for idx in _anim.keys().duplicate():
+		if float(_anim[idx]["target_alpha"]) <= 0.0:
+			_anim.erase(idx)
+	queue_redraw()
+
+
+func _retarget_engagement() -> void:
+	var target: float = PRESSURE_ENGAGEMENT_DEPTH[defensive_pressure]
+	if is_instance_valid(_engagement_tween):
+		_engagement_tween.kill()
+	if not is_inside_tree():
+		_engagement_current = target
+		return
+	var start := _engagement_current
+	_engagement_tween = create_tween()
+	_engagement_tween.set_trans(TWEEN_TRANS).set_ease(TWEEN_EASE)
+	_engagement_tween.tween_method(func(t: float) -> void:
+		_engagement_current = lerpf(start, target, t)
+		queue_redraw(), 0.0, 1.0, TWEEN_DURATION)
+
+
+# ── Drawing ──────────────────────────────────────────────────────────
+
 func _draw_formation(centre: Vector2, scale: float) -> void:
-	for i in TeamFormation.SLOTS.size():
-		var slot: Dictionary = TeamFormation.SLOTS[i]
-		var world := TeamFormation.world_position(slot, 1.0)
-		var point := _to_screen(centre, world, scale)
+	for idx in _anim.keys():
+		var e: Dictionary = _anim[idx]
+		var alpha: float = e["display_alpha"]
+		if alpha <= 0.01:
+			continue
+		var slot: Dictionary = TeamFormation.SLOTS[idx]
+		var point := _to_screen(centre, e["display_pos"], scale)
 		var colour: Color = LINE_COLOURS[slot["line"]]
-		_draw_dot(point, colour)
-		if selected_indices.has(i):
-			draw_arc(point, DOT_RADIUS + SELECTED_RING_PAD, 0.0, TAU, 24,
-				SELECTED_RING_COLOUR, SELECTED_RING_WIDTH, true)
-		_draw_label(point, String(slot["label"]))
+		_draw_dot(point, Color(colour, alpha))
+		_draw_label(point, String(slot["label"]), false, Color(LABEL_COLOUR, alpha))
 
 
-## White ring, not an ink one: 18 dark-outlined dots over pale line art
-## is 18 of the highest-contrast objects on the screen. A light ring
-## still separates a dot from the markings underneath it while letting
-## the line colour itself carry the position.
-func _draw_dot(point: Vector2, colour: Color) -> void:
-	draw_circle(point, DOT_RADIUS, colour, true, -1.0, true)
-	draw_arc(point, DOT_RADIUS, 0.0, TAU, 32, DOT_BORDER, DOT_BORDER_WIDTH, true)
+## White ring, not an ink one: a dark-outlined dot over pale line art
+## reads as high-contrast at a glance. A light ring still separates a dot
+## from the markings underneath it while letting the line colour itself
+## carry the position. Border alpha follows the fill's, so a fading-out
+## marker fades as one shape rather than leaving its ring behind.
+func _draw_dot(point: Vector2, colour: Color, radius: float = DOT_RADIUS) -> void:
+	draw_circle(point, radius, colour, true, -1.0, true)
+	draw_arc(point, radius, 0.0, TAU, 32, Color(DOT_BORDER, colour.a), DOT_BORDER_WIDTH, true)
+
+
+## Opposition side (toggle_opposition): all 18 TeamFormation slots,
+## mirrored (attack_direction -1.0) so they sit at the far end facing your
+## own, undisplaced by any tactics dial — "a fixed generic balanced
+## layout" per the design brief, not a simulated opposing gameplan.
+## Outlined only, no fill, no labels: context, not a focus.
+func _draw_opposition(centre: Vector2, scale: float) -> void:
+	if not show_opposition:
+		return
+	for slot: Dictionary in TeamFormation.SLOTS:
+		var point := _to_screen(centre, TeamFormation.world_position(slot, -1.0), scale)
+		draw_arc(point, DOT_RADIUS * OPPOSITION_DOT_SCALE, 0.0, TAU, 24,
+			OPPOSITION_COLOUR, OPPOSITION_LINE_WIDTH, true)
+
+
+## The "marking distance" visual: a thin line from each fielded marker to
+## its nearest opposition marker, styled by Defensive Pressure (short/
+## solid for tight, long-dashed for loose) — style only, since pressure
+## never moves either side's markers, so the real on-screen distance
+## between them never actually changes with this dial.
+func _draw_marking_lines(centre: Vector2, scale: float) -> void:
+	if not show_opposition:
+		return
+	var opponents: Array[Vector2] = []
+	for slot: Dictionary in TeamFormation.SLOTS:
+		opponents.append(_to_screen(centre, TeamFormation.world_position(slot, -1.0), scale))
+	if opponents.is_empty():
+		return
+
+	var style: Dictionary = PRESSURE_LINK_DASH[defensive_pressure]
+	for idx in _anim.keys():
+		var e: Dictionary = _anim[idx]
+		var alpha: float = e["display_alpha"]
+		if alpha <= 0.01:
+			continue
+		var point := _to_screen(centre, e["display_pos"], scale)
+		var nearest := _nearest_point(point, opponents)
+		_draw_dashed_line(point, nearest, Color(MARKING_LINE_COLOUR, MARKING_LINE_ALPHA * alpha),
+			MARKING_LINE_WIDTH, float(style["dash"]), float(style["gap"]))
+
+
+func _nearest_point(from: Vector2, points: Array[Vector2]) -> Vector2:
+	var best := points[0]
+	var best_dist := INF
+	for point in points:
+		var dist := from.distance_squared_to(point)
+		if dist < best_dist:
+			best_dist = dist
+			best = point
+	return best
+
+
+## Dashed horizontal engagement line, positioned by Defensive Pressure —
+## the one Team Edit dial the design brief keeps away from player markers
+## entirely (see _retarget_engagement()).
+func _draw_engagement_line(centre: Vector2, scale: float) -> void:
+	var y := _to_screen(centre, Vector3(_engagement_current * Tuning.FIELD_HALF_LENGTH, 0.0, 0.0),
+		scale).y
+	var half_width := Tuning.FIELD_HALF_WIDTH * scale
+	_draw_dashed_line(Vector2(centre.x - half_width, y), Vector2(centre.x + half_width, y),
+		ENGAGEMENT_LINE_COLOUR, ENGAGEMENT_LINE_WIDTH, ENGAGEMENT_DASH, ENGAGEMENT_GAP)
+
+
+## `dash_len <= 0` draws a plain solid line. draw_line() has no native
+## dash mode, so a dashed one is walked and emitted as separate segments.
+func _draw_dashed_line(a: Vector2, b: Vector2, colour: Color, width: float,
+		dash_len: float, gap_len: float) -> void:
+	if dash_len <= 0.0:
+		draw_line(a, b, colour, width, true)
+		return
+	var diff := b - a
+	var length := diff.length()
+	if length < 0.01:
+		return
+	var dir := diff / length
+	var travelled := 0.0
+	var drawing := true
+	while travelled < length:
+		var seg_len := dash_len if drawing else gap_len
+		var seg_end := minf(travelled + seg_len, length)
+		if drawing:
+			draw_line(a + dir * travelled, a + dir * seg_end, colour, width, true)
+		travelled = seg_end
+		drawing = not drawing
 
 
 func _draw_oval(centre: Vector2, radius_x: float, radius_z: float) -> void:
@@ -266,8 +589,15 @@ func _draw_post(centre: Vector2, scale: float, world_x: float, world_z: float,
 	draw_rect(Rect2(top_left, rect_size).abs(), LINE_ART_COLOUR, true, -1.0, true)
 
 
-func _draw_label(point: Vector2, text: String, muted := false) -> void:
+## `label_colour` overrides the muted/normal default without changing the
+## position rule below (only the caption's own `muted` case centres the
+## text on `point` instead of sitting it under a dot) — used to fade a
+## marker's label in step with its dot.
+func _draw_label(point: Vector2, text: String, muted := false,
+		label_colour := Color(0.0, 0.0, 0.0, 0.0)) -> void:
 	var colour := CAPTION_COLOUR if muted else LABEL_COLOUR
+	if label_colour.a > 0.0:
+		colour = label_colour
 	var text_size := _font.get_string_size(text, HORIZONTAL_ALIGNMENT_CENTER, -1.0, LABEL_FONT_SIZE)
 	var offset := Vector2(-text_size.x * 0.5, DOT_RADIUS + text_size.y + 1.0) if not muted \
 		else Vector2(-text_size.x * 0.5, text_size.y * 0.5)

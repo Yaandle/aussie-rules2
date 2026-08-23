@@ -254,16 +254,28 @@ func set_brain(brain: PlayerBrain) -> void:
 	_brain = brain
 
 
+func brain() -> PlayerBrain:
+	return _brain
+
+
+## Every cooldown/timer field on this controller follows this same
+## "subtract delta, clamp at zero" shape — shared here so they can't drift
+## out of sync with each other (see _update_tackle_lunge, the one timer
+## that used to decrement without the clamp).
+func _tick_down(value: float, delta: float) -> float:
+	return maxf(0.0, value - delta)
+
+
 func _physics_process(delta: float) -> void:
 	_brain.update(self, delta)
 
-	_gather_cooldown = maxf(0.0, _gather_cooldown - delta)
-	_stun_timer = maxf(0.0, _stun_timer - delta)
-	_protected_timer = maxf(0.0, _protected_timer - delta)
-	_frozen_timer = maxf(0.0, _frozen_timer - delta)
-	_spoil_cooldown = maxf(0.0, _spoil_cooldown - delta)
-	_bump_cooldown = maxf(0.0, _bump_cooldown - delta)
-	_lunge_cooldown = maxf(0.0, _lunge_cooldown - delta)
+	_gather_cooldown = _tick_down(_gather_cooldown, delta)
+	_stun_timer = _tick_down(_stun_timer, delta)
+	_protected_timer = _tick_down(_protected_timer, delta)
+	_frozen_timer = _tick_down(_frozen_timer, delta)
+	_spoil_cooldown = _tick_down(_spoil_cooldown, delta)
+	_bump_cooldown = _tick_down(_bump_cooldown, delta)
+	_lunge_cooldown = _tick_down(_lunge_cooldown, delta)
 	_possession_held_seconds = _possession_held_seconds + delta if is_carrying() else 0.0
 	if _is_ruck_contestant:
 		_ruck_contest_timer = maxf(0.0, _ruck_contest_timer - delta)
@@ -733,7 +745,7 @@ func _update_tackle_lunge(delta: float) -> void:
 	_tackle_was_pressed = pressed
 
 	if _lunge_timer > 0.0:
-		_lunge_timer -= delta
+		_lunge_timer = _tick_down(_lunge_timer, delta)
 		return
 	if not just_pressed or _lunge_cooldown > 0.0 \
 			or is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE:
@@ -765,16 +777,10 @@ func _try_tackle() -> void:
 	# held either once launched.
 	if not _brain.wants_tackle() and _lunge_timer <= 0.0:
 		return
-	for node in get_tree().get_nodes_in_group(&"players"):
-		var other := node as PlayerController
-		if other == null or other == self or other.team == team:
-			continue
-		if not other.is_carrying() or other.is_protected():
-			continue
-		if global_position.distance_to(other.global_position) > Tuning.TACKLE_RADIUS:
-			continue
-		other._get_tackled(self)
-		return
+	var target := _nearest_player(Tuning.TACKLE_RADIUS, func(other: PlayerController) -> bool:
+		return other.team != team and other.is_carrying() and not other.is_protected())
+	if target != null:
+		target._get_tackled(self)
 
 
 ## Called on the tackled player, by the tackler.
@@ -791,10 +797,7 @@ func _get_tackled(by: PlayerController) -> void:
 	_action_elapsed = 0.0
 	_action_fired = false
 	if is_instance_valid(ball):
-		var scatter := global_position - by.global_position
-		scatter.y = 0.0
-		scatter = scatter.normalized() if scatter.length_squared() > 0.0001 else Vector3.FORWARD
-		ball.apply_central_impulse(scatter * Tuning.TACKLE_SPILL_SPEED * ball.mass)
+		ball.apply_central_impulse(_scatter_from(by, 0.0) * Tuning.TACKLE_SPILL_SPEED * ball.mass)
 	if holding_the_ball:
 		holding_the_ball_called.emit(by)
 	else:
@@ -811,16 +814,22 @@ func _try_smother() -> void:
 		return
 	if not _brain.wants_smother():
 		return
-	for node in get_tree().get_nodes_in_group(&"players"):
-		var other := node as PlayerController
-		if other == null or other == self or other.team == team:
-			continue
-		if not other.is_carrying() or not (other.is_kick_aiming() or other.is_mid_kick_swing()):
-			continue
-		if global_position.distance_to(other.global_position) > Tuning.SMOTHER_RADIUS:
-			continue
-		other._get_smothered(self)
-		return
+	var target := _nearest_player(Tuning.SMOTHER_RADIUS, func(other: PlayerController) -> bool:
+		return other.team != team and other.is_carrying() \
+			and (other.is_kick_aiming() or other.is_mid_kick_swing()))
+	if target != null:
+		target._get_smothered(self)
+
+
+## Shared spill-direction math for _get_tackled/_get_smothered: away from
+## whoever caused it, flattened and re-lifted by `up_bias` (a smother pops
+## the ball up slightly at the boot; a tackle spills it flat), falling back
+## to straight ahead on the (near-impossible) exact-same-position case
+## rather than normalizing a zero vector.
+func _scatter_from(attacker: PlayerController, up_bias: float) -> Vector3:
+	var scatter := global_position - attacker.global_position
+	scatter.y = up_bias
+	return scatter.normalized() if scatter.length_squared() > 0.0001 else Vector3.FORWARD
 
 
 ## Called on the smothered player, by the smotherer. Cancels the kick
@@ -834,10 +843,7 @@ func _get_smothered(by: PlayerController) -> void:
 	_action_elapsed = 0.0
 	_action_fired = false
 	if is_instance_valid(ball):
-		var scatter := global_position - by.global_position
-		scatter.y = 0.3
-		scatter = scatter.normalized() if scatter.length_squared() > 0.0001 else Vector3.FORWARD
-		ball.knock(scatter * Tuning.SMOTHER_SPILL_SPEED * ball.mass)
+		ball.knock(_scatter_from(by, 0.3) * Tuning.SMOTHER_SPILL_SPEED * ball.mass)
 
 
 # ── Bump ─────────────────────────────────────────────────────────────
@@ -959,32 +965,34 @@ func _release_frozen_opponents() -> void:
 	_frozen_opponents.clear()
 
 
-func _nearest_opponent() -> PlayerController:
+## Shared "closest player matching a filter" search behind every tackle/
+## smother/bump/stand-the-mark lookup — one place to change if the filter
+## itself ever needs to (e.g. excluding stunned players), instead of six
+## separately-maintained copies of the same get_nodes_in_group loop.
+## `max_dist` is INF for callers that want the nearest regardless of range
+## and apply their own distance test afterward (e.g. tackle lunge's wider
+## commit range vs. the standing tackle radius).
+func _nearest_player(max_dist: float, predicate: Callable) -> PlayerController:
 	var best: PlayerController = null
-	var best_dist := INF
+	var best_dist := max_dist
 	for node in get_tree().get_nodes_in_group(&"players"):
 		var other := node as PlayerController
-		if other == null or other == self or other.team == team:
+		if other == null or other == self or not predicate.call(other):
 			continue
 		var dist := global_position.distance_to(other.global_position)
 		if dist < best_dist:
 			best_dist = dist
 			best = other
 	return best
+
+
+func _nearest_opponent() -> PlayerController:
+	return _nearest_player(INF, func(other: PlayerController) -> bool: return other.team != team)
 
 
 func _nearest_opposing_carrier() -> PlayerController:
-	var best: PlayerController = null
-	var best_dist := INF
-	for node in get_tree().get_nodes_in_group(&"players"):
-		var other := node as PlayerController
-		if other == null or other == self or other.team == team or not other.is_carrying():
-			continue
-		var dist := global_position.distance_to(other.global_position)
-		if dist < best_dist:
-			best_dist = dist
-			best = other
-	return best
+	return _nearest_player(INF, func(other: PlayerController) -> bool:
+		return other.team != team and other.is_carrying())
 
 
 ## Called on the bumped player, by the bumper. A knockback that overrides
@@ -1021,6 +1029,21 @@ func _update_marking(delta: float) -> void:
 		_try_spoil(ball)
 		_update_aerial_contest(ball, delta)
 	else:
+		# The one Safe-miss detection point: this player was genuinely
+		# holding (readying) a Safe attempt and the ball has now touched
+		# down uncaught — a real drop, worth the same feedback trio a
+		# failed Running/Aggressive attempt gets. Deliberately scoped to
+		# just this common case, not every theoretical way a held Safe
+		# attempt can end (stunned mid-hold, an opponent beats them to a
+		# loose ball first) — those stay silent, same as they already are
+		# today, rather than chasing every exit path for a tier whose whole
+		# point is staying simple.
+		if _mark_readying and _brain is HumanBrain:
+			InputManager.rumble(Tuning.RUMBLE_MARK_MISS)
+			mark_missed.emit(Tuning.Action.MARK_SAFE)
+			_begin(Tuning.Action.MARK_SAFE_MISS)
+			_mark_readying = false
+			return   # whiff reaction owns this frame — don't also attempt a ground pickup under it
 		_mark_readying = false
 		_update_ground_pickup(ball, delta)
 
@@ -1046,22 +1069,62 @@ func _try_spoil(ball: Ball) -> void:
 	ball.knock(away * Tuning.SPOIL_IMPULSE_SPEED * ball.mass)
 
 
+## Safe branch splits on brain type — a HumanBrain gets the graded timing
+## treatment (press rumble on the rising edge of the hold, reach narrowed
+## by how well the hold's timing lines up — see mark_timing_offset), an
+## AIBrain gets the exact original unconditional-reach check, byte for
+## byte. Deliberate, not an oversight: AI marking is a documented, minimal
+## stub (docs/FEATURE_AUDIT.md) that this feature isn't meant to touch, and
+## AI never taps Running/Aggressive at all (AIBrain never overrides
+## wants_mark_running()/wants_mark_aggressive()), so only Safe needs the
+## split.
 func _update_aerial_contest(ball: Ball, _delta: float) -> void:
 	if _brain.wants_mark_safe():
-		_mark_readying = true
-		if _ball_in_catch_reach(ball, Tuning.MARK_SAFE_REACH_SCALE):
-			_complete_mark(ball, Tuning.Action.MARK_SAFE)
+		if _brain is HumanBrain:
+			# _mark_readying still holds *last* frame's value here — reading
+			# it before the unconditional assignment below is what makes
+			# this a rising-edge check with no extra state of its own.
+			if not _mark_readying:
+				InputManager.rumble(Tuning.RUMBLE_MARK_PRESS)
+			_mark_readying = true
+			var mult := _timing_reach_mult(mark_timing_offset(ball),
+				Tuning.MARK_SAFE_IDEAL_WINDOW, Tuning.MARK_SAFE_OK_WINDOW)
+			if mult > 0.0 and _ball_in_catch_reach(ball, Tuning.MARK_SAFE_REACH_SCALE * mult):
+				_complete_mark(ball, Tuning.Action.MARK_SAFE)
+		else:
+			_mark_readying = true
+			if _ball_in_catch_reach(ball, Tuning.MARK_SAFE_REACH_SCALE):
+				_complete_mark(ball, Tuning.Action.MARK_SAFE)
 		return
 	_mark_readying = false
 
-	if _brain.wants_mark_running() \
-			and _ball_in_catch_reach(ball, Tuning.MARK_RUNNING_REACH_SCALE):
-		_complete_mark(ball, Tuning.Action.MARK_RUNNING)
+	if _brain.wants_mark_running():
+		_attempt_running_mark(ball)
 		return
 
 	if _brain.wants_mark_aggressive() and ball.global_position.distance_to(
 			_carry_point.global_position) <= Tuning.MARK_CONTEST_RANGE:
 		_begin_aggressive_mark()
+
+
+## Running's tap and its resolution are the same instant (unlike Aggressive,
+## whose jump defers resolution to a later contact frame — see
+## _resolve_aggressive_mark), so timing is graded right here, once. A tap
+## that fails outside MARK_CONTEST_RANGE is treated as no attempt at all
+## (silent, matching today) rather than a graded miss — the range gate is
+## the same "is this even live" test _update_aerial_contest's own
+## Aggressive branch already uses, not a new number.
+func _attempt_running_mark(ball: Ball) -> void:
+	var mult := _timing_reach_mult(mark_timing_offset(ball),
+		Tuning.MARK_RUNNING_IDEAL_WINDOW, Tuning.MARK_RUNNING_OK_WINDOW)
+	if mult > 0.0 and _ball_in_catch_reach(ball, Tuning.MARK_RUNNING_REACH_SCALE * mult):
+		_complete_mark(ball, Tuning.Action.MARK_RUNNING)
+		return
+	if ball.global_position.distance_to(_carry_point.global_position) <= Tuning.MARK_CONTEST_RANGE:
+		if _brain is HumanBrain:
+			InputManager.rumble(Tuning.RUMBLE_MARK_MISS)
+		mark_missed.emit(Tuning.Action.MARK_RUNNING)
+		_begin(Tuning.Action.MARK_RUNNING_MISS)
 
 
 ## A — Ground Pickup once the ball is loose rather than in flight (design
@@ -1084,13 +1147,23 @@ func _update_ground_pickup(ball: Ball, _delta: float) -> void:
 ## the catch connects, so the "attempt" and the "outcome" are the same
 ## event. _begin() just plays the catch/cradle animation after the fact.
 func _complete_mark(ball: Ball, tier: Tuning.Action) -> void:
+	_finish_mark_catch(ball, tier)
+	_mark_readying = false
+	_begin(tier)
+
+
+## Shared tail for a legal-or-not catch once the gather itself has already
+## happened — protection + stand-the-mark (only on a legal mark), rumble,
+## and the outcome signal. _complete_mark (Safe/Running) and
+## _resolve_aggressive_mark differ only in what leads up to the catch: the
+## former already knows it connects before calling this, the latter is
+## still mid-air and resolves contact here.
+func _finish_mark_catch(ball: Ball, tier: Tuning.Action) -> void:
 	var legal_mark := ball.is_mark_eligible()
 	_complete_gather(ball)
 	if legal_mark:
 		grant_protection(Tuning.MARK_HOLD_DURATION)
 		_apply_stand_the_mark()
-	_mark_readying = false
-	_begin(tier)
 	if _brain is HumanBrain:
 		InputManager.rumble(Tuning.RUMBLE_MARK)
 	mark_caught.emit(tier, legal_mark)
@@ -1103,6 +1176,8 @@ func _complete_mark(ball: Ball, tier: Tuning.Action) -> void:
 ## the same gravity integration every other airborne frame already uses —
 ## no separate jump-arc code, the arc just falls out of it.
 func _begin_aggressive_mark() -> void:
+	if _brain is HumanBrain:
+		InputManager.rumble(Tuning.RUMBLE_MARK_PRESS)
 	_pending_jump = true
 	_begin(Tuning.Action.MARK_AGGRESSIVE)
 
@@ -1111,19 +1186,27 @@ func _begin_aggressive_mark() -> void:
 ## land near its peak reach — see _update_action's dispatch. A clean miss
 ## leaves the ball untouched: no contact happened, so nothing about its
 ## flight changes.
+##
+## Timing is graded *here*, fresh, rather than captured back at the tap in
+## _begin_aggressive_mark — the jump always takes the same fixed
+## ACTION_CONTACT[MARK_AGGRESSIVE] seconds to reach this instant, so "good
+## timing" for this tier really means "the ball's offset is near zero by
+## the time the jump peaks," which is exactly what re-reading
+## mark_timing_offset() right now measures. That also makes it automatically
+## reward the real skill (committing with the right lead time before the
+## ball arrives, not stabbing the button as it lands) with no extra state
+## carried between the two functions.
 func _resolve_aggressive_mark() -> void:
 	var ball := _live_ball()
-	if is_instance_valid(ball) and not ball.is_held \
-			and _ball_in_catch_reach(ball, Tuning.MARK_AGGRESSIVE_REACH_SCALE):
-		var legal_mark := ball.is_mark_eligible()
-		_complete_gather(ball)
-		if legal_mark:
-			grant_protection(Tuning.MARK_HOLD_DURATION)
-			_apply_stand_the_mark()
-		if _brain is HumanBrain:
-			InputManager.rumble(Tuning.RUMBLE_MARK)
-		mark_caught.emit(Tuning.Action.MARK_AGGRESSIVE, legal_mark)
+	var mult := 0.0
+	if is_instance_valid(ball) and not ball.is_held:
+		mult = _timing_reach_mult(mark_timing_offset(ball),
+			Tuning.MARK_AGGRESSIVE_IDEAL_WINDOW, Tuning.MARK_AGGRESSIVE_OK_WINDOW)
+	if mult > 0.0 and _ball_in_catch_reach(ball, Tuning.MARK_AGGRESSIVE_REACH_SCALE * mult):
+		_finish_mark_catch(ball, Tuning.Action.MARK_AGGRESSIVE)
 	else:
+		if _brain is HumanBrain:
+			InputManager.rumble(Tuning.RUMBLE_MARK_MISS)
 		mark_missed.emit(Tuning.Action.MARK_AGGRESSIVE)
 
 
@@ -1135,6 +1218,53 @@ func _ball_in_catch_reach(ball: Ball, reach_scale: float) -> bool:
 		return false
 	var reach := Tuning.MARK_CATCH_RADIUS * reach_scale + Tuning.MARK_ASSIST_RADIUS_BONUS
 	return ball.global_position.distance_to(_carry_point.global_position) <= reach
+
+
+## Live estimate of seconds until the ball reaches this player's hands —
+## negative while it's still closing (counting up to zero), or the flat
+## Tuning.MARK_TIMING_PAST_PEAK_OFFSET sentinel once it no longer is
+## (already arrived, or drifting past/away). Recomputed fresh from the
+## ball's current position/velocity on every call rather than predicted
+## once ahead of time and cached: this project already has three
+## independent hand-rolled forward-simulation copies for three different
+## purposes (Ball._integrate_forces itself, KickTrajectory._simulate's
+## preview stepper, MarkChallenge._predicted_range's inverse-ballistics
+## guess) and a fourth wasn't worth adding here — a live reactive estimate
+## is simpler and self-corrects every physics frame if the ball's flight is
+## perturbed after launch (catch gravity, a spoil), which a one-shot
+## prediction committed to in advance wouldn't.
+##
+## Public (no leading underscore) because MarkPrompt needs the same number
+## the resolution logic uses to draw an honest countdown — same convention
+## as live_mark_prompt()/catch_point_position() below, both also written
+## for an outside caller.
+func mark_timing_offset(ball: Ball) -> float:
+	var to_catch := ball.global_position - _carry_point.global_position
+	var dist := to_catch.length()
+	if dist < 0.001:
+		return 0.0
+	# Relative to this player's own motion, not just the ball's — matters
+	# for a Running mark taken at pace, where closing the gap is a joint
+	# effort between the ball's flight and the player's own sprint toward
+	# it, not the ball's velocity alone.
+	var closing_speed := -to_catch.normalized().dot(ball.linear_velocity - velocity)
+	if closing_speed > Tuning.MARK_TIMING_MIN_CLOSING_SPEED:
+		return -dist / closing_speed
+	return Tuning.MARK_TIMING_PAST_PEAK_OFFSET
+
+
+## The physical (never probabilistic — RULES_REFERENCE.md §3) consequence
+## of timing accuracy: full reach inside the ideal band, a narrowed one
+## inside the wider "contested" band, none at all outside it. One shared
+## step function behind all three tiers' timing grading, so they can't
+## drift out of sync about what "inside the window" actually means.
+func _timing_reach_mult(offset: float, ideal_window: float, ok_window: float) -> float:
+	var magnitude := absf(offset)
+	if magnitude <= ideal_window:
+		return 1.0
+	if magnitude <= ok_window:
+		return Tuning.MARK_TIMING_OK_REACH_MULT
+	return Tuning.MARK_TIMING_MISS_REACH_SCALE
 
 
 ## World position of this player's catch point (their hands, for marking
@@ -1479,8 +1609,9 @@ func _update_action(delta: float) -> void:
 				_resolve_aggressive_mark()
 			Tuning.Action.HIT_OUT:
 				_resolve_hit_out()
-			Tuning.Action.MARK_SAFE, Tuning.Action.MARK_RUNNING:
-				pass   # already caught in _update_marking(); this leg is cosmetic only
+			Tuning.Action.MARK_SAFE, Tuning.Action.MARK_RUNNING, \
+					Tuning.Action.MARK_SAFE_MISS, Tuning.Action.MARK_RUNNING_MISS:
+				pass   # already resolved in _update_marking(); this leg is cosmetic only
 			_:
 				_dispose()
 

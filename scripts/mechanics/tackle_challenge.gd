@@ -66,10 +66,6 @@ func begin(ball: Ball, player: PlayerController, rival: PlayerController) -> voi
 	_deliver()
 
 
-func is_active() -> bool:
-	return _active
-
-
 ## Same purpose as KickChallenge/MarkChallenge's own force_miss(): kick_to_
 ## kick.gd calls this whenever it has to yank the ball out from under an
 ## armed attempt (out of bounds, manual debug reset) instead of letting it

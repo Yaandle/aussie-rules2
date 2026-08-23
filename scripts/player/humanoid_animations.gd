@@ -106,6 +106,8 @@ static func build_library(hip_height: float) -> AnimationLibrary:
 	library.add_animation(&"mark_safe", _build_mark_safe(hip_height))
 	library.add_animation(&"mark_running", _build_mark_running(hip_height))
 	library.add_animation(&"mark_aggressive", _build_mark_aggressive(hip_height))
+	library.add_animation(&"mark_safe_miss", _build_mark_safe_miss(hip_height))
+	library.add_animation(&"mark_running_miss", _build_mark_running_miss(hip_height))
 	return library
 
 
@@ -293,9 +295,45 @@ static func _build_mark_safe(hip_height: float) -> Animation:
 	], hip_height)
 
 
+## Miss reaction (user brief: raise animation quality on whatever's already
+## being touched, and make sure a drop reads as clearly as a catch). Shares
+## _build_mark_safe's own reach-out setup pose verbatim through `contact` —
+## same commitment, same plant — then diverges: hands stay open and reach
+## past rather than closing into the catch clip's -0.75 elbow bend, and the
+## recovery is a shorter, more deflated drop than the catch's own settle.
+static func _build_mark_safe_miss(hip_height: float) -> Animation:
+	var length := Tuning.action_duration(Tuning.Action.MARK_SAFE_MISS)
+	var contact := Tuning.action_contact_time(Tuning.Action.MARK_SAFE_MISS)
+	return _assemble(length, false, [
+		[0.0, _pose({
+			"hip_y": -0.04, "torso": Vector3(-0.08, 0.0, 0.0), "neck": Vector3(0.10, 0.0, 0.0),
+			"shoulder_l": Vector3(1.15, 0.0, -0.35), "elbow_l": Vector3(-0.35, 0.0, 0.0),
+			"shoulder_r": Vector3(1.15, 0.0, 0.35), "elbow_r": Vector3(-0.35, 0.0, 0.0),
+			"hip_l": Vector3(0.05, 0.0, 0.0), "hip_r": Vector3(-0.05, 0.0, 0.0),
+			"knee_l": Vector3(-0.22, 0.0, 0.0), "knee_r": Vector3(-0.18, 0.0, 0.0),
+		})],
+		[contact, _pose({
+			"hip_y": -0.06, "torso": Vector3(0.02, 0.0, 0.0), "neck": Vector3(0.02, 0.0, 0.0),
+			"shoulder_l": Vector3(1.30, 0.0, -0.42), "elbow_l": Vector3(-0.10, 0.0, 0.0),
+			"shoulder_r": Vector3(1.30, 0.0, 0.42), "elbow_r": Vector3(-0.10, 0.0, 0.0),
+			"knee_l": Vector3(-0.28, 0.0, 0.0), "knee_r": Vector3(-0.24, 0.0, 0.0),
+		})],
+		[lerpf(contact, length, 0.6), _pose({
+			"hip_y": -0.02, "torso": Vector3(-0.10, 0.0, 0.0), "neck": Vector3(0.12, 0.0, 0.0),
+			"shoulder_l": Vector3(0.30, 0.0, -0.20), "elbow_l": Vector3(-0.30, 0.0, 0.0),
+			"shoulder_r": Vector3(0.30, 0.0, 0.20), "elbow_r": Vector3(-0.30, 0.0, 0.0),
+		})],
+		[length, _base_pose()],
+	], hip_height)
+
+
 ## Running/RAC mark: a snap grab that barely interrupts the stride — legs
 ## keep a running pose throughout rather than planting, unlike the safe
-## mark above.
+## mark above. Three release stages rather than two (added alongside the
+## timing mechanic while already touching this clip) — the grab was
+## cutting straight from the tight snap-grab pose to base in one large
+## cubic jump; an intermediate half-relaxed stage reads as arms folding the
+## ball into a carry rather than snapping back to neutral.
 static func _build_mark_running(hip_height: float) -> Animation:
 	var length := Tuning.action_duration(Tuning.Action.MARK_RUNNING)
 	var contact := Tuning.action_contact_time(Tuning.Action.MARK_RUNNING)
@@ -313,6 +351,43 @@ static func _build_mark_running(hip_height: float) -> Animation:
 			"shoulder_r": Vector3(0.40, 0.0, 0.20), "elbow_r": Vector3(-0.70, 0.0, 0.0),
 			"hip_l": Vector3(0.35, 0.0, 0.0), "knee_l": Vector3(-0.60, 0.0, 0.0),
 			"hip_r": Vector3(-0.25, 0.0, 0.0), "knee_r": Vector3(-0.20, 0.0, 0.0),
+		})],
+		[lerpf(contact, length, 0.5), _pose({
+			"torso": Vector3(0.06, 0.02, 0.0),
+			"shoulder_l": Vector3(0.25, 0.0, -0.14), "elbow_l": Vector3(-0.55, 0.0, 0.0),
+			"shoulder_r": Vector3(0.20, 0.0, 0.24), "elbow_r": Vector3(-0.40, 0.0, 0.0),
+			"hip_l": Vector3(0.18, 0.0, 0.0), "knee_l": Vector3(-0.35, 0.0, 0.0),
+			"hip_r": Vector3(-0.12, 0.0, 0.0), "knee_r": Vector3(-0.12, 0.0, 0.0),
+		})],
+		[length, _base_pose()],
+	], hip_height)
+
+
+## Miss reaction (user brief: raise animation quality on whatever's already
+## being touched, and make sure a drop reads as clearly as a catch). Shares
+## _build_mark_running's own reach-out setup pose verbatim — visually
+## you're genuinely going for it right up to `contact`, same commitment as
+## the catch — and diverges only there: elbows stay extended (grasping past
+## the ball) rather than snapping into the catch clip's tight -0.85/-0.70
+## bend, then a quicker recovery than the catch's own release since there's
+## no ball to fold into a carry.
+static func _build_mark_running_miss(hip_height: float) -> Animation:
+	var length := Tuning.action_duration(Tuning.Action.MARK_RUNNING_MISS)
+	var contact := Tuning.action_contact_time(Tuning.Action.MARK_RUNNING_MISS)
+	return _assemble(length, false, [
+		[0.0, _pose({
+			"torso": Vector3(0.10, 0.08, 0.0),
+			"shoulder_l": Vector3(0.75, 0.0, -0.18), "elbow_l": Vector3(-0.55, 0.0, 0.0),
+			"shoulder_r": Vector3(0.60, 0.0, 0.28), "elbow_r": Vector3(-0.45, 0.0, 0.0),
+			"hip_l": Vector3(0.30, 0.0, 0.0), "knee_l": Vector3(-0.55, 0.0, 0.0),
+			"hip_r": Vector3(-0.20, 0.0, 0.0), "knee_r": Vector3(-0.25, 0.0, 0.0),
+		})],
+		[contact, _pose({
+			"torso": Vector3(0.18, 0.10, 0.0),
+			"shoulder_l": Vector3(0.85, 0.0, -0.30), "elbow_l": Vector3(-0.20, 0.0, 0.0),
+			"shoulder_r": Vector3(0.70, 0.0, 0.35), "elbow_r": Vector3(-0.15, 0.0, 0.0),
+			"hip_l": Vector3(0.38, 0.0, 0.0), "knee_l": Vector3(-0.62, 0.0, 0.0),
+			"hip_r": Vector3(-0.28, 0.0, 0.0), "knee_r": Vector3(-0.18, 0.0, 0.0),
 		})],
 		[length, _base_pose()],
 	], hip_height)

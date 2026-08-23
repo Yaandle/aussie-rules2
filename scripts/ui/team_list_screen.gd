@@ -23,18 +23,27 @@ extends CanvasLayer
 ## title/options/index/cycle shape) that actually changes how a real match
 ## plays, not just a preview:
 ##   - MATCHDAY FORMATION — which of Settings.FORMATION_PRESETS' curated
-##     4-a-side shapes HOME spawns into (FullGame._kickoff_slot()), also
-##     ringed live on the whiteboard.
+##     4-a-side shapes HOME spawns into (FullGame._kickoff_slot()). Also
+##     drives the whiteboard's own depth offset — see FormationWhiteboard.
 ##   - BALL MOVEMENT — corridor/mutual/boundary; read by AIBrain.
 ##     _lateral_target_z() to bias where a HOME carrier aims a disposal and
-##     where an off-ball HOME teammate runs to support.
+##     where an off-ball HOME teammate runs to support. Also drives the
+##     whiteboard's width offset.
 ##   - DEFENSIVE PRESSURE — loose/balanced/tight; read by AIBrain.
 ##     _think_defend() to scale a HOME defender's chase gait and tackle-
-##     commit range.
+##     commit range. Also drives the whiteboard's dashed engagement line
+##     (never the player markers themselves — see FormationWhiteboard).
 ## Up/down (move_forward/ui_up, move_back/ui_down — same actions settings_
 ## screen.gd's own row list already uses) selects which row; left/right
 ## cycles its value; Settings.save() on exit persists all three the same
-## way settings_screen.gd's rows already do.
+## way settings_screen.gd's rows already do. `toggle_opposition` (O) shows/
+## hides a static mirrored 18-marker reference side on the board — a view
+## toggle, not a persisted setting.
+##
+## The board itself moves its own markers to reflect these three dials —
+## a FIFA/NBA 2K-style tactics board — rather than the retired design of
+## drawing all 18 named AFL slots and ringing whichever 4 the preset used
+## (see docs/HANDOVER.md for that design's own history).
 ##
 ## ── Layout ──────────────────────────────────────────────────────────
 ## One centred content column, not a full-width spread. The board is a
@@ -152,7 +161,7 @@ func _ready() -> void:
 	_build_hint(bands)
 
 	_refresh_rows()
-	_apply_formation_highlight()
+	_sync_whiteboard()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -170,6 +179,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed(&"ui_right"):
 		_rows[_row_index].cycle(1)
 		_refresh_rows()
+	elif event.is_action_pressed(&"toggle_opposition"):
+		if is_instance_valid(_whiteboard):
+			_whiteboard.show_opposition = not _whiteboard.show_opposition
 
 
 func _exit_to_menu() -> void:
@@ -189,20 +201,29 @@ func _move_row(step: int) -> void:
 
 func _set_formation(index: int) -> void:
 	Settings.home_formation_index = index
-	_apply_formation_highlight()
+	_sync_whiteboard()
 
 
 func _set_ball_movement(index: int) -> void:
 	Settings.home_ball_movement = index as Settings.BallMovementPreference
+	_sync_whiteboard()
 
 
 func _set_defensive_pressure(index: int) -> void:
 	Settings.home_defensive_pressure = index as Settings.DefensivePressure
+	_sync_whiteboard()
 
 
-func _apply_formation_highlight() -> void:
-	if is_instance_valid(_whiteboard):
-		_whiteboard.selected_indices = PackedInt32Array(Settings.home_formation_slots())
+## Pushes all three tactics dials into the board in one pass — cheap even
+## when only one actually changed (see FormationWhiteboard._retarget()),
+## and means whichever row's on_change fires doesn't need to know which of
+## the three the board actually cares about.
+func _sync_whiteboard() -> void:
+	if not is_instance_valid(_whiteboard):
+		return
+	_whiteboard.formation_index = Settings.home_formation_index
+	_whiteboard.ball_movement = Settings.home_ball_movement
+	_whiteboard.defensive_pressure = Settings.home_defensive_pressure
 
 
 func _refresh_rows() -> void:
@@ -461,5 +482,6 @@ func _build_hint(parent: Control) -> void:
 	hints.set_hints([
 		{"keys": "↑ / ↓", "label": "Select"},
 		{"keys": "← / →", "label": "Change"},
+		{"keys": "O", "label": "Opposition"},
 		{"keys": "T / Esc", "label": "Back to menu"},
 	])

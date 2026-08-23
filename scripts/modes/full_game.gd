@@ -241,11 +241,30 @@ func _centre_bounce_slot(index: int, attack_direction: float) -> Vector3:
 		ON_BALLER_RING_RADIUS * sin(angle))
 
 
+## Every centre-bounce moment (kickoff, after a goal, each quarter start)
+## also re-anchors each AI's off-ball drift target (AIBrain.home_position)
+## to its current MATCHDAY FORMATION slot via _kickoff_slot — the same
+## call _spawn_team used to set it initially, just re-run here so it can't
+## go stale. Without this, home_position was only ever set once at spawn:
+## a formation preset's effect on shape would fade over the match as
+## _switch_human_player's own hand-back re-anchors a player to wherever
+## they physically were (not their formation slot) each time control
+## passes, and nothing ever corrected it back. Re-running it at every
+## stoppage means whichever preset is selected keeps shaping the team for
+## the whole match, not just the opening bounce.
 func _reposition_kickoff() -> void:
 	for i in _home_players.size():
-		_home_players[i].global_position = _centre_bounce_slot(i, 1.0)
+		var player := _home_players[i]
+		player.global_position = _centre_bounce_slot(i, 1.0)
+		var ai := player.brain() as AIBrain
+		if ai != null:
+			ai.home_position = _kickoff_slot(i, 1.0, Tuning.Team.HOME)
 	for i in _away_players.size():
-		_away_players[i].global_position = _centre_bounce_slot(i, -1.0)
+		var player := _away_players[i]
+		player.global_position = _centre_bounce_slot(i, -1.0)
+		var ai := player.brain() as AIBrain
+		if ai != null:
+			ai.home_position = _kickoff_slot(i, -1.0, Tuning.Team.AWAY)
 
 
 # ── Match flow ───────────────────────────────────────────────────────
