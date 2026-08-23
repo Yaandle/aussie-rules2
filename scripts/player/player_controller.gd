@@ -1014,9 +1014,23 @@ func receive_bump(impulse: Vector3, stun_duration: float, _by: PlayerController)
 # becomes a ground pickup once the ball isn't airborne — the brief's "ball
 # state + player state + proximity + input, not just the button" framing.
 
+## Every condition that makes a mark attempt a non-starter regardless of
+## ball state — shared between _update_marking (the real resolution path)
+## and live_mark_prompt (the UI hint) so the two can't silently disagree
+## about when a mark is actually live. They used to: live_mark_prompt had
+## its own, incomplete copy of this that never checked _gather_cooldown
+## (0.45s "before you can regather your own kick," set on every disposal —
+## see _dispose()), so the badge/ring briefly read as live for a player
+## standing right where they just kicked from, before the ball had gone
+## anywhere. _update_marking already enforced this correctly; the prompt
+## just wasn't asking the same question.
+func _mark_attempt_blocked() -> bool:
+	return is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE \
+		or _gather_cooldown > 0.0
+
+
 func _update_marking(delta: float) -> void:
-	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE \
-			or _gather_cooldown > 0.0:
+	if _mark_attempt_blocked():
 		_mark_readying = false
 		return
 
@@ -1292,7 +1306,7 @@ func catch_point_position() -> Vector3:
 ## once it has, a leap stops being the natural action even though it
 ## would still technically connect, so it stops being recommended.
 func live_mark_prompt(ball: Ball) -> Tuning.Action:
-	if not is_instance_valid(ball) or is_carrying() or not ball.is_airborne():
+	if not is_instance_valid(ball) or _mark_attempt_blocked() or not ball.is_airborne():
 		return Tuning.Action.NONE
 	var running_live := _ball_in_catch_reach(ball, Tuning.MARK_RUNNING_REACH_SCALE)
 	if running_live and _speed > Tuning.JOG_SPEED:
