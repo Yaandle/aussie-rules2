@@ -943,6 +943,14 @@ const AI_BOUNDARY_LEAN_FRACTION := 0.85
 const AI_LOOSE_BALL_REACTION_MIN := 0.15   # s
 const AI_LOOSE_BALL_REACTION_MAX := 0.40   # s
 
+# ControlMode.Scheme.TEAM_COMMAND (control-mode pass): how far ahead of the
+# selected player an issued "lead here" order's target point sits. Not an
+# AFL number — there's nothing to cite — just a placeholder distance long
+# enough to look like a real lead run and short enough to stay on-screen
+# from the follow cam. Expect this to move once someone actually plays the
+# mode; see docs/HANDOVER.md's control-mode entry.
+const COMMAND_LEAD_DISTANCE := 12.0     # m
+
 
 # ── Training coaches ────────────────────────────────────────────────
 # All three now exist (design brief): kicking, marking, and tackling —

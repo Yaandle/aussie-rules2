@@ -30,7 +30,6 @@ const KICKOFF_DEPTH := 30.0     ## m from centre each team lines up at
 
 var _home_players: Array[PlayerController] = []
 var _away_players: Array[PlayerController] = []
-var _controlled_index := 0
 var _crosshair: KickCrosshair
 var _mark_prompt: MarkPrompt
 
@@ -59,19 +58,20 @@ func _ready() -> void:
 	_apply_camera_mode(Settings.full_game_camera_mode)
 	Settings.camera_mode_changed.connect(_apply_camera_mode)
 
-	_spawn_teams()
-	_hud.player = _home_players[_controlled_index]
+	# Created before _spawn_teams() so the very first ControlMode.
+	# focus_changed emission (fired synchronously by _spawn_teams()'s
+	# initial set_controlled_player() call) has real nodes to bind to
+	# rather than needing a separate first-assignment code path.
 	_hud.ball = _ball
 
 	_crosshair = KickCrosshair.new()
-	_crosshair.player = _home_players[_controlled_index]
 	add_child(_crosshair)
 
 	_mark_prompt = MarkPrompt.new()
-	_mark_prompt.player = _home_players[_controlled_index]
 	_mark_prompt.ball = _ball
 	add_child(_mark_prompt)
 
+	_spawn_teams()
 	_start_match()
 
 
@@ -98,10 +98,49 @@ func _apply_camera_mode(setting: Settings.FullGameCameraMode) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"switch_player"):
 		_switch_human_player()
+	elif event.is_action_pressed(&"toggle_control_scheme"):
+		_toggle_control_scheme()
+	elif event.is_action_pressed(&"issue_command"):
+		_issue_team_command()
 	elif event.is_action_pressed(&"pause"):
 		_open_pause_menu()
 	elif event.is_action_pressed(&"debug_reset"):
 		_reset_ball()
+
+
+## Central reaction to ControlMode's one signal — every place that used to
+## be told "here's the newly controlled/selected player" individually
+## (camera, HUD, crosshair, mark-prompt) now just re-binds here instead.
+## Only HOME is ever handled: AWAY never gets a focus_changed emission in
+## today's modes (nothing ever calls ControlMode.set_controlled_player for
+## it), but the guard keeps this correct the day something does, rather
+## than silently pointing the human's own camera/UI at an AWAY player.
+##
+## Camera decision (documented per TASK's request not to silently pick
+## one): `previous == null` means this is the very first focus this match
+## has ever had — nothing meaningful to pan away from — so the camera
+## snaps via recenter(). Every subsequent change, whether a SINGLE_PLAYER
+## switch or a TEAM_COMMAND selection change, pans via switch_target(),
+## matching the pan behaviour _switch_human_player already had before this
+## pass and extending it to the new scheme rather than special-casing it.
+func _on_focus_changed(team: Tuning.Team, previous: PlayerController, next: PlayerController) -> void:
+	if team != Tuning.Team.HOME:
+		return
+
+	if is_instance_valid(previous) and previous != next:
+		previous.camera = null
+
+	if is_instance_valid(next):
+		next.camera = _camera.camera()
+		if previous == null:
+			_camera.target = next
+			_camera.recenter()
+		else:
+			_camera.switch_target(next)
+
+	_hud.player = next
+	_crosshair.player = next
+	_mark_prompt.player = next
 
 
 ## Esc used to hard-cut straight to the main menu, discarding a match in
@@ -123,11 +162,26 @@ func _spawn_teams() -> void:
 	_home_players = _spawn_team(Tuning.Team.HOME, 1.0)
 	_away_players = _spawn_team(Tuning.Team.AWAY, -1.0)
 
-	_home_players[0].set_brain(HumanBrain.new())
-	_home_players[0].camera = _camera.camera()
-	_camera.target = _home_players[0]
+	# ControlMode (control-mode pass) is the single source of truth for
+	# "who's driving" from here on — this mode script still builds the
+	# actual brains (only it knows the AI config: ball ref, home position,
+	# attack direction), but which player is focused, and telling the
+	# camera/HUD/crosshair/mark-prompt about it, is centralised in
+	# _on_focus_changed() rather than repeated at every call site that
+	# used to hand-roll it (see docs/HANDOVER.md's control-mode entry).
+	ControlMode.reset()
+	ControlMode.register_team(Tuning.Team.HOME, _home_players, ControlMode.Scheme.SINGLE_PLAYER)
+	# AWAY is registered with no human ever assigned (controlled_player
+	# stays null) rather than skipped — a router that only knows about
+	# teams a human might drive can't answer "is anyone controlling this
+	# team" for AWAY at all, and future local-multiplayer needs that
+	# question answerable for every team, not just HOME's.
+	ControlMode.register_team(Tuning.Team.AWAY, _away_players, ControlMode.Scheme.SINGLE_PLAYER)
+	ControlMode.focus_changed.connect(_on_focus_changed)
+
 	_camera.ball = _ball
-	_camera.recenter()
+	_home_players[0].set_brain(HumanBrain.new())
+	ControlMode.set_controlled_player(Tuning.Team.HOME, _home_players[0])
 
 	for player in _home_players + _away_players:
 		player.field_ball_up_called.connect(_on_field_ball_up)
@@ -661,22 +715,117 @@ func _reset_ball() -> void:
 
 # ── Human control ────────────────────────────────────────────────────
 
+## SINGLE_PLAYER's own hand-off (design brief's "must stay solid"): brain
+## construction stays here (only this mode script knows AI config), but
+## who's now focused is reported to ControlMode, which is what fans out to
+## camera/HUD/crosshair/mark-prompt via _on_focus_changed() — see that
+## function for the camera pan-vs-snap decision.
+##
+## In TEAM_COMMAND this key instead cycles which teammate is selected
+## (directly human-driven) — same physical button, same "move on to the
+## next body" meaning, just within the other scheme's own bookkeeping.
 func _switch_human_player() -> void:
-	var count := _home_players.size()
-	if count <= 1:
+	if ControlMode.scheme_for(Tuning.Team.HOME) == ControlMode.Scheme.TEAM_COMMAND:
+		_cycle_team_command_selection()
 		return
-	var previous := _home_players[_controlled_index]
-	_controlled_index = (_controlled_index + 1) % count
-	var next := _home_players[_controlled_index]
+
+	var previous := ControlMode.controlled_player(Tuning.Team.HOME)
+	var next := ControlMode.next_in_roster(Tuning.Team.HOME, previous)
+	if next == previous:
+		return
 
 	var ai := _configure_ai_brain(AIBrain.new(), Tuning.Team.HOME, 1.0, previous.global_position)
 	previous.set_brain(ai)
-	previous.camera = null
 
 	next.set_brain(HumanBrain.new())
-	next.camera = _camera.camera()
-	_camera.switch_target(next)
+	ControlMode.set_controlled_player(Tuning.Team.HOME, next)
 
-	_hud.player = next
-	_crosshair.player = next
-	_mark_prompt.player = next
+
+## Debug/prototyping entry point for ControlMode.Scheme.TEAM_COMMAND —
+## proves the routing works, per TASK's scope (full command UI/UX is
+## explicitly not this pass's job). Swaps HOME between the two schemes,
+## keeping whichever player is currently focused as the new scheme's
+## starting selection/controlled player so the swap itself never leaves
+## anyone mid-air: the same player who had the human's input a moment ago
+## still does, just under the other scheme's bookkeeping.
+func _toggle_control_scheme() -> void:
+	var current_focus := ControlMode.focus_player(Tuning.Team.HOME)
+	var next_scheme := ControlMode.Scheme.TEAM_COMMAND \
+		if ControlMode.scheme_for(Tuning.Team.HOME) == ControlMode.Scheme.SINGLE_PLAYER \
+		else ControlMode.Scheme.SINGLE_PLAYER
+
+	# Give every other HOME player a fresh, mode-appropriate AI brain before
+	# switching — TEAM_COMMAND's teammates need CommandBrain (to be able to
+	# receive an order), SINGLE_PLAYER's need plain AIBrain, and the brain
+	# a player was holding under the *other* scheme is the wrong type
+	# either way (a CommandBrain sitting around during SINGLE_PLAYER would
+	# just behave like AIBrain since nothing ever issues it a command, but
+	# leaving it in place is misleading state to debug later).
+	for player in _home_players:
+		if player == current_focus:
+			continue
+		var brain: AIBrain = CommandBrain.new() if next_scheme == ControlMode.Scheme.TEAM_COMMAND \
+			else AIBrain.new()
+		_configure_ai_brain(brain, Tuning.Team.HOME, 1.0, player.global_position)
+		player.set_brain(brain)
+
+	ControlMode.set_scheme(Tuning.Team.HOME, next_scheme)
+	current_focus.set_brain(HumanBrain.new())
+	if next_scheme == ControlMode.Scheme.TEAM_COMMAND:
+		ControlMode.set_selected_player(Tuning.Team.HOME, current_focus)
+	else:
+		ControlMode.set_controlled_player(Tuning.Team.HOME, current_focus)
+
+
+func _cycle_team_command_selection() -> void:
+	var previous := ControlMode.selected_player(Tuning.Team.HOME)
+	var next := ControlMode.next_in_roster(Tuning.Team.HOME, previous)
+	if next == previous:
+		return
+
+	# The player losing the human's direct input becomes commandable again
+	# rather than plain AI — that's the whole point of TEAM_COMMAND over
+	# SINGLE_PLAYER, and it must happen on every hand-off, not just the
+	# first one, or a few switches in most of the team quietly reverts to
+	# uncommandable AIBrain.
+	var cmd := CommandBrain.new()
+	_configure_ai_brain(cmd, Tuning.Team.HOME, 1.0, previous.global_position)
+	previous.set_brain(cmd)
+
+	next.set_brain(HumanBrain.new())
+	ControlMode.set_selected_player(Tuning.Team.HOME, next)
+
+
+## TEAM_COMMAND's minimal "move here/lead here" order (design brief:
+## "likely via a selected-player + issued-command model"). No reticle/UI
+## exists yet (out of scope — Agent 1's territory), so the target point is
+## derived from the selected player's own facing rather than anything
+## aimed: a fixed lead distance straight ahead of them. Good enough to
+## prove CommandBrain actually picks up and clears an external order; a
+## real aimable target is follow-up work once there's a UI pass to carry it.
+func _issue_team_command() -> void:
+	if ControlMode.scheme_for(Tuning.Team.HOME) != ControlMode.Scheme.TEAM_COMMAND:
+		return
+	var selected := ControlMode.selected_player(Tuning.Team.HOME)
+	if not is_instance_valid(selected):
+		return
+	var receiver := _nearest_commandable_teammate(selected)
+	if receiver == null:
+		return
+
+	var forward := -selected.global_transform.basis.z
+	var lead_point := selected.global_position + forward * Tuning.COMMAND_LEAD_DISTANCE
+	(receiver.brain() as CommandBrain).issue_command(lead_point)
+
+
+func _nearest_commandable_teammate(from: PlayerController) -> PlayerController:
+	var best: PlayerController = null
+	var best_dist := INF
+	for player in _home_players:
+		if player == from or not (player.brain() is CommandBrain):
+			continue
+		var dist := from.global_position.distance_to(player.global_position)
+		if dist < best_dist:
+			best_dist = dist
+			best = player
+	return best
