@@ -1,5 +1,5 @@
 class_name KickChallenge
-extends Node3D
+extends CoachChallenge
 
 ## The kicking coach's mini-game (design brief): hit a target placed
 ## downfield within a set number of kicks. Kept as its own small state
@@ -12,11 +12,8 @@ extends Node3D
 ## unshaded torus, the same kind of primitive KickTrajectory's landing
 ## ring already is — not a modelled prop.
 
-signal challenge_started(attempts_total: int)
 signal target_hit(hits: int, attempts_used: int)
 signal target_missed(attempts_used: int)
-signal challenge_ended(hits: int, attempts_total: int)
-signal hint_changed(text: String)
 
 const RING_COLOUR := Color(0.95, 0.35, 0.25, 0.85)
 
@@ -24,15 +21,6 @@ const RING_COLOUR := Color(0.95, 0.35, 0.25, 0.85)
 @onready var _ring_mesh: MeshInstance3D = $TargetZone/Ring
 
 var _ball: Ball = null
-var _attempts_used := 0
-var _hits := 0
-var _active := false
-
-## True from the moment a KICK leaves the player's hands until this
-## attempt is resolved (hit, settled miss, or forcibly reset) — the gate
-## that stops a single kick being counted twice or a stray settle from an
-## earlier attempt being counted again.
-var _armed := false
 
 
 func _ready() -> void:

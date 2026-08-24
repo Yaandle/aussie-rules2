@@ -1,5 +1,5 @@
 class_name MarkChallenge
-extends Node3D
+extends CoachChallenge
 
 ## The marking coach's mini-game (design brief priority 2): unlike
 ## KickChallenge, the coach is the one disposing the ball here — each
@@ -16,28 +16,12 @@ extends Node3D
 const RANGE_SIM_STEP := 0.02      ## s per integration step in _predicted_range
 const RANGE_SIM_MAX_STEPS := 400  ## safety cap so a freak guess can't loop forever
 
-signal challenge_started(attempts_total: int)
 signal mark_hit(hits: int, attempts_used: int, legal_mark: bool)
 signal mark_dropped(attempts_used: int)
-signal challenge_ended(hits: int, attempts_total: int)
-signal hint_changed(text: String)
 
 var _ball: Ball
 var _player: PlayerController
 var _coach_position := Vector3.ZERO
-
-var _attempts_used := 0
-var _hits := 0
-var _active := false
-
-## True from the moment a delivery leaves the coach until it resolves
-## (caught, dropped, or force-ended) — mirrors KickChallenge's _armed, same
-## purpose: stops one delivery being counted twice or a stray settle from
-## an earlier one being counted again.
-var _armed := false
-
-var _timer := 0.0
-var _pending_callback := Callable()
 
 
 func begin(ball: Ball, player: PlayerController, coach_position: Vector3) -> void:
@@ -93,12 +77,7 @@ func force_miss() -> void:
 func _physics_process(delta: float) -> void:
 	if not _active:
 		return
-	if _timer > 0.0:
-		_timer = maxf(0.0, _timer - delta)
-		if _timer <= 0.0 and _pending_callback.is_valid():
-			var callback := _pending_callback
-			_pending_callback = Callable()
-			callback.call()
+	if _tick_schedule(delta):
 		return
 
 	# Fallback drop detection, same shape as KickChallenge's miss check: if
@@ -232,11 +211,6 @@ func _disconnect_player() -> void:
 		_player.mark_caught.disconnect(_on_mark_caught)
 	if _player.mark_missed.is_connected(_on_mark_missed):
 		_player.mark_missed.disconnect(_on_mark_missed)
-
-
-func _schedule(delay: float, callback: Callable) -> void:
-	_timer = delay
-	_pending_callback = callback
 
 
 ## Inverse-ballistics helper: KickTrajectory forward-simulates a known
