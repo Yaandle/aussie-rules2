@@ -3761,3 +3761,106 @@ kick_to_kick.gd`/`full_game.gd` (the `_get_tackled` signal contract
 `holding_the_ball_called`/`field_ball_up_called` is unchanged, so the
 existing `TackleChallenge` coach minigame and the ruck/holding-the-ball
 handlers keep working as-is).
+
+
+## Handover — Tackle Sandbox mode in the animation dev viewer (Agent: mechanics/engine)
+
+Follow-up to the Slide/Lunge pass above, requested directly rather than
+sequenced from a task brief: `kick_to_kick.tscn`'s AI rival always sprints
+the instant it has the ball (`AIBrain._think_carrying`), which makes it
+genuinely hard to set up a deliberate tackle attempt there to watch the new
+Slide/Lunge resolution play out. `scenes/dev/animation_viewer.tscn` — until
+now a pure animation-clip preview with no physics at all (a bare
+`HumanoidRig` driven directly by `PlayerAnimation`, no `CharacterBody3D`) —
+gained a second mode built for exactly this: two real, controllable
+`PlayerController` instances a developer can position freely and tackle on
+demand.
+
+### What changed and why
+
+`AnimationViewer` now has a `ViewMode` (`CLIP_PREVIEW`, unchanged, still the
+default; `TACKLE_SANDBOX`, new), toggled by two buttons at the top of the
+screen. `TACKLE_SANDBOX` instantiates the same `field.tscn`/`player.tscn`/
+`ball.tscn`/`broadcast_camera.tscn` scenes `full_game.gd`/`kick_to_kick.gd`
+already use — not a stand-in — so Slide/Lunge resolve through the real
+`_resolve_tackle_contact` (closing speed, approach angle, stun/cooldown,
+all of it), not a simplified preview version.
+
+The actual design problem this solves: kick_to_kick's rival is `AIBrain`-
+driven and can't be made to just stand still. Here, whichever of the two
+players ISN'T currently controlled gets a bare `PlayerBrain` (every `wants_*`
+defaults `false`, `wish_direction()` always `Vector3.ZERO`) instead of an
+`AIBrain` — it simply stands wherever it was last driven to. `switch_player`
+(the same action `full_game.gd`'s human-slot cycling already uses) swaps
+which of the two gets `HumanBrain`, so a developer can walk one player into
+any position/approach angle they want, switch control to the other, and
+attempt a Slide or Lunge tackle against a deliberately-placed target — real
+input, real bindings, nothing sandbox-specific to learn. A `RESET` button
+puts both back at a fixed 3m gap facing each other with the ball on one
+side and every tackle timer zeroed; `GIVE BALL TO A`/`GIVE BALL TO B` swap
+possession without a full reset. A status readout shows who's in control,
+who's carrying, and both players' live stun timer / Lunge cooldown — the
+two numbers that actually distinguish a Slide miss from a Lunge miss.
+
+### A real fix found along the way: reset positions were facing away from each other
+
+`_reset_sandbox()` originally set each player's rotation facing *away* from
+the other (mirroring how they'd stand in a real kickoff formation, which
+wasn't the right model to copy here). Backwards for a tool whose entire
+point is "walk toward the other player and tackle them" — fixed to face
+them at each other instead, so the first step out of a RESET is already
+useful.
+
+### A test-only artifact, not a real bug: same-frame reposition race
+
+Headless verification of this feature — via a self-test hook run through
+`ANIM_VIEWER_SELFTEST=1` against the real scene (removed before this was
+considered done, not part of the diff) — hit what first looked like a
+serious physics bug: a freshly-constructed `CharacterBody3D`, repositioned
+in the *same physics frame* it's instantiated, could read back a garbled
+transform for its first several physics steps (an idle player drifting to
+match the mover's position with a growing vertical offset, or — with facing
+corrected — a full-speed collision launching the idle player hundreds of
+metres away). Isolated with a minimal repro completely outside this file
+(two bare `player.tscn` instances, no `AnimationViewer`, no ball, no
+tackle-sandbox code at all) — same symptom, confirming it's a pre-existing
+Jolt/Godot initial-registration race, not anything introduced by this
+change. Confirmed harmless for real use: the sandbox stays hidden behind
+`CLIP_PREVIEW` for those first few frames regardless of when construction
+happens, and a real developer's first click on the `TACKLE SANDBOX` button
+is already many frames past the window by the time `_reset_sandbox()` ever
+runs for real — human reaction time alone clears it. The self-test confirmed
+this directly: waiting a few `physics_frame` ticks after construction before
+touching anything (standing in for that unavoidable real-world delay) made
+all 13 checks pass cleanly, including a full end-to-end Slide tackle
+resolving correctly through the real sandbox instances. Flagging this here
+rather than silently — if anyone ever sees a player rocket across the map on
+contact in `full_game`/`kick_to_kick`, this same-frame-construction race is
+the first thing worth ruling out, though nothing in normal match flow
+constructs and immediately repositions a player in one frame the way a
+synthetic test can.
+
+### How it was verified
+
+Plain headless boot re-verified clean on `animation_viewer.tscn`,
+`full_game.tscn`, and `kick_to_kick.tscn`. The self-test (described above,
+removed before finishing) covered: default mode is `CLIP_PREVIEW`; mode
+switches to `TACKLE_SANDBOX` and back; `RESET` places both players apart,
+facing each other, ball on B, A in control; `switch_player` moves
+`HumanBrain` to whichever is now active and leaves the other idle; the
+`BroadcastCamera` follows the swap; `GIVE BALL TO A`/`B` and `RESET` both
+correctly move possession; and an end-to-end scripted Slide tackle
+(stationary tackler, carrier closing the distance — the same geometry the
+Slide/Lunge formulas were already proven against) resolves correctly
+through the real sandbox instances. All 13 checks passed.
+
+### Files changed
+
+`scripts/dev/animation_viewer.gd` only — `ViewMode` enum, the
+`TACKLE_SANDBOX`-half of `_ready()`/`_process()`/`_unhandled_input()`, and
+new `_build_tackle_sandbox`/`_reset_sandbox`/`_give_ball_to`/
+`_set_active_player`/`_apply_active_brain`/`_update_sandbox_status`/
+`_build_sandbox_ui`/`_build_mode_toggle`/`_set_mode`. The existing
+`CLIP_PREVIEW` code path (`_build_subject`, the locomotion/action/misc
+button groups, the studio floor) is untouched, just toggled alongside the
+new mode rather than replaced.
