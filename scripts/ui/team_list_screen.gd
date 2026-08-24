@@ -10,17 +10,40 @@ extends CanvasLayer
 ## brutalist retro-'90s treatment (thick near-black borders, hard offset
 ## drop shadows instead of SoftBrutalist's blurred ones, a warm parchment
 ## card fill) rather than the rest of the game's Soft Brutalist system.
-## Only the card shell changes: layout, the legend/roster content, and
-## FormationWhiteboard itself are untouched — see _retro_card() below,
-## which is a drop-in replacement for what used to be a plain _card()
-## built on SoftBrutalist.panel_style()/soften().
+## Only the card shell changes: layout, the legend content, and
+## FormationWhiteboard itself are untouched — see _card() below, which is
+## a drop-in replacement for what used to be a plain _card() built on
+## SoftBrutalist.panel_style()/soften().
 ##
-## Read-only: roster editing (which real players fill which slot) and
-## picking between multiple named formations are out of scope for this
-## pass, and the previous team_size / start-positions controls have been
-## removed now that the roster is fixed at the full 18-a-side (4 on the
-## interchange bench, informational only) — this screen just previews
-## TeamFormation.SLOTS's one data-driven layout.
+## Roster editing (which named real player fills which of the 18 slots) is
+## still out of scope — the project has no multi-player roster/persistence
+## system yet (see character_screen.gd's own header). What IS editable
+## (Team Edit expansion): three real tactics settings, each a Row (reusing
+## SettingsScreen's own Row class rather than a second copy of the same
+## title/options/index/cycle shape) that actually changes how a real match
+## plays, not just a preview:
+##   - MATCHDAY FORMATION — which of Settings.FORMATION_PRESETS' curated
+##     4-a-side shapes HOME spawns into (FullGame._kickoff_slot()). Also
+##     drives the whiteboard's own depth offset — see FormationWhiteboard.
+##   - BALL MOVEMENT — corridor/mutual/boundary; read by AIBrain.
+##     _lateral_target_z() to bias where a HOME carrier aims a disposal and
+##     where an off-ball HOME teammate runs to support. Also drives the
+##     whiteboard's width offset.
+##   - DEFENSIVE PRESSURE — loose/balanced/tight; read by AIBrain.
+##     _think_defend() to scale a HOME defender's chase gait and tackle-
+##     commit range. Also drives the whiteboard's dashed engagement line
+##     (never the player markers themselves — see FormationWhiteboard).
+## Up/down (move_forward/ui_up, move_back/ui_down — same actions settings_
+## screen.gd's own row list already uses) selects which row; left/right
+## cycles its value; Settings.save() on exit persists all three the same
+## way settings_screen.gd's rows already do. `toggle_opposition` (O) shows/
+## hides a static mirrored 18-marker reference side on the board — a view
+## toggle, not a persisted setting.
+##
+## The board itself moves its own markers to reflect these three dials —
+## a FIFA/NBA 2K-style tactics board — rather than the retired design of
+## drawing all 18 named AFL slots and ringing whichever 4 the preset used
+## (see docs/HANDOVER.md for that design's own history).
 ##
 ## ── Layout ──────────────────────────────────────────────────────────
 ## One centred content column, not a full-width spread. The board is a
@@ -31,6 +54,13 @@ extends CanvasLayer
 ## to the board it holds and centring the pair instead turns that dead
 ## area into margin, which reads as deliberate space rather than as a
 ## card someone forgot to fill.
+##
+## The tactics card's height (TACTICS_CARD_HEIGHT) is a hand-computed
+## estimate against the same left-column budget the legend card already
+## shares with the whiteboard's height — not visually confirmed, same
+## "no GUI in this environment" limitation every screen in this project
+## has shipped under. If it overflows the card in an actual editor
+## session, shrink TACTICS_ROW_HEIGHT/TACTICS_ROW_GAP first.
 
 const SCREEN_MARGIN := SoftBrutalist.SPACE_4        ## 32
 const BAND_GAP := int(SoftBrutalist.SPACE_2)        ## 16
@@ -56,31 +86,54 @@ const BOARD_PANEL_WIDTH := (BOARD_BAND_HEIGHT - FormationWhiteboard.MARGIN * 2.0
 const CONTENT_WIDTH := COLUMN_WIDTH + float(PANEL_GAP) + BOARD_PANEL_WIDTH
 
 ## ── Retro neomorphism x brutalist card shell ───────────────────────────
-## A warm parchment fill, a thick near-black rule (brutalist), and a
-## solid offset shadow with no blur (the neomorphic-brutalist hybrid's
-## signature — a real embossed shape, but hard-edged like a stamped card
-## rather than airbrushed) instead of SoftBrutalist's soft blur. Local to
-## this screen only; see the header comment for why.
-const RETRO_PANEL := Color("#F3E7CE")     ## warm parchment, not plain white
-const RETRO_BORDER := Color("#1C1A17")    ## near-black, not pure ink — warmer
-const RETRO_SHADOW := Color("#2F5F5A")    ## dusty teal, the one recurring accent
-const RETRO_ACCENT := Color("#C2542F")    ## rust/terracotta — title underline, hint chips
-const RETRO_BORDER_WIDTH := 4
-const RETRO_RADIUS := 6                   ## chunky, not the rest of the app's 16px soft round
-const RETRO_SHADOW_OFFSET := Vector2(7.0, 7.0)
+## The shared RetroWindow shell (see retro_window.gd) — sharp, unrounded
+## corners and a hard offset shadow, like a windowed retro pixel-game
+## console rather than SoftBrutalist's soft blurred rounding. Also used by
+## settings_screen.gd and pause_screen.gd now, so all three read as one
+## consistent design language instead of drifting apart.
+const RETRO_PANEL := RetroWindow.PANEL
+const RETRO_BORDER := RetroWindow.BORDER
+const RETRO_SHADOW := RetroWindow.SHADOW
+const RETRO_ACCENT := RetroWindow.ACCENT
 
-const ROSTER_HEIGHT := 88.0
 ## Six legend rows plus their heading and the card padding. Fixed rather
 ## than expanding: a legend stretched to the full height of the board
 ## beside it is mostly empty card, and the slack reads better as space
 ## between two compact cards.
 const LEGEND_HEIGHT := 296.0
 
+const TACTICS_ROW_HEIGHT := 30.0
+const TACTICS_ROW_GAP := 6.0
+## 3 rows + 2 inter-row gaps + the card's own CARD_PAD top/bottom — no
+## separate section heading (each row's own title, e.g. "DEFENSIVE
+## PRESSURE", already says what it is; a "TEAM TACTICS" caption over the
+## top of that would just repeat itself while costing real height in a
+## card that is already tight against the left column's budget).
+const TACTICS_CARD_HEIGHT := TACTICS_ROW_HEIGHT * 3.0 + TACTICS_ROW_GAP * 2.0 \
+	+ CARD_PAD * 2.0
+
 var _busy := false
 var _whiteboard: FormationWhiteboard
 
+var _rows: Array[SettingsScreen.Row] = []
+var _row_index := 0
+var _row_panels: Array[Panel] = []
+var _row_value_labels: Array[Label] = []
+
 
 func _ready() -> void:
+	_rows = [
+		SettingsScreen.Row.new("MATCHDAY FORMATION",
+			["BALANCED", "ATTACKING", "DEFENSIVE"], Settings.home_formation_index,
+			_set_formation),
+		SettingsScreen.Row.new("BALL MOVEMENT",
+			["CORRIDOR", "MUTUAL", "BOUNDARY"], Settings.home_ball_movement,
+			_set_ball_movement),
+		SettingsScreen.Row.new("DEFENSIVE PRESSURE",
+			["LOOSE", "BALANCED", "TIGHT"], Settings.home_defensive_pressure,
+			_set_defensive_pressure),
+	]
+
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -104,75 +157,97 @@ func _ready() -> void:
 	_build_body(bands)
 	_build_hint(bands)
 
+	_refresh_rows()
+	_sync_whiteboard()
+
 
 func _unhandled_input(event: InputEvent) -> void:
 	if _busy:
 		return
 	if event.is_action_pressed(&"pause") or event.is_action_pressed(&"team_menu"):
 		_exit_to_menu()
+	elif event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up"):
+		_move_row(-1)
+	elif event.is_action_pressed(&"move_back") or event.is_action_pressed(&"ui_down"):
+		_move_row(1)
+	elif event.is_action_pressed(&"ui_left"):
+		_rows[_row_index].cycle(-1)
+		_refresh_rows()
+	elif event.is_action_pressed(&"ui_right"):
+		_rows[_row_index].cycle(1)
+		_refresh_rows()
+	elif event.is_action_pressed(&"toggle_opposition"):
+		if is_instance_valid(_whiteboard):
+			_whiteboard.show_opposition = not _whiteboard.show_opposition
 
 
 func _exit_to_menu() -> void:
 	if _busy:
 		return
 	_busy = true
+	Settings.save()
 	SceneWipe.change_scene("res://scenes/ui/main_menu.tscn")
+
+
+func _move_row(step: int) -> void:
+	_row_index = (_row_index + step + _rows.size()) % _rows.size()
+	_refresh_rows()
+
+
+# ── Tactics rows ─────────────────────────────────────────────────────
+
+func _set_formation(index: int) -> void:
+	Settings.home_formation_index = index
+	_sync_whiteboard()
+
+
+func _set_ball_movement(index: int) -> void:
+	Settings.home_ball_movement = index as Settings.BallMovementPreference
+	_sync_whiteboard()
+
+
+func _set_defensive_pressure(index: int) -> void:
+	Settings.home_defensive_pressure = index as Settings.DefensivePressure
+	_sync_whiteboard()
+
+
+## Pushes all three tactics dials into the board in one pass — cheap even
+## when only one actually changed (see FormationWhiteboard._retarget()),
+## and means whichever row's on_change fires doesn't need to know which of
+## the three the board actually cares about.
+func _sync_whiteboard() -> void:
+	if not is_instance_valid(_whiteboard):
+		return
+	_whiteboard.formation_index = Settings.home_formation_index
+	_whiteboard.ball_movement = Settings.home_ball_movement
+	_whiteboard.defensive_pressure = Settings.home_defensive_pressure
+
+
+func _refresh_rows() -> void:
+	for i in _rows.size():
+		var selected := i == _row_index
+		_row_panels[i].add_theme_stylebox_override(&"panel", _row_panel_style(selected))
+		_row_value_labels[i].text = _rows[i].value()
+
+
+## Transparent when not selected (the row reads as plain text sitting on
+## the card's own parchment fill, no visible box), a soft accent tint when
+## selected — the one thing that has to carry "this is the row up/down
+## just moved to", since these rows aren't separate _card() shells with
+## their own shadow/elevation to animate the way settings_screen.gd's
+## SoftBrutalist rows are.
+func _row_panel_style(selected: bool) -> StyleBoxFlat:
+	return RetroWindow.row_style(selected)
 
 
 # ── Build ────────────────────────────────────────────────────────────
 
-## A card is a plain Control wrapper (not a Container, so its children's
-## positions don't get re-sorted) exactly `minimum` in size — the same
-## external footprint the old SoftBrutalist-based card claimed, so none of
-## this screen's hand-tuned pixel geometry (CONTENT_WIDTH, BOARD_PANEL_
-## WIDTH etc.) shifts. Inside it: a solid RETRO_SHADOW panel offset by
-## RETRO_SHADOW_OFFSET first, then the real parchment-and-border panel at
-## (0,0) on top — a hard-edged stamped shadow instead of a blurred one,
-## intentionally allowed to poke past the wrapper's own claimed rect
-## since Control rendering isn't clipped to its reported size.
+## Thin wrapper over RetroWindow.card() — kept as a local method since
+## every call site here already reads `_card(parent, size)`, and the
+## external footprint (CONTENT_WIDTH, BOARD_PANEL_WIDTH etc., all
+## hand-tuned against this screen's own CARD_PAD) doesn't change.
 func _card(parent: Control, minimum: Vector2) -> MarginContainer:
-	var wrapper := Control.new()
-	wrapper.custom_minimum_size = minimum
-	wrapper.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	parent.add_child(wrapper)
-
-	# Both anchored full-rect to `wrapper` (not sized off the `minimum`
-	# snapshot directly) so a caller that stretches the wrapper afterwards
-	# (SIZE_EXPAND_FILL on the whiteboard panel, sizing it to the row's
-	# actual height) carries the shadow and the front panel along with it.
-	var shadow := Panel.new()
-	shadow.set_anchors_preset(Control.PRESET_FULL_RECT)
-	shadow.offset_left = RETRO_SHADOW_OFFSET.x
-	shadow.offset_right = RETRO_SHADOW_OFFSET.x
-	shadow.offset_top = RETRO_SHADOW_OFFSET.y
-	shadow.offset_bottom = RETRO_SHADOW_OFFSET.y
-	shadow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var shadow_style := StyleBoxFlat.new()
-	shadow_style.bg_color = RETRO_SHADOW
-	shadow_style.set_corner_radius_all(RETRO_RADIUS)
-	shadow_style.anti_aliasing_size = 1.0
-	shadow.add_theme_stylebox_override(&"panel", shadow_style)
-	wrapper.add_child(shadow)
-
-	var panel := Panel.new()
-	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var panel_style := StyleBoxFlat.new()
-	panel_style.bg_color = RETRO_PANEL
-	panel_style.border_color = RETRO_BORDER
-	panel_style.set_border_width_all(RETRO_BORDER_WIDTH)
-	panel_style.set_corner_radius_all(RETRO_RADIUS)
-	panel_style.anti_aliasing_size = 1.0
-	panel.add_theme_stylebox_override(&"panel", panel_style)
-	wrapper.add_child(panel)
-
-	var inner := MarginContainer.new()
-	inner.set_anchors_preset(Control.PRESET_FULL_RECT)
-	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	for side: String in ["left", "right", "top", "bottom"]:
-		inner.add_theme_constant_override(StringName("margin_" + side), int(CARD_PAD))
-	panel.add_child(inner)
-	return inner
+	return RetroWindow.card(parent, minimum, CARD_PAD)
 
 
 func _build_header(parent: Control) -> void:
@@ -223,7 +298,7 @@ func _build_body(parent: Control) -> void:
 
 	_build_legend(column)
 
-	# Pushes the roster card down to sit level with the board panel's
+	# Pushes the tactics card down to sit level with the board panel's
 	# bottom edge, so the left column reads as two anchored cards rather
 	# than two floating ones.
 	var spacer := Control.new()
@@ -231,7 +306,7 @@ func _build_body(parent: Control) -> void:
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	column.add_child(spacer)
 
-	_build_info_panel(column)
+	_build_tactics_card(column)
 	_build_whiteboard(row)
 
 
@@ -270,28 +345,60 @@ func _build_legend(parent: Control) -> void:
 		line_row.add_child(name_label)
 
 
-## Small static info card filling the slot the old editable "TEAM SIZE" /
-## "START POSITIONS" panel used to occupy — the roster is fixed now, so
-## this is read-only context rather than a control.
-func _build_info_panel(parent: Control) -> void:
-	var inner := _card(parent, Vector2(COLUMN_WIDTH, ROSTER_HEIGHT))
+## Three real pickers (Team Edit expansion): Matchday Formation, Ball
+## Movement preference, Defensive Pressure — see this file's own header
+## comment for what each actually changes about a match. One shared card
+## rather than one each: three separate _card() shells (each paying
+## CARD_PAD on all four sides plus its own shadow) would not fit this
+## column's height budget the way one card holding three lightweight rows
+## does — see TACTICS_CARD_HEIGHT.
+func _build_tactics_card(parent: Control) -> void:
+	var inner := _card(parent, Vector2(COLUMN_WIDTH, TACTICS_CARD_HEIGHT))
 
 	var column := VBoxContainer.new()
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	column.add_theme_constant_override(&"separation", 4)
+	column.add_theme_constant_override(&"separation", int(TACTICS_ROW_GAP))
 	inner.add_child(column)
-	column.add_child(SoftBrutalist.label("ROSTER", SoftBrutalist.SIZE_CAPTION,
-		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_REGULAR, SoftBrutalist.TRACK_LABEL))
 
-	# Autowrapped rather than trusting it to fit: this line used to be set
-	# at a size that overran the card it sits in by about 20px, printing
-	# "INTERCHANGE" straight through the right border onto the page.
-	var value := SoftBrutalist.label("18 A-SIDE · 4 ON INTERCHANGE", SoftBrutalist.SIZE_BODY,
-		SoftBrutalist.INK, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_NONE)
-	value.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	column.add_child(value)
+	for row in _rows:
+		_build_tactics_row(column, row)
+
+
+func _build_tactics_row(parent: Control, row: SettingsScreen.Row) -> void:
+	var panel := Panel.new()
+	panel.custom_minimum_size = Vector2(0.0, TACTICS_ROW_HEIGHT)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(panel)
+	_row_panels.append(panel)
+
+	var inset := MarginContainer.new()
+	inset.set_anchors_preset(Control.PRESET_FULL_RECT)
+	inset.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for side: String in ["left", "right"]:
+		inset.add_theme_constant_override(StringName("margin_" + side), 10)
+	panel.add_child(inset)
+
+	var line := HBoxContainer.new()
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	inset.add_child(line)
+
+	var title_label := SoftBrutalist.label(row.title, SoftBrutalist.SIZE_CAPTION,
+		RETRO_BORDER, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL)
+	title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	title_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	line.add_child(title_label)
+
+	var spacer := Control.new()
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	line.add_child(spacer)
+
+	var value_label := SoftBrutalist.label(row.value(), SoftBrutalist.SIZE_LABEL,
+		RETRO_ACCENT, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_NONE)
+	value_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	value_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	line.add_child(value_label)
+	_row_value_labels.append(value_label)
 
 
 func _build_whiteboard(parent: Control) -> void:
@@ -320,4 +427,9 @@ func _build_hint(parent: Control) -> void:
 	var hints := KeyHintBar.new()
 	hints.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(hints)
-	hints.set_hints([{"keys": "T / Esc", "label": "Back to menu"}])
+	hints.set_hints([
+		{"keys": "↑ / ↓", "label": "Select"},
+		{"keys": "← / →", "label": "Change"},
+		{"keys": "O", "label": "Opposition"},
+		{"keys": "T / Esc", "label": "Back to menu"},
+	])

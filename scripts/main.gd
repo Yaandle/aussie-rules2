@@ -19,7 +19,6 @@ extends Node3D
 ##     absorbed.
 
 const BALL_RESET_AHEAD := 3.0
-const BALL_LOST_BELOW := -5.0
 
 @onready var _field: Field = $Field
 @onready var _ball: Ball = $Ball
@@ -42,6 +41,7 @@ func _ready() -> void:
 	_hud.player = _player
 	_hud.ball = _ball
 
+	AudioManager.register_player(_player)
 	_player.ball_disposed.connect(_on_ball_disposed)
 
 	_ball.reset_at(_field.centre())
@@ -59,7 +59,7 @@ func _physics_process(_delta: float) -> void:
 	# Safety net: the ball is a real rigid body now, so it can genuinely
 	# be lost off the map.
 	var where := _ball.global_position
-	if where.y < BALL_LOST_BELOW \
+	if where.y < Tuning.BALL_LOST_BELOW \
 			or absf(where.x) > Tuning.FIELD_HALF_LENGTH + Field.SURROUND_MARGIN \
 			or absf(where.z) > Tuning.FIELD_HALF_WIDTH + Field.SURROUND_MARGIN:
 		_reset_ball()

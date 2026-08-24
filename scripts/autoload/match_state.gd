@@ -25,6 +25,18 @@ const BEHIND_POINTS := 1
 var goals := {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
 var behinds := {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
 
+## Basic AFL box-score stats (design brief: "tally disposals/marks/tackles
+## per team by counting the same signals already used for audio" — see
+## docs/HANDOVER.md). Recorded by full_game.gd only (Kick-to-Kick has no
+## clock/scoring either, and never calls reset(), so it never touches
+## these) via record_disposal/record_mark/record_tackle, read fresh by
+## MatchEndScreen the same way it already reads goals/behinds through
+## scoreline(). Bounces aren't tracked — not a real AFL box-score stat.
+var kicks := {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
+var handballs := {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
+var marks := {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
+var tackles := {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
+
 var quarter := 1
 var clock_running := false
 var seconds_remaining := Tuning.QUARTER_LENGTH
@@ -78,9 +90,33 @@ func scoreline(team: Tuning.Team) -> String:
 	return "%d.%d (%d)" % [goals[team], behinds[team], points(team)]
 
 
+func record_disposal(team: Tuning.Team, action: Tuning.Action) -> void:
+	if team == Tuning.Team.NONE:
+		return
+	match action:
+		Tuning.Action.KICK:
+			kicks[team] += 1
+		Tuning.Action.HANDBALL:
+			handballs[team] += 1
+
+
+func record_mark(team: Tuning.Team) -> void:
+	if team != Tuning.Team.NONE:
+		marks[team] += 1
+
+
+func record_tackle(team: Tuning.Team) -> void:
+	if team != Tuning.Team.NONE:
+		tackles[team] += 1
+
+
 func reset() -> void:
 	goals = {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
 	behinds = {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
+	kicks = {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
+	handballs = {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
+	marks = {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
+	tackles = {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
 	quarter = 1
 	seconds_remaining = Tuning.QUARTER_LENGTH
 	clock_running = false

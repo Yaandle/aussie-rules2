@@ -50,6 +50,110 @@ var mouse_kick_swapped := false:
 		_apply_mouse_kick_binding()
 		mouse_kick_binding_changed.emit(value)
 
+## Matchday formation (Team Edit expansion, polish-pass brief): which 4 of
+## TeamFormation's 18 named AFL slots the HOME side actually lines up in
+## for Full Game, replacing the flat even-spread _kickoff_slot() used
+## unconditionally before this. Indices into TeamFormation.SLOTS — each
+## preset a plausible, curated 4-a-side shape (one from the back/centre/
+## forward lines plus a ruck, weighted toward attack, or weighted toward
+## defence) rather than a free "any 4 of 18" picker, which stays in scope
+## for a future pass. AWAY keeps the old generic spread — only the side
+## the human plays as is worth letting them shape.
+const FORMATION_PRESETS := [
+	{"name": "BALANCED", "slots": [3, 7, 9, 15]},     # CHB, C, CHF, RK
+	{"name": "ATTACKING", "slots": [7, 9, 12, 17]},   # C, CHF, FF, ROV
+	{"name": "DEFENSIVE", "slots": [0, 3, 7, 15]},    # FB, CHB, C, RK
+]
+
+var home_formation_index := 0:
+	set(value):
+		home_formation_index = clampi(value, 0, FORMATION_PRESETS.size() - 1)
+
+
+## The currently-selected preset's slot indices into TeamFormation.SLOTS —
+## the one thing FullGame._kickoff_slot() and TeamListScreen's whiteboard
+## highlight both actually need, so neither has to know the preset table's
+## own shape. Display names live in TeamListScreen's own Row definition
+## (same convention settings_screen.gd's rows already use), not here.
+func home_formation_slots() -> Array:
+	return FORMATION_PRESETS[home_formation_index]["slots"]
+
+
+## Ball movement preference (Team Edit expansion): where the HOME side
+## prefers to move the ball up the field. Consumed by AIBrain._lateral_
+## target_z() — a carrying AI's own disposal aim, and an off-ball
+## teammate's support run, both lean toward the boundary by the matching
+## fraction below rather than each having its own independently-tuned
+## number. CORRIDOR keeps play dead through the middle; BOUNDARY commits
+## hard to whichever wing a player already happens to be nearer to;
+## MUTUAL (default) is a middling blend of both — not "no preference",
+## an actual third choice, same as the formation presets above are three
+## real shapes rather than "off plus two options".
+enum BallMovementPreference { CORRIDOR, MUTUAL, BOUNDARY }
+
+const BALL_MOVEMENT_BIAS := {
+	BallMovementPreference.CORRIDOR: 0.05,
+	BallMovementPreference.MUTUAL: 0.40,
+	BallMovementPreference.BOUNDARY: 0.85,
+}
+
+var home_ball_movement: BallMovementPreference = BallMovementPreference.MUTUAL:
+	set(value):
+		home_ball_movement = value as BallMovementPreference
+
+
+func home_lateral_bias() -> float:
+	return BALL_MOVEMENT_BIAS[home_ball_movement]
+
+
+## Defensive pressure (Team Edit expansion): how tightly the HOME side
+## marks the ball carrier when defending. Consumed by AIBrain._think_
+## defend() — scales both the chase gait closing on the carrier and the
+## distance a defender commits to an actual tackle attempt from, together,
+## rather than as two separately-invented numbers. TIGHT closes and
+## commits earlier/from further out; LOOSE holds off longer on both;
+## BALANCED (default) is this project's original, un-tuned _think_defend
+## behaviour (multiplier 1.0) — not a new baseline, the existing one.
+enum DefensivePressure { LOOSE, BALANCED, TIGHT }
+
+const DEFENSIVE_PRESSURE_INTENSITY := {
+	DefensivePressure.LOOSE: 0.65,
+	DefensivePressure.BALANCED: 1.0,
+	DefensivePressure.TIGHT: 1.3,
+}
+
+var home_defensive_pressure: DefensivePressure = DefensivePressure.BALANCED:
+	set(value):
+		home_defensive_pressure = value as DefensivePressure
+
+
+func home_press_intensity() -> float:
+	return DEFENSIVE_PRESSURE_INTENSITY[home_defensive_pressure]
+
+
+## Master SFX volume, 0..1 — read directly by AudioManager on every
+## playback (no signal needed the way full_game_camera_mode's live-apply
+## does: AudioManager only ever reads this at the moment a sound actually
+## plays, so there's nothing to push a change into ahead of time). Default
+## 1.0 (audio on) rather than SettingsScreen.Row's own index-0 default —
+## see settings_screen.gd's MASTER VOLUME row, which now seeds its cursor
+## from this value instead of always starting at "MUTE".
+var master_volume := 1.0:
+	set(value):
+		master_volume = clampf(value, 0.0, 1.0)
+
+
+## Keyboard remaps (docs/FEATURE_AUDIT.md's control-remapping item, see
+## RemapScreen): action name -> physical keycode, holding only entries a
+## player has actually changed — an action with no entry here keeps
+## whatever project.godot's own [input] section already bound it to.
+## InputMap is the live source of truth from the moment this loads, same
+## "rewrite the InputMap directly, don't branch in the code that reads
+## Input" pattern _apply_mouse_kick_binding() below already established for
+## the mouse-kick swap.
+var keybind_overrides: Dictionary = {}
+
+
 signal camera_mode_changed(mode: FullGameCameraMode)
 signal mouse_kick_binding_changed(swapped: bool)
 
@@ -57,6 +161,8 @@ signal mouse_kick_binding_changed(swapped: bool)
 func _ready() -> void:
 	_load()
 	_apply_mouse_kick_binding()
+	for action in keybind_overrides.keys():
+		_apply_keybind_to_inputmap(StringName(action), int(keybind_overrides[action]))
 
 
 func _load() -> void:
@@ -67,12 +173,30 @@ func _load() -> void:
 		full_game_camera_mode) as FullGameCameraMode
 	mouse_kick_swapped = config.get_value(SECTION, "mouse_kick_swapped",
 		mouse_kick_swapped) as bool
+	home_formation_index = config.get_value(SECTION, "home_formation_index",
+		home_formation_index) as int
+	home_ball_movement = config.get_value(SECTION, "home_ball_movement",
+		home_ball_movement) as BallMovementPreference
+	home_defensive_pressure = config.get_value(SECTION, "home_defensive_pressure",
+		home_defensive_pressure) as DefensivePressure
+	master_volume = config.get_value(SECTION, "master_volume", master_volume) as float
+	# Loaded as a plain dict here, not applied to the InputMap yet — _ready()
+	# does that once, after this returns, via _apply_keybind_to_inputmap()
+	# for every entry (keeping "read the save data" and "mutate the live
+	# InputMap" as two separate steps, same split every apply_keybind()
+	# caller already goes through).
+	keybind_overrides = config.get_value(SECTION, "keybind_overrides", {}) as Dictionary
 
 
 func save() -> void:
 	var config := ConfigFile.new()
 	config.set_value(SECTION, "full_game_camera_mode", full_game_camera_mode)
 	config.set_value(SECTION, "mouse_kick_swapped", mouse_kick_swapped)
+	config.set_value(SECTION, "home_formation_index", home_formation_index)
+	config.set_value(SECTION, "home_ball_movement", home_ball_movement)
+	config.set_value(SECTION, "home_defensive_pressure", home_defensive_pressure)
+	config.set_value(SECTION, "master_volume", master_volume)
+	config.set_value(SECTION, "keybind_overrides", keybind_overrides)
 	config.save(SAVE_PATH)
 
 
@@ -95,3 +219,53 @@ func _rebind_mouse_button(action: StringName, button_index: MouseButton) -> void
 	var new_event := InputEventMouseButton.new()
 	new_event.button_index = button_index
 	InputMap.action_add_event(action, new_event)
+
+
+# ── Keyboard remaps (RemapScreen) ────────────────────────────────────
+# Conflict resolution (deciding which OTHER action loses this key) is
+# RemapScreen's job, since it's the one that knows the full remappable
+# set to scan — these three are the primitive InputMap mutation +
+# persistence-bookkeeping calls it's built on, kept here so every live
+# setting in this project persists through the same one place.
+
+func apply_keybind(action: StringName, physical_keycode: int) -> void:
+	keybind_overrides[action] = physical_keycode
+	_apply_keybind_to_inputmap(action, physical_keycode)
+
+
+## Removes a keyboard binding entirely (no fallback to whatever
+## project.godot originally had — InputMap.action_erase_event() doesn't
+## remember that once erased) — used when a rebind elsewhere takes this
+## action's key away from it. Gamepad/mouse events on the same action are
+## untouched.
+func clear_keyboard_binding(action: StringName) -> void:
+	keybind_overrides.erase(action)
+	_erase_keyboard_event(action)
+
+
+## KEY_NONE if `action` has no keyboard event bound at all (cleared, or
+## never had one). Reads the live InputMap, not just keybind_overrides, so
+## this reports correctly for an action's original project.godot default
+## too, not only ones a player has actually remapped.
+func keyboard_keycode(action: StringName) -> int:
+	if not InputMap.has_action(action):
+		return KEY_NONE
+	for event in InputMap.action_get_events(action):
+		if event is InputEventKey:
+			return (event as InputEventKey).physical_keycode
+	return KEY_NONE
+
+
+func _apply_keybind_to_inputmap(action: StringName, physical_keycode: int) -> void:
+	_erase_keyboard_event(action)
+	var event := InputEventKey.new()
+	event.physical_keycode = physical_keycode
+	InputMap.action_add_event(action, event)
+
+
+func _erase_keyboard_event(action: StringName) -> void:
+	if not InputMap.has_action(action):
+		return
+	for event in InputMap.action_get_events(action):
+		if event is InputEventKey:
+			InputMap.action_erase_event(action, event)

@@ -28,7 +28,18 @@ enum Team { HOME, AWAY, NONE }
 ## Appended-only: ACTION_DURATION/ACTION_CONTACT below are indexed
 ## positionally by this enum's int value, so KICK/HANDBALL/BOUNCE must keep
 ## their existing slots. New actions always go on the end.
-enum Action { NONE, KICK, HANDBALL, BOUNCE, MARK_SAFE, MARK_RUNNING, MARK_AGGRESSIVE, HIT_OUT }
+##
+## MARK_SAFE_MISS/MARK_RUNNING_MISS: the cosmetic reaction played when a
+## timing-graded attempt on that tier fails outside the window (see
+## PlayerController._attempt_running_mark and _update_marking's grounded
+## branch) — a distinct clip from the catch one, not a new gameplay
+## resolution path. MARK_AGGRESSIVE has no _MISS twin: its catch already
+## resolves mid-clip (see ACTION_CONTACT's own comment below), and there is
+## no cheap way to fork an already-playing AnimationNodeStateMachine state
+## without a visible pop, so its miss stays feedback-only (rumble/SFX/ring),
+## same clip either way.
+enum Action { NONE, KICK, HANDBALL, BOUNCE, MARK_SAFE, MARK_RUNNING, MARK_AGGRESSIVE, HIT_OUT,
+	MARK_SAFE_MISS, MARK_RUNNING_MISS }
 
 
 # ── Ground geometry (metres) ─────────────────────────────────────────
@@ -75,23 +86,38 @@ const GAIT_JOG := 0.70
 # roughly 3-4 m/s^2 to top speed; braking is always quicker than getting
 # going. These are deliberately a shade brisker than reality so a
 # controller still feels responsive.
-const ACCELERATION := 9.0              # m/s^2 speeding up
+#
+# Fundamentals-pass retune: ACCELERATION nudged up from 9.0 — the model
+# itself (real momentum, not instant-start/instant-stop) is staying, per
+# design doc §5 and every contest in this file leaning on it, but the brief
+# was "more responsive, forgiving" within that model, not a redesign. A
+# slightly punchier get-going without touching BRAKING (already the
+# quicker of the two, correctly) is the smallest lever toward that.
+const ACCELERATION := 10.5             # m/s^2 speeding up
 const BRAKING := 14.0                  # m/s^2 slowing down
 const AIR_ACCELERATION := 2.0          # m/s^2 while airborne (very little authority)
 
 # Turn rate falls off with speed — this is the single biggest contributor
 # to "weight". At a standstill you pivot on the spot; at a full sprint you
 # describe an arc. Turn radius = speed / turn_rate, so SPRINT here gives
-# 8.4 / 2.79 rad/s ~= 3.0m — tight enough to stay playable, wide enough
-# that a sprint commits you.
+# 8.4 / 3.32 rad/s ~= 2.5m (was ~3.0m at the old 160 deg/s) — a touch
+# tighter/quicker to recover from without losing the commitment a sprint
+# is supposed to carry.
 const TURN_RATE_STANDING := 900.0      # deg/s at zero speed
-const TURN_RATE_SPRINT := 160.0        # deg/s at SPRINT_SPEED
+const TURN_RATE_SPRINT := 190.0        # deg/s at SPRINT_SPEED
 
 # How much a change of direction costs you in speed. Running back against
-# your own momentum drives target speed to REVERSE_SPEED_SCALE, so you
+# your own momentum drives target speed toward REVERSE_SPEED_SCALE, so you
 # brake, and braking raises your turn rate, so you plant and swing round.
 # Two coupled rules, one emergent plant-and-pivot — no special case.
-const REVERSE_SPEED_SCALE := 0.0       # target speed multiplier at 180 deg off heading
+#
+# Fundamentals-pass retune: was 0.0 — a dead-stop on any reversal, which is
+# the single biggest thing that read as "unresponsive" rather than "has
+# weight". Raised off zero so a hard reversal still costs real speed (this
+# is still meant to hurt enough that backpedal/plant-and-pivot stay the
+# genuinely better techniques for reading the play, not a free direction
+# change) without fully arresting momentum first.
+const REVERSE_SPEED_SCALE := 0.18      # target speed multiplier at 180 deg off heading
 
 # Below this speed there is no momentum worth fighting, so the heading
 # snaps straight to intent and you simply turn on the spot.
@@ -140,6 +166,13 @@ const TURN_BURST_ACCEL_MULT := 1.8
 const FACING_TURN_RATE := 720.0        # deg/s
 
 const GRAVITY := 9.80665               # m/s^2
+
+## How far below the ground the ball has to fall before a mode's own
+## out-of-bounds safety net gives up on it and resets it, rather than
+## leaving it to fall forever. Was three independent copies of the same
+## number (scripts/main.gd, kick_to_kick.gd, full_game.gd) — single-sourced
+## here since none of them mean anything different by it.
+const BALL_LOST_BELOW := -5.0          # m
 
 # Force the player imparts to loose rigid bodies it walks into, as a
 # multiple of the ball's mass. Running through a ball should shift it.
@@ -266,8 +299,13 @@ const KICK_MOUSE_REACH_SENSITIVITY := 0.0035
 ## number — it is the identical jump (see PlayerController._begin_hit_out),
 ## just resolved as a palm instead of a catch, so it should peak and land
 ## on exactly the same clock.
-const ACTION_DURATION := [0.0, 0.78, 0.45, 0.50, 0.55, 0.40, 0.95, 0.95]
-const ACTION_CONTACT := [0.0, 0.42, 0.20, 0.22, 0.08, 0.06, 0.40, 0.40]
+##
+## MARK_SAFE_MISS/MARK_RUNNING_MISS (indices 8/9): short on purpose — a
+## whiffed reach reads as a quick stumble-and-reset, not a settle-into-
+## carry, so both are noticeably shorter than the catch clips they sit
+## beside (MARK_SAFE/MARK_RUNNING at indices 4/5).
+const ACTION_DURATION := [0.0, 0.78, 0.45, 0.50, 0.55, 0.40, 0.95, 0.95, 0.35, 0.30]
+const ACTION_CONTACT := [0.0, 0.42, 0.20, 0.22, 0.08, 0.06, 0.40, 0.40, 0.10, 0.10]
 
 # AFL rule: a player running with the ball must bounce or touch it to
 # ground every 15 metres. Carried over unchanged from Prototype 1's
@@ -275,8 +313,11 @@ const ACTION_CONTACT := [0.0, 0.42, 0.20, 0.22, 0.08, 0.06, 0.40, 0.40]
 const BOUNCE_INTERVAL := 15.0          # metres of carry between bounces
 
 # An actual arm's reach. P1's LOOSE_BALL_GATHER_RADIUS was 4.0 units — a
-# positional abstraction for "close enough", not a reach.
-const GATHER_RADIUS := 0.85            # m
+# positional abstraction for "close enough", not a reach. Nudged up from
+# the original 0.85 (still nowhere near P1's abstraction) after reports
+# that a slightly-off pass or a bounce just outside true arm's-length was
+# reading as ungatherable — a generous arm's reach, not a lunge.
+const GATHER_RADIUS := 1.05            # m
 # Speed at the moment of contact matters (design brief): a player running
 # through a bounce or a loose ball gets a bit more reach than one standing
 # over it, same idea as GROUND_PICKUP_LUNGE_PER_SPEED's deliberate reach,
@@ -284,8 +325,8 @@ const GATHER_RADIUS := 0.85            # m
 # press. Capped well short of GROUND_PICKUP's own bonus so the two stay
 # distinguishable — a deliberate reach should still out-range a passive one.
 const GATHER_LUNGE_PER_SPEED := 0.04   # m of extra reach per m/s of current speed
-const GATHER_LUNGE_MAX := 0.5          # m
-const GATHER_MAX_BALL_SPEED := 14.0    # m/s above which the ball is going too fast to gather
+const GATHER_LUNGE_MAX := 0.65         # m
+const GATHER_MAX_BALL_SPEED := 16.0    # m/s above which the ball is going too fast to gather
 const GATHER_COOLDOWN := 0.45          # s after disposal before you can regather your own kick
 const RELEASE_GRACE := 0.25            # s the disposed ball ignores its own kicker
 
@@ -295,21 +336,38 @@ const RELEASE_GRACE := 0.25            # s the disposed ball ignores its own kic
 # spring arm. P1's MAIN_CAM_BACK/HEIGHT were 50/30 logical units on a
 # 166-unit field — a very high, very distant diorama view. A broadcast
 # third-person rig sits far closer to the player.
-const CAM_DISTANCE := 7.5              # m behind the focus point
-const CAM_FOCUS_HEIGHT := 1.35         # m up the player's body that the rig frames
-const CAM_PITCH_DEFAULT := -14.0       # deg
+## Pulled in and raised from 7.5/1.35/-14 — at the old settings the rig sat
+## low and far enough behind the player that Full Game's 4-a-side spread
+## read as tiny, distant dots, making it hard to track teammates/passing
+## lanes or judge a kick's target. Closer + higher + a touch more pitch
+## gives more field awareness per frame without going all the way to
+## Full-Side's broadcast distance.
+const CAM_DISTANCE := 6.0              # m behind the focus point
+const CAM_FOCUS_HEIGHT := 1.6          # m up the player's body that the rig frames
+const CAM_PITCH_DEFAULT := -18.0       # deg
 const CAM_PITCH_MIN := -55.0
 const CAM_PITCH_MAX := 22.0
 const CAM_YAW_SPEED := 180.0           # deg/s at full right-stick deflection
 const CAM_PITCH_SPEED := 110.0         # deg/s
 const CAM_MOUSE_SENSITIVITY := 0.14    # deg per pixel of mouse motion
 
-const CAM_FOLLOW_RATE := 9.0           # exponential smoothing rate for the focus point
+# Fundamentals-pass retune: FOLLOW_RATE down from 9.0 (was ~86% converged
+# in a third of a second — tight enough that a fast direction change reads
+# as the rig snapping rather than following) and LOOKAHEAD pulled in from
+# 0.45s/3.5m — at full sprint the old value pushed the focus point nearly
+# 3.5m ahead of the player, which on a plant-and-pivot flips almost
+# instantly and was very likely a real chunk of the reported jarring,
+# independent of the ball entirely. Both are still real, both just settle
+# slower now.
+const CAM_FOLLOW_RATE := 6.0           # exponential smoothing rate for the focus point
 const CAM_ROTATE_RATE := 12.0          # ditto for yaw/pitch
-const CAM_LOOKAHEAD_TIME := 0.45       # s of the target's velocity to lead by
-const CAM_LOOKAHEAD_MAX := 3.5         # m cap on that lead
+const CAM_LOOKAHEAD_TIME := 0.30       # s of the target's velocity to lead by
+const CAM_LOOKAHEAD_MAX := 2.5         # m cap on that lead
 
-const CAM_FOV_BASE := 68.0
+## Widened slightly alongside the closer CAM_DISTANCE above — a tighter
+## distance without a wider lens would claw back the peripheral view the
+## distance cut was meant to preserve, just from a different cause.
+const CAM_FOV_BASE := 72.0
 const CAM_FOV_SPRINT_GAIN := 10.0      # deg added at SPRINT_SPEED — speed you can feel
 const CAM_FOV_RATE := 5.0
 const CAM_PUNCH_KICK := -6.0           # deg of transient tighten on a kick (§6)
@@ -330,9 +388,16 @@ const CAM_PUNCH_DECAY := 3.5
 # was exactly as slow as the initial commit toward it; raised so letting
 # go is snappier without also making the initial pull twitchy (still
 # smoothed, just over a shorter window).
-const CAM_BALL_FOCUS_MAX := 0.35       # max weight the ball takes of the focus point
+#
+# Fundamentals-pass retune: cut again, same direction as that first pass —
+# MAX 0.35 -> 0.25 (the ball can pull noticeably less of the focus now),
+# RATE 4.5 -> 3.0 (slower to commit toward it in the first place). Still a
+# real, smoothed blend, never a snap; just looser than before, per "follows
+# the player and the ball with some blend/lag" rather than tracking the
+# ball tightly.
+const CAM_BALL_FOCUS_MAX := 0.25       # max weight the ball takes of the focus point
 const CAM_BALL_FOCUS_MIN_HEIGHT := 1.6 # m, ball must be above this to pull focus
-const CAM_BALL_FOCUS_RATE := 4.5
+const CAM_BALL_FOCUS_RATE := 3.0
 const CAM_MAX_FRAMING_DISTANCE := 45.0 # m, beyond which the ball stops pulling harder
 
 # Two-shot conversation framing for the training-coach dialogue (see the
@@ -362,6 +427,17 @@ const CAM_FULL_SIDE_ARM := 6.0             # m — short; position/height alread
 const CAM_FULL_SIDE_FOV := 50.0
 const CAM_FULL_SIDE_FOLLOW_RATE := 2.2     # slower than CAM_FOLLOW_RATE — a deliberate pan, not a chase
 
+# Player-switch pan. recenter()'s instant snap (position + yaw + pitch all
+# set in one frame) is correct for "camera, get back on me" moments —
+# exiting dialogue, entering a mode — but read as a teleport on a mid-match
+# player switch, which was a named rough edge in the polish-pass brief.
+# BroadcastCamera.switch_target() leaves _update_focus()'s own per-frame
+# lerp (CAM_FOLLOW_RATE) to carry position across on its own; only yaw/pitch
+# need a dedicated rate here, since normal play only ever turns the rig from
+# stick/mouse input, never re-aims it at a target on its own.
+const CAM_SWITCH_PAN_DURATION := 0.6       # s the rig eases toward the new target's facing
+const CAM_SWITCH_YAW_RATE := 5.0           # slower than CAM_ROTATE_RATE — a swing across, not a snap
+
 
 # ── Input feel ───────────────────────────────────────────────────────
 # §4's per-action deadzones and response curves. Movement wants a
@@ -373,6 +449,15 @@ const MOVE_DEADZONE := 0.20
 const MOVE_CURVE := 1.35               # >1 = finer control near centre
 const LOOK_DEADZONE := 0.12
 const LOOK_CURVE := 2.0
+
+# Input buffering (fundamentals-pass brief: a press slightly early or late
+# shouldn't be silently dropped just because the game wasn't in the exact
+# right state on that one physics frame). See InputManager.
+# consume_buffered_press() — a press is remembered for this long after the
+# real Input edge, consumed (cleared) the instant whatever was blocking it
+# actually acts on it. Short enough that a buffered press still reads as
+# "that responded fast", not as input queuing up.
+const INPUT_BUFFER_WINDOW := 0.12      # s
 
 const RUMBLE_KICK := Vector3(0.35, 0.55, 0.18)     # (weak, strong, duration)
 const RUMBLE_GATHER := Vector3(0.12, 0.0, 0.08)
@@ -391,6 +476,7 @@ const QUARTER_LENGTH := 120.0          # s
 const QUARTERS_PER_MATCH := 4
 const QUARTER_BREAK_DURATION := 4.0    # s, paused between quarters
 const SCORE_PAUSE_DURATION := 3.0      # s, paused after a goal/behind
+const MATCH_END_FLASH_DURATION := 3.0  # s the "FULL TIME" scoreboard flash holds before MatchEndScreen
 const CENTRE_BOUNCE_DELAY := 1.0       # s from formation-set to the bounce
 const OUT_OF_BOUNDS_PAUSE_DURATION := 2.0   # s, paused for a boundary throw-in
 
@@ -402,6 +488,31 @@ const OUT_OF_BOUNDS_PAUSE_DURATION := 2.0   # s, paused for a boundary throw-in
 const TACKLE_RADIUS := 1.4             # m, more generous than GATHER_RADIUS
 const TACKLE_STUN_DURATION := 0.5      # s the tackled player can't act
 const TACKLE_SPILL_SPEED := 3.0        # m/s the loose ball scatters at
+
+# Tackle lunge (polish-pass brief: "it's a bit hard to get the ball off the
+# AI" / FIFA-style assist). Not a change to TACKLE_RADIUS or a success-chance
+# roll — the actual bottleneck is AI_PRESSURE_RADIUS forcing a disposal well
+# outside TACKLE_RADIUS, so a defender closing at normal run speed rarely
+# reaches tackle range before the ball is gone. This gives the player a
+# committed dash (a genuine speed burst, not a scripted snap onto the
+# target) to close that exact gap, same "physical, not a dice roll" stance
+# every other contest in this file already takes — a miss just leaves the
+# lunger having sprinted past/short, no separate whiff penalty invented on
+# top of that.
+const TACKLE_LUNGE_RANGE := 2.4        # m — beyond TACKLE_RADIUS, short enough to require real proximity first
+# Fundamentals-pass fix: this was 7.5 — *slower* than SPRINT_SPEED (8.4)
+# despite its own comment saying otherwise. SPRINT_SPEED was evidently
+# raised at some point after this was tuned and this never got revisited.
+# The one tool the player has for closing a gap on an AI carrier (who
+# always runs at full sprint gait the instant it has the ball — see
+# AIBrain._think_carrying) was quietly worse than not lunging at all, which
+# is a large part of why the AI could feel un-catchable. Now a genuine
+# ~25% burst over sprint, same short DURATION/COOLDOWN keeping it a real
+# commitment rather than a new top speed.
+const TACKLE_LUNGE_SPEED := 10.5       # m/s, faster than SPRINT_SPEED — the point of committing
+const TACKLE_LUNGE_DURATION := 0.35    # s the dash overrides normal locomotion
+const TACKLE_LUNGE_COOLDOWN := 1.1     # s between attempts — a real commitment, not spammable
+const TACKLE_LUNGE_MIN_DOT := 0.5      # facing . to-carrier must clear this — no lunging sideways/backward
 
 # Punch/Spoil (LT tap, not carrying, near an aerial contest): knocking a
 # high ball away is easier than controlling it, so the reach is more
@@ -420,6 +531,19 @@ const SPOIL_COOLDOWN := 0.6            # s between attempts — a tap, not a bat
 # set-shot/free-kick apparatus this project doesn't have yet, so nothing
 # consumes the signal today — a known, tracked gap, not a silent one.
 const PRIOR_OPPORTUNITY_GRACE := 0.5   # s
+
+# Free-kick/mark retreat distance — real AFL's "get back 10 metres" rule,
+# distinct from stand-the-mark (MARK_STAND_MIN_DISTANCE above): the ONE
+# nearest opponent stands exactly still (PlayerController.stand_the_mark),
+# while every OTHER opponent within this radius of wherever protection was
+# granted (a mark, a kick-in, a holding-the-ball free kick, an out-on-the-
+# full free kick) must clear out to it. Simplified to a freeze rather than
+# an active retreat-and-return (see PlayerController.grant_protection) —
+# same MVP scope as everywhere else "possession + protection at the right
+# spot" has been the deliberate stopping point (see docs/HANDOVER.md). This
+# is a real, well-known rule number, unlike Bump's dangerous-contact
+# threshold below, which genuinely has none to use.
+const FREE_KICK_RETREAT_DISTANCE := 10.0   # m
 
 # Smother (X tap, not carrying): closing down an opponent before their kick
 # leaves the boot. SMOTHER_RADIUS is deliberately tighter than TACKLE_RADIUS
@@ -499,7 +623,16 @@ const MARK_CATCH_RADIUS := 1.15         # m
 
 const MARK_SAFE_REACH_SCALE := 1.0
 const MARK_RUNNING_REACH_SCALE := 0.8      # a snap grab at pace has less margin
-const MARK_AGGRESSIVE_REACH_SCALE := 1.4   # full stretch at the top of a leap
+## Buffed from 1.4 — user report: "the Y aggressive mark needs to be
+## buffed, I cannot catch it". Aggressive's resolution is a fixed
+## ACTION_CONTACT[MARK_AGGRESSIVE] delay after the press (the jump has to
+## physically rise and peak), so unlike Running (which resolves the same
+## frame as the tap) it's graded against where the ball *will be* several
+## frames from now — a genuinely harder read even for a well-timed press.
+## A fuller stretch at the peak compensates for that without touching the
+## timing windows below, which are the more honest fix for "the read is
+## hard" (see MARK_AGGRESSIVE_IDEAL_WINDOW's own comment).
+const MARK_AGGRESSIVE_REACH_SCALE := 1.55  # full stretch at the top of a leap
 
 # Movement cost while committed to each tier — see
 # PlayerController._update_locomotion / Tuning.action_speed_scale. Safe
@@ -518,12 +651,140 @@ const MARK_AGGRESSIVE_SPEED_SCALE := 0.45
 # elite-athlete territory without being cartoonish.
 const MARK_AGGRESSIVE_JUMP_SPEED := 4.0    # m/s
 
+## The little pop a Safe (A) mark takes on catch — not a jump commitment
+## like MARK_AGGRESSIVE_JUMP_SPEED above (Safe never leaves the ground
+## before the catch resolves, it's a plant-and-wait tier), just a small
+## reactive hop the instant the ball is secured, so a Safe take doesn't
+## read as completely inert next to Running's stride and Aggressive's
+## leap. v^2 = 2*g*h -> ~0.16m of lift, a hop not a jump.
+const MARK_SAFE_HOP_SPEED := 1.8           # m/s
+
 # How far out an airborne ball has to be before an aggressive attempt is
 # even considered live — no point committing to a leap for a ball still the
 # length of the ground away.
 const MARK_CONTEST_RANGE := 6.0            # m
 
+## Minimum distance the ball must already have travelled from wherever it
+## was launched before an Aggressive attempt is considered live at all.
+## Without this, a ball that's only just left the boot (still is_airborne()
+## by BALL_SEMI_MINOR*2.5's low bar) sat well inside MARK_CONTEST_RANGE of
+## its own kicker — the (Y) prompt would flash on the kicker's own head for
+## an instant right after every kick, since nothing else was gating "is
+## this ball actually in a real flight yet". See Ball.distance_since_launch().
+## Scoped to Aggressive only, and to no particular player — a genuinely
+## short kick shouldn't draw a leap prompt from *anyone* nearby yet.
+const MARK_AGGRESSIVE_MIN_FLIGHT_DISTANCE := 2.5   # m
+
+## How far the ball has to travel from wherever *this player* just launched
+## it before they can attempt (or be prompted for) any mark tier on it
+## again — scoped per-disposer via Ball.last_disposer(), unlike
+## MARK_AGGRESSIVE_MIN_FLIGHT_DISTANCE above which applies to everyone.
+## Bigger than that one on purpose: GATHER_COOLDOWN's flat 0.45s already
+## turned out not to reliably correlate with "the ball has actually gone
+## somewhere" (a short or blocked kick can still be well inside every
+## tier's reach at the 0.45s mark) — see PlayerController._mark_attempt_
+## blocked()'s own comment.
+const MARK_SELF_CLEAR_DISTANCE := 3.5   # m
+
 const RUMBLE_MARK := Vector3(0.20, 0.35, 0.12)
+
+# Timing-mechanic haptics (user brief: "subtle... on the press itself" plus
+# "a distinct pulse for a successful mark vs a missed one"). PRESS is
+# deliberately tiny — a tick confirming the input registered, not a second
+# RUMBLE_MARK — fired at the moment of a graded press (Safe's first held
+# frame, Aggressive's jump commit; Running resolves the same physics frame
+# as its tap, so a separate press pulse there would just be clobbered by
+# the outcome pulse a moment later — see PlayerController._attempt_running_
+# mark). MISS is duller/longer than RUMBLE_MARK on purpose, so a catch and
+# a drop are felt as different, not just "rumble happened."
+const RUMBLE_MARK_PRESS := Vector3(0.05, 0.0, 0.05)
+const RUMBLE_MARK_MISS := Vector3(0.30, 0.10, 0.20)
+
+## Fired once by MarkPrompt itself (not PlayerController — this is a UI
+## timing cue, not a gameplay outcome) the instant the loading-circle ring
+## completes its lap, i.e. the real "press now" instant. Same tiny-tick
+## weight as RUMBLE_MARK_PRESS but on the strong motor instead of the weak
+## one, so the two read as distinct even though both are subtle: "you
+## pressed" (weak tick) vs "this is the moment" (strong tick).
+const RUMBLE_MARK_TIMING_CUE := Vector3(0.0, 0.10, 0.06)
+
+# Madden-style contest prompt (polish-pass brief: an (A)/(X)/(Y) icon over
+# the receiver's head showing which mark tiers are live right now). Height
+# is above the player's own origin, not the chest-height CAM_FOCUS_HEIGHT —
+# a Madden-style prompt floats over the head, a camera frames the chest.
+const MARK_PROMPT_HEIGHT := 2.05       # m above player origin
+
+# Timing-based skill mechanic (user brief): a graded press against the
+# ball's live arrival, synced to its actual flight rather than a fixed
+# timer — see PlayerController.mark_timing_offset(). Inside IDEAL_WINDOW is
+# a full-strength attempt; inside OK_WINDOW but outside IDEAL is a
+# contested one (reach narrowed by MARK_TIMING_OK_REACH_MULT, still
+# physically resolved, never a probability roll — RULES_REFERENCE.md §3:
+# "contests are decided by collision, timing and momentum, not by a
+# probability table"); outside OK_WINDOW entirely is a drop, same as a
+# missed contest today.
+#
+# SAFE's window is deliberately ~3x wider than RUNNING/AGGRESSIVE's, not
+# uniform across tiers: Safe's whole reason to exist is "generous, reliable
+# default, no timing skill required" (see this file's own comment on
+# MARK_SAFE_REACH_SCALE below) — a tight gate on a held button would either
+# punish the normal "plant early and wait" play style or, if graded
+# leniently enough not to, do nothing at all. At realistic ball closing
+# speeds a 0.65s window corresponds to a distance well outside any tier's
+# reach radius, so reach — not timing — stays the practical gate for Safe;
+# the window still bites at the genuine margins (a very late first hold, a
+# ball that's already grounding) without eroding the tier's identity.
+# Fundamentals-pass retune: RUNNING/AGGRESSIVE were 0.12/0.24 — tight
+# enough that a well-positioned player mistiming a press by what's a very
+# ordinary margin under real reaction pressure (more so while still
+# learning the mechanic) would drop a catch that needed no timing skill at
+# all before this feature existed. That's very likely a real chunk of
+# "catching feels unreliable even when positioned right" — the reach math
+# itself isn't at fault, the window it's being graded against was too
+# small. Widened, still meaningfully tighter than SAFE's 0.35/0.65 so the
+# tier spread survives.
+const MARK_SAFE_IDEAL_WINDOW := 0.35   # s
+const MARK_SAFE_OK_WINDOW := 0.65      # s
+const MARK_RUNNING_IDEAL_WINDOW := 0.20   # s
+const MARK_RUNNING_OK_WINDOW := 0.38      # s
+
+## Split from RUNNING's profile (they used to share one) and widened again
+## — "I cannot catch it" — Aggressive is graded against a *predicted*
+## instant (the jump's fixed-length rise means resolution always lands
+## ACTION_CONTACT[MARK_AGGRESSIVE] seconds after the press, not on it), so
+## even a player who reads the ball correctly is fighting their own
+## reaction time on top of the read itself, which Running's same-frame
+## resolution never asks of them. The MarkPrompt ring's redesign into a
+## completing loading-circle (see mark_prompt.gd) is the other half of
+## this fix — a clearer "press now" cue — but the window itself needed
+## real headroom too, not just a better cue for the same tight target.
+const MARK_AGGRESSIVE_IDEAL_WINDOW := 0.28   # s
+const MARK_AGGRESSIVE_OK_WINDOW := 0.55      # s
+
+## Reach multiplier for a contested (in-OK, outside-IDEAL) attempt — applied
+## to the tier's own REACH_SCALE before MARK_ASSIST_RADIUS_BONUS, same
+## layering that bonus itself already uses. A genuine miss (outside OK
+## entirely) scales reach to nothing at all: the user asked for "too early,
+## too late, or not at all" to read as a real drop, same as a missed
+## contest today, not a softened one — MARK_ASSIST_RADIUS_BONUS's flat
+## +0.35m is the only forgiveness a bad-timed attempt keeps, same as it
+## already applies uniformly to every tier regardless of timing.
+##
+## Fundamentals-pass retune: OK_REACH_MULT 0.55 -> 0.65 — a contested catch
+## should still feel meaningfully live, not barely-there. MISS_REACH_SCALE
+## stays at 0.0 on purpose: the wider windows above are the actual fix for
+## "unreliable", not softening what a genuine drop means once you're
+## outside them — that would blur the exact distinction the user asked for.
+const MARK_TIMING_OK_REACH_MULT := 0.65
+const MARK_TIMING_MISS_REACH_SCALE := 0.0
+
+## Below this closing speed, mark_timing_offset() stops dividing distance by
+## an near-zero rate (which would blow up toward +/-inf) and instead reports
+## the flat PAST_PEAK sentinel — the ball is no longer meaningfully closing
+## on this player, whether because it's already arrived or because it's
+## drifting past/away.
+const MARK_TIMING_MIN_CLOSING_SPEED := 0.6   # m/s
+const MARK_TIMING_PAST_PEAK_OFFSET := 1.0    # s — sentinel, larger than every OK window above
 
 
 # ── Ruck contests ────────────────────────────────────────────────────
@@ -581,15 +842,21 @@ const GROUND_PICKUP_LUNGE_PER_SPEED := 0.05    # m of extra reach per m/s of cur
 # safe/running/aggressive risk relationship — the whole point of having
 # three tiers — doesn't get flattened out by making them all easier by
 # the same multiple.
-const MARK_ASSIST_RADIUS_BONUS := 0.35   # m
+## Nudged up from 0.35 — still a flat, tier-independent bonus (see the
+## comment above), just a bit more forgiving so a reasonably-timed mark
+## attempt isn't lost purely to reach.
+const MARK_ASSIST_RADIUS_BONUS := 0.5    # m
 
 # "Catch gravity": a genuine small attractive force pulling the ball
 # toward whichever uncontested (not-carrying) player is nearest while
 # it's airborne — the same physical-forces mechanism drag/Magnus already
 # are (Ball._integrate_forces), not a scripted snap onto a player. Full
 # strength at point-blank range, fading to nothing at CATCH_GRAVITY_RADIUS.
-const CATCH_GRAVITY_RADIUS := 2.75       # m
-const CATCH_GRAVITY_ACCEL := 2.2         # m/s^2 at point-blank range
+# Both widened a little from 2.75/2.2 — the assist now reaches out and
+# pulls a shade harder, so a pass that lands near but not exactly on a
+# receiver still has a real chance of ending up in their hands.
+const CATCH_GRAVITY_RADIUS := 3.25       # m
+const CATCH_GRAVITY_ACCEL := 2.6         # m/s^2 at point-blank range
 
 
 # ── Character screen ─────────────────────────────────────────────────
@@ -646,6 +913,13 @@ const AI_KICK_RANGE := 45.0            # m from goal at which a carrier shoots
 const AI_PRESSURE_RADIUS := 4.0        # m opponent proximity that forces a quick disposal
 const AI_SUPPORT_PULL := 0.35          # 0..1, how far off-ball players drift toward the ball
 
+## Team Edit expansion (polish-pass brief: Ball Movement preference — see
+## AIBrain._lateral_target_z()). How close to the actual boundary a fully
+## boundary-committed lateral target sits — short of 1.0 so "commits to the
+## wing" still means "runs it down the flank", not "hugs the out-of-bounds
+## line".
+const AI_BOUNDARY_LEAN_FRACTION := 0.85
+
 # A human notices a loose ball and starts moving with a beat of reaction
 # time; an AI polling ball.holder() every frame does not. Without this, AI
 # wins effectively every race to a loose ball (it also defaults to sprint
@@ -657,16 +931,32 @@ const AI_LOOSE_BALL_REACTION_MAX := 0.40   # s
 
 
 # ── Training coaches ────────────────────────────────────────────────
-# Second of three (design brief): a kicking coach, now a marking coach and
-# a tackling coach later, all sharing the same proximity-trigger / dialogue
-# / challenge shape (kick_to_kick.gd's CoachKind-parameterised state
-# machine) — wiring any of this into Full Game is explicitly later work.
+# All three now exist (design brief): kicking, marking, and tackling —
+# all sharing the same proximity-trigger / dialogue / challenge shape
+# (kick_to_kick.gd's CoachKind-parameterised state machine) — wiring any of
+# this into Full Game is explicitly later work.
 const COACH_INTERACT_RADIUS := 2.5             # m, proximity that shows the prompt
 const COACH_STAND_OFFSET := Vector3(18.0, 0.0, 10.0)   # from field centre, kick_to_kick only
 const MARK_COACH_STAND_OFFSET := Vector3(-18.0, 0.0, 10.0)   # opposite half, clear of the kicking drill's target zone
+## Same X as the rival's own stand offset below, mirrored to +Z so it's
+## clear of both the kicking/marking coaches' shared Z=10 row and the
+## rival's own Z=-18 anchor.
+const TACKLE_COACH_STAND_OFFSET := Vector3(0.0, 0.0, 18.0)
 
 const KICK_CHALLENGE_TARGET_DISTANCE := 40.0   # m downfield of the player when accepted
 const KICK_CHALLENGE_TARGET_RADIUS := 3.0      # m, hit tolerance
+
+# Kick-to-kick rival (polish-pass brief: "build out kick-to-kick so we can
+# use this for testing" — a solo sandbox has nobody to tackle, bump, or
+# contest a mark against, so none of Full Game's live contests could ever
+# actually be practised here). Reuses AIBrain outright rather than a new
+# "practice partner" behaviour tree — the same chase/mark/dispose/press-and-
+# tackle loop Full Game's AI already runs is exactly the sparring partner
+# this needs, and a chase-and-return loop against one real opponent is also
+# just what "kick to kick" already means. Frozen (KickToKick.set_physics_
+# process(false)) for the duration of a coach dialogue/challenge so a drill
+# stays a clean 1-on-0 loop — see kick_to_kick.gd's _coach_state gate.
+const KICK_TO_KICK_RIVAL_OFFSET := Vector3(0.0, 0.0, -18.0)   # from field centre, clear of both coach zones
 const KICK_CHALLENGE_ATTEMPTS := 5
 
 const MARK_CHALLENGE_ATTEMPTS := 6
@@ -674,8 +964,56 @@ const MARK_CHALLENGE_ELEVATION_DEG := 48.0     # deg, a generous hang-time arc
 const MARK_CHALLENGE_MIN_DISTANCE := 16.0      # m, just past MARK_STAND_MIN_DISTANCE so every delivery is legal-mark eligible
 const MARK_CHALLENGE_MAX_DISTANCE := 28.0      # m
 const MARK_CHALLENGE_TARGET_SPREAD := 4.0      # m random offset from the player's current spot per delivery
-const MARK_CHALLENGE_DELIVERY_DELAY := 1.4     # s, the coach "calling for it" before the ball leaves
+## Widened from 1.4 (user report: "I miss the first kick because I don't
+## have a chance to run before the coach kicks it") — 1.4s wasn't enough
+## runway to come out of the accept-challenge camera cut, get moving, and
+## actually be in position before the very first delivery left the coach.
+## MARK_CHALLENGE_NEXT_DELAY (the gap between every later delivery) is
+## untouched — by then the player is already warmed up from the previous
+## rep and doesn't need the same head start.
+const MARK_CHALLENGE_DELIVERY_DELAY := 2.6     # s, the coach "calling for it" before the ball leaves
 const MARK_CHALLENGE_NEXT_DELAY := 1.6         # s after an attempt resolves before the next delivery
+
+## Delivery cycles through all three tiers (MarkChallenge._deliver()) rather
+## than always aiming a generic floaty ball at wherever the player already
+## stands — the old single delivery shape only ever really trained Safe
+## (a ball landing on your own spot never asks you to run onto it or leap
+## for it), so Running/Aggressive went essentially untaught by "the marking
+## coach". Values above (ELEVATION_DEG/TARGET_SPREAD) are now specifically
+## the Safe delivery's own numbers; these two below are Running's and
+## Aggressive's.
+##
+## Running: the target leads the player's current facing/motion by this
+## much (plus the usual TARGET_SPREAD jitter) — a ball you have to run
+## onto, not one that arrives on your own two feet.
+const MARK_CHALLENGE_RUNNING_LEAD_DISTANCE := 5.0   # m
+
+## Aggressive: the target sits this far off the player's current spot —
+## inside Aggressive's own extended reach (MARK_CATCH_RADIUS *
+## MARK_AGGRESSIVE_REACH_SCALE + MARK_ASSIST_RADIUS_BONUS ≈ 2.28m) but
+## outside Safe's (≈1.65m), so standing still and waiting genuinely can't
+## take it — only committing to the leap can. A steeper arc than the
+## default buys extra hang time to actually read the timing cue.
+const MARK_CHALLENGE_AGGRESSIVE_OFFSET := 1.9       # m
+const MARK_CHALLENGE_AGGRESSIVE_ELEVATION_DEG := 60.0   # deg
+
+# Tackling coach (design brief's third and final planned coach): unlike the
+# other two, the "delivery" is the kick-to-kick rival itself, given the
+# ball and left to run on its own already-proven AIBrain — see
+# TackleChallenge's own header for why a live opponent rather than a
+# target/lobbed-ball drill.
+const TACKLE_CHALLENGE_ATTEMPTS := 5
+# How far ahead of the player (along the rival's own attack direction,
+# i.e. the direction it will actually run) each attempt starts it — close
+# enough that a committed chase can realistically close the gap, far
+# enough that ambling over there does not.
+const TACKLE_CHALLENGE_LEAD_DISTANCE := 9.0    # m
+const TACKLE_CHALLENGE_LATERAL_SPREAD := 3.0   # m random offset per attempt, same idea as MARK_CHALLENGE_TARGET_SPREAD
+# The safety valve every other challenge here gets for free from Ball.
+# is_settled() — a live AI carrier never "settles", so a hard time limit is
+# what actually ends an attempt nobody resolves in time.
+const TACKLE_CHALLENGE_TIME_LIMIT := 5.0       # s
+const TACKLE_CHALLENGE_NEXT_DELAY := 1.6       # s after an attempt resolves before the next one, matches MARK_CHALLENGE_NEXT_DELAY's pacing
 
 
 ## Maps a 0..1 gait scalar onto the three named speeds, so WALK_SPEED,
@@ -706,9 +1044,9 @@ static func action_contact_time(action: Action) -> float:
 ## point of choosing between them (see the Marking section above).
 static func action_speed_scale(action: Action) -> float:
 	match action:
-		Action.MARK_SAFE:
+		Action.MARK_SAFE, Action.MARK_SAFE_MISS:
 			return MARK_SAFE_SPEED_SCALE
-		Action.MARK_RUNNING:
+		Action.MARK_RUNNING, Action.MARK_RUNNING_MISS:
 			return MARK_RUNNING_SPEED_SCALE
 		Action.MARK_AGGRESSIVE, Action.HIT_OUT:
 			return MARK_AGGRESSIVE_SPEED_SCALE

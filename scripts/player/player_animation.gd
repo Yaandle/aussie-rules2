@@ -54,6 +54,8 @@ const ACTION_STATES := {
 	Tuning.Action.MARK_SAFE: &"mark_safe",
 	Tuning.Action.MARK_RUNNING: &"mark_running",
 	Tuning.Action.MARK_AGGRESSIVE: &"mark_aggressive",
+	Tuning.Action.MARK_SAFE_MISS: &"mark_safe_miss",
+	Tuning.Action.MARK_RUNNING_MISS: &"mark_running_miss",
 }
 
 const LOCOMOTION_STATE := &"locomotion"

@@ -48,6 +48,12 @@ var _was_airborne := false
 var _is_kick_flight := false
 var _flight_origin := Vector3.ZERO
 
+## Which team kicked the ball currently in flight — set alongside
+## _is_kick_flight, read by whoever adjudicates "out on the full"
+## (RULES_REFERENCE.md §4: a free kick to the *other* side). Meaningless
+## whenever _is_kick_flight is false; not eagerly read in that case.
+var _kick_team: Tuning.Team = Tuning.Team.NONE
+
 
 func _ready() -> void:
 	add_to_group(&"ball")
@@ -91,6 +97,7 @@ func _physics_process(delta: float) -> void:
 		# Touched down without being marked — no longer a live mark chance,
 		# same as a kick that bounces before anyone takes it in real AFL.
 		_is_kick_flight = false
+		_kick_team = Tuning.Team.NONE
 	_was_airborne = airborne
 
 
@@ -172,6 +179,8 @@ func launch(direction: Vector3, speed: float, spin: Vector3, from: Node3D = null
 	_was_airborne = is_airborne()
 	_is_kick_flight = is_kick_disposal
 	_flight_origin = global_position
+	_kick_team = (from as PlayerController).team \
+		if is_kick_disposal and from is PlayerController else Tuning.Team.NONE
 
 
 ## Carry the ball at `point`, following it exactly. Kept as a kinematic
@@ -187,6 +196,7 @@ func attach_to(point: Node3D, holder: Node3D) -> void:
 	linear_velocity = Vector3.ZERO
 	angular_velocity = Vector3.ZERO
 	_is_kick_flight = false
+	_kick_team = Tuning.Team.NONE
 	if is_instance_valid(_carrier) and _carrier != holder:
 		remove_collision_exception_with(_carrier)
 	_carrier = holder
@@ -215,6 +225,30 @@ func is_airborne() -> bool:
 	return not is_held and global_position.y > Tuning.BALL_SEMI_MINOR * 2.5
 
 
+## Where this ball would land if gravity were the only force acting on it
+## from here — ignores drag/Magnus (both real forces on the actual flight,
+## see this file's own header) since this exists to steer AIBrain's
+## receivers toward a sensible spot in real time, not to reproduce the
+## exact physics trajectory. Standard projectile time-to-ground: solves
+## y0 + vy*t - 0.5*g*t^2 = 0 for the positive root, then carries the
+## current horizontal velocity for that long. Falls back to the current
+## position if the ball is already on/below the ground or has no more
+## downward closing (grazing along near-zero height), where the quadratic
+## has no meaningful positive root.
+func predicted_landing_position() -> Vector3:
+	var y0 := global_position.y
+	var vy := linear_velocity.y
+	if y0 <= 0.0:
+		return global_position
+	var discriminant := vy * vy + 2.0 * Tuning.GRAVITY * y0
+	if discriminant <= 0.0:
+		return global_position
+	var t := (vy + sqrt(discriminant)) / Tuning.GRAVITY
+	var landing := global_position + Vector3(linear_velocity.x, 0.0, linear_velocity.z) * t
+	landing.y = 0.0
+	return landing
+
+
 func is_settled() -> bool:
 	return not is_held and (sleeping or linear_velocity.length() < Tuning.BALL_SLEEP_SPEED)
 
@@ -230,6 +264,48 @@ func is_mark_eligible() -> bool:
 		and global_position.distance_to(_flight_origin) >= Tuning.MARK_STAND_MIN_DISTANCE
 
 
+## True while this is still an uninterrupted kick flight, with no minimum-
+## distance requirement — unlike is_mark_eligible() above, which layers
+## MARK_STAND_MIN_DISTANCE on top of the same _is_kick_flight flag. "Out on
+## the full" (RULES_REFERENCE.md §4) has no such distance floor: a short
+## kick that clears the boundary is out on the full exactly the same as a
+## long one.
+func is_kick_flight() -> bool:
+	return _is_kick_flight and not is_held
+
+
+## Straight-line distance from wherever this flight was launched — set by
+## launch() on every disposal, not just a kick, so this reads sensibly for
+## a handball/bounce too. Used by PlayerController to gate an Aggressive
+## mark attempt on the ball actually having gone somewhere yet (see
+## Tuning.MARK_AGGRESSIVE_MIN_FLIGHT_DISTANCE) rather than reusing
+## is_mark_eligible()'s much larger MARK_STAND_MIN_DISTANCE, which is a
+## legality threshold, not a "has this even left the boot" one. 0.0 while
+## held, same "no flight in progress" convention is_mark_eligible() uses.
+func distance_since_launch() -> float:
+	if is_held:
+		return 0.0
+	return global_position.distance_to(_flight_origin)
+
+
+## Whoever most recently launched or is currently holding this ball —
+## `_carrier` stays put across a launch() that doesn't change hands (a kick
+## keeps its own kicker as `_carrier` throughout the flight; see launch()'s
+## own comment), so this reads as "who last touched it" for exactly as long
+## as that's still true. Used by PlayerController._mark_attempt_blocked()
+## to gate a player re-marking their own very-recent disposal without
+## blocking anyone else's live attempt on the same ball.
+func last_disposer() -> Node3D:
+	return _carrier
+
+
+## Which team's kick is currently in flight — Tuning.Team.NONE if this
+## isn't a live, uninterrupted kick flight. Only meaningful while
+## is_kick_flight() is true.
+func kick_team() -> Tuning.Team:
+	return _kick_team
+
+
 ## An external hit that doesn't control the ball — a spoil, later a bump.
 ## Clears mark eligibility the same way landing does (see
 ## is_mark_eligible()): a touched ball is no longer a clean, uninterrupted
@@ -238,6 +314,7 @@ func is_mark_eligible() -> bool:
 ## invariant can't be forgotten at a new call site later.
 func knock(impulse: Vector3) -> void:
 	_is_kick_flight = false
+	_kick_team = Tuning.Team.NONE
 	apply_central_impulse(impulse)
 
 
@@ -248,6 +325,7 @@ func reset_at(position: Vector3) -> void:
 	_carrier = null
 	_release_grace = 0.0
 	_is_kick_flight = false
+	_kick_team = Tuning.Team.NONE
 	freeze = false
 	sleeping = false
 	linear_velocity = Vector3.ZERO

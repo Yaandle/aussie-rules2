@@ -3,9 +3,14 @@ extends PlayerBrain
 
 ## Deliberately simple full-game AI (design doc §7 priority 1): chase the
 ## loose ball, run a carry toward goal and dispose of it, press the
-## opposing carrier, otherwise drift toward a kickoff slot. Not a tactics
-## system — a baseline to prove the match loop feels like a game, meant to
-## be tuned (or replaced) once it's actually been played against.
+## opposing carrier, otherwise drift toward a kickoff slot. Still not a
+## real tactics system — no positional awareness, no passing lanes, no
+## decision-making beyond the state machine below — but Team Edit
+## (polish-pass brief) now gives it two real dials rather than none:
+## lateral_bias (where a carry aims/where support runs — corridor vs
+## boundary) and press_intensity (how hard a defender closes and commits
+## to a tackle). Both default to this file's own original, un-tuned
+## numbers, so an AIBrain nobody configures behaves exactly as before.
 ##
 ## Aims the same way a human does: by facing a direction and firing the
 ## same kick/handball PlayerController already has. There is no separate
@@ -16,6 +21,21 @@ extends PlayerBrain
 var ball: Ball
 var home_position := Vector3.ZERO
 var attack_direction := 1.0     ## +1 attacks +X (HOME's goal), -1 attacks -X
+
+## Team Edit expansion: 0 keeps a carry's disposal aim and a support run's
+## target dead through the corridor (world Z 0); 1 commits fully to
+## whichever boundary the player already happens to be nearer to. See
+## _lateral_target_z(), the one place this is actually consumed. Set by
+## whoever spawns/hands back this brain (FullGame._configure_ai_brain)
+## from Settings.home_lateral_bias() — left at 0.0 (this file's original
+## dead-centre behaviour) for anyone that doesn't.
+var lateral_bias := 0.0
+
+## Team Edit expansion: multiplies both a defender's chase gait and the
+## distance it commits to an actual tackle attempt from (_think_defend) —
+## 1.0 is this file's original, un-tuned behaviour. Set from Settings.
+## home_press_intensity() the same way lateral_bias is.
+var press_intensity := 1.0
 
 var _move_dir := Vector3.ZERO
 var _gait := 0.0
@@ -116,7 +136,8 @@ func wants_mark_safe() -> bool:
 # ── Decisions ────────────────────────────────────────────────────────
 
 func _think_carrying(controller: PlayerController, delta: float, pos: Vector3) -> void:
-	var goal_point := Vector3(attack_direction * Tuning.FIELD_HALF_LENGTH, 0.0, 0.0)
+	var goal_point := Vector3(
+		attack_direction * Tuning.FIELD_HALF_LENGTH, 0.0, _lateral_target_z(pos))
 	_move_toward(goal_point, pos, 1.0)
 
 	if _kick_committed:
@@ -133,7 +154,12 @@ func _think_carrying(controller: PlayerController, delta: float, pos: Vector3) -
 			_kick_committed = false
 		return
 
-	var dist := pos.distance_to(goal_point)
+	# Straight-line distance to the goal LINE, not to the (possibly
+	# lateral-biased) aim point above — otherwise a strong boundary bias
+	# would inflate this whenever the carrier isn't already over near that
+	# wing, wrongly reading as "too far to shoot" for a player who is
+	# actually well within range straight down the middle.
+	var dist := absf(attack_direction * Tuning.FIELD_HALF_LENGTH - pos.x)
 	var pressured := _nearest_opponent_distance(controller, pos) < Tuning.AI_PRESSURE_RADIUS
 
 	if dist <= Tuning.AI_KICK_RANGE and not pressured:
@@ -146,8 +172,19 @@ func _think_carrying(controller: PlayerController, delta: float, pos: Vector3) -
 
 
 func _think_loose_ball(controller: PlayerController, pos: Vector3, team: Tuning.Team) -> void:
-	if _is_closest_teammate_to(controller, team, ball.global_position):
-		_move_toward(ball.global_position, pos, 1.0)
+	# While the ball is still in flight, chase where it's actually going to
+	# land rather than where it currently is — a kick can hang for well
+	# over a second, and "run at the ball's current position" means
+	# chasing a moving target across the ground the whole way instead of
+	# meeting it. This is what P1 called converging on the drop zone, and
+	# it's the difference between a receiver who's already standing under
+	# a long kick when it arrives and one who's still three strides away.
+	# Grounded (non-airborne) loose balls have no arc to anticipate, so
+	# those still chase the live position.
+	var chase_point := ball.predicted_landing_position() if ball.is_airborne() \
+		else ball.global_position
+	if _is_closest_teammate_to(controller, team, chase_point):
+		_move_toward(chase_point, pos, 1.0)
 		# Close enough to a ball still in the air that holding up for a
 		# catch beats running through where it currently is — the same
 		# reach test PlayerController._update_aerial_contest itself uses,
@@ -161,15 +198,35 @@ func _think_loose_ball(controller: PlayerController, pos: Vector3, team: Tuning.
 
 func _think_support(pos: Vector3) -> void:
 	var target := home_position.lerp(ball.global_position, Tuning.AI_SUPPORT_PULL)
+	# Half-weighted, not a full lean onto _lateral_target_z(pos) — a
+	# support run is already anchored between home_position and the ball;
+	# fully overriding its own Z with the boundary lean would fight that
+	# anchor rather than just colouring it toward the team's preference.
+	target.z = lerpf(target.z, _lateral_target_z(pos), 0.5)
 	_move_toward(target, pos, 0.6)
 
 
 func _think_defend(controller: PlayerController, holder: PlayerController, pos: Vector3) -> void:
 	if _is_closest_teammate_to(controller, controller.team, holder.global_position):
-		_move_toward(holder.global_position, pos, 1.0)
-		_tackle_wanted = pos.distance_to(holder.global_position) <= Tuning.TACKLE_RADIUS * 1.2
+		_move_toward(holder.global_position, pos, minf(press_intensity, 1.0))
+		_tackle_wanted = pos.distance_to(holder.global_position) \
+			<= Tuning.TACKLE_RADIUS * 1.2 * press_intensity
 	else:
 		_move_toward(home_position, pos, 0.5)
+
+
+## Team Edit expansion (Ball Movement preference — see Settings.
+## BallMovementPreference): pulls a lateral world Z target toward whichever
+## boundary `pos` is already nearer to, scaled by lateral_bias — 0 keeps it
+## dead through the corridor, 1 commits fully to that wing. Shared by
+## _think_carrying (where a carrier aims to dispose) and _think_support
+## (where an off-ball teammate runs) so one number governs both halves of
+## "how this team prefers to move the ball" instead of two independently-
+## tuned ones.
+func _lateral_target_z(pos: Vector3) -> float:
+	var side := signf(pos.z) if absf(pos.z) > 0.01 else 1.0
+	var boundary_z := side * Tuning.FIELD_HALF_WIDTH * Tuning.AI_BOUNDARY_LEAN_FRACTION
+	return lerpf(0.0, boundary_z, lateral_bias)
 
 
 func _commit_kick(charge_fraction: float) -> void:

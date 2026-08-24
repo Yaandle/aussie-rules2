@@ -37,9 +37,8 @@ const MARKER_SIZE := Vector2(3.0, 20.0)
 
 const LOCKED_SUFFIX := "• LOCKED"
 
-## Icon box corner radius — the small step on SoftBrutalist's radius
-## scale, not the card step a full panel uses.
-const ICON_RADIUS := SoftBrutalist.RADIUS_SM
+## Icon box corner radius — sharp, matching RetroWindow's unrounded shell.
+const ICON_RADIUS := RetroWindow.RADIUS
 
 
 ## Bar squares: filled solid, empty outlined. Split out only because
@@ -107,8 +106,8 @@ func _build() -> void:
 	_icon_box.size = Vector2(ICON_BOX, ICON_BOX)
 	# Hairline box (UIStyle.rounded()), not the 2px edge a full card
 	# carries — at 40px square a card border would be most of the shape.
-	_box_idle = UIStyle.rounded(UIStyle.ICON_BOX_FILL, UIStyle.ICON_BOX_BORDER, 1, ICON_RADIUS)
-	_box_selected = UIStyle.rounded(UIStyle.ICON_BOX_FILL, UIStyle.ACCENT, 1, ICON_RADIUS)
+	_box_idle = UIStyle.rounded(UIStyle.ICON_BOX_FILL, UIStyle.ICON_BOX_BORDER, 2, ICON_RADIUS)
+	_box_selected = UIStyle.rounded(UIStyle.ICON_BOX_FILL, UIStyle.ACCENT, 2, ICON_RADIUS)
 
 	_icon_box.add_theme_stylebox_override(&"panel", _box_idle)
 	add_child(_icon_box)

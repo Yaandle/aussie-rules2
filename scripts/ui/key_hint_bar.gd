@@ -13,7 +13,7 @@ extends HBoxContainer
 
 const CHIP_PAD_X := 9
 const CHIP_PAD_Y := 4
-const CHIP_RADIUS := SoftBrutalist.RADIUS_XS
+const CHIP_RADIUS := RetroWindow.RADIUS
 const CHIP_GAP := 8       ## chip to its own label
 const PAIR_GAP := 26      ## one hint pair to the next
 

@@ -70,10 +70,6 @@ func begin(ball: Ball, target_position: Vector3) -> void:
 	hint_changed.emit("Hold K/LT to aim, tap F/RT to strike the target ring.")
 
 
-func is_active() -> bool:
-	return _active
-
-
 func attempts_remaining() -> int:
 	return Tuning.KICK_CHALLENGE_ATTEMPTS - _attempts_used
 

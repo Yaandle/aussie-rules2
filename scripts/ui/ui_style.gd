@@ -12,10 +12,22 @@ extends RefCounted
 ## against 4px.
 ##
 ## So nothing here is a value any more. Every constant below resolves to
-## a SoftBrutalist token (scripts/ui/soft_brutalist.gd), which is the one
-## place sizes, weights and colours are chosen; this file only records
-## which token each role uses. Changing the app's type scale is a change
-## there, and this screen follows.
+## a SoftBrutalist or RetroWindow token, which are the two places sizes,
+## weights and colours are actually chosen; this file only records which
+## token each role uses. Changing the app's type scale is a change there,
+## and this screen follows.
+##
+## The palette/shape tokens (ACCENT, ICON_BOX_*, CHIP_BORDER, PANEL_FILL,
+## TEXT_PRIMARY, and rounded()'s corner radius) now point at RetroWindow
+## rather than SoftBrutalist — sharp corners, near-black ink, warm
+## parchment fill, rust accent — so this screen's chips read as the same
+## "windowed retro console" family as settings/pause/team-list/remap
+## rather than the rounded soft-shadow look those screens moved off of.
+## The blurred elevation shadow (SoftBrutalist.soften/set_elevation) is
+## deliberately left alone: swapping every icon box and the play button
+## over to a hard offset shadow the way a full card does would be a much
+## bigger structural change for a screen sitting directly on the live 3D
+## backdrop, not "some of the retro style".
 ##
 ## Fonts are built as FontVariation over the engine's default face
 ## (`ThemeDB.fallback_font`, Open Sans SemiBold) rather than shipped as
@@ -27,22 +39,25 @@ extends RefCounted
 
 # ── Palette ──────────────────────────────────────────────────────────
 
-const TEXT_PRIMARY := SoftBrutalist.INK       ## Titles, labels, values
+const TEXT_PRIMARY := RetroWindow.BORDER      ## Titles, labels, values
 const TEXT_MUTED := SoftBrutalist.MUTED       ## Subtitle, "· LOCKED", hint labels
-const ICON_LINE := SoftBrutalist.INK
+const ICON_LINE := RetroWindow.BORDER
 const SEGMENT_FILL := SoftBrutalist.ACCENT_PRIMARY  ## A filled bar square is the green accent
 const SEGMENT_EMPTY := SoftBrutalist.LINE_SOFT      ## An empty one is this, outline only
-const PANEL_FILL := SoftBrutalist.PANEL
-const CHIP_BORDER := SoftBrutalist.LINE
+const PANEL_FILL := RetroWindow.PANEL
+const CHIP_BORDER := RetroWindow.BORDER
 
-## Green. The one "this is live/interactive" accent on this screen — the
-## play button's border, and the selected row's icon box and marker.
-const ACCENT := SoftBrutalist.ACCENT_PRIMARY
+## Rust. The one "this is live/interactive" accent on this screen — the
+## play button's border, and the selected row's icon box and marker. Same
+## accent the retro-shelled screens (settings/pause/team-list/remap) use
+## for their own selected-row highlight.
+const ACCENT := RetroWindow.ACCENT
 
-## Icon box fill/border. The soft LINE edge rather than full-strength
-## ink, matching every other bordered element in the app.
-const ICON_BOX_FILL := SoftBrutalist.PANEL
-const ICON_BOX_BORDER := SoftBrutalist.LINE
+## Icon box fill/border: warm parchment fill, near-black border — the
+## retro palette, in place of the plain white/soft-LINE pairing every
+## other bordered element in the app still uses.
+const ICON_BOX_FILL := RetroWindow.PANEL
+const ICON_BOX_BORDER := RetroWindow.BORDER
 
 # ── Type ─────────────────────────────────────────────────────────────
 # Sizes are for the project's 1280x720 design resolution; `canvas_items`
@@ -75,13 +90,15 @@ static func label(text: String, size: int, colour: Color, embolden := WEIGHT_REG
 	return SoftBrutalist.label(text, size, colour, embolden, tracking)
 
 
-## Rounded rect with a hairline border. Used for the icon boxes, the play
-## button, and the key hint chips — small shapes where a hairline reads
-## better than the 2px edge a full-size card carries. Depth, where a
-## shape wants any, comes from SoftBrutalist.soften() rather than from a
-## StyleBoxFlat shadow.
+## Sharp-cornered rect with a hairline border — despite the name, this now
+## draws RetroWindow's unrounded corner (radius 0) by default, kept as
+## "rounded" only because every call site already reads `UIStyle.rounded()`
+## and the shape's role (small bordered chip) hasn't changed, only its
+## corner. Used for the icon boxes, the play button, and the key hint
+## chips. Depth, where a shape wants any, comes from SoftBrutalist.soften()
+## rather than from a StyleBoxFlat shadow.
 static func rounded(fill: Color, border: Color, border_width := 1,
-		radius := SoftBrutalist.RADIUS_SM) -> StyleBoxFlat:
+		radius := RetroWindow.RADIUS) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
 	box.bg_color = fill
 	box.border_color = border

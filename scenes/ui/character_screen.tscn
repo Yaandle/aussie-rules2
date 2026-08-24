@@ -1,11 +1,7 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/character_screen.gd" id="1_screen"]
 [ext_resource type="PackedScene" path="res://scenes/ui/character_backdrop.tscn" id="2_backdrop"]
-[ext_resource type="Shader" path="res://assets/shaders/ui_side_scrim.gdshader" id="3_scrim"]
-
-[sub_resource type="ShaderMaterial" id="Mat_scrim"]
-shader = ExtResource("3_scrim")
 
 ; Shell only. The left column — header, eight stat rows, play button and
 ; key hints — is built by character_screen.gd from its ATTRIBUTE_ROWS
@@ -27,16 +23,6 @@ script = ExtResource("1_screen")
 [node name="CharacterBackdrop" parent="." instance=ExtResource("2_backdrop")]
 
 [node name="Overlay" type="CanvasLayer" parent="."]
-
-[node name="Scrim" type="ColorRect" parent="Overlay"]
-material = SubResource("Mat_scrim")
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-mouse_filter = 2
-color = Color(1, 1, 1, 1)
 
 [node name="UI" type="Control" parent="Overlay"]
 anchors_preset = 15

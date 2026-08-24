@@ -5,6 +5,11 @@ shader_type canvas_item;
 /// blends between a muted, tinted greyscale ("not selected") and the full
 /// photo ("selected/hovered") via `saturation`, animated from main_menu.gd
 /// through SoftBrutalist-style Tweens rather than snapping instantly.
+///
+/// The bottom-of-card darkening that the title/subtitle text sits on is
+/// computed here too, rather than as a separate scrim TextureRect layered
+/// on top — a plain rectangular overlay doesn't know about `radius` and
+/// its square corners poke out past the photo's rounded ones.
 
 uniform sampler2D image : source_color, filter_linear;
 uniform vec2 rect_size = vec2(400.0, 300.0);
@@ -29,6 +34,18 @@ float rounded_box_sdf(vec2 p, vec2 half_size, float r) {
 
 float dither(vec2 p) {
 	return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
+}
+
+// Mirrors the 3-stop gradient main_menu.gd's old _bottom_scrim_texture()
+// built (offsets 0.3/0.62/1.0, alpha 0/0.22/0.62): transparent through the
+// top ~30%, then two linear ramps down to 62% black at the bottom edge.
+float bottom_scrim(float uv_y) {
+	if (uv_y < 0.3) {
+		return 0.0;
+	} else if (uv_y < 0.62) {
+		return mix(0.0, 0.22, (uv_y - 0.3) / (0.62 - 0.3));
+	}
+	return mix(0.22, 0.62, (uv_y - 0.62) / (1.0 - 0.62));
 }
 
 void fragment() {
@@ -60,6 +77,8 @@ void fragment() {
 	float grey = dot(tex.rgb, vec3(0.2126, 0.7152, 0.0722));
 	vec3 muted = mix(vec3(grey), muted_tint.rgb, dim);
 	vec3 shown = mix(muted, tex.rgb, saturation);
+
+	shown = mix(shown, vec3(0.0), bottom_scrim(UV.y));
 
 	// The muted state is a near-flat tinted grey over a large area, which
 	// is where 8-bit quantisation shows as blotchy contours in the

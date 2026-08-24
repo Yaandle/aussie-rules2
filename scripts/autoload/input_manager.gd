@@ -54,6 +54,22 @@ var _last_joy_button := -1
 var _last_joy_axis := -1
 var _last_joy_axis_value := 0.0
 
+## Input buffering (fundamentals-pass brief: a press slightly early or
+## late shouldn't be silently dropped just because the game wasn't in the
+## exact right state that one physics frame — see consume_buffered_press()
+## below). Every action here is polled unconditionally each physics frame
+## regardless of what, if anything, is currently listening, so a press is
+## captured the instant it happens no matter what state the receiving
+## system is in right then. Held-down actions (movement, kick stance,
+## tackle's own standing check, bump stance, Safe mark's hold) don't need
+## this — is_action_pressed() has no single-frame edge to miss — only the
+## edge-triggered ones do.
+const BUFFERED_ACTIONS: Array[StringName] = [
+	&"kick_execute", &"handball", &"bounce", &"tackle",
+	&"mark_running", &"mark_aggressive", &"spoil", &"smother", &"hit_out",
+]
+var _buffer_timers := {}   # StringName -> seconds remaining; absent once expired/consumed
+
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -61,6 +77,7 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	_update_flick(delta)
+	_update_input_buffer(delta)
 
 
 func _input(event: InputEvent) -> void:
@@ -209,6 +226,32 @@ func _update_flick(delta: float) -> void:
 			and _flick_clock - _flick_neutral_since <= Tuning.FLICK_WINDOW:
 		_pending_flick = raw.normalized()
 		_flick_armed = false   # one flick per neutral->full sweep; re-arms once the stick returns to neutral
+
+
+func _update_input_buffer(delta: float) -> void:
+	for action in BUFFERED_ACTIONS:
+		if Input.is_action_just_pressed(action):
+			_buffer_timers[action] = Tuning.INPUT_BUFFER_WINDOW
+		elif _buffer_timers.get(action, 0.0) > 0.0:
+			_buffer_timers[action] = _buffer_timers[action] - delta
+
+
+## True if `action` (must be in BUFFERED_ACTIONS) was pressed within the
+## last Tuning.INPUT_BUFFER_WINDOW seconds and hasn't been consumed yet —
+## a drop-in replacement for Input.is_action_just_pressed() wherever a
+## press should survive landing a frame or two before whatever acts on it
+## is actually ready. Consumes (clears) the buffer the instant it returns
+## true, so one press can't re-fire on a later frame still inside the
+## window — callers must only call this at the point they are actually
+## about to act on it, the same discipline every wants_*() in HumanBrain
+## already follows for the plain Input call this replaces.
+func consume_buffered_press(action: StringName) -> bool:
+	if not gameplay_input_enabled:
+		return false
+	if _buffer_timers.get(action, 0.0) > 0.0:
+		_buffer_timers.erase(action)
+		return true
+	return false
 
 
 func rumble(profile: Vector3) -> void:

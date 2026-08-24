@@ -50,12 +50,32 @@ func begin(ball: Ball, player: PlayerController, coach_position: Vector3) -> voi
 	_armed = false
 	_connect_player()
 	challenge_started.emit(Tuning.MARK_CHALLENGE_ATTEMPTS)
-	hint_changed.emit("Marking practice — hold G for a safe mark, tap Q on the run, tap H to go up for it.")
+	# Deliberately terse (user report: "remove the tip/subtitle... only the
+	# basic stuff") — the old version was a full paragraph of coaching prose
+	# shown once and then never repeated; _deliver() below now emits the
+	# same compact "attempt N/6 — control" line every delivery instead, so
+	# the reminder is always on screen rather than front-loaded and
+	# forgotten.
+	hint_changed.emit("Marking practice — get ready")
 	_schedule(Tuning.MARK_CHALLENGE_DELIVERY_DELAY, _deliver)
 
 
-func is_active() -> bool:
-	return _active
+## Which tier this delivery is built to teach — cycles Safe/Running/
+## Aggressive rather than always the same generic floaty ball (see
+## Tuning.MARK_CHALLENGE_RUNNING_LEAD_DISTANCE's own comment for why the
+## old single delivery shape only ever really trained Safe). Cycling by
+## `_attempts_used` rather than random keeps it predictable across a run —
+## the player can tell "attempt 3 of 6 is always the leap one" the same way
+## KickChallenge's fixed attempt count already reads as a structured drill,
+## not a random one.
+func _tier_for_attempt(index: int) -> Tuning.Action:
+	match index % 3:
+		0:
+			return Tuning.Action.MARK_SAFE
+		1:
+			return Tuning.Action.MARK_RUNNING
+		_:
+			return Tuning.Action.MARK_AGGRESSIVE
 
 
 ## Called by kick_to_kick.gd whenever it has to reposition the ball out
@@ -92,10 +112,10 @@ func _deliver() -> void:
 	if not is_instance_valid(_player) or not is_instance_valid(_ball):
 		return
 
-	var target := _player.global_position + Vector3(
-		randf_range(-Tuning.MARK_CHALLENGE_TARGET_SPREAD, Tuning.MARK_CHALLENGE_TARGET_SPREAD),
-		0.0,
-		randf_range(-Tuning.MARK_CHALLENGE_TARGET_SPREAD, Tuning.MARK_CHALLENGE_TARGET_SPREAD))
+	var tier := _tier_for_attempt(_attempts_used)
+	var target := _target_for_tier(tier)
+	var elevation_deg := Tuning.MARK_CHALLENGE_AGGRESSIVE_ELEVATION_DEG \
+		if tier == Tuning.Action.MARK_AGGRESSIVE else Tuning.MARK_CHALLENGE_ELEVATION_DEG
 
 	var to_target := target - _coach_position
 	to_target.y = 0.0
@@ -103,7 +123,7 @@ func _deliver() -> void:
 	var distance := clampf(to_target.length(),
 		Tuning.MARK_CHALLENGE_MIN_DISTANCE, Tuning.MARK_CHALLENGE_MAX_DISTANCE)
 
-	var elevation := deg_to_rad(Tuning.MARK_CHALLENGE_ELEVATION_DEG)
+	var elevation := deg_to_rad(elevation_deg)
 	var speed := _launch_speed_for(distance, elevation)
 	var launch_dir := (direction * cos(elevation) + Vector3.UP * sin(elevation)).normalized()
 
@@ -116,8 +136,49 @@ func _deliver() -> void:
 	_ball.launch(launch_dir, speed, Vector3.ZERO, null, true)
 
 	_armed = true
-	hint_changed.emit("Ball's coming — attempt %d/%d" % [
-		_attempts_used + 1, Tuning.MARK_CHALLENGE_ATTEMPTS])
+	hint_changed.emit("Mark %d/%d — %s" % [
+		_attempts_used + 1, Tuning.MARK_CHALLENGE_ATTEMPTS, _control_note_for_tier(tier)])
+
+
+## Where this delivery is aimed, built specifically to exercise the tier
+## _tier_for_attempt() picked — see Tuning.MARK_CHALLENGE_RUNNING_LEAD_
+## DISTANCE/AGGRESSIVE_OFFSET's own comments for why a generic "lands on
+## your current spot" target (the old, only, shape) never really taught
+## Running or Aggressive.
+func _target_for_tier(tier: Tuning.Action) -> Vector3:
+	var base := _player.global_position
+	match tier:
+		Tuning.Action.MARK_RUNNING:
+			var lead_dir := _player.velocity
+			lead_dir.y = 0.0
+			if lead_dir.length_squared() < 1.0:
+				lead_dir = -_player.global_transform.basis.z
+				lead_dir.y = 0.0
+			lead_dir = lead_dir.normalized() if lead_dir.length_squared() > 0.0001 else Vector3.FORWARD
+			return base + lead_dir * Tuning.MARK_CHALLENGE_RUNNING_LEAD_DISTANCE \
+				+ Vector3(randf_range(-Tuning.MARK_CHALLENGE_TARGET_SPREAD, Tuning.MARK_CHALLENGE_TARGET_SPREAD),
+					0.0,
+					randf_range(-Tuning.MARK_CHALLENGE_TARGET_SPREAD, Tuning.MARK_CHALLENGE_TARGET_SPREAD))
+		Tuning.Action.MARK_AGGRESSIVE:
+			var away := Vector2.from_angle(randf_range(0.0, TAU)) * Tuning.MARK_CHALLENGE_AGGRESSIVE_OFFSET
+			return base + Vector3(away.x, 0.0, away.y)
+		_:
+			return base + Vector3(
+				randf_range(-Tuning.MARK_CHALLENGE_TARGET_SPREAD, Tuning.MARK_CHALLENGE_TARGET_SPREAD),
+				0.0,
+				randf_range(-Tuning.MARK_CHALLENGE_TARGET_SPREAD, Tuning.MARK_CHALLENGE_TARGET_SPREAD))
+
+
+## Compact control reminder — no coaching prose, just the input (user
+## report: "only the basic stuff like kick 2/6 etc, note the controls").
+func _control_note_for_tier(tier: Tuning.Action) -> String:
+	match tier:
+		Tuning.Action.MARK_RUNNING:
+			return "tap Q on the run"
+		Tuning.Action.MARK_AGGRESSIVE:
+			return "tap H, commit early"
+		_:
+			return "hold G and wait"
 
 
 func _on_mark_caught(tier: Tuning.Action, legal_mark: bool) -> void:

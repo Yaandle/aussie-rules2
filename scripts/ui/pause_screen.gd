@@ -1,12 +1,22 @@
 class_name PauseScreen
 extends CanvasLayer
 
-## Minimal Soft Brutalist pause placeholder (design brief's pause overlay).
+## Soft Brutalist pause overlay (design brief's pause overlay).
 ##
-## Not yet wired into any live match scene — see the comment on `resume()`
-## below. Built entirely in _ready() from SoftBrutalist, following the
+## Pushed as a paused in-place overlay by full_game.gd/kick_to_kick.gd's
+## own `pause` handlers: instantiate, set process_mode = PROCESS_MODE_ALWAYS
+## (so this node — and only this node — keeps receiving input while the
+## tree is paused), add as a child of the match scene, then
+## get_tree().paused = true. RESUME/`resume()` below already handles that
+## exact shape. Built entirely in _ready() from SoftBrutalist, following the
 ## same hand-built-Control pattern as team_list_screen.gd / main_menu.gd
 ## rather than a .tscn-authored tree.
+
+## Emitted right before this frees itself via the RESUME path (not the QUIT
+## path, which changes scene instead) — for whoever pushed the overlay to
+## restore anything it suspended going in (kick_to_kick.gd re-captures the
+## mouse cursor this way, for example).
+signal resumed
 
 const CARD_WIDTH := 420.0
 const CARD_HEIGHT := 280.0
@@ -43,14 +53,16 @@ func _ready() -> void:
 
 	root.add_child(SoftBrutalist.backdrop())
 
-	var card := Panel.new()
-	card.add_theme_stylebox_override(&"panel", SoftBrutalist.panel_style())
-	SoftBrutalist.soften(card, SoftBrutalist.Elevation.OVERLAY)
-	card.size = Vector2(CARD_WIDTH, CARD_HEIGHT)
-	card.position = Vector2((1280.0 - CARD_WIDTH) / 2.0, (720.0 - CARD_HEIGHT) / 2.0)
-	root.add_child(card)
+	# Retro windowed-console shell (see retro_window.gd) — same sharp,
+	# unrounded card language as settings_screen.gd / team_list_screen.gd.
+	var card_size := Vector2(CARD_WIDTH, CARD_HEIGHT)
+	var card_wrapper := Control.new()
+	card_wrapper.custom_minimum_size = card_size
+	card_wrapper.position = Vector2((1280.0 - CARD_WIDTH) / 2.0, (720.0 - CARD_HEIGHT) / 2.0)
+	root.add_child(card_wrapper)
+	var card := RetroWindow.shell(card_wrapper, card_size)
 
-	var title := SoftBrutalist.label("PAUSED", SoftBrutalist.SIZE_TITLE, SoftBrutalist.INK,
+	var title := SoftBrutalist.label("PAUSED", SoftBrutalist.SIZE_TITLE, RetroWindow.BORDER,
 		SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_TITLE)
 	title.position = Vector2(32.0, 32.0)
 	card.add_child(title)
@@ -59,15 +71,13 @@ func _ready() -> void:
 	for i in _rows.size():
 		var row := _rows[i]
 		var panel := Panel.new()
-		panel.add_theme_stylebox_override(&"panel", SoftBrutalist.button_style(&"normal"))
-		SoftBrutalist.soften(panel, SoftBrutalist.Elevation.LOW,
-			float(SoftBrutalist.RADIUS_SM))
+		panel.add_theme_stylebox_override(&"panel", RetroWindow.row_style(false))
 		panel.position = Vector2(32.0, top)
 		panel.size = Vector2(CARD_WIDTH - 64.0, ROW_HEIGHT)
 		card.add_child(panel)
 		_row_panels.append(panel)
 
-		var label := SoftBrutalist.label(row.title, SoftBrutalist.SIZE_BODY, SoftBrutalist.INK,
+		var label := SoftBrutalist.label(row.title, SoftBrutalist.SIZE_BODY, RetroWindow.BORDER,
 			SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL)
 		label.set_anchors_preset(Control.PRESET_FULL_RECT)
 		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -103,20 +113,18 @@ func _select() -> void:
 	row.action.call()
 
 
-## Placeholder resume: this screen is not currently pushed as an overlay
-## from any live match scene (see full_game.gd's `pause` action, which
-## just swaps straight to the main menu today), so there is no "previous
-## scene" to hand control back to generically. Until pause is wired as an
-## in-place overlay (add_child this as a CanvasLayer child of the match
-## scene, set get_tree().paused = true and this node's process_mode to
-## PROCESS_MODE_ALWAYS, then have RESUME just free/hide it and unpause),
-## RESUME behaves the same as QUIT and returns to the main menu.
+## The normal case: pushed as a paused overlay (see this file's header) —
+## unpause, tell whoever pushed us, and free ourselves, handing control
+## straight back to the match scene underneath exactly where it left off.
+## Falls back to a menu return if this is somehow shown unpaused (e.g. a
+## future non-match caller), rather than freeing into a broken state.
 func resume() -> void:
 	if _busy:
 		return
 	_busy = true
 	if get_tree().paused:
 		get_tree().paused = false
+		resumed.emit()
 		queue_free()
 		return
 	SceneWipe.change_scene("res://scenes/ui/main_menu.tscn")
@@ -133,6 +141,5 @@ func _quit_to_menu() -> void:
 func _refresh() -> void:
 	for i in _rows.size():
 		var selected := i == _index
-		SoftBrutalist.animate_state(_row_panels[i], &"panel",
-			&"hover" if selected else &"normal")
-		_row_labels[i].add_theme_color_override(&"font_color", SoftBrutalist.INK)
+		_row_panels[i].add_theme_stylebox_override(&"panel", RetroWindow.row_style(selected))
+		_row_labels[i].add_theme_color_override(&"font_color", RetroWindow.BORDER)

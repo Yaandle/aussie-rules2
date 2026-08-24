@@ -48,24 +48,22 @@ class Entry:
 	var subtitle: String
 	var scene_path: String
 	var unlocked: bool
-	var icon_name: StringName
 	var image_key: String
 
 	func _init(p_title: String, p_subtitle: String, p_scene_path: String, p_unlocked: bool,
-			p_icon_name: StringName, p_image_key: String) -> void:
+			p_image_key: String) -> void:
 		title = p_title
 		subtitle = p_subtitle
 		scene_path = p_scene_path
 		unlocked = p_unlocked
-		icon_name = p_icon_name
 		image_key = p_image_key
 
 
 var _entries: Array[Entry] = [
 	Entry.new("FULL GAME", "4-a-side, real clock, quarters, scoring",
-		"res://scenes/modes/full_game.tscn", true, &"football", "menuscreen_field"),
-	Entry.new("SCENARIO", "Practice a set situation", "", false, &"cone", "menuscreen_board"),
-	Entry.new("GOAL KICKING", "Shots on goal from the arc", "", false, &"goalpost",
+		"res://scenes/modes/full_game.tscn", true, "menuscreen_field"),
+	Entry.new("SCENARIO", "Practice a set situation", "", false, "menuscreen_board"),
+	Entry.new("GOAL KICKING", "Shots on goal from the arc", "", false,
 		"menuscreen_ball"),
 ]
 
@@ -102,25 +100,54 @@ const BAND_GAP := int(SoftBrutalist.SPACE_4)        ## 32
 const CHROME_HEIGHT := 20.0
 const FOOTER_HEIGHT := 28.0
 const CARD_SEPARATION := int(SoftBrutalist.SPACE_3) ## 24
-const CARD_MIN_WIDTH := 240.0
-const CARD_MIN_HEIGHT := 300.0
-const CARD_PAD := SoftBrutalist.SPACE_3             ## 24
-const CARD_RADIUS := SoftBrutalist.RADIUS_LG
-const BADGE_SIZE := 44.0
-const ARROW_BADGE_SIZE := 34.0
-const TEXT_BLOCK_HEIGHT := 76.0
+## Smaller than a full-bleed hero tile on purpose — these sit centred over
+## the live 3D backdrop (menu_backdrop.tscn) with room left on every side,
+## so the montage behind them stays visible rather than getting crowded out.
+const CARD_MIN_WIDTH := 190.0
+const CARD_MIN_HEIGHT := 235.0
+const CARD_PAD := SoftBrutalist.SPACE_2             ## 16
+## Sharp, matching RetroWindow's unrounded shell — the mode-select cards
+## now read as the same "windowed retro console" family as the rest of
+## the front end's borders (settings/pause/team-list/remap/character).
+## menu_card_image.gdshader's own `radius` uniform is fed this same
+## constant (see _build_card()), since its rounded-rect clip has to agree
+## with the StyleBoxFlat border sitting on top of it.
+const CARD_RADIUS := RetroWindow.RADIUS
+## Bolder than SoftBrutalist.BORDER_WIDTH (2) to read as a deliberate
+## retro rule against the photo underneath, short of RetroWindow's full
+## card-scale 4px — these are small tiles, not a full window shell.
+const CARD_BORDER_WIDTH := 3
+const ARROW_BADGE_SIZE := 28.0
+const TEXT_BLOCK_HEIGHT := 62.0
 
-## Shader saturation / scale-pop tween length — longer than SoftBrutalist's
-## button-hover transitions (0.12-0.18s) since this is the screen's one
-## deliberately noticeable "small animation", not an instant state snap.
+## Shader saturation / border / shadow-offset tween length — longer than
+## SoftBrutalist's button-hover transitions (0.12-0.18s) since this is the
+## screen's one deliberately noticeable "small animation", not an instant
+## state snap.
 const CARD_ANIM_DURATION := 0.22
 const CARD_ANIM_TRANS := Tween.TRANS_CUBIC
 const CARD_ANIM_EASE := Tween.EASE_OUT
-## Small on purpose. The selected card now also rises to a wider, softer
-## shadow (SoftBrutalist.Elevation.RAISED), and that reads as lift far
-## better than scale does — a bigger pop would only shove the card into
-## the gap around it.
-const CARD_SELECTED_SCALE := 1.025
+
+## The scale tween alone runs on a back-out curve (a slight overshoot past
+## the target before settling) rather than CARD_ANIM_TRANS/EASE above — a
+## plain cubic ease-out gets a card to its target size smoothly but never
+## reads as a "pop", since it never goes past where it's headed. TRANS_BACK
+## does, which is the whole difference between "resizes" and "pops out".
+const CARD_POP_TRANS := Tween.TRANS_BACK
+const CARD_POP_EASE := Tween.EASE_OUT
+## Bigger than the old 1.025 now that the pop has its own overshoot curve
+## to sell it — at the old scale plus TRANS_BACK the overshoot itself was
+## barely visible.
+const CARD_SELECTED_SCALE := 1.07
+
+## Hard offset "brutalist" shadow (see CARD_SHADOW_COLOR below) — a solid
+## black rect sitting behind the card, not SoftBrutalist's blurred one.
+## The offset grows on selection, which combined with the scale-up above
+## is what sells "this card lifted off the page" rather than just "this
+## card got a bit bigger".
+const CARD_SHADOW_COLOR := Color(0.0, 0.0, 0.0, 1.0)
+const CARD_SHADOW_OFFSET_IDLE := Vector2(5.0, 5.0)
+const CARD_SHADOW_OFFSET_SELECTED := Vector2(12.0, 12.0)
 
 ## How far an unselected card sits along menu_card_image.gdshader's ramp
 ## toward its flat muted tint. Locked goes further — flatter and quieter,
@@ -131,14 +158,14 @@ const DIM_LOCKED := 0.58
 ## Opacity of the cream wash over the 3D camera montage (menu_backdrop.tscn)
 ## — high enough that chrome text stays legible, low enough that the
 ## montage still reads as a background rather than a hidden layer.
-const BACKDROP_OVERLAY_ALPHA := 0.88
+const BACKDROP_OVERLAY_ALPHA := 0.6
 
 class CardWidgets:
 	var frame: Control
 	var image: TextureRect
 	var material: ShaderMaterial
 	var border: Panel
-	var shadow: SoftShadow
+	var shadow: Panel
 	var arrow_icon: UIIcon
 	var arrow_badge: Panel
 
@@ -262,6 +289,10 @@ func _build_card_row(parent: Control) -> void:
 	# header and footer do not use, so the cards are sized by the layout
 	# rather than by a constant that has to be kept in step with it.
 	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	# Cards are shrink-sized (see _build_card), so without this they would
+	# bunch against the row's left edge instead of sitting in the middle of
+	# the space the band leaves for them.
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override(&"separation", CARD_SEPARATION)
 	parent.add_child(row)
 
@@ -341,15 +372,31 @@ func _build_card(entry: Entry, index: int) -> CardWidgets:
 
 	var frame := Control.new()
 	frame.custom_minimum_size = Vector2(CARD_MIN_WIDTH, CARD_MIN_HEIGHT)
-	frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	frame.size_flags_vertical = Control.SIZE_FILL
+	# Shrink to that minimum rather than filling the row/band — the whole
+	# point of a smaller card is that the live backdrop shows around it, not
+	# just that its own artwork is smaller while still stretching to fill.
+	frame.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	frame.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	widgets.frame = frame
 
-	# Plain Control, not a Container, precisely so the shadow layer below
-	# can anchor itself outside the card rect — see SoftBrutalist.soften().
-	widgets.shadow = SoftBrutalist.soften(frame, SoftBrutalist.Elevation.REST,
-		float(CARD_RADIUS))
+	# Hard offset "brutalist" shadow — a solid black Panel added as the
+	# frame's first child (so everything built after it draws on top),
+	# anchored full-rect and then pushed down-right by CARD_SHADOW_OFFSET_
+	# IDLE via offset_left/top/right/bottom (all shifted the same amount,
+	# so the rect moves rather than resizes — same technique as
+	# RetroWindow._build()'s shadow). _refresh() tweens that offset out
+	# further on selection instead of a blurred SoftBrutalist shadow.
+	var shadow := Panel.new()
+	shadow.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shadow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var shadow_style := StyleBoxFlat.new()
+	shadow_style.bg_color = CARD_SHADOW_COLOR
+	shadow_style.set_corner_radius_all(int(CARD_RADIUS))
+	shadow.add_theme_stylebox_override(&"panel", shadow_style)
+	_set_card_shadow_offset(shadow, CARD_SHADOW_OFFSET_IDLE)
+	frame.add_child(shadow)
+	widgets.shadow = shadow
 
 	var image := TextureRect.new()
 	image.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -381,19 +428,6 @@ func _build_card(entry: Entry, index: int) -> CardWidgets:
 	frame.add_child(image)
 	widgets.image = image
 	widgets.material = material
-
-	var scrim := TextureRect.new()
-	scrim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	scrim.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	scrim.stretch_mode = TextureRect.STRETCH_SCALE
-	scrim.texture = _bottom_scrim_texture()
-	frame.add_child(scrim)
-
-	var badge := _build_icon_badge(entry.icon_name, BADGE_SIZE)
-	badge.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	badge.position = Vector2(CARD_PAD, CARD_PAD)
-	frame.add_child(badge)
 
 	# Anchored to the card's bottom edge with a gap kept clear on the
 	# right for the arrow badge, so the text block reflows with the card
@@ -456,7 +490,7 @@ func _build_card(entry: Entry, index: int) -> CardWidgets:
 	var border := Panel.new()
 	border.set_anchors_preset(Control.PRESET_FULL_RECT)
 	border.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	border.add_theme_stylebox_override(&"panel", _border_style(SoftBrutalist.LINE))
+	border.add_theme_stylebox_override(&"panel", _border_style(RetroWindow.BORDER))
 	frame.add_child(border)
 	widgets.border = border
 
@@ -503,10 +537,21 @@ func _border_style(border_colour: Color) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
 	box.bg_color = Color(0, 0, 0, 0)
 	box.border_color = border_colour
-	box.set_border_width_all(SoftBrutalist.BORDER_WIDTH)
+	box.set_border_width_all(CARD_BORDER_WIDTH)
 	box.set_corner_radius_all(CARD_RADIUS)
 	box.anti_aliasing_size = 1.0
 	return box
+
+
+## Shifts `shadow` (anchored full-rect) down-right by `offset` without
+## resizing it — offset_right/offset_bottom add directly rather than being
+## negated, so all four edges move by the same amount. Shared by the
+## build-time idle pose and _refresh()'s tween target.
+func _set_card_shadow_offset(shadow: Panel, offset: Vector2) -> void:
+	shadow.offset_left = offset.x
+	shadow.offset_right = offset.x
+	shadow.offset_top = offset.y
+	shadow.offset_bottom = offset.y
 
 
 func _find_card_image(image_key: String) -> Texture2D:
@@ -523,27 +568,6 @@ func _placeholder_texture(tint: Color) -> ImageTexture:
 	return ImageTexture.create_from_image(image)
 
 
-## A generated (not imported) top-transparent/bottom-dark vertical
-## gradient, so the white title/subtitle text on every card stays legible
-## over whatever the photo is doing underneath, same job a broadcast
-## lower-third scrim does. Three stops rather than two: a straight linear
-## ramp to 0.7 puts its steepest change right behind the title, which
-## reads as a visible band edge across the artwork.
-func _bottom_scrim_texture() -> GradientTexture2D:
-	var gradient := Gradient.new()
-	gradient.colors = PackedColorArray([
-		Color(0, 0, 0, 0), Color(0, 0, 0, 0.22), Color(0, 0, 0, 0.62)])
-	gradient.offsets = PackedFloat32Array([0.3, 0.62, 1.0])
-	var texture := GradientTexture2D.new()
-	texture.gradient = gradient
-	texture.fill = GradientTexture2D.FILL_LINEAR
-	texture.fill_from = Vector2(0.0, 0.0)
-	texture.fill_to = Vector2(0.0, 1.0)
-	texture.width = 4
-	texture.height = 256
-	return texture
-
-
 # ── Refresh ──────────────────────────────────────────────────────────
 
 func _refresh() -> void:
@@ -555,18 +579,21 @@ func _refresh() -> void:
 
 		var target_saturation := 1.0 if live else 0.0
 		var target_scale := CARD_SELECTED_SCALE if live else 1.0
-		var target_border := SoftBrutalist.ACCENT_PRIMARY if live else SoftBrutalist.LINE
+		var target_border := RetroWindow.ACCENT if live else RetroWindow.BORDER
 
 		# The arrow badge is the cursor. The title used to carry a "› "
 		# prefix instead, which re-flowed the whole title line every time
 		# the selection moved — text that shifts sideways as you scroll a
 		# menu reads as a glitch, not as a cursor.
-		widgets.arrow_icon.line_colour = SoftBrutalist.ACCENT_PRIMARY if live \
+		widgets.arrow_icon.line_colour = RetroWindow.ACCENT if live \
 			else SoftBrutalist.MUTED
 
-		SoftBrutalist.set_elevation(widgets.shadow,
-			SoftBrutalist.Elevation.RAISED if selected else SoftBrutalist.Elevation.REST,
-			true, CARD_ANIM_DURATION)
+		# Shadow offset follows `selected` (cursor is here), independent of
+		# `live` (also unlocked) — a locked card still gets the "lifted"
+		# shadow when the cursor sits on it, same as the old blurred-shadow
+		# elevation used to, it just never saturates/scales/borders.
+		var target_shadow_offset := CARD_SHADOW_OFFSET_SELECTED if selected \
+			else CARD_SHADOW_OFFSET_IDLE
 
 		var tween := widgets.frame.create_tween()
 		tween.set_trans(CARD_ANIM_TRANS)
@@ -574,7 +601,17 @@ func _refresh() -> void:
 		tween.set_parallel(true)
 		tween.tween_property(widgets.material, "shader_parameter/saturation",
 			target_saturation, CARD_ANIM_DURATION)
+		# The pop: its own back-out curve, overshooting target_scale before
+		# settling — see CARD_POP_TRANS's own comment.
 		tween.tween_property(widgets.frame, "scale", Vector2.ONE * target_scale,
+			CARD_ANIM_DURATION).set_trans(CARD_POP_TRANS).set_ease(CARD_POP_EASE)
+		tween.tween_property(widgets.shadow, "offset_left", target_shadow_offset.x,
+			CARD_ANIM_DURATION)
+		tween.tween_property(widgets.shadow, "offset_right", target_shadow_offset.x,
+			CARD_ANIM_DURATION)
+		tween.tween_property(widgets.shadow, "offset_top", target_shadow_offset.y,
+			CARD_ANIM_DURATION)
+		tween.tween_property(widgets.shadow, "offset_bottom", target_shadow_offset.y,
 			CARD_ANIM_DURATION)
 
 		var border_style: StyleBoxFlat = widgets.border.get_theme_stylebox(&"panel")
