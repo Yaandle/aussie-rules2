@@ -156,14 +156,18 @@ func _build() -> void:
 	var content_height := HEADER_HEIGHT + ROWS_PER_COLUMN * (ROW_HEIGHT + ROW_GAP) - ROW_GAP + HINT_HEIGHT
 	var card_height := content_height + CARD_MARGIN * 2.0
 
-	var card := Panel.new()
-	card.add_theme_stylebox_override(&"panel", SoftBrutalist.panel_style())
-	SoftBrutalist.soften(card, SoftBrutalist.Elevation.OVERLAY)
-	card.size = Vector2(CARD_WIDTH, card_height)
-	card.position = Vector2((1280.0 - CARD_WIDTH) / 2.0, (720.0 - card_height) / 2.0)
-	root.add_child(card)
+	# Retro windowed-console shell (see retro_window.gd) — same sharp,
+	# unrounded card language as settings_screen.gd / pause_screen.gd /
+	# team_list_screen.gd, in place of SoftBrutalist's rounded, softly-
+	# blurred panel this screen still had.
+	var card_size := Vector2(CARD_WIDTH, card_height)
+	var card_wrapper := Control.new()
+	card_wrapper.custom_minimum_size = card_size
+	card_wrapper.position = Vector2((1280.0 - CARD_WIDTH) / 2.0, (720.0 - card_height) / 2.0)
+	root.add_child(card_wrapper)
+	var card := RetroWindow.shell(card_wrapper, card_size)
 
-	var title := SoftBrutalist.label("REMAP CONTROLS", SoftBrutalist.SIZE_TITLE, SoftBrutalist.INK,
+	var title := SoftBrutalist.label("REMAP CONTROLS", SoftBrutalist.SIZE_TITLE, RetroWindow.BORDER,
 		SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_TITLE)
 	title.position = Vector2(CARD_MARGIN, CARD_MARGIN)
 	card.add_child(title)
@@ -191,19 +195,18 @@ func _build_row(card: Panel, index: int, pos: Vector2) -> void:
 	var panel := Panel.new()
 	panel.position = pos
 	panel.size = Vector2(COLUMN_WIDTH, ROW_HEIGHT)
-	panel.add_theme_stylebox_override(&"panel", SoftBrutalist.button_style(&"normal"))
-	SoftBrutalist.soften(panel, SoftBrutalist.Elevation.LOW, float(SoftBrutalist.RADIUS_XS))
+	panel.add_theme_stylebox_override(&"panel", RetroWindow.row_style(false))
 	card.add_child(panel)
 	_row_panels.append(panel)
 
 	var label := SoftBrutalist.label(REMAPPABLE_ACTIONS[index]["label"], SoftBrutalist.SIZE_LABEL,
-		SoftBrutalist.INK, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL)
+		RetroWindow.BORDER, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL)
 	label.position = Vector2(14.0, 11.0)
 	label.size = Vector2(COLUMN_WIDTH - 100.0, 20.0)
 	label.clip_text = true
 	panel.add_child(label)
 
-	var key_label := SoftBrutalist.numeric_label("", SoftBrutalist.SIZE_LABEL, SoftBrutalist.ACCENT_PRIMARY)
+	var key_label := SoftBrutalist.numeric_label("", SoftBrutalist.SIZE_LABEL, RetroWindow.ACCENT)
 	key_label.position = Vector2(COLUMN_WIDTH - 84.0, 11.0)
 	key_label.size = Vector2(74.0, 20.0)
 	key_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -218,15 +221,14 @@ func _refresh() -> void:
 		var action: StringName = REMAPPABLE_ACTIONS[i]["action"]
 		var selected := i == _index
 		var listening_here := selected and _listening
-		SoftBrutalist.animate_state(_row_panels[i], &"panel",
-			&"hover" if (selected and not listening_here) else &"normal", 0.12,
-			SoftBrutalist.RADIUS_XS)
+		_row_panels[i].add_theme_stylebox_override(&"panel",
+			RetroWindow.row_style(selected and not listening_here))
 		if listening_here:
 			_key_labels[i].text = "PRESS A KEY…"
-			_key_labels[i].add_theme_color_override(&"font_color", SoftBrutalist.ACCENT_PRIMARY)
+			_key_labels[i].add_theme_color_override(&"font_color", RetroWindow.ACCENT)
 		else:
 			_key_labels[i].text = _key_display_name(action)
-			_key_labels[i].add_theme_color_override(&"font_color", SoftBrutalist.INK)
+			_key_labels[i].add_theme_color_override(&"font_color", RetroWindow.BORDER)
 
 	_hint_label.text = "ESC CANCEL · SELECTED KEY REPLACES ANY OTHER ACTION USING IT" if _listening \
 		else "↑/↓ SELECT · ←/→ SWITCH COLUMN · ENTER REBIND · ESC BACK"

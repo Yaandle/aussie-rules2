@@ -86,18 +86,15 @@ const BOARD_PANEL_WIDTH := (BOARD_BAND_HEIGHT - FormationWhiteboard.MARGIN * 2.0
 const CONTENT_WIDTH := COLUMN_WIDTH + float(PANEL_GAP) + BOARD_PANEL_WIDTH
 
 ## ── Retro neomorphism x brutalist card shell ───────────────────────────
-## A warm parchment fill, a thick near-black rule (brutalist), and a
-## solid offset shadow with no blur (the neomorphic-brutalist hybrid's
-## signature — a real embossed shape, but hard-edged like a stamped card
-## rather than airbrushed) instead of SoftBrutalist's soft blur. Local to
-## this screen only; see the header comment for why.
-const RETRO_PANEL := Color("#F3E7CE")     ## warm parchment, not plain white
-const RETRO_BORDER := Color("#1C1A17")    ## near-black, not pure ink — warmer
-const RETRO_SHADOW := Color("#2F5F5A")    ## dusty teal, the one recurring accent
-const RETRO_ACCENT := Color("#C2542F")    ## rust/terracotta — title underline, hint chips
-const RETRO_BORDER_WIDTH := 4
-const RETRO_RADIUS := 6                   ## chunky, not the rest of the app's 16px soft round
-const RETRO_SHADOW_OFFSET := Vector2(7.0, 7.0)
+## The shared RetroWindow shell (see retro_window.gd) — sharp, unrounded
+## corners and a hard offset shadow, like a windowed retro pixel-game
+## console rather than SoftBrutalist's soft blurred rounding. Also used by
+## settings_screen.gd and pause_screen.gd now, so all three read as one
+## consistent design language instead of drifting apart.
+const RETRO_PANEL := RetroWindow.PANEL
+const RETRO_BORDER := RetroWindow.BORDER
+const RETRO_SHADOW := RetroWindow.SHADOW
+const RETRO_ACCENT := RetroWindow.ACCENT
 
 ## Six legend rows plus their heading and the card padding. Fixed rather
 ## than expanding: a legend stretched to the full height of the board
@@ -240,66 +237,17 @@ func _refresh_rows() -> void:
 ## their own shadow/elevation to animate the way settings_screen.gd's
 ## SoftBrutalist rows are.
 func _row_panel_style(selected: bool) -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = RETRO_ACCENT.lightened(0.78) if selected else Color(RETRO_PANEL, 0.0)
-	style.set_corner_radius_all(SoftBrutalist.RADIUS_XS)
-	return style
+	return RetroWindow.row_style(selected)
 
 
 # ── Build ────────────────────────────────────────────────────────────
 
-## A card is a plain Control wrapper (not a Container, so its children's
-## positions don't get re-sorted) exactly `minimum` in size — the same
-## external footprint the old SoftBrutalist-based card claimed, so none of
-## this screen's hand-tuned pixel geometry (CONTENT_WIDTH, BOARD_PANEL_
-## WIDTH etc.) shifts. Inside it: a solid RETRO_SHADOW panel offset by
-## RETRO_SHADOW_OFFSET first, then the real parchment-and-border panel at
-## (0,0) on top — a hard-edged stamped shadow instead of a blurred one,
-## intentionally allowed to poke past the wrapper's own claimed rect
-## since Control rendering isn't clipped to its reported size.
+## Thin wrapper over RetroWindow.card() — kept as a local method since
+## every call site here already reads `_card(parent, size)`, and the
+## external footprint (CONTENT_WIDTH, BOARD_PANEL_WIDTH etc., all
+## hand-tuned against this screen's own CARD_PAD) doesn't change.
 func _card(parent: Control, minimum: Vector2) -> MarginContainer:
-	var wrapper := Control.new()
-	wrapper.custom_minimum_size = minimum
-	wrapper.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	parent.add_child(wrapper)
-
-	# Both anchored full-rect to `wrapper` (not sized off the `minimum`
-	# snapshot directly) so a caller that stretches the wrapper afterwards
-	# (SIZE_EXPAND_FILL on the whiteboard panel, sizing it to the row's
-	# actual height) carries the shadow and the front panel along with it.
-	var shadow := Panel.new()
-	shadow.set_anchors_preset(Control.PRESET_FULL_RECT)
-	shadow.offset_left = RETRO_SHADOW_OFFSET.x
-	shadow.offset_right = RETRO_SHADOW_OFFSET.x
-	shadow.offset_top = RETRO_SHADOW_OFFSET.y
-	shadow.offset_bottom = RETRO_SHADOW_OFFSET.y
-	shadow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var shadow_style := StyleBoxFlat.new()
-	shadow_style.bg_color = RETRO_SHADOW
-	shadow_style.set_corner_radius_all(RETRO_RADIUS)
-	shadow_style.anti_aliasing_size = 1.0
-	shadow.add_theme_stylebox_override(&"panel", shadow_style)
-	wrapper.add_child(shadow)
-
-	var panel := Panel.new()
-	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var panel_style := StyleBoxFlat.new()
-	panel_style.bg_color = RETRO_PANEL
-	panel_style.border_color = RETRO_BORDER
-	panel_style.set_border_width_all(RETRO_BORDER_WIDTH)
-	panel_style.set_corner_radius_all(RETRO_RADIUS)
-	panel_style.anti_aliasing_size = 1.0
-	panel.add_theme_stylebox_override(&"panel", panel_style)
-	wrapper.add_child(panel)
-
-	var inner := MarginContainer.new()
-	inner.set_anchors_preset(Control.PRESET_FULL_RECT)
-	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	for side: String in ["left", "right", "top", "bottom"]:
-		inner.add_theme_constant_override(StringName("margin_" + side), int(CARD_PAD))
-	panel.add_child(inner)
-	return inner
+	return RetroWindow.card(parent, minimum, CARD_PAD)
 
 
 func _build_header(parent: Control) -> void:

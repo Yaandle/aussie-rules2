@@ -4,10 +4,16 @@ extends Node3D
 ## Live 3D preview behind the character screen: one player standing in a
 ## glowing ring on the turf, fixed close framing — P1's
 ## character_render.py used exactly this ("the camera never moves, but
-## still ticks every frame like every other mode's rig"). Reuses
-## menu_backdrop.gd's pattern (Field + PlayerController instanced with a
-## static PlayerBrain) rather than inventing a second way to stand a
-## player on the ground.
+## still ticks every frame like every other mode's rig").
+##
+## Deliberately minimal: a bare HumanoidRig stood in place, not a full
+## PlayerController. This screen used to instance the real physics scene
+## (CharacterBody3D + PlayerBrain + move_and_slide every physics frame),
+## which stood still under a neutral brain but still ran full locomotion
+## physics against the field's collider each tick — visible up close as a
+## constant low-amplitude jitter. A static preview has no business paying
+## for gravity/floor-snap/collision resolution at all, so this now just
+## builds the rig and poses it once.
 ##
 ## The dark navy-over-green look is entirely
 ## `materials/character_studio_environment.tres` plus the dimmed Sun in
@@ -16,7 +22,6 @@ extends Node3D
 ## regression along behind a UI change if they were poked at.
 
 const FIELD_SCENE := preload("res://scenes/field/field.tscn")
-const PLAYER_SCENE := preload("res://scenes/player/player.tscn")
 
 ## Stood just inside the centre square's own boundary line rather than at
 ## the origin. The origin has the centre circles around it, which fill
@@ -38,17 +43,6 @@ const RING_HEIGHT := 0.03
 ## comment on the Sun/Key nodes there). Only ever applied to the instance
 ## this scene spawns, so nothing about the shared player scene changes.
 const SUBJECT_LAYER := 2
-
-## Body alpha for this preview only (design brief: "increase transparency
-## appropriately so the wireframe/body structure can be seen through the
-## character") — the wireframe already exists and already follows the
-## bones (SkeletonWireframe), it just used to have nothing to show through:
-## the placeholder meshes it runs underneath are fully opaque, so it only
-## ever peeked past the body's silhouette edge. Safe to mutate here:
-## HumanoidRig._materials is a plain per-instance dict (see humanoid_rig.gd),
-## not shared/static, so this only ever touches the one rig this screen
-## spawns — every on-field player builds and owns its own materials.
-const BODY_ALPHA := 0.55
 
 ## Framing: far enough back that the figure fills a little under half the
 ## frame height, low enough that the eye line is roughly chest height.
@@ -73,37 +67,17 @@ var _rig_holder: HumanoidRig
 func _ready() -> void:
 	add_child(FIELD_SCENE.instantiate())
 
-	var instance := PLAYER_SCENE.instantiate() as PlayerController
-	instance.team = Tuning.Team.HOME
-	var rig := instance.get_node("Rig") as HumanoidRig
+	var rig := HumanoidRig.new()
 	rig.away_kit = false
-	instance.position = STAND_ON
-	instance.rotation.y = deg_to_rad(180.0)   # face the camera
-	add_child(instance)
-	instance.set_brain(PlayerBrain.new())
+	rig.position = STAND_ON
+	rig.rotation.y = deg_to_rad(180.0)   # face the camera
+	add_child(rig)
 	_rig_holder = rig
 
 	# After add_child, so HumanoidRig._ready() has actually built the
-	# boxes there are meshes to move. owned=false because they are made at
-	# runtime and so belong to no scene.
-	for mesh in instance.find_children("*", "MeshInstance3D", true, false):
-		var mesh_instance := mesh as MeshInstance3D
-		mesh_instance.layers = SUBJECT_LAYER
-		var material := mesh_instance.material_override as StandardMaterial3D
-		if material != null:
-			material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-			var colour := material.albedo_color
-			colour.a = BODY_ALPHA
-			material.albedo_color = colour
-
-	# The skeleton wireframe overlay: this is a preview screen where one
-	# figure is looked at up close, so it's the one place in the project
-	# that pays for it — see SkeletonWireframe's own header for why this
-	# is deliberately not added to on-field players.
-	var wireframe := SkeletonWireframe.new()
-	wireframe.layers = SUBJECT_LAYER
-	wireframe.track(rig.skeleton())
-	add_child(wireframe)
+	# meshes there are to move.
+	for mesh in rig.find_children("*", "MeshInstance3D", true, false):
+		(mesh as MeshInstance3D).layers = SUBJECT_LAYER
 
 	_ring.position = STAND_ON + Vector3(0.0, RING_HEIGHT, 0.0)
 

@@ -172,8 +172,19 @@ func _think_carrying(controller: PlayerController, delta: float, pos: Vector3) -
 
 
 func _think_loose_ball(controller: PlayerController, pos: Vector3, team: Tuning.Team) -> void:
-	if _is_closest_teammate_to(controller, team, ball.global_position):
-		_move_toward(ball.global_position, pos, 1.0)
+	# While the ball is still in flight, chase where it's actually going to
+	# land rather than where it currently is — a kick can hang for well
+	# over a second, and "run at the ball's current position" means
+	# chasing a moving target across the ground the whole way instead of
+	# meeting it. This is what P1 called converging on the drop zone, and
+	# it's the difference between a receiver who's already standing under
+	# a long kick when it arrives and one who's still three strides away.
+	# Grounded (non-airborne) loose balls have no arc to anticipate, so
+	# those still chase the live position.
+	var chase_point := ball.predicted_landing_position() if ball.is_airborne() \
+		else ball.global_position
+	if _is_closest_teammate_to(controller, team, chase_point):
+		_move_toward(chase_point, pos, 1.0)
 		# Close enough to a ball still in the air that holding up for a
 		# catch beats running through where it currently is — the same
 		# reach test PlayerController._update_aerial_contest itself uses,

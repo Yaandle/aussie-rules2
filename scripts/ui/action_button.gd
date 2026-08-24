@@ -22,8 +22,8 @@ const PAD_X := 20.0
 const ICON_SIZE := 18.0
 const ICON_GAP := 14
 
-## Button corner radius — the small step on SoftBrutalist's radius scale.
-const RADIUS := SoftBrutalist.RADIUS_SM
+## Button corner radius — sharp, matching RetroWindow's unrounded shell.
+const RADIUS := RetroWindow.RADIUS
 
 var _row: HBoxContainer
 var _icon: UIIcon
@@ -43,8 +43,8 @@ func _init(text := "") -> void:
 	# the accent-bordered cut directly rather than tweening through
 	# SoftBrutalist.animate_state(); the shadow underneath does ease, so
 	# the button still lifts rather than snapping.
-	_box_idle = UIStyle.rounded(UIStyle.ICON_BOX_FILL, UIStyle.ICON_BOX_BORDER, 1, RADIUS)
-	_box_selected = UIStyle.rounded(UIStyle.ICON_BOX_FILL, UIStyle.ACCENT, 1, RADIUS)
+	_box_idle = UIStyle.rounded(UIStyle.ICON_BOX_FILL, UIStyle.ICON_BOX_BORDER, 2, RADIUS)
+	_box_selected = UIStyle.rounded(UIStyle.ICON_BOX_FILL, UIStyle.ACCENT, 2, RADIUS)
 	add_theme_stylebox_override(&"panel", _box_idle)
 	_shadow = SoftBrutalist.soften(self, SoftBrutalist.Elevation.LOW, float(RADIUS))
 

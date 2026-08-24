@@ -1,12 +1,14 @@
 class_name FormationWhiteboard
 extends Control
 
-## Top-down tactics board: a schematic oval plus one marker per fielded
-## HOME player, positioned from TeamFormation.SLOTS and then displaced by
-## the three Team Edit tactics dials — a FIFA/NBA 2K-style coaching board,
-## not a static AFL position chart with a highlight on it (see HANDOVER.md
-## for that earlier, retired design: every one of the 18 named slots always
-## drawn, with a coloured ring around whichever the chosen preset used).
+## Top-down tactics board: a schematic oval plus one marker per HOME
+## player — all 18 AFL slots from TeamFormation.SLOTS, always drawn, each
+## displaced by the three Team Edit tactics dials. A full position chart
+## that also breathes with the tactics dials, rather than either extreme
+## on its own: the previous design only drew whichever 4 slots a formation
+## preset actually fielded (a FIFA/NBA 2K-style coaching board), and before
+## that the retired design drew all 18 but static (see HANDOVER.md) — this
+## keeps the animation, not the fielded-subset filtering.
 ##
 ## Drawn vertically — attack direction points toward the top of the panel
 ## — with world.x (the length/attack axis) mapped to screen Y (inverted)
@@ -34,7 +36,13 @@ extends Control
 ## 18-marker "generic balanced" reference side — no tactics logic of its
 ## own, just a shape to gauge your own spacing against.
 
-const MARGIN := 44.0
+## Widened from 44 — with all 18 slots always drawn (not just 4), the
+## forward-pocket/back-pocket markers sit near the oval's own poles where
+## the boundary curves sharply, and their DOT_RADIUS + caption pushed past
+## the panel edge at the old margin. More margin shrinks the whole board
+## uniformly (see _draw()'s available-size calc), pulling every marker and
+## the "ATTACK ↑" caption safely inside the card instead of clipping it.
+const MARGIN := 64.0
 const DOT_RADIUS := 9.0
 const ELLIPSE_SEGMENTS := 96
 const LABEL_FONT_SIZE := 11
@@ -139,10 +147,23 @@ const LINE_DEPTH_WEIGHT := {
 ## slot sitting dead on the centre line, lateral 0.0, stays at 0.0 under
 ## any scale), so a single per-line weight is enough; no separate "how far
 ## from centre" term needed the way depth's additive push needed one.
+##
+## Table shifted from its original {-0.35, 0.0, 0.35}: the old MUTUAL
+## (default, scale 1.0) put FORWARD/BACK-line pockets (depth 0.80, lateral
+## 0.55) right at the oval boundary (normalized radius 0.9425 of 1.0) with
+## zero room to spare, and old BOUNDARY (scale 1.35) pushed them past it
+## (1.091) — genuinely outside the white oval, not just close to it.
+## MUTUAL moved to -0.35 (the old CORRIDOR view) so the default sits
+## comfortably inside (0.876), and BOUNDARY moved to 0.0 (the old MUTUAL
+## scale, 0.9425 — inside) so even the widest setting never crosses the
+## boundary. CORRIDOR itself only moved a little further in from the new
+## MUTUAL (-0.50, a -0.15 step) rather than mirroring BOUNDARY's full
+## +0.35 step — the initial equal-and-opposite shift squeezed CORRIDOR
+## too tight relative to how far BOUNDARY had to move to clear the oval.
 const WIDTH_PUSH := {
-	Settings.BallMovementPreference.CORRIDOR: -0.35,
-	Settings.BallMovementPreference.MUTUAL: 0.0,
-	Settings.BallMovementPreference.BOUNDARY: 0.35,
+	Settings.BallMovementPreference.CORRIDOR: -0.50,
+	Settings.BallMovementPreference.MUTUAL: -0.35,
+	Settings.BallMovementPreference.BOUNDARY: 0.0,
 }
 
 const LINE_WIDTH_WEIGHT := {
@@ -157,6 +178,22 @@ const LINE_WIDTH_WEIGHT := {
 ## Clamp headroom so an aggressive push/scale can never place a marker on
 ## or past the boundary line itself.
 const OFFSET_CLAMP := 0.95
+
+## Pocket nudge: pulls the four pocket slots (FP/FP, BP/BP) a little
+## closer to their line's centre marker (FF, FB) than TeamFormation.SLOTS'
+## raw depth/lateral give them. Without this the pocket pair sits at
+## exactly the same depth as the full-forward/full-back marker beside it,
+## so the forward and back lines each draw as a flat edge and the whole
+## fielded 6 reads as a rectangle rather than a fanned-out line. Applied
+## on top of TeamFormation.SLOTS rather than by editing SLOTS itself —
+## SLOTS also drives FullGame's real kickoff spawn positions, and this is
+## a board-legibility tweak, not a formation redesign.
+const POCKET_ROLES := [
+	TeamFormation.Role.FORWARD_POCKET_LEFT, TeamFormation.Role.FORWARD_POCKET_RIGHT,
+	TeamFormation.Role.BACK_POCKET_LEFT, TeamFormation.Role.BACK_POCKET_RIGHT,
+]
+const POCKET_DEPTH_INSET := 0.08     ## pulls FP/BP in, depth-wise, toward FF/FB
+const POCKET_LATERAL_SCALE := 0.82   ## pulls FP/BP in, laterally, toward FF/FB
 
 # ── Pressure (Defensive Pressure) — an engagement line, not a player move
 # Per the design brief, pressure never touches a player marker's own
@@ -258,7 +295,27 @@ func _depth_offset(line: int) -> float:
 
 
 func _width_scale(line: int) -> float:
-	return 1.0 + float(WIDTH_PUSH[ball_movement]) * float(LINE_WIDTH_WEIGHT[line])
+	return _width_scale_for(line, ball_movement)
+
+
+func _width_scale_for(line: int, movement: int) -> float:
+	return 1.0 + float(WIDTH_PUSH[movement]) * float(LINE_WIDTH_WEIGHT[line])
+
+
+## Depth-frame sign for a pocket's inset — FORWARD_POCKET sits at positive
+## depth (toward attack) and pulls back toward FF (negative delta);
+## BACK_POCKET sits at negative depth and pulls forward toward FB
+## (positive delta). Both read as "toward the line's own centre marker".
+func _pocket_depth_inset(role: int) -> float:
+	if role == TeamFormation.Role.FORWARD_POCKET_LEFT or role == TeamFormation.Role.FORWARD_POCKET_RIGHT:
+		return -POCKET_DEPTH_INSET
+	if role == TeamFormation.Role.BACK_POCKET_LEFT or role == TeamFormation.Role.BACK_POCKET_RIGHT:
+		return POCKET_DEPTH_INSET
+	return 0.0
+
+
+func _pocket_lateral_scale(role: int) -> float:
+	return POCKET_LATERAL_SCALE if role in POCKET_ROLES else 1.0
 
 
 ## Depth/lateral-fraction target for slot `idx`, tactics offsets applied —
@@ -267,24 +324,44 @@ func _width_scale(line: int) -> float:
 func _target_position(idx: int) -> Vector3:
 	var slot: Dictionary = TeamFormation.SLOTS[idx]
 	var line: int = slot["line"]
+	var role: int = slot["role"]
+	var depth := float(slot["depth"]) + _pocket_depth_inset(role)
+	var lateral := float(slot["lateral"]) * _pocket_lateral_scale(role)
 	var adjusted := {
-		"depth": clampf(float(slot["depth"]) + _depth_offset(line), -OFFSET_CLAMP, OFFSET_CLAMP),
-		"lateral": clampf(float(slot["lateral"]) * _width_scale(line), -OFFSET_CLAMP, OFFSET_CLAMP),
+		"depth": clampf(depth + _depth_offset(line), -OFFSET_CLAMP, OFFSET_CLAMP),
+		"lateral": clampf(lateral * _width_scale(line), -OFFSET_CLAMP, OFFSET_CLAMP),
 	}
 	return TeamFormation.world_position(adjusted, 1.0)
 
 
-## Recomputes every fielded slot's target and starts one Tween animating
-## the whole board there. A slot leaving the fielded set (a formation
-## preset swap can field an entirely different 4 of the 18, not just move
-## the same 4 — e.g. BALANCED's RK isn't in ATTACKING's set at all) fades
-## out in place rather than sliding anywhere, since it has no correct new
-## position to slide to; a slot newly entering fades in already at its own
-## resting spot. Called for both a formation and a ball-movement change —
-## either can move a fielded slot's target position.
+## Static mirrored position for the opposition overlay (see
+## _draw_opposition()) — same pocket inset as the fielded side, and the
+## same MUTUAL width scale as the current default so both sides read at
+## one consistent scale, but deliberately no depth push and no reaction to
+## the ball-movement dial: the opposition is a fixed reference shape, not
+## a simulated opposing gameplan (see this file's own header).
+func _opposition_position(idx: int) -> Vector3:
+	var slot: Dictionary = TeamFormation.SLOTS[idx]
+	var line: int = slot["line"]
+	var role: int = slot["role"]
+	var depth := float(slot["depth"]) + _pocket_depth_inset(role)
+	var lateral := float(slot["lateral"]) * _pocket_lateral_scale(role)
+	var adjusted := {
+		"depth": clampf(depth, -OFFSET_CLAMP, OFFSET_CLAMP),
+		"lateral": clampf(lateral * _width_scale_for(line, Settings.BallMovementPreference.MUTUAL),
+			-OFFSET_CLAMP, OFFSET_CLAMP),
+	}
+	return TeamFormation.world_position(adjusted, -1.0)
+
+
+## Recomputes every slot's target and starts one Tween animating the whole
+## board there. All 18 TeamFormation.SLOTS are always fielded — the fade
+## in/out machinery below only ever fires on first build now, but is kept
+## rather than stripped: a future roster feature (fielding fewer than 18)
+## has somewhere to plug back into. Called for both a formation and a
+## ball-movement change — either can move a slot's target position.
 func _retarget() -> void:
-	var fielded: Array = Settings.FORMATION_PRESETS[
-		clampi(formation_index, 0, Settings.FORMATION_PRESETS.size() - 1)]["slots"]
+	var fielded := range(TeamFormation.SLOTS.size())
 	var fielded_set := {}
 	for idx in fielded:
 		fielded_set[idx] = true
@@ -397,8 +474,8 @@ func _draw_dot(point: Vector2, colour: Color, radius: float = DOT_RADIUS) -> voi
 func _draw_opposition(centre: Vector2, scale: float) -> void:
 	if not show_opposition:
 		return
-	for slot: Dictionary in TeamFormation.SLOTS:
-		var point := _to_screen(centre, TeamFormation.world_position(slot, -1.0), scale)
+	for idx in TeamFormation.SLOTS.size():
+		var point := _to_screen(centre, _opposition_position(idx), scale)
 		draw_arc(point, DOT_RADIUS * OPPOSITION_DOT_SCALE, 0.0, TAU, 24,
 			OPPOSITION_COLOUR, OPPOSITION_LINE_WIDTH, true)
 
@@ -412,8 +489,8 @@ func _draw_marking_lines(centre: Vector2, scale: float) -> void:
 	if not show_opposition:
 		return
 	var opponents: Array[Vector2] = []
-	for slot: Dictionary in TeamFormation.SLOTS:
-		opponents.append(_to_screen(centre, TeamFormation.world_position(slot, -1.0), scale))
+	for idx in TeamFormation.SLOTS.size():
+		opponents.append(_to_screen(centre, _opposition_position(idx), scale))
 	if opponents.is_empty():
 		return
 

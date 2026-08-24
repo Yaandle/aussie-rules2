@@ -225,6 +225,30 @@ func is_airborne() -> bool:
 	return not is_held and global_position.y > Tuning.BALL_SEMI_MINOR * 2.5
 
 
+## Where this ball would land if gravity were the only force acting on it
+## from here — ignores drag/Magnus (both real forces on the actual flight,
+## see this file's own header) since this exists to steer AIBrain's
+## receivers toward a sensible spot in real time, not to reproduce the
+## exact physics trajectory. Standard projectile time-to-ground: solves
+## y0 + vy*t - 0.5*g*t^2 = 0 for the positive root, then carries the
+## current horizontal velocity for that long. Falls back to the current
+## position if the ball is already on/below the ground or has no more
+## downward closing (grazing along near-zero height), where the quadratic
+## has no meaningful positive root.
+func predicted_landing_position() -> Vector3:
+	var y0 := global_position.y
+	var vy := linear_velocity.y
+	if y0 <= 0.0:
+		return global_position
+	var discriminant := vy * vy + 2.0 * Tuning.GRAVITY * y0
+	if discriminant <= 0.0:
+		return global_position
+	var t := (vy + sqrt(discriminant)) / Tuning.GRAVITY
+	var landing := global_position + Vector3(linear_velocity.x, 0.0, linear_velocity.z) * t
+	landing.y = 0.0
+	return landing
+
+
 func is_settled() -> bool:
 	return not is_held and (sleeping or linear_velocity.length() < Tuning.BALL_SLEEP_SPEED)
 

@@ -313,8 +313,11 @@ const ACTION_CONTACT := [0.0, 0.42, 0.20, 0.22, 0.08, 0.06, 0.40, 0.40, 0.10, 0.
 const BOUNCE_INTERVAL := 15.0          # metres of carry between bounces
 
 # An actual arm's reach. P1's LOOSE_BALL_GATHER_RADIUS was 4.0 units — a
-# positional abstraction for "close enough", not a reach.
-const GATHER_RADIUS := 0.85            # m
+# positional abstraction for "close enough", not a reach. Nudged up from
+# the original 0.85 (still nowhere near P1's abstraction) after reports
+# that a slightly-off pass or a bounce just outside true arm's-length was
+# reading as ungatherable — a generous arm's reach, not a lunge.
+const GATHER_RADIUS := 1.05            # m
 # Speed at the moment of contact matters (design brief): a player running
 # through a bounce or a loose ball gets a bit more reach than one standing
 # over it, same idea as GROUND_PICKUP_LUNGE_PER_SPEED's deliberate reach,
@@ -322,8 +325,8 @@ const GATHER_RADIUS := 0.85            # m
 # press. Capped well short of GROUND_PICKUP's own bonus so the two stay
 # distinguishable — a deliberate reach should still out-range a passive one.
 const GATHER_LUNGE_PER_SPEED := 0.04   # m of extra reach per m/s of current speed
-const GATHER_LUNGE_MAX := 0.5          # m
-const GATHER_MAX_BALL_SPEED := 14.0    # m/s above which the ball is going too fast to gather
+const GATHER_LUNGE_MAX := 0.65         # m
+const GATHER_MAX_BALL_SPEED := 16.0    # m/s above which the ball is going too fast to gather
 const GATHER_COOLDOWN := 0.45          # s after disposal before you can regather your own kick
 const RELEASE_GRACE := 0.25            # s the disposed ball ignores its own kicker
 
@@ -333,9 +336,15 @@ const RELEASE_GRACE := 0.25            # s the disposed ball ignores its own kic
 # spring arm. P1's MAIN_CAM_BACK/HEIGHT were 50/30 logical units on a
 # 166-unit field — a very high, very distant diorama view. A broadcast
 # third-person rig sits far closer to the player.
-const CAM_DISTANCE := 7.5              # m behind the focus point
-const CAM_FOCUS_HEIGHT := 1.35         # m up the player's body that the rig frames
-const CAM_PITCH_DEFAULT := -14.0       # deg
+## Pulled in and raised from 7.5/1.35/-14 — at the old settings the rig sat
+## low and far enough behind the player that Full Game's 4-a-side spread
+## read as tiny, distant dots, making it hard to track teammates/passing
+## lanes or judge a kick's target. Closer + higher + a touch more pitch
+## gives more field awareness per frame without going all the way to
+## Full-Side's broadcast distance.
+const CAM_DISTANCE := 6.0              # m behind the focus point
+const CAM_FOCUS_HEIGHT := 1.6          # m up the player's body that the rig frames
+const CAM_PITCH_DEFAULT := -18.0       # deg
 const CAM_PITCH_MIN := -55.0
 const CAM_PITCH_MAX := 22.0
 const CAM_YAW_SPEED := 180.0           # deg/s at full right-stick deflection
@@ -355,7 +364,10 @@ const CAM_ROTATE_RATE := 12.0          # ditto for yaw/pitch
 const CAM_LOOKAHEAD_TIME := 0.30       # s of the target's velocity to lead by
 const CAM_LOOKAHEAD_MAX := 2.5         # m cap on that lead
 
-const CAM_FOV_BASE := 68.0
+## Widened slightly alongside the closer CAM_DISTANCE above — a tighter
+## distance without a wider lens would claw back the peripheral view the
+## distance cut was meant to preserve, just from a different cause.
+const CAM_FOV_BASE := 72.0
 const CAM_FOV_SPRINT_GAIN := 10.0      # deg added at SPRINT_SPEED — speed you can feel
 const CAM_FOV_RATE := 5.0
 const CAM_PUNCH_KICK := -6.0           # deg of transient tighten on a kick (§6)
@@ -775,15 +787,21 @@ const GROUND_PICKUP_LUNGE_PER_SPEED := 0.05    # m of extra reach per m/s of cur
 # safe/running/aggressive risk relationship — the whole point of having
 # three tiers — doesn't get flattened out by making them all easier by
 # the same multiple.
-const MARK_ASSIST_RADIUS_BONUS := 0.35   # m
+## Nudged up from 0.35 — still a flat, tier-independent bonus (see the
+## comment above), just a bit more forgiving so a reasonably-timed mark
+## attempt isn't lost purely to reach.
+const MARK_ASSIST_RADIUS_BONUS := 0.5    # m
 
 # "Catch gravity": a genuine small attractive force pulling the ball
 # toward whichever uncontested (not-carrying) player is nearest while
 # it's airborne — the same physical-forces mechanism drag/Magnus already
 # are (Ball._integrate_forces), not a scripted snap onto a player. Full
 # strength at point-blank range, fading to nothing at CATCH_GRAVITY_RADIUS.
-const CATCH_GRAVITY_RADIUS := 2.75       # m
-const CATCH_GRAVITY_ACCEL := 2.2         # m/s^2 at point-blank range
+# Both widened a little from 2.75/2.2 — the assist now reaches out and
+# pulls a shade harder, so a pass that lands near but not exactly on a
+# receiver still has a real chance of ending up in their hands.
+const CATCH_GRAVITY_RADIUS := 3.25       # m
+const CATCH_GRAVITY_ACCEL := 2.6         # m/s^2 at point-blank range
 
 
 # ── Character screen ─────────────────────────────────────────────────

@@ -75,15 +75,18 @@ func _ready() -> void:
 
 	root.add_child(SoftBrutalist.backdrop())
 
+	# Retro windowed-console shell (see retro_window.gd) — same sharp,
+	# unrounded card language as team_list_screen.gd / pause_screen.gd,
+	# in place of SoftBrutalist's rounded, softly-blurred panel.
 	var card_height := 110.0 + _row_count() * (ROW_HEIGHT + ROW_GAP) + 40.0
-	var card := Panel.new()
-	card.add_theme_stylebox_override(&"panel", SoftBrutalist.panel_style())
-	SoftBrutalist.soften(card, SoftBrutalist.Elevation.OVERLAY)
-	card.size = Vector2(CARD_WIDTH, card_height)
-	card.position = Vector2((1280.0 - CARD_WIDTH) / 2.0, (720.0 - card_height) / 2.0)
-	root.add_child(card)
+	var card_size := Vector2(CARD_WIDTH, card_height)
+	var card_wrapper := Control.new()
+	card_wrapper.custom_minimum_size = card_size
+	card_wrapper.position = Vector2((1280.0 - CARD_WIDTH) / 2.0, (720.0 - card_height) / 2.0)
+	root.add_child(card_wrapper)
+	var card := RetroWindow.shell(card_wrapper, card_size)
 
-	var title := SoftBrutalist.label("SETTINGS", SoftBrutalist.SIZE_TITLE, SoftBrutalist.INK,
+	var title := SoftBrutalist.label("SETTINGS", SoftBrutalist.SIZE_TITLE, RetroWindow.BORDER,
 		SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_TITLE)
 	title.position = Vector2(32.0, 28.0)
 	card.add_child(title)
@@ -98,22 +101,20 @@ func _ready() -> void:
 	for i in _rows.size():
 		var row := _rows[i]
 		var panel := Panel.new()
-		panel.add_theme_stylebox_override(&"panel", SoftBrutalist.button_style(&"normal"))
-		SoftBrutalist.soften(panel, SoftBrutalist.Elevation.LOW,
-			float(SoftBrutalist.RADIUS_SM))
+		panel.add_theme_stylebox_override(&"panel", RetroWindow.row_style(false))
 		panel.position = Vector2(32.0, top)
 		panel.size = Vector2(CARD_WIDTH - 64.0, ROW_HEIGHT)
 		card.add_child(panel)
 		_row_panels.append(panel)
 
-		var title_label := SoftBrutalist.label(row.title, SoftBrutalist.SIZE_BODY, SoftBrutalist.INK,
+		var title_label := SoftBrutalist.label(row.title, SoftBrutalist.SIZE_BODY, RetroWindow.BORDER,
 			SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL)
 		title_label.position = Vector2(20.0, 16.0)
 		panel.add_child(title_label)
 		_title_labels.append(title_label)
 
-		var value_label := SoftBrutalist.label(row.value(), SoftBrutalist.SIZE_BODY, SoftBrutalist.MUTED,
-			SoftBrutalist.WEIGHT_REGULAR, 0)
+		var value_label := SoftBrutalist.label(row.value(), SoftBrutalist.SIZE_BODY, RetroWindow.ACCENT,
+			SoftBrutalist.WEIGHT_BOLD, 0)
 		value_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 		value_label.position = Vector2(-180.0, 16.0)
 		value_label.size = Vector2(160.0, 24.0)
@@ -128,19 +129,18 @@ func _ready() -> void:
 	# cycling" shape) — not a Row instance, since there's no value to
 	# cycle, just a destination.
 	var remap_panel := Panel.new()
-	remap_panel.add_theme_stylebox_override(&"panel", SoftBrutalist.button_style(&"normal"))
-	SoftBrutalist.soften(remap_panel, SoftBrutalist.Elevation.LOW, float(SoftBrutalist.RADIUS_SM))
+	remap_panel.add_theme_stylebox_override(&"panel", RetroWindow.row_style(false))
 	remap_panel.position = Vector2(32.0, top)
 	remap_panel.size = Vector2(CARD_WIDTH - 64.0, ROW_HEIGHT)
 	card.add_child(remap_panel)
 	_row_panels.append(remap_panel)
 
-	var remap_label := SoftBrutalist.label("REMAP CONTROLS", SoftBrutalist.SIZE_BODY, SoftBrutalist.INK,
+	var remap_label := SoftBrutalist.label("REMAP CONTROLS", SoftBrutalist.SIZE_BODY, RetroWindow.BORDER,
 		SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL)
 	remap_label.position = Vector2(20.0, 16.0)
 	remap_panel.add_child(remap_label)
 
-	var remap_arrow := SoftBrutalist.label("ENTER >", SoftBrutalist.SIZE_LABEL, SoftBrutalist.MUTED,
+	var remap_arrow := SoftBrutalist.label("ENTER >", SoftBrutalist.SIZE_LABEL, RetroWindow.ACCENT,
 		SoftBrutalist.WEIGHT_REGULAR, 0)
 	remap_arrow.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	remap_arrow.position = Vector2(-100.0, 18.0)
@@ -233,7 +233,6 @@ func _set_mouse_kick_swapped(index: int) -> void:
 func _refresh() -> void:
 	for i in _row_panels.size():
 		var selected := i == _index
-		SoftBrutalist.animate_state(_row_panels[i], &"panel",
-			&"hover" if selected else &"normal")
+		_row_panels[i].add_theme_stylebox_override(&"panel", RetroWindow.row_style(selected))
 		if i < _rows.size():
 			_value_labels[i].text = _rows[i].value()
