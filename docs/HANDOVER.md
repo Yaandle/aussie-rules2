@@ -3627,3 +3627,137 @@ this pass generalised — nothing there needed to change), `scripts/camera/
 broadcast_camera.gd` (its `switch_target()`/`recenter()` API already
 covered both the pan and snap cases this pass needed), `kick_to_kick.gd`
 (single-player-only mode, no team roster, never touches `ControlMode`).
+
+
+## Handover — Slide/Lunge tackle split (Agent: mechanics/engine)
+
+Sequenced follow-up to the control-mode pass above, whose own entry said
+kick/handball input rework was next — research showed kick, handball,
+marking (3-tier), spoil, smother, and bump already fully match the design
+brief (ADS kick stance/charge, free-aim decoupled from facing, tap-to-
+handball toward the stick, timing-graded marks, flick-gesture bump), so
+that part of the brief was verification-only. The real work was tackling:
+until this pass it was proximity-only with no success/fail branch at all —
+holding the tackle button in range always connected, no dice roll but also
+no actual contest. This gives it two genuinely different physical risk
+profiles instead.
+
+### What changed and why
+
+**Slide** (the original `tackle` action, E/held-B, unchanged bindings) and
+**Lunge** (new `lunge_tackle` action, Q/X tap, shares its physical binding
+with `handball`/`mark_running`/`smother` the same way those three already
+overload one key) now both resolve through one shared function,
+`PlayerController._resolve_tackle_contact(tackler, target, is_slide)` —
+closing speed (relative velocity dotted along the tackler→target line),
+approach angle (0° = tackler sitting in the carrier's path, 180° = chasing
+from directly behind), and carrier speed as the momentum proxy (every
+player shares one physics mass — `CharacterProfile` has no weight stat),
+never a probability roll (RULES_REFERENCE.md §3 notes Prototype 1's old
+flat `TACKLE_BREAK_CHANCE=0.45` coin-flip was deliberately dropped for
+exactly this reason).
+
+Slide gets a low closing-speed bar and wide angle tolerance (works even
+side-on/trailing — "higher takedown chance") but a real cost on miss:
+`_stun_timer` (the same field a successful tackle's victim or a mistimed
+bumper already gets) snaps to `TACKLE_SLIDE_MISS_STUN_DURATION` (1.3s, 2.6x
+`PRIOR_OPPORTUNITY_GRACE`'s 0.5s, longer than every other cooldown in the
+kit — the point being a whiffed Slide can't reset within one possession-
+grace window). Lunge gets a higher closing-speed bar that scales up far
+more steeply with carrier speed (the concrete mechanism behind
+"correspondingly lower success chance against a strong/fast carry" — a
+tackler chasing dead-straight behind a sprinting carrier nets ~0 closing
+speed and fails outright) and a narrower angle tolerance, but on miss only
+pays a short `_lunge_tap_cooldown` (0.4s) — it never leaves its feet.
+
+The existing dash-assist (previously misleadingly also called "lunge" —
+`_update_tackle_lunge`, a movement-closing mechanic, not a second tackle
+type) is renamed to `_update_slide_dive`/`TACKLE_SLIDE_DIVE_*` throughout,
+freeing "Lunge" for the new X-tap mechanic and resolving the naming
+collision. It's unchanged in behaviour — still a committed dash to close
+distance on a Slide attempt — except a dive that lands now still has to
+pass `_resolve_tackle_contact` like any standing Slide attempt, so a
+missed dive can now genuinely whiff and eat the stun, not just "sprint past
+and reset" as its old doc comment claimed.
+
+`AIBrain.wants_tackle()` drives the same `_try_tackle()` path, so AI
+standing tackles are now gradeable too and can miss (with the same 1.3s
+self-stun) — deliberate, not a side effect: AI's Safe marks already resolve
+through the identical physics-based reach test as human marks with no
+AI-only leniency, so this extends that same precedent to tackling. AI never
+attempts the new Lunge — `AIBrain`/`CommandBrain` inherit `PlayerBrain`'s
+new `wants_lunge_tackle()` base `false` with no override, same as every
+other AI-out-of-scope action (`mark_running`, `smother`, `spoil`, `bump`).
+
+Also fixed while touching the input map: `sprint` now has RT (gamepad axis
+5) as a third alias alongside Shift/left-stick-click — the defense-remap
+spec calls for "RT = sprint" but it was never actually bound (RT only fired
+`kick_execute`); purely additive, the existing two events are untouched.
+
+### How it was verified
+
+Plain headless boot re-verified clean on both `kick_to_kick.tscn` and
+`full_game.tscn` after the rename/new-function changes.
+
+A scratch scene (`_scratch_tackle_split_test.tscn` + `.gd`, deleted after
+the run) instantiated `field.tscn`/`player.tscn`/`ball.tscn` directly, drove
+a tackler and a carrier via a small scripted `PlayerBrain` subclass exposing
+`wish_dir`/`gait_value`/`tackle_wanted`/`lunge_tackle_wanted`, and ran
+headless with `--fixed-fps 60`: Slide success (carrier sprinting straight at
+a stationary tackler — high closing speed, 0° angle — ball spills, tackler
+takes no stun), Slide miss (tackler trailing a carrier at matched sprint
+speed, ~0 closing speed and ~180° angle — no spill, `_stun_timer` snaps to
+~1.3s, and a second attempt doesn't re-fire while still stunned), Lunge
+success (carrier running straight at a stationary tackler within
+`TACKLE_RADIUS` — same easy-approach geometry Slide's success case used —
+ball spills, no stun, no lasting cooldown), and Lunge miss (same matched-
+speed chase as the Slide-miss case — no spill, only a short ~0.4s cooldown,
+`_stun_timer` stays 0, and the tackler responds normally to a fresh
+movement input immediately after). All seven checks passed in one run.
+Separately, a lightweight `ControlMode` regression check (register two HOME
+players + one AWAY, assign `HumanBrain`/`AIBrain`, toggle
+`SINGLE_PLAYER → TEAM_COMMAND → SINGLE_PLAYER` via `ControlMode`'s own
+API) confirmed `focus_player()` still tracks the right player and brain
+type in both schemes, and that `CommandBrain`/`AIBrain` both still resolve
+the new `wants_lunge_tackle()` method without error — none of this pass's
+changes touch `full_game.gd` or `ControlMode` themselves, so this was a
+smoke check on the `PlayerBrain` interface addition, not a deep re-test of
+the prior pass.
+
+### Two corrections to the task brief, found while reading the actual code
+
+- The brief claimed `full_game.gd::_switch_human_player()` had been removed
+  by the control-mode pass. It hadn't — it's still the `switch_player`-
+  action handler for cycling the human slot in `SINGLE_PLAYER`, and it
+  delegates to `ControlMode.set_controlled_player()` internally.
+  `ControlMode.focus_player(team)` is correctly the read API everything
+  else should query, which the brief also said — that part was accurate.
+  Not touched by this pass either way.
+- The brief said "RT = sprint" was already intact in the defense remap. It
+  wasn't bound at all (see the `project.godot` fix above) — treated as
+  completing the spec's own stated intent rather than an open question,
+  since it's additive and low-risk.
+
+### Files changed
+
+`scripts/player/player_controller.gd` (rename `_update_tackle_lunge`/
+`_lunge_timer`/`_lunge_cooldown`/`_lunge_direction`/`_tackle_was_pressed` →
+`_update_slide_dive`/`_slide_dive_timer`/`_slide_dive_cooldown`/
+`_slide_dive_direction`/`_slide_was_pressed`, new
+`_resolve_tackle_contact`, updated `_try_tackle`, new `_try_lunge_tackle` +
+`_lunge_tap_cooldown`, dispatch wiring), `scripts/tuning.gd` (renamed
+`TACKLE_LUNGE_*` → `TACKLE_SLIDE_DIVE_*`, new `TACKLE_SLIDE_MIN_CLOSING_
+SPEED`/`TACKLE_SLIDE_CLOSING_SPEED_SCALE`/`TACKLE_SLIDE_MAX_ANGLE_DEG`/
+`TACKLE_SLIDE_MISS_STUN_DURATION`/`TACKLE_LUNGE_TAP_MIN_CLOSING_SPEED`/
+`TACKLE_LUNGE_TAP_CLOSING_SPEED_SCALE`/`TACKLE_LUNGE_TAP_MAX_ANGLE_DEG`/
+`TACKLE_LUNGE_TAP_COOLDOWN`), `scripts/mechanics/player_brain.gd` and
+`scripts/mechanics/human_brain.gd` (new `wants_lunge_tackle()`),
+`scripts/autoload/input_manager.gd` (`lunge_tackle` added to
+`BUFFERED_ACTIONS`), `project.godot` (new `lunge_tackle` input action; RT
+axis alias on `sprint`). Not touched: `scripts/mechanics/ai_brain.gd`/
+`command_brain.gd` (both correctly inherit `wants_lunge_tackle()`'s base
+`false`, preserving the documented AI scope limit), `scripts/modes/
+kick_to_kick.gd`/`full_game.gd` (the `_get_tackled` signal contract
+`holding_the_ball_called`/`field_ball_up_called` is unchanged, so the
+existing `TackleChallenge` coach minigame and the ruck/holding-the-ball
+handlers keep working as-is).

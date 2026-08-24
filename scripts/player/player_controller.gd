@@ -157,14 +157,20 @@ var _ruck_contest_timer := 0.0
 ## commitment, not spammable (see _try_bump).
 var _bump_cooldown := 0.0
 
-## Tackle lunge (see _update_tackle_lunge): while _lunge_timer is positive,
-## _update_locomotion overrides normal input-driven movement with a
-## committed dash toward _lunge_direction, same "external velocity owns the
-## body for a window" shape _knockback already uses below.
-var _lunge_timer := 0.0
-var _lunge_cooldown := 0.0
-var _lunge_direction := Vector3.FORWARD
-var _tackle_was_pressed := false
+## Slide tackle's dive-in (see _update_slide_dive): while _slide_dive_timer
+## is positive, _update_locomotion overrides normal input-driven movement
+## with a committed dash toward _slide_dive_direction, same "external
+## velocity owns the body for a window" shape _knockback already uses below.
+var _slide_dive_timer := 0.0
+var _slide_dive_cooldown := 0.0
+var _slide_dive_direction := Vector3.FORWARD
+var _slide_was_pressed := false
+
+## Seconds left before another Lunge tackle attempt can fire — see
+## _try_lunge_tackle. Unlike a missed Slide (which sets _stun_timer, a real
+## off-balance penalty), a missed Lunge only pays this short cooldown: it
+## never leaves the ground, so nothing else about the player is affected.
+var _lunge_tap_cooldown := 0.0
 
 ## Residual horizontal knockback velocity from being bumped, decaying via
 ## BRAKING each frame — see _update_locomotion's early branch and
@@ -264,7 +270,7 @@ func brain() -> PlayerBrain:
 
 ## Every cooldown/timer field on this controller follows this same
 ## "subtract delta, clamp at zero" shape — shared here so they can't drift
-## out of sync with each other (see _update_tackle_lunge, the one timer
+## out of sync with each other (see _update_slide_dive, the one timer
 ## that used to decrement without the clamp).
 func _tick_down(value: float, delta: float) -> float:
 	return maxf(0.0, value - delta)
@@ -279,7 +285,8 @@ func _physics_process(delta: float) -> void:
 	_frozen_timer = _tick_down(_frozen_timer, delta)
 	_spoil_cooldown = _tick_down(_spoil_cooldown, delta)
 	_bump_cooldown = _tick_down(_bump_cooldown, delta)
-	_lunge_cooldown = _tick_down(_lunge_cooldown, delta)
+	_slide_dive_cooldown = _tick_down(_slide_dive_cooldown, delta)
+	_lunge_tap_cooldown = _tick_down(_lunge_tap_cooldown, delta)
 	_possession_held_seconds = _possession_held_seconds + delta if is_carrying() else 0.0
 	if _is_ruck_contestant:
 		_ruck_contest_timer = maxf(0.0, _ruck_contest_timer - delta)
@@ -290,7 +297,7 @@ func _physics_process(delta: float) -> void:
 	_update_marking(delta)
 	_update_ruck_contest(delta)
 	_update_bump(delta)
-	_update_tackle_lunge(delta)
+	_update_slide_dive(delta)
 	_update_action(delta)
 
 	if is_on_floor():
@@ -317,6 +324,7 @@ func _physics_process(delta: float) -> void:
 	_track_carry_distance(before)
 	_try_gather()
 	_try_tackle()
+	_try_lunge_tackle()
 	_try_smother()
 
 	_animation.drive(locomotion_blend(), delta)
@@ -341,12 +349,12 @@ func _update_locomotion(delta: float) -> void:
 			_heading = horizontal_kb / _speed
 		return
 
-	# Tackle lunge owns the body the same way knockback does above, just
+	# Slide's dive-in owns the body the same way knockback does above, just
 	# driving forward at a fixed speed instead of decaying — a committed
-	# dash, not a bounce being absorbed. See _update_tackle_lunge.
-	if _lunge_timer > 0.0:
-		_heading = _lunge_direction
-		_speed = Tuning.TACKLE_LUNGE_SPEED
+	# dash, not a bounce being absorbed. See _update_slide_dive.
+	if _slide_dive_timer > 0.0:
+		_heading = _slide_dive_direction
+		_speed = Tuning.TACKLE_SLIDE_DIVE_SPEED
 		velocity.x = _heading.x * _speed
 		velocity.z = _heading.z * _speed
 		return
@@ -729,29 +737,80 @@ func _complete_gather(ball: Ball) -> void:
 
 
 # ── Contests ─────────────────────────────────────────────────────────
-# Design doc §5: a tackle is decided by getting into range and timing it,
-# not by a dice roll. No holding-the-ball adjudication yet (free kick vs
-# ball-up) — see RULES_REFERENCE.md §4 — a successful tackle always spills
-# the ball loose for a fresh contest.
+# Tackling splits into two commitments sharing one physical resolver
+# (_resolve_tackle_contact): Slide (held tackle button, this section) and
+# Lunge (a tap, see _try_lunge_tackle further down). Design doc §5: decided
+# by real closing speed / approach angle / carrier speed at contact, never a
+# dice roll (RULES_REFERENCE.md §3 notes Prototype 1's old flat
+# TACKLE_BREAK_CHANCE=0.45 coin-flip was deliberately dropped for exactly
+# this reason). No holding-the-ball adjudication yet (free kick vs ball-up)
+# — see RULES_REFERENCE.md §4 — a successful tackle, of either kind, always
+# spills the ball loose for a fresh contest.
+
+## Shared physical gate for both tackle commitments. closing_speed is the
+## tackler-minus-target relative velocity dotted along the tackler→target
+## line — positive means the gap is shrinking; a stationary tackler standing
+## square in a sprinting carrier's path reads a HIGH closing_speed here
+## because the carrier's own momentum is doing the work, which is exactly
+## why a well-placed stand should almost always win. approach_angle is the
+## angle between "target→tackler" and the target's own heading — 0° means
+## the tackler is sitting in the carrier's path, 180° means chasing from
+## directly behind — and falls back to the most favourable 0° when the
+## target is below PIVOT_SPEED_THRESHOLD, since a near-stationary carrier
+## has no meaningful heading to be "ahead of." carrier_speed stands in for
+## carrier momentum: CharacterProfile has no weight stat, every
+## PlayerController shares one physics mass, so speed alone is the proxy.
+## Slide and Lunge feed the same three numbers into different thresholds
+## (see Tuning's TACKLE_SLIDE_*/TACKLE_LUNGE_TAP_* constants) rather than
+## being two separate contest mechanics.
+func _resolve_tackle_contact(tackler: PlayerController, target: PlayerController, is_slide: bool) -> bool:
+	var to_target := target.global_position - tackler.global_position
+	to_target.y = 0.0
+	if to_target.length_squared() < 0.0001:
+		return true
+	var dir_t2c := to_target.normalized()
+
+	var rel_velocity := tackler.velocity - target.velocity
+	rel_velocity.y = 0.0
+	var closing_speed := rel_velocity.dot(dir_t2c)
+
+	var carrier_horizontal := Vector3(target.velocity.x, 0.0, target.velocity.z)
+	var carrier_speed := carrier_horizontal.length()
+	var approach_angle := 0.0
+	if carrier_speed > Tuning.PIVOT_SPEED_THRESHOLD:
+		approach_angle = rad_to_deg((-dir_t2c).angle_to(carrier_horizontal / carrier_speed))
+
+	if is_slide:
+		var required := Tuning.TACKLE_SLIDE_MIN_CLOSING_SPEED \
+			+ Tuning.TACKLE_SLIDE_CLOSING_SPEED_SCALE * carrier_speed
+		return closing_speed >= required and approach_angle <= Tuning.TACKLE_SLIDE_MAX_ANGLE_DEG
+	var required := Tuning.TACKLE_LUNGE_TAP_MIN_CLOSING_SPEED \
+		+ Tuning.TACKLE_LUNGE_TAP_CLOSING_SPEED_SCALE * carrier_speed
+	return closing_speed >= required and approach_angle <= Tuning.TACKLE_LUNGE_TAP_MAX_ANGLE_DEG
+
 
 ## FIFA-style ball-steal assist (polish-pass brief: "it's a bit hard to get
-## the ball off the AI"). See Tuning's own "Tackle lunge" comment for the
+## the ball off the AI"). See Tuning's own "Slide's dive-in" comment for the
 ## actual diagnosis (AI_PRESSURE_RADIUS forces a disposal outside
 ## TACKLE_RADIUS, so a defender closing at normal run speed rarely gets
 ## there in time) and why this is a speed burst rather than a radius/chance
 ## change. Triggers on the tackle button's rising edge, not the held state
 ## _try_tackle() reads directly — holding tackle at standing range still
 ## works exactly as it always has; this only adds a commit option the one
-## time it's actually needed, just out of that reach.
-func _update_tackle_lunge(delta: float) -> void:
+## time it's actually needed, just out of that reach. Purely a movement-
+## closing mechanic — once it lands, _try_tackle() below still has to pass
+## _resolve_tackle_contact like any other Slide attempt; a miss here just
+## means the dive didn't land, TACKLE_SLIDE_MISS_STUN_DURATION is what
+## actually makes a bad Slide costly.
+func _update_slide_dive(delta: float) -> void:
 	var pressed := _brain.wants_tackle()
-	var just_pressed := pressed and not _tackle_was_pressed
-	_tackle_was_pressed = pressed
+	var just_pressed := pressed and not _slide_was_pressed
+	_slide_was_pressed = pressed
 
-	if _lunge_timer > 0.0:
-		_lunge_timer = _tick_down(_lunge_timer, delta)
+	if _slide_dive_timer > 0.0:
+		_slide_dive_timer = _tick_down(_slide_dive_timer, delta)
 		return
-	if _lunge_cooldown > 0.0 or is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE:
+	if _slide_dive_cooldown > 0.0 or is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE:
 		return
 
 	# A press landing a frame or two before the guards above actually
@@ -772,30 +831,63 @@ func _update_tackle_lunge(delta: float) -> void:
 	var to_carrier := carrier.global_position - global_position
 	to_carrier.y = 0.0
 	var dist := to_carrier.length()
-	if dist <= Tuning.TACKLE_RADIUS or dist > Tuning.TACKLE_LUNGE_RANGE:
+	if dist <= Tuning.TACKLE_RADIUS or dist > Tuning.TACKLE_SLIDE_DIVE_RANGE:
 		return   # already close enough for a standing tackle, or too far to commit to
 	var direction := to_carrier / dist
-	if (-global_transform.basis.z).dot(direction) < Tuning.TACKLE_LUNGE_MIN_DOT:
-		return   # not roughly facing them — no lunging sideways or backward
+	if (-global_transform.basis.z).dot(direction) < Tuning.TACKLE_SLIDE_DIVE_MIN_DOT:
+		return   # not roughly facing them — no diving sideways or backward
 
-	_lunge_direction = direction
-	_lunge_timer = Tuning.TACKLE_LUNGE_DURATION
-	_lunge_cooldown = Tuning.TACKLE_LUNGE_COOLDOWN
+	_slide_dive_direction = direction
+	_slide_dive_timer = Tuning.TACKLE_SLIDE_DIVE_DURATION
+	_slide_dive_cooldown = Tuning.TACKLE_SLIDE_DIVE_COOLDOWN
 
 
 func _try_tackle() -> void:
 	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE or _mark_readying:
 		return
-	# A lunge in progress is a commitment — it still has to land the same
+	# A dive in progress is a commitment — it still has to land the same
 	# proximity test below, but it doesn't need the button held throughout,
 	# same as an aggressive mark's jump or a bump's flick don't need theirs
 	# held either once launched.
-	if not _brain.wants_tackle() and _lunge_timer <= 0.0:
+	if not _brain.wants_tackle() and _slide_dive_timer <= 0.0:
 		return
 	var target := _nearest_player(Tuning.TACKLE_RADIUS, func(other: PlayerController) -> bool:
 		return other.team != team and other.is_carrying() and not other.is_protected())
-	if target != null:
+	if target == null:
+		return
+	if _resolve_tackle_contact(self, target, true):
 		target._get_tackled(self)
+	else:
+		# A whiffed Slide is the costliest miss in the kit on purpose — see
+		# TACKLE_SLIDE_MISS_STUN_DURATION's own comment. maxf, not overwrite,
+		# matches receive_bump's pattern of never shortening a stun already
+		# in progress.
+		_stun_timer = maxf(_stun_timer, Tuning.TACKLE_SLIDE_MISS_STUN_DURATION)
+
+
+## Lunge tackle (Q/X tap, not carrying): a quick strip attempt at whatever's
+## already within TACKLE_RADIUS right now — never dashes, unlike Slide's own
+## dive-in (_update_slide_dive), and stays on feet either way (see
+## _lunge_tap_cooldown). Shares its physical binding with wants_handball()/
+## wants_mark_running()/wants_smother() — excludes anyone _try_smother()
+## would also claim (kick-aiming/mid-swing: a kick already being blocked at
+## the boot is smother's job, not this one's) so the two never actually
+## compete for the same target on the same press.
+func _try_lunge_tackle() -> void:
+	if is_carrying() or _stun_timer > 0.0 or _lunge_tap_cooldown > 0.0 \
+			or _action != Tuning.Action.NONE or _mark_readying:
+		return
+	if not _brain.wants_lunge_tackle():
+		return
+	var target := _nearest_player(Tuning.TACKLE_RADIUS, func(other: PlayerController) -> bool:
+		return other.team != team and other.is_carrying() and not other.is_protected() \
+			and not (other.is_kick_aiming() or other.is_mid_kick_swing()))
+	if target == null:
+		return
+	if _resolve_tackle_contact(self, target, false):
+		target._get_tackled(self)
+	else:
+		_lunge_tap_cooldown = Tuning.TACKLE_LUNGE_TAP_COOLDOWN
 
 
 ## Called on the tackled player, by the tackler.

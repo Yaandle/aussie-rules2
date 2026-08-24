@@ -482,37 +482,75 @@ const OUT_OF_BOUNDS_PAUSE_DURATION := 2.0   # s, paused for a boundary throw-in
 
 
 # ── Contests ─────────────────────────────────────────────────────────
-# A tackle within reach always spills the ball loose (design doc §5:
-# physical, not a probability table). Holding-the-ball adjudication
-# (free kick vs ball-up) is not modelled yet — see RULES_REFERENCE.md §4.
+# Tackling splits into two commitments, Slide (held tackle button — the
+# original binding) and Lunge (a tap, see TACKLE_LUNGE_TAP_* below), both
+# resolved by PlayerController._resolve_tackle_contact from real closing
+# speed / approach angle / carrier speed at contact — never a probability
+# table (design doc §5; RULES_REFERENCE.md §3 notes Prototype 1's old
+# TACKLE_BREAK_CHANCE=0.45 coin-flip was deliberately dropped for exactly
+# this reason). Holding-the-ball adjudication (free kick vs ball-up) is not
+# modelled yet — see RULES_REFERENCE.md §4.
 const TACKLE_RADIUS := 1.4             # m, more generous than GATHER_RADIUS
 const TACKLE_STUN_DURATION := 0.5      # s the tackled player can't act
 const TACKLE_SPILL_SPEED := 3.0        # m/s the loose ball scatters at
 
-# Tackle lunge (polish-pass brief: "it's a bit hard to get the ball off the
-# AI" / FIFA-style assist). Not a change to TACKLE_RADIUS or a success-chance
-# roll — the actual bottleneck is AI_PRESSURE_RADIUS forcing a disposal well
-# outside TACKLE_RADIUS, so a defender closing at normal run speed rarely
-# reaches tackle range before the ball is gone. This gives the player a
-# committed dash (a genuine speed burst, not a scripted snap onto the
-# target) to close that exact gap, same "physical, not a dice roll" stance
-# every other contest in this file already takes — a miss just leaves the
-# lunger having sprinted past/short, no separate whiff penalty invented on
-# top of that.
-const TACKLE_LUNGE_RANGE := 2.4        # m — beyond TACKLE_RADIUS, short enough to require real proximity first
+# Slide tackle resolution (_resolve_tackle_contact(..., is_slide=true)):
+# a low closing-speed bar and wide angle tolerance — it should connect even
+# side-on or trailing, off almost any real motion toward the carrier ("higher
+# takedown chance"). Its cost lives entirely in TACKLE_SLIDE_MISS_STUN_
+# DURATION below, not in failing against a fast carrier.
+const TACKLE_SLIDE_MIN_CLOSING_SPEED := 0.5     # m/s
+const TACKLE_SLIDE_CLOSING_SPEED_SCALE := 0.05  # required closing speed added per m/s of carrier speed — shallow: even at CHARACTER_SPEED_MAX (11.0) this only asks for 1.05 m/s
+const TACKLE_SLIDE_MAX_ANGLE_DEG := 160.0       # deg — wide; closing_speed is the real gate, this just excludes a carrier pulling straight away
+# 2.6x PRIOR_OPPORTUNITY_GRACE (0.5s) — long enough that a whiffed slide
+# can't reset within a single possession-grace window; longer than
+# TACKLE_SLIDE_DIVE_COOLDOWN (1.1s) and BUMP_COOLDOWN (1.0s), keeping Slide
+# the single costliest whiff in the kit, on purpose — it's the highest-
+# commitment move in the whole defensive moveset.
+const TACKLE_SLIDE_MISS_STUN_DURATION := 1.3    # s
+
+# Lunge tackle (X tap, not carrying — a quick poke/strip at whatever's
+# already within TACKLE_RADIUS, no dash, stays on feet either way). Its
+# closing-speed bar starts higher than Slide's and scales up far more
+# steeply with carrier speed — the concrete mechanism behind "correspondingly
+# lower success chance against a strong/fast carry": at SPRINT_SPEED (8.4)
+# a tackler chasing dead-straight behind a sprinting carrier nets ~0 closing
+# speed and fails outright; only a genuine interception angle clears it.
+const TACKLE_LUNGE_TAP_MIN_CLOSING_SPEED := 1.5    # m/s — 3x Slide's floor
+const TACKLE_LUNGE_TAP_CLOSING_SPEED_SCALE := 0.35 # 7x steeper than Slide's — required closing speed hits 4.44 m/s against a SPRINT_SPEED carrier
+const TACKLE_LUNGE_TAP_MAX_ANGLE_DEG := 70.0       # deg — narrower than BUMP's effective ~84° tolerance (BUMP_APPROACH_DOT_MIN=0.1), close to BUMP_CONE_DEG (55°) — roughly front-on/crossing contact only
+# Deliberately "minimal" (brief: stays on feet, low commitment) — on par
+# with BUMP_STUN_DURATION (0.4s) as the nearest "brief overcommit, not a
+# real setback" analog in this file, well under SPOIL_COOLDOWN (0.6s), and
+# ~3x below TACKLE_SLIDE_MISS_STUN_DURATION so the two moves stay clearly
+# separated by miss-cost.
+const TACKLE_LUNGE_TAP_COOLDOWN := 0.4    # s
+
+# Slide's dive-in (polish-pass brief: "it's a bit hard to get the ball off
+# the AI" / FIFA-style assist) — purely a movement-closing mechanic, not a
+# separate resolution: once it lands the same _resolve_tackle_contact test
+# every standing Slide attempt does. Not a change to TACKLE_RADIUS or a
+# success-chance roll on its own — the actual bottleneck is AI_PRESSURE_
+# RADIUS forcing a disposal well outside TACKLE_RADIUS, so a defender
+# closing at normal run speed rarely reaches tackle range before the ball
+# is gone. This gives the player a committed dash (a genuine speed burst,
+# not a scripted snap onto the target) to close that exact gap. A miss here
+# just means the dive didn't land — TACKLE_SLIDE_MISS_STUN_DURATION above
+# is what actually makes a bad Slide costly, not this dash itself.
+const TACKLE_SLIDE_DIVE_RANGE := 2.4        # m — beyond TACKLE_RADIUS, short enough to require real proximity first
 # Fundamentals-pass fix: this was 7.5 — *slower* than SPRINT_SPEED (8.4)
 # despite its own comment saying otherwise. SPRINT_SPEED was evidently
 # raised at some point after this was tuned and this never got revisited.
 # The one tool the player has for closing a gap on an AI carrier (who
 # always runs at full sprint gait the instant it has the ball — see
-# AIBrain._think_carrying) was quietly worse than not lunging at all, which
+# AIBrain._think_carrying) was quietly worse than not diving at all, which
 # is a large part of why the AI could feel un-catchable. Now a genuine
 # ~25% burst over sprint, same short DURATION/COOLDOWN keeping it a real
 # commitment rather than a new top speed.
-const TACKLE_LUNGE_SPEED := 10.5       # m/s, faster than SPRINT_SPEED — the point of committing
-const TACKLE_LUNGE_DURATION := 0.35    # s the dash overrides normal locomotion
-const TACKLE_LUNGE_COOLDOWN := 1.1     # s between attempts — a real commitment, not spammable
-const TACKLE_LUNGE_MIN_DOT := 0.5      # facing . to-carrier must clear this — no lunging sideways/backward
+const TACKLE_SLIDE_DIVE_SPEED := 10.5       # m/s, faster than SPRINT_SPEED — the point of committing
+const TACKLE_SLIDE_DIVE_DURATION := 0.35    # s the dash overrides normal locomotion
+const TACKLE_SLIDE_DIVE_COOLDOWN := 1.1     # s between attempts — a real commitment, not spammable
+const TACKLE_SLIDE_DIVE_MIN_DOT := 0.5      # facing . to-carrier must clear this — no diving sideways/backward
 
 # Punch/Spoil (LT tap, not carrying, near an aerial contest): knocking a
 # high ball away is easier than controlling it, so the reach is more
