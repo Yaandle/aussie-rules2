@@ -302,7 +302,12 @@ func _begin_dialogue() -> void:
 			offer = "Want to work on your tackling?"
 		_:
 			offer = "Want to practice your kicking?"
-	_set_hint_text("Coach: \"%s\"   Y: Yes   N: No" % offer)
+	# Y is the accept action (see _unhandled_input's CoachState.DIALOGUE
+	# branch) and is the option most players want to take, so it reads as
+	# the "selected" one — bracketed like a retro console menu's default
+	# choice (user report: "make it have brackets around the options
+	# selected like < Yes > No") rather than two flat, equal-weight labels.
+	_set_hint_text("Coach: \"%s\"\n< Y: Yes >   N: No" % offer)
 
 
 func _end_dialogue() -> void:

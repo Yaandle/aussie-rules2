@@ -623,7 +623,16 @@ const MARK_CATCH_RADIUS := 1.15         # m
 
 const MARK_SAFE_REACH_SCALE := 1.0
 const MARK_RUNNING_REACH_SCALE := 0.8      # a snap grab at pace has less margin
-const MARK_AGGRESSIVE_REACH_SCALE := 1.4   # full stretch at the top of a leap
+## Buffed from 1.4 — user report: "the Y aggressive mark needs to be
+## buffed, I cannot catch it". Aggressive's resolution is a fixed
+## ACTION_CONTACT[MARK_AGGRESSIVE] delay after the press (the jump has to
+## physically rise and peak), so unlike Running (which resolves the same
+## frame as the tap) it's graded against where the ball *will be* several
+## frames from now — a genuinely harder read even for a well-timed press.
+## A fuller stretch at the peak compensates for that without touching the
+## timing windows below, which are the more honest fix for "the read is
+## hard" (see MARK_AGGRESSIVE_IDEAL_WINDOW's own comment).
+const MARK_AGGRESSIVE_REACH_SCALE := 1.55  # full stretch at the top of a leap
 
 # Movement cost while committed to each tier — see
 # PlayerController._update_locomotion / Tuning.action_speed_scale. Safe
@@ -642,10 +651,40 @@ const MARK_AGGRESSIVE_SPEED_SCALE := 0.45
 # elite-athlete territory without being cartoonish.
 const MARK_AGGRESSIVE_JUMP_SPEED := 4.0    # m/s
 
+## The little pop a Safe (A) mark takes on catch — not a jump commitment
+## like MARK_AGGRESSIVE_JUMP_SPEED above (Safe never leaves the ground
+## before the catch resolves, it's a plant-and-wait tier), just a small
+## reactive hop the instant the ball is secured, so a Safe take doesn't
+## read as completely inert next to Running's stride and Aggressive's
+## leap. v^2 = 2*g*h -> ~0.16m of lift, a hop not a jump.
+const MARK_SAFE_HOP_SPEED := 1.8           # m/s
+
 # How far out an airborne ball has to be before an aggressive attempt is
 # even considered live — no point committing to a leap for a ball still the
 # length of the ground away.
 const MARK_CONTEST_RANGE := 6.0            # m
+
+## Minimum distance the ball must already have travelled from wherever it
+## was launched before an Aggressive attempt is considered live at all.
+## Without this, a ball that's only just left the boot (still is_airborne()
+## by BALL_SEMI_MINOR*2.5's low bar) sat well inside MARK_CONTEST_RANGE of
+## its own kicker — the (Y) prompt would flash on the kicker's own head for
+## an instant right after every kick, since nothing else was gating "is
+## this ball actually in a real flight yet". See Ball.distance_since_launch().
+## Scoped to Aggressive only, and to no particular player — a genuinely
+## short kick shouldn't draw a leap prompt from *anyone* nearby yet.
+const MARK_AGGRESSIVE_MIN_FLIGHT_DISTANCE := 2.5   # m
+
+## How far the ball has to travel from wherever *this player* just launched
+## it before they can attempt (or be prompted for) any mark tier on it
+## again — scoped per-disposer via Ball.last_disposer(), unlike
+## MARK_AGGRESSIVE_MIN_FLIGHT_DISTANCE above which applies to everyone.
+## Bigger than that one on purpose: GATHER_COOLDOWN's flat 0.45s already
+## turned out not to reliably correlate with "the ball has actually gone
+## somewhere" (a short or blocked kick can still be well inside every
+## tier's reach at the 0.45s mark) — see PlayerController._mark_attempt_
+## blocked()'s own comment.
+const MARK_SELF_CLEAR_DISTANCE := 3.5   # m
 
 const RUMBLE_MARK := Vector3(0.20, 0.35, 0.12)
 
@@ -660,6 +699,14 @@ const RUMBLE_MARK := Vector3(0.20, 0.35, 0.12)
 # a drop are felt as different, not just "rumble happened."
 const RUMBLE_MARK_PRESS := Vector3(0.05, 0.0, 0.05)
 const RUMBLE_MARK_MISS := Vector3(0.30, 0.10, 0.20)
+
+## Fired once by MarkPrompt itself (not PlayerController — this is a UI
+## timing cue, not a gameplay outcome) the instant the loading-circle ring
+## completes its lap, i.e. the real "press now" instant. Same tiny-tick
+## weight as RUMBLE_MARK_PRESS but on the strong motor instead of the weak
+## one, so the two read as distinct even though both are subtle: "you
+## pressed" (weak tick) vs "this is the moment" (strong tick).
+const RUMBLE_MARK_TIMING_CUE := Vector3(0.0, 0.10, 0.06)
 
 # Madden-style contest prompt (polish-pass brief: an (A)/(X)/(Y) icon over
 # the receiver's head showing which mark tiers are live right now). Height
@@ -687,9 +734,6 @@ const MARK_PROMPT_HEIGHT := 2.05       # m above player origin
 # reach radius, so reach — not timing — stays the practical gate for Safe;
 # the window still bites at the genuine margins (a very late first hold, a
 # ball that's already grounding) without eroding the tier's identity.
-# RUNNING/AGGRESSIVE share one profile — their existing REACH_SCALE spread
-# (0.8 vs 1.4) already carries the difficulty difference between them, so
-# timing itself doesn't need to.
 # Fundamentals-pass retune: RUNNING/AGGRESSIVE were 0.12/0.24 — tight
 # enough that a well-positioned player mistiming a press by what's a very
 # ordinary margin under real reaction pressure (more so while still
@@ -703,8 +747,19 @@ const MARK_SAFE_IDEAL_WINDOW := 0.35   # s
 const MARK_SAFE_OK_WINDOW := 0.65      # s
 const MARK_RUNNING_IDEAL_WINDOW := 0.20   # s
 const MARK_RUNNING_OK_WINDOW := 0.38      # s
-const MARK_AGGRESSIVE_IDEAL_WINDOW := 0.20   # s
-const MARK_AGGRESSIVE_OK_WINDOW := 0.38      # s
+
+## Split from RUNNING's profile (they used to share one) and widened again
+## — "I cannot catch it" — Aggressive is graded against a *predicted*
+## instant (the jump's fixed-length rise means resolution always lands
+## ACTION_CONTACT[MARK_AGGRESSIVE] seconds after the press, not on it), so
+## even a player who reads the ball correctly is fighting their own
+## reaction time on top of the read itself, which Running's same-frame
+## resolution never asks of them. The MarkPrompt ring's redesign into a
+## completing loading-circle (see mark_prompt.gd) is the other half of
+## this fix — a clearer "press now" cue — but the window itself needed
+## real headroom too, not just a better cue for the same tight target.
+const MARK_AGGRESSIVE_IDEAL_WINDOW := 0.28   # s
+const MARK_AGGRESSIVE_OK_WINDOW := 0.55      # s
 
 ## Reach multiplier for a contested (in-OK, outside-IDEAL) attempt — applied
 ## to the tier's own REACH_SCALE before MARK_ASSIST_RADIUS_BONUS, same
@@ -909,8 +964,38 @@ const MARK_CHALLENGE_ELEVATION_DEG := 48.0     # deg, a generous hang-time arc
 const MARK_CHALLENGE_MIN_DISTANCE := 16.0      # m, just past MARK_STAND_MIN_DISTANCE so every delivery is legal-mark eligible
 const MARK_CHALLENGE_MAX_DISTANCE := 28.0      # m
 const MARK_CHALLENGE_TARGET_SPREAD := 4.0      # m random offset from the player's current spot per delivery
-const MARK_CHALLENGE_DELIVERY_DELAY := 1.4     # s, the coach "calling for it" before the ball leaves
+## Widened from 1.4 (user report: "I miss the first kick because I don't
+## have a chance to run before the coach kicks it") — 1.4s wasn't enough
+## runway to come out of the accept-challenge camera cut, get moving, and
+## actually be in position before the very first delivery left the coach.
+## MARK_CHALLENGE_NEXT_DELAY (the gap between every later delivery) is
+## untouched — by then the player is already warmed up from the previous
+## rep and doesn't need the same head start.
+const MARK_CHALLENGE_DELIVERY_DELAY := 2.6     # s, the coach "calling for it" before the ball leaves
 const MARK_CHALLENGE_NEXT_DELAY := 1.6         # s after an attempt resolves before the next delivery
+
+## Delivery cycles through all three tiers (MarkChallenge._deliver()) rather
+## than always aiming a generic floaty ball at wherever the player already
+## stands — the old single delivery shape only ever really trained Safe
+## (a ball landing on your own spot never asks you to run onto it or leap
+## for it), so Running/Aggressive went essentially untaught by "the marking
+## coach". Values above (ELEVATION_DEG/TARGET_SPREAD) are now specifically
+## the Safe delivery's own numbers; these two below are Running's and
+## Aggressive's.
+##
+## Running: the target leads the player's current facing/motion by this
+## much (plus the usual TARGET_SPREAD jitter) — a ball you have to run
+## onto, not one that arrives on your own two feet.
+const MARK_CHALLENGE_RUNNING_LEAD_DISTANCE := 5.0   # m
+
+## Aggressive: the target sits this far off the player's current spot —
+## inside Aggressive's own extended reach (MARK_CATCH_RADIUS *
+## MARK_AGGRESSIVE_REACH_SCALE + MARK_ASSIST_RADIUS_BONUS ≈ 2.28m) but
+## outside Safe's (≈1.65m), so standing still and waiting genuinely can't
+## take it — only committing to the leap can. A steeper arc than the
+## default buys extra hang time to actually read the timing cue.
+const MARK_CHALLENGE_AGGRESSIVE_OFFSET := 1.9       # m
+const MARK_CHALLENGE_AGGRESSIVE_ELEVATION_DEG := 60.0   # deg
 
 # Tackling coach (design brief's third and final planned coach): unlike the
 # other two, the "delivery" is the kick-to-kick rival itself, given the

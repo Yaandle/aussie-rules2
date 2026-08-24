@@ -274,6 +274,31 @@ func is_kick_flight() -> bool:
 	return _is_kick_flight and not is_held
 
 
+## Straight-line distance from wherever this flight was launched — set by
+## launch() on every disposal, not just a kick, so this reads sensibly for
+## a handball/bounce too. Used by PlayerController to gate an Aggressive
+## mark attempt on the ball actually having gone somewhere yet (see
+## Tuning.MARK_AGGRESSIVE_MIN_FLIGHT_DISTANCE) rather than reusing
+## is_mark_eligible()'s much larger MARK_STAND_MIN_DISTANCE, which is a
+## legality threshold, not a "has this even left the boot" one. 0.0 while
+## held, same "no flight in progress" convention is_mark_eligible() uses.
+func distance_since_launch() -> float:
+	if is_held:
+		return 0.0
+	return global_position.distance_to(_flight_origin)
+
+
+## Whoever most recently launched or is currently holding this ball —
+## `_carrier` stays put across a launch() that doesn't change hands (a kick
+## keeps its own kicker as `_carrier` throughout the flight; see launch()'s
+## own comment), so this reads as "who last touched it" for exactly as long
+## as that's still true. Used by PlayerController._mark_attempt_blocked()
+## to gate a player re-marking their own very-recent disposal without
+## blocking anyone else's live attempt on the same ball.
+func last_disposer() -> Node3D:
+	return _carrier
+
+
 ## Which team's kick is currently in flight — Tuning.Team.NONE if this
 ## isn't a live, uninterrupted kick flight. Only meaningful while
 ## is_kick_flight() is true.

@@ -124,11 +124,15 @@ var _frozen_timer := 0.0
 ## _dispose()/drop_ball().
 var _frozen_opponents: Array[PlayerController] = []
 
-## True for exactly one physics frame: set by _begin_aggressive_mark(),
-## consumed by the gravity block in _physics_process so the jump impulse
-## lands after the floor-snap/gravity assignment rather than being
-## immediately overwritten by it.
-var _pending_jump := false
+## 0.0 = no jump pending. Set for exactly one physics frame by
+## _begin_aggressive_mark()/_begin_hit_out() (to Tuning.MARK_AGGRESSIVE_
+## JUMP_SPEED) or _complete_mark() on a Safe catch (to Tuning.MARK_SAFE_
+## HOP_SPEED), consumed by the gravity block in _physics_process so the
+## impulse lands after the floor-snap/gravity assignment rather than being
+## immediately overwritten by it. A float rather than the bool this used to
+## be, so the same hand-off serves both a real committed leap and a much
+## smaller reactive hop on catch.
+var _pending_jump_speed := 0.0
 
 ## Held-stance flag for a Safe Mark, exactly parallel to _charging for a
 ## kick — true only while the ball is airborne, in reach range hasn't
@@ -293,14 +297,14 @@ func _physics_process(delta: float) -> void:
 		velocity.y = -0.5   # a little bite into the floor keeps is_on_floor stable
 	else:
 		velocity.y -= Tuning.GRAVITY * delta
-	if _pending_jump:
+	if _pending_jump_speed > 0.0:
 		# Applied after the floor-snap above, not before — is_on_floor() is
 		# still true for one more frame at the instant a jump is triggered
 		# (the physics server hasn't seen us leave the ground yet), so
 		# setting this any earlier would just get overwritten by the -0.5
 		# floor bite on the very frame that matters.
-		velocity.y = Tuning.MARK_AGGRESSIVE_JUMP_SPEED
-		_pending_jump = false
+		velocity.y = _pending_jump_speed
+		_pending_jump_speed = 0.0
 
 	_update_locomotion(delta)
 
@@ -1035,17 +1039,37 @@ func receive_bump(impulse: Vector3, stun_duration: float, _by: PlayerController)
 ## standing right where they just kicked from, before the ball had gone
 ## anywhere. _update_marking already enforced this correctly; the prompt
 ## just wasn't asking the same question.
-func _mark_attempt_blocked() -> bool:
-	return is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE \
-		or _gather_cooldown > 0.0
+##
+## `ball` is optional (live_mark_prompt/_update_marking both already have
+## it in hand) so this extends beyond the flat GATHER_COOLDOWN timer: user
+## report — "I still see the flash on kick, it happens half a second after
+## I've kicked it" — GATHER_COOLDOWN alone only guarantees the block lifts
+## after a fixed 0.45s, with no guarantee the ball has actually gone
+## anywhere by then (a short or blocked kick can still be sitting well
+## inside every tier's reach at that exact instant). This project only
+## ever has one ball in play, and Ball.last_disposer() tracks who most
+## recently launched it — so while it's still this same player's own
+## disposal *and* it hasn't covered Tuning.MARK_SELF_CLEAR_DISTANCE yet,
+## the block holds regardless of how much time has passed. A teammate (or
+## the coach, in a training drill) is a different `last_disposer()`, so
+## this never blocks a genuine incoming ball from someone else.
+func _mark_attempt_blocked(ball: Ball = null) -> bool:
+	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE:
+		return true
+	if _gather_cooldown > 0.0:
+		return true
+	if is_instance_valid(ball) and ball.last_disposer() == self \
+			and ball.distance_since_launch() < Tuning.MARK_SELF_CLEAR_DISTANCE:
+		return true
+	return false
 
 
 func _update_marking(delta: float) -> void:
-	if _mark_attempt_blocked():
+	var ball := _live_ball()
+	if _mark_attempt_blocked(ball):
 		_mark_readying = false
 		return
 
-	var ball := _live_ball()
 	if not is_instance_valid(ball) or ball.is_held:
 		_mark_readying = false
 		return
@@ -1128,7 +1152,8 @@ func _update_aerial_contest(ball: Ball, _delta: float) -> void:
 		return
 
 	if _brain.wants_mark_aggressive() and ball.global_position.distance_to(
-			_carry_point.global_position) <= Tuning.MARK_CONTEST_RANGE:
+			_carry_point.global_position) <= Tuning.MARK_CONTEST_RANGE \
+			and ball.distance_since_launch() >= Tuning.MARK_AGGRESSIVE_MIN_FLIGHT_DISTANCE:
 		_begin_aggressive_mark()
 
 
@@ -1174,6 +1199,10 @@ func _update_ground_pickup(ball: Ball, _delta: float) -> void:
 func _complete_mark(ball: Ball, tier: Tuning.Action) -> void:
 	_finish_mark_catch(ball, tier)
 	_mark_readying = false
+	if tier == Tuning.Action.MARK_SAFE:
+		# A small reactive hop on the catch itself — see Tuning.MARK_SAFE_
+		# HOP_SPEED's own comment for why Safe gets this and not a real jump.
+		_pending_jump_speed = Tuning.MARK_SAFE_HOP_SPEED
 	_begin(tier)
 
 
@@ -1196,14 +1225,14 @@ func _finish_mark_catch(ball: Ball, tier: Tuning.Action) -> void:
 
 ## Y commits to the jump the instant it's pressed, whether or not it will
 ## actually connect — that commitment is the entire risk of an aggressive
-## attempt. The vertical impulse goes through _pending_jump so it survives
+## attempt. The vertical impulse goes through _pending_jump_speed so it survives
 ## this frame's floor-snap (see _physics_process); everything after that is
 ## the same gravity integration every other airborne frame already uses —
 ## no separate jump-arc code, the arc just falls out of it.
 func _begin_aggressive_mark() -> void:
 	if _brain is HumanBrain:
 		InputManager.rumble(Tuning.RUMBLE_MARK_PRESS)
-	_pending_jump = true
+	_pending_jump_speed = Tuning.MARK_AGGRESSIVE_JUMP_SPEED
 	_begin(Tuning.Action.MARK_AGGRESSIVE)
 
 
@@ -1317,7 +1346,7 @@ func catch_point_position() -> Vector3:
 ## once it has, a leap stops being the natural action even though it
 ## would still technically connect, so it stops being recommended.
 func live_mark_prompt(ball: Ball) -> Tuning.Action:
-	if not is_instance_valid(ball) or _mark_attempt_blocked() or not ball.is_airborne():
+	if not is_instance_valid(ball) or _mark_attempt_blocked(ball) or not ball.is_airborne():
 		return Tuning.Action.NONE
 	var running_live := _ball_in_catch_reach(ball, Tuning.MARK_RUNNING_REACH_SCALE)
 	if running_live and _speed > Tuning.JOG_SPEED:
@@ -1326,7 +1355,8 @@ func live_mark_prompt(ball: Ball) -> Tuning.Action:
 		return Tuning.Action.MARK_SAFE
 	if running_live:
 		return Tuning.Action.MARK_RUNNING
-	if ball.global_position.distance_to(_carry_point.global_position) <= Tuning.MARK_CONTEST_RANGE:
+	if ball.global_position.distance_to(_carry_point.global_position) <= Tuning.MARK_CONTEST_RANGE \
+			and ball.distance_since_launch() >= Tuning.MARK_AGGRESSIVE_MIN_FLIGHT_DISTANCE:
 		return Tuning.Action.MARK_AGGRESSIVE
 	return Tuning.Action.NONE
 
@@ -1367,12 +1397,12 @@ func _update_ruck_contest(_delta: float) -> void:
 
 
 ## Commits to the leap immediately, exactly like _begin_aggressive_mark —
-## same _pending_jump hand-off into the existing gravity integration, no
+## same _pending_jump_speed hand-off into the existing gravity integration, no
 ## separate arc code (design brief: "reuse the existing aggressive-mark
 ## jump impulse pattern... let the existing gravity integration handle the
 ## jump arc").
 func _begin_hit_out() -> void:
-	_pending_jump = true
+	_pending_jump_speed = Tuning.MARK_AGGRESSIVE_JUMP_SPEED
 	_begin(Tuning.Action.HIT_OUT)
 
 
