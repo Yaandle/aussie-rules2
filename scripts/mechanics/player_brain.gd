@@ -67,6 +67,20 @@ func wants_tackle() -> bool:
 	return false
 
 
+## Edge-triggered: true for the one frame a Lunge tackle should be attempted
+## (Q/X tap, not carrying) — see PlayerController._try_lunge_tackle. Shares
+## its physical binding with wants_handball()/wants_mark_running()/
+## wants_smother() — target state, not the input layer, decides which of
+## those actually fires on any given press. AI never attempts this — only
+## AIBrain's existing wants_tackle() standing/Slide-tackle behavior is in
+## AI's scope (design doc: AI never attempts Running/Aggressive marks,
+## spoil, smother, bump, Hit-Out, or Lunge) — AIBrain and CommandBrain both
+## inherit this base false with no override, same as wants_mark_running()/
+## wants_smother() today.
+func wants_lunge_tackle() -> bool:
+	return false
+
+
 ## Held-down semantics, exactly like wants_kick(): true for as long as a
 ## Safe Mark should stay readied (A on a pad) — see
 ## PlayerController._update_aerial_contest. The same query, unchanged, is

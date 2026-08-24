@@ -67,6 +67,7 @@ var _last_joy_axis_value := 0.0
 const BUFFERED_ACTIONS: Array[StringName] = [
 	&"kick_execute", &"handball", &"bounce", &"tackle",
 	&"mark_running", &"mark_aggressive", &"spoil", &"smother", &"hit_out",
+	&"lunge_tackle",
 ]
 var _buffer_timers := {}   # StringName -> seconds remaining; absent once expired/consumed
 
