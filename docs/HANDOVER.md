@@ -3508,3 +3508,122 @@ REMAP CONTROLS action row added, stale subtitle fixed). Not touched:
 anything mark/animation-, camera-, ball-physics-, or AI-decision-related;
 `scripts/ball/ball.gd` (none of this round's work needed it — every hook
 was a `PlayerController`/`Field`/`MatchState` signal or a UI screen).
+
+---
+
+## Handover — control-mode pass (Agent: mechanics/engine)
+
+Foundational layer for player-control-mode switching (design doc's Full
+Game/local-multiplayer direction): a single source of truth for "which
+body responds to human input this tick", built to support both a
+single-player-in-team mode (already existed, ad hoc) and a new minimal
+whole-team-command mode, coexisting per-team rather than as one global
+match-wide flag.
+
+### What changed and why
+
+`full_game.gd` already had single-player-in-team working
+(`_switch_human_player`), but it was ad hoc: a local `_controlled_index`
+int, brain construction and focus-routing tangled together in one
+function, and camera/HUD/crosshair/mark-prompt each individually told
+about a switch at the call site. That doesn't extend to a second control
+scheme without scattering scheme checks through it (and eventually
+`player_controller.gd`), which is exactly what the brief warned against.
+
+**New autoload `ControlMode`** (`scripts/autoload/control_mode.gd`,
+registered in `[autoload]` right after `GameState`) is the router: per
+`Tuning.Team`, it tracks a `Scheme` (`SINGLE_PLAYER` or `TEAM_COMMAND`),
+who's `controlled` (SINGLE_PLAYER) or `selected` (TEAM_COMMAND), and
+exposes one `focus_player(team)` getter both schemes funnel through. It
+does **not** construct brains — an `AIBrain` needs mode-specific config
+(ball ref, home position, attack direction) this autoload has no business
+knowing, so `full_game.gd` still builds brains and just reports the
+outcome via `set_controlled_player`/`set_selected_player`. One signal,
+`focus_changed`, replaces every scattered "tell the camera/HUD/crosshair/
+mark-prompt" call site — `full_game.gd`'s new `_on_focus_changed()` is now
+the only place that reacts to a focus change, whichever scheme or
+direction caused it.
+
+**New `CommandBrain`** (`scripts/mechanics/command_brain.gd`) extends
+`AIBrain` rather than replacing it: with no order queued it's byte-for-byte
+AIBrain's own judgement (still gathers loose balls, still contests marks,
+still gets tackled sensibly), and an issued order is consulted first as an
+override, cleared once the target is reached. This is TEAM_COMMAND's
+"selected-player + issued-command" model from the brief, in its minimal
+form: `_issue_team_command()` (new `issue_command` input action) sends
+whichever non-selected teammate is nearest the selected player to a fixed
+lead-distance point (`Tuning.COMMAND_LEAD_DISTANCE`, a placeholder, not an
+AFL number — no reticle/aim UI exists yet, that's Agent 1's territory).
+`_toggle_control_scheme()` (new `toggle_control_scheme` input action) is
+the debug/prototyping entry point that flips HOME between schemes,
+carrying the currently-focused player across as the new scheme's starting
+focus so the swap itself never drops anyone mid-air.
+
+### How the handoff was verified in both directions
+
+A scratch scene (`_scratch_control_mode_test.tscn` + `.gd`, deleted after
+the run) instantiated real `full_game.tscn`, ran headless with
+`--fixed-fps 60`, and scripted: initial single-player state → switch
+control human→AI/AI→human (asserted brain types and that the released
+player wasn't left in a bad state) → toggle to TEAM_COMMAND (asserted
+every non-selected HOME player got a `CommandBrain`, selection carried
+over) → issue a command (asserted a commandable teammate actually moved,
+proving `wish_direction`/`gait` flowed through) → toggle back to
+SINGLE_PLAYER (asserted a clean revert, no leftover `CommandBrain`). All
+five checks passed in one run. Plain headless boot re-verified on both
+`full_game.tscn` and `kick_to_kick.tscn` (the latter untouched by this
+pass — it has no team roster, so `ControlMode` never enters its path).
+
+### Design decisions made along the way
+
+- **Contest prompts (mark/tackle): only the focus player ever gets one**,
+  in both schemes — documented on `ControlMode.focus_player()`'s own doc
+  comment. A multi-prompt system (whose prompt wins when two AI-run
+  teammates are both under the ball?) is real UX surface area for a
+  dedicated pass, not a side effect of this routing layer; every
+  unfocused teammate keeps resolving contests through plain `AIBrain`
+  judgement, exactly as full AI-vs-AI already does.
+- **Camera pan vs snap**: `previous == null` (the very first focus a match
+  has ever had) snaps via `recenter()`; every later change, in either
+  scheme, pans via the existing `switch_target()` — extending
+  `_switch_human_player`'s prior behaviour to TEAM_COMMAND rather than
+  special-casing it.
+- **Scheme is tracked per-team**, not as one match-wide flag, so a human
+  playing SINGLE_PLAYER against a fully-AI AWAY team (today's only real
+  case) and a future local-multiplayer scenario are both representable
+  without a rewrite — `ControlMode.register_team()` takes the team and its
+  starting scheme independently.
+- **AWAY is still registered with `ControlMode`** even though nothing
+  currently gives it a human — a router that only knows about teams a
+  human might drive can't answer "is anyone driving this team" for AWAY at
+  all, which local multiplayer will eventually need to ask.
+
+### What was NOT built, and why
+
+Full whole-team-command UX (a real reticle/aim target for issued orders,
+a way to select *which* teammate to command rather than "nearest
+commandable one", any on-screen indication of scheme or selection) — all
+explicitly out of scope per the brief ("minimal version... not full
+whole-team command UI/UX polish", and UI/visuals are Agent 1's territory).
+`toggle_control_scheme` is a debug-grade entry point, not a designed menu
+flow. Kick/handball input rework was deliberately left untouched —
+sequenced as the next task after this one.
+
+### Files changed
+
+`scripts/autoload/control_mode.gd` (new), `scripts/mechanics/
+command_brain.gd` (new), `scripts/modes/full_game.gd` (`_spawn_teams`,
+`_switch_human_player`, new `_on_focus_changed`/`_toggle_control_scheme`/
+`_cycle_team_command_selection`/`_issue_team_command`/
+`_nearest_commandable_teammate`, `_unhandled_input` wiring, removed
+`_controlled_index`), `scripts/tuning.gd` (`COMMAND_LEAD_DISTANCE`),
+`project.godot` (`ControlMode` autoload registration, `toggle_
+control_scheme`/`issue_command` input actions). Not touched: `scripts/
+mechanics/player_brain.gd`/`human_brain.gd`/`ai_brain.gd` (both existing
+brains needed no changes — `CommandBrain` extends `AIBrain` rather than
+modifying it), `scripts/player/player_controller.gd` (already asked a
+brain rather than checking mode directly, which is exactly the pattern
+this pass generalised — nothing there needed to change), `scripts/camera/
+broadcast_camera.gd` (its `switch_target()`/`recenter()` API already
+covered both the pan and snap cases this pass needed), `kick_to_kick.gd`
+(single-player-only mode, no team roster, never touches `ControlMode`).

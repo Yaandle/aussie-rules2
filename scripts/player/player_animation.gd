@@ -45,8 +45,9 @@ const BLEND_POINTS := [
 	[Vector2(0.75, 0.75), &"run_fwd_r"],
 ]
 
-## Tackle-attempt and tackled-reaction states join this list when the
-## mechanics that trigger them exist.
+## Tackle/bump/spoil/smother stay pure physics reactions (no Tuning.Action
+## of their own — see player_controller.gd's Contests/Bump sections) and
+## join this list if that ever changes.
 const ACTION_STATES := {
 	Tuning.Action.KICK: &"kick",
 	Tuning.Action.HANDBALL: &"handball",
@@ -56,12 +57,21 @@ const ACTION_STATES := {
 	Tuning.Action.MARK_AGGRESSIVE: &"mark_aggressive",
 	Tuning.Action.MARK_SAFE_MISS: &"mark_safe_miss",
 	Tuning.Action.MARK_RUNNING_MISS: &"mark_running_miss",
+	Tuning.Action.HIT_OUT: &"hit_out",
 }
 
 const LOCOMOTION_STATE := &"locomotion"
 const BLEND_SMOOTHING := 14.0     ## exponential rate; stops the blend snapping
 const ACTION_BLEND_IN := 0.10     ## s
 const ACTION_BLEND_OUT := 0.18    ## s
+
+## HumanoidRig's own Boot mesh sits 0.07m below the ankle (Foot) bone
+## (_box_on("Boot"..., size.y=0.07, offset.y=-0.035) — a box centred 0.035m
+## below the bone with half-height 0.035m puts its bottom edge there), not
+## a separately eyeballed number. Below this, the boot mesh is visibly
+## through the flat y=0 ground plane every mode's Field actually uses.
+const BOOT_GROUND_CLEARANCE := 0.07
+const GROUND_CLAMP_FEET: Array[StringName] = [&"LeftFoot", &"RightFoot"]
 
 @export var rig_path: NodePath = ^"../Rig"
 @export var animation_player_path: NodePath = ^"../AnimationPlayer"
@@ -110,6 +120,52 @@ func drive(blend: Vector2, delta: float) -> void:
 		return
 	_blend = _blend.lerp(blend, 1.0 - exp(-BLEND_SMOOTHING * delta))
 	_tree.set(_blend_parameter, _blend)
+
+
+## Runs on the render frame (AnimationTree's own default process timing,
+## decoupled from PlayerController's physics-frame drive() above) so it
+## sees this frame's already-mixed skeleton pose — see _clamp_feet_to_
+## ground()'s own doc comment for what it does and why it's a whole-body
+## lift rather than real per-leg IK. Node order matters: this only sees a
+## fresh pose because AnimationTree is an earlier sibling than
+## PlayerAnimation under both player.tscn and animation_viewer.gd's
+## equivalent (Godot processes siblings in child order), so its mixing has
+## already run for this same frame by the time this fires.
+func _process(_delta: float) -> void:
+	_clamp_feet_to_ground()
+
+
+## A deliberately simple ground-contact fix, not full per-leg IK: the
+## ground here is always flat (no terrain), so the only correction a
+## clipping foot actually needs is "move up until it isn't clipping" —
+## lifting the whole rig by whichever foot is clipping worst does that
+## without re-solving each leg's hip/knee angles to replant that exact
+## foot in place (real two-bone IK needs a pole vector to avoid ever
+## bending a knee the wrong way, which isn't worth the risk here for a
+## correction whose only job is "stop going through the floor"). That
+## preserves every authored pose's shape exactly; the trade-off is it
+## can't independently re-plant one foot while the other stays put, so it
+## stops clipping rather than fully locking a stance foot to the ground.
+func _clamp_feet_to_ground() -> void:
+	if _rig == null:
+		return
+	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
+	if skeleton == null:
+		return
+	var hips_idx := skeleton.find_bone(&"Hips")
+	if hips_idx < 0:
+		return
+	var deepest := 0.0
+	for bone_name: StringName in GROUND_CLAMP_FEET:
+		var idx := skeleton.find_bone(bone_name)
+		if idx < 0:
+			continue
+		var ankle_y := skeleton.get_bone_global_pose(idx).origin.y
+		deepest = minf(deepest, ankle_y - BOOT_GROUND_CLEARANCE)
+	if deepest >= 0.0:
+		return
+	var hips_pos := skeleton.get_bone_pose_position(hips_idx)
+	skeleton.set_bone_pose_position(hips_idx, hips_pos + Vector3(0.0, -deepest, 0.0))
 
 
 func play_action(action: Tuning.Action) -> void:
@@ -167,6 +223,16 @@ func _build_blend_space() -> AnimationNodeBlendSpace2D:
 	space.snap = Vector2(0.05, 0.05)
 	space.blend_mode = AnimationNodeBlendSpace2D.BLEND_MODE_INTERPOLATED
 	space.auto_triangles = true
+	# Without this, each blended-in clip advances its own timeline by real
+	# elapsed time independent of the others — since every gait clip here is
+	# built by the same _gait_pose(phase, g) generator but scaled to its own
+	# `cycle` length (jog_fwd 0.72s vs run_fwd 0.58s, say), the same wall-
+	# clock instant lands at a *different* phase (different foot position)
+	# in each. Mid-transition, when two clips are both weighted, that phase
+	# mismatch is what reads as feet slipping/juddering rather than a clean
+	# cross-fade. `sync` keeps every blended point's internal playback
+	# locked to a shared normalised phase instead.
+	space.sync = true
 	space.x_label = "strafe"
 	space.y_label = "forward"
 	for point: Array in BLEND_POINTS:

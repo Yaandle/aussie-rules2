@@ -45,6 +45,7 @@ const COLOUR_SHORTS := Color("#2a2c33")
 const COLOUR_HAIR := Color("#2c241d")
 const COLOUR_BOOT := Color("#22241d")
 const COLOUR_TRIM := Color("#f0ece0")
+const COLOUR_TREAD := Color("#141513")
 
 @export var away_kit := false
 
@@ -124,9 +125,15 @@ func _build() -> void:
 		_box_on("Chest", "SidePanel" + ("L" if panel_side < 0 else "R"),
 			Vector3(0.045, 0.34, 0.20), Vector3(0.17 * panel_side, -0.07, 0.0), COLOUR_TRIM, 0.55)
 
-	_sphere_on("Head", "Head_Mesh", 0.115, Vector3.ZERO, COLOUR_SKIN)
-	var hair := _sphere_on("Head", "Hair", 0.125, Vector3(0.0, 0.035, -0.012), COLOUR_HAIR)
+	_sphere_on("Head", "Head_Mesh", 0.115, Vector3.ZERO, COLOUR_SKIN, 16, 10)
+	var hair := _sphere_on("Head", "Hair", 0.125, Vector3(0.0, 0.035, -0.012), COLOUR_HAIR, 16, 10)
 	hair.scale = Vector3(1.0, 0.85, 1.0)
+
+	# Collar: shares the Chest attachment Chest_Mesh/Yoke/SidePanels already
+	# use (see _attach()'s per-bone cache) rather than adding a whole new
+	# BoneAttachment3D just for one more small mesh. Sits a touch above the
+	# Yoke, at the base of the neck.
+	_cylinder_on("Chest", "Collar", 0.075, 0.075, 0.035, Vector3(0.0, 0.20, 0.0), COLOUR_TRIM, 0.55)
 
 	for side: int in [-1, 1]:
 		var suffix := "L" if side < 0 else "R"
@@ -140,6 +147,15 @@ func _build() -> void:
 		# distance closer than broadcast.
 		_sphere_on("LowerArm" + suffix, "Hand" + suffix, 0.045,
 			Vector3(0.0, -FOREARM_LENGTH - 0.02, 0.0), COLOUR_SKIN)
+		# A pair of bunched-finger blocks past the hand sphere, same
+		# reasoning as the wrist cap above (an open palm past the wrist
+		# with nothing beyond it reads as a mitt at close range) — two
+		# blocks rather than five separate fingers to keep this cheap.
+		# Shares the Hand sphere's own LowerArm attachment.
+		for finger_x in [-0.014, 0.014]:
+			_box_on("LowerArm" + suffix, "Fingers" + suffix + ("A" if finger_x < 0 else "B"),
+				Vector3(0.024, 0.05, 0.03),
+				Vector3(finger_x, -FOREARM_LENGTH - 0.075, 0.006), COLOUR_SKIN)
 
 		_capsule_on("UpperLeg" + suffix, "Thigh" + suffix, 0.085, THIGH_LENGTH,
 			Vector3(0.0, -THIGH_LENGTH * 0.5, 0.0), COLOUR_SKIN)
@@ -147,6 +163,13 @@ func _build() -> void:
 			Vector3(0.0, -SHIN_LENGTH * 0.5, 0.0), COLOUR_TRIM)
 		_box_on("Foot" + suffix, "Boot" + suffix, Vector3(0.10, 0.07, 0.26),
 			Vector3(0.0, -0.035, -0.06), COLOUR_BOOT)
+		# Tread: a wider, flush-with-the-sole slab (bottom edge lines up
+		# exactly with the Boot box's own -0.07 bottom, not below it —
+		# player_animation.gd's ground-clamp IK reads that exact number as
+		# BOOT_GROUND_CLEARANCE, so this must not extend past it). Shares
+		# the Boot's own Foot attachment.
+		_box_on("Foot" + suffix, "Tread" + suffix, Vector3(0.105, 0.02, 0.27),
+			Vector3(0.0, -0.06, -0.06), COLOUR_TREAD, 0.9)
 
 
 # ── Construction helpers ─────────────────────────────────────────────
@@ -164,12 +187,24 @@ func _bone_name(short: String) -> String:
 	return short
 
 
+## Cached per bone: several parts now deliberately share one attachment
+## (Chest_Mesh/Yoke/SidePanels/Collar all sit on "Chest"; Boot/Tread on
+## "Foot"+suffix; Hand/Fingers on "LowerArm"+suffix) rather than each
+## getting its own BoneAttachment3D — the geometry pass below adds several
+## new parts per player, and 16-a-side means that cost is paid 32 times
+## over, so co-located parts reusing one attachment is what keeps node
+## count from scaling with mesh count.
+var _attachments := {}
+
 func _attach(bone_short: String) -> BoneAttachment3D:
+	if _attachments.has(bone_short):
+		return _attachments[bone_short]
 	var bone_name := _bone_name(bone_short)
 	var attachment := BoneAttachment3D.new()
 	attachment.name = "Attach_" + bone_name
 	attachment.bone_name = bone_name
 	_skeleton.add_child(attachment)
+	_attachments[bone_short] = attachment
 	return attachment
 
 
@@ -180,24 +215,38 @@ func _box_on(bone_short: String, part_name: String, size: Vector3, offset: Vecto
 	return _mesh_on(bone_short, part_name, mesh, offset, colour, roughness)
 
 
+## radial_segments/rings bumped from 10/3 — cheap per the header's own
+## "primitive geometry is fine, don't multiply node/draw-call count" brief:
+## more triangles on an existing mesh costs nothing extra in draw calls,
+## unlike adding more MeshInstance3D nodes would.
 func _capsule_on(bone_short: String, part_name: String, radius: float, length: float,
 		offset: Vector3, colour: Color, roughness := 0.78) -> MeshInstance3D:
 	var mesh := CapsuleMesh.new()
 	mesh.radius = radius
 	mesh.height = maxf(length, radius * 2.0 + 0.001)
-	mesh.radial_segments = 10
-	mesh.rings = 3
+	mesh.radial_segments = 12
+	mesh.rings = 5
 	return _mesh_on(bone_short, part_name, mesh, offset, colour, roughness)
 
 
 func _sphere_on(bone_short: String, part_name: String, radius: float, offset: Vector3,
-		colour: Color) -> MeshInstance3D:
+		colour: Color, radial_segments := 14, rings := 8) -> MeshInstance3D:
 	var mesh := SphereMesh.new()
 	mesh.radius = radius
 	mesh.height = radius * 2.0
-	mesh.radial_segments = 14
-	mesh.rings = 8
+	mesh.radial_segments = radial_segments
+	mesh.rings = rings
 	return _mesh_on(bone_short, part_name, mesh, offset, colour)
+
+
+func _cylinder_on(bone_short: String, part_name: String, top_radius: float, bottom_radius: float,
+		height: float, offset: Vector3, colour: Color, roughness := 0.78) -> MeshInstance3D:
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = top_radius
+	mesh.bottom_radius = bottom_radius
+	mesh.height = height
+	mesh.radial_segments = 14
+	return _mesh_on(bone_short, part_name, mesh, offset, colour, roughness)
 
 
 func _mesh_on(bone_short: String, part_name: String, mesh: Mesh, offset: Vector3,

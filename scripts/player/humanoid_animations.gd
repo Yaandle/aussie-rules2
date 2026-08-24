@@ -44,38 +44,72 @@ const ELBOW_REST := 0.30      ## rad, resting elbow bend
 const KNEE_PHASE := 0.5       ## rad, knee bends slightly after toe-off
 const GAIT_SAMPLES := 14      ## keys per locomotion cycle
 
+## Reparameterises the master phase before it hits any trig below — a pure
+## sinusoidal warp (still starts/ends each cycle at exactly 0/TAU, still
+## smooth everywhere) that lingers a touch longer around each footfall and
+## sweeps faster through the middle of the swing, instead of the raw
+## sin(TAU*phase) metronome reading as a march. Feel-only, small enough to
+## stay monotonic (needs > -1) with headroom to spare.
+const STANCE_BIAS := 0.14
+
+## maxf(0.0, sin(x)) — used below for knee_lift/ankle — has a hard
+## derivative kink at every zero-crossing (0 on one side, ~1 on the other)
+## that CUBIC track interpolation can't represent without overshoot; this
+## is exactly the mechanism the idle-sway comment on GAITS below diagnoses,
+## just invisible at gait amplitude instead of a visible twitch — every
+## footfall's knee "snaps" from bent to dead-straight rather than easing.
+## Smoothed here by a soft-ReLU (approaches maxf(0,x) as SOFTEN -> 0) so the
+## peak amplitude barely moves (< 1% at x=1) but the crossing itself is now
+## C-infinity, plus a small residual bend through "stance" instead of a
+## perfectly locked knee, which reads as more natural, not less.
+const KNEE_SOFTEN := 0.12
+
+static func _soft_rectify(x: float) -> float:
+	return (x + sqrt(x * x + KNEE_SOFTEN * KNEE_SOFTEN)) * 0.5
+
 ## Locomotion clips, keyed by name. Read alongside the blend point layout
 ## in player_animation.gd — the two lists have to agree.
 const GAITS := {
-	# Zero, not just small: two rounds of shrinking these toward zero
-	# (0.02-ish, then ~0.006-0.01) still read as a twitch rather than a
-	# sway, most visible on the character screen's tight preview camera.
-	# The likely cause isn't amplitude — several of these feed a
-	# maxf(0.0, sin(...)) rectifier in _gait_pose() (knee_lift, the ankle
-	# terms derived from it), which has a hard kink at every zero-crossing
-	# that CUBIC track interpolation, sampled at only GAIT_SAMPLES (14)
-	# points over the cycle, cannot represent without overshoot — and an
-	# overshoot's absolute size doesn't necessarily shrink just because
-	# the signal feeding it does. A menu preview doesn't need a believable
-	# idle breathing sway badly enough to chase that; zero sidesteps the
-	# whole mechanism instead of tuning around it. Revisit with a smooth
-	# (kink-free) idle formula or a higher sample rate if idle sway is
-	# wanted again later.
+	# Revisited per the old comment's own suggestion (kept below for the
+	# diagnosis): stride/knee_lift stay at exactly zero — those are what
+	# fed _gait_pose()'s maxf(0.0, sin(...)) rectifier, now _soft_rectify()
+	# above, but idle has no reason to touch that path at all when a plain
+	# sway reads as breathing on its own. bob/lean/twist below only ever
+	# ran through raw sin/cos, never the rectifier, so they were never
+	# actually the twitch's cause — zeroing them alongside it was the
+	# original fix being blunter than it needed to be. Small, slow
+	# (~13/min, real resting-breath order of magnitude) vertical
+	# chest/torso sway; no stride/arm motion, so the legs/arms stay dead
+	# still exactly as before.
+	#
+	# Original diagnosis, unchanged: two rounds of shrinking the rectified
+	# terms toward zero (0.02-ish, then ~0.006-0.01) still read as a twitch
+	# rather than a sway, most visible on the character screen's tight
+	# preview camera — maxf(0.0, sin(...)) has a hard kink at every
+	# zero-crossing that CUBIC track interpolation, sampled at only
+	# GAIT_SAMPLES (14) points over the cycle, cannot represent without
+	# overshoot, and an overshoot's absolute size doesn't necessarily
+	# shrink just because the signal feeding it does.
 	"idle": {
 		"cycle": 4.5, "stride": 0.0, "knee_lift": 0.0, "arm_swing": 0.0,
-		"bob": 0.0, "lean": 0.0, "twist": 0.0,
+		"bob": 0.008, "lean": 0.015, "twist": 0.010,
 	},
+	# `roll` on the forward gaits below is new: a small pelvic hip-drop onto
+	# the stance leg (real weight transfer — the swing-leg hip rises a
+	# little relative to the planted one) rather than the pelvis staying
+	# level through the whole stride. Smaller than strafe_l/r's own 0.05
+	# (a sideways shuffle leans harder into it than a straight run does).
 	"jog_fwd": {
 		"cycle": 0.72, "stride": 0.42, "knee_lift": 0.75, "arm_swing": 0.45,
-		"bob": 0.035, "lean": 0.08, "twist": 0.06,
+		"bob": 0.035, "lean": 0.08, "twist": 0.06, "roll": 0.025,
 	},
 	"run_fwd": {
 		"cycle": 0.58, "stride": 0.72, "knee_lift": 1.25, "arm_swing": 0.85,
-		"bob": 0.055, "lean": 0.20, "twist": 0.11,
+		"bob": 0.055, "lean": 0.20, "twist": 0.11, "roll": 0.035,
 	},
 	"run_back": {
 		"cycle": 0.68, "stride": 0.50, "knee_lift": 0.85, "arm_swing": 0.55,
-		"bob": 0.040, "lean": -0.10, "twist": 0.05, "dir": -1.0,
+		"bob": 0.040, "lean": -0.10, "twist": 0.05, "dir": -1.0, "roll": 0.025,
 	},
 	"strafe_l": {
 		"cycle": 0.66, "stride": 0.10, "knee_lift": 0.55, "arm_swing": 0.20,
@@ -108,6 +142,7 @@ static func build_library(hip_height: float) -> AnimationLibrary:
 	library.add_animation(&"mark_aggressive", _build_mark_aggressive(hip_height))
 	library.add_animation(&"mark_safe_miss", _build_mark_safe_miss(hip_height))
 	library.add_animation(&"mark_running_miss", _build_mark_running_miss(hip_height))
+	library.add_animation(&"hit_out", _build_hit_out(hip_height))
 	return library
 
 
@@ -123,7 +158,7 @@ static func _build_gait(g: Dictionary, hip_height: float) -> Animation:
 
 
 static func _gait_pose(phase: float, g: Dictionary) -> Dictionary:
-	var a := TAU * phase
+	var a := TAU * phase + STANCE_BIAS * sin(TAU * phase)
 	var dir: float = g.get("dir", 1.0)
 	var stride: float = g["stride"]
 	var knee_lift: float = g["knee_lift"]
@@ -140,8 +175,8 @@ static func _gait_pose(phase: float, g: Dictionary) -> Dictionary:
 	# lean is the same rotation with the opposite sign.
 	var swing_l := sin(a) * stride * dir
 	var swing_r := sin(a + PI) * stride * dir
-	var bend_l := -knee_lift * maxf(0.0, sin(a + KNEE_PHASE))
-	var bend_r := -knee_lift * maxf(0.0, sin(a + PI + KNEE_PHASE))
+	var bend_l := -knee_lift * _soft_rectify(sin(a + KNEE_PHASE))
+	var bend_r := -knee_lift * _soft_rectify(sin(a + PI + KNEE_PHASE))
 	# Keep the sole roughly parallel to the turf through the stride.
 	var ankle_l := clampf(-(swing_l + bend_l) * 0.55, -0.6, 0.6)
 	var ankle_r := clampf(-(swing_r + bend_r) * 0.55, -0.6, 0.6)
@@ -273,23 +308,28 @@ static func _build_mark_safe(hip_height: float) -> Animation:
 	var length := Tuning.action_duration(Tuning.Action.MARK_SAFE)
 	var contact := Tuning.action_contact_time(Tuning.Action.MARK_SAFE)
 	return _assemble(length, false, [
+		# Shoulder rotation.x: 0 = arm hanging at rest, PI = straight overhead
+		# (see the swing-convention comment on _gait_pose). This clip starts
+		# after the catch already happened (see the doc comment above), so
+		# t=0 should already read as "hands genuinely up", not the ~66 deg
+		# arm-half-raised pose this used to peak at.
 		[0.0, _pose({
 			"hip_y": -0.04, "torso": Vector3(-0.08, 0.0, 0.0), "neck": Vector3(0.10, 0.0, 0.0),
-			"shoulder_l": Vector3(1.15, 0.0, -0.35), "elbow_l": Vector3(-0.35, 0.0, 0.0),
-			"shoulder_r": Vector3(1.15, 0.0, 0.35), "elbow_r": Vector3(-0.35, 0.0, 0.0),
+			"shoulder_l": Vector3(2.05, 0.0, -0.35), "elbow_l": Vector3(-0.35, 0.0, 0.0),
+			"shoulder_r": Vector3(2.05, 0.0, 0.35), "elbow_r": Vector3(-0.35, 0.0, 0.0),
 			"hip_l": Vector3(0.05, 0.0, 0.0), "hip_r": Vector3(-0.05, 0.0, 0.0),
 			"knee_l": Vector3(-0.22, 0.0, 0.0), "knee_r": Vector3(-0.18, 0.0, 0.0),
 		})],
 		[contact, _pose({
 			"hip_y": -0.05, "torso": Vector3(-0.04, 0.0, 0.0), "neck": Vector3(0.06, 0.0, 0.0),
-			"shoulder_l": Vector3(1.05, 0.0, -0.22), "elbow_l": Vector3(-0.75, 0.0, 0.0),
-			"shoulder_r": Vector3(1.05, 0.0, 0.22), "elbow_r": Vector3(-0.75, 0.0, 0.0),
+			"shoulder_l": Vector3(1.85, 0.0, -0.22), "elbow_l": Vector3(-0.75, 0.0, 0.0),
+			"shoulder_r": Vector3(1.85, 0.0, 0.22), "elbow_r": Vector3(-0.75, 0.0, 0.0),
 			"knee_l": Vector3(-0.16, 0.0, 0.0), "knee_r": Vector3(-0.14, 0.0, 0.0),
 		})],
 		[lerpf(contact, length, 0.55), _pose({
 			"hip_y": -0.01, "torso": Vector3(0.05, 0.0, 0.0),
-			"shoulder_l": Vector3(0.55, 0.0, -0.20), "elbow_l": Vector3(-0.95, 0.0, 0.0),
-			"shoulder_r": Vector3(0.35, 0.0, 0.30), "elbow_r": Vector3(-0.55, 0.0, 0.0),
+			"shoulder_l": Vector3(1.00, 0.0, -0.20), "elbow_l": Vector3(-0.95, 0.0, 0.0),
+			"shoulder_r": Vector3(0.80, 0.0, 0.30), "elbow_r": Vector3(-0.55, 0.0, 0.0),
 		})],
 		[length, _base_pose()],
 	], hip_height)
@@ -305,17 +345,19 @@ static func _build_mark_safe_miss(hip_height: float) -> Animation:
 	var length := Tuning.action_duration(Tuning.Action.MARK_SAFE_MISS)
 	var contact := Tuning.action_contact_time(Tuning.Action.MARK_SAFE_MISS)
 	return _assemble(length, false, [
+		# t=0 matches _build_mark_safe's own t=0 verbatim (see doc comment
+		# above) — same overhead-reach fix applies here for the same reason.
 		[0.0, _pose({
 			"hip_y": -0.04, "torso": Vector3(-0.08, 0.0, 0.0), "neck": Vector3(0.10, 0.0, 0.0),
-			"shoulder_l": Vector3(1.15, 0.0, -0.35), "elbow_l": Vector3(-0.35, 0.0, 0.0),
-			"shoulder_r": Vector3(1.15, 0.0, 0.35), "elbow_r": Vector3(-0.35, 0.0, 0.0),
+			"shoulder_l": Vector3(2.05, 0.0, -0.35), "elbow_l": Vector3(-0.35, 0.0, 0.0),
+			"shoulder_r": Vector3(2.05, 0.0, 0.35), "elbow_r": Vector3(-0.35, 0.0, 0.0),
 			"hip_l": Vector3(0.05, 0.0, 0.0), "hip_r": Vector3(-0.05, 0.0, 0.0),
 			"knee_l": Vector3(-0.22, 0.0, 0.0), "knee_r": Vector3(-0.18, 0.0, 0.0),
 		})],
 		[contact, _pose({
 			"hip_y": -0.06, "torso": Vector3(0.02, 0.0, 0.0), "neck": Vector3(0.02, 0.0, 0.0),
-			"shoulder_l": Vector3(1.30, 0.0, -0.42), "elbow_l": Vector3(-0.10, 0.0, 0.0),
-			"shoulder_r": Vector3(1.30, 0.0, 0.42), "elbow_r": Vector3(-0.10, 0.0, 0.0),
+			"shoulder_l": Vector3(2.20, 0.0, -0.42), "elbow_l": Vector3(-0.10, 0.0, 0.0),
+			"shoulder_r": Vector3(2.20, 0.0, 0.42), "elbow_r": Vector3(-0.10, 0.0, 0.0),
 			"knee_l": Vector3(-0.28, 0.0, 0.0), "knee_r": Vector3(-0.24, 0.0, 0.0),
 		})],
 		[lerpf(contact, length, 0.6), _pose({
@@ -412,24 +454,31 @@ static func _build_mark_aggressive(hip_height: float) -> Animation:
 			"hip_l": Vector3(-0.35, 0.0, 0.0), "knee_l": Vector3(-0.70, 0.0, 0.0),
 			"hip_r": Vector3(0.20, 0.0, 0.0), "knee_r": Vector3(-0.30, 0.0, 0.0),
 		})],
+		# Shoulder rotation.x: 0 = arm hanging at rest, PI = straight overhead
+		# (see the swing-convention comment on _gait_pose). This ramp used to
+		# peak at 1.55 rad (~89 deg, arm-straight-forward) right when the
+		# jump crests — the one moment overhead reach actually matters for a
+		# spectacular mark. Raised to ~2.75 rad (~158 deg) at `contact`, with
+		# the two lead-in keys raised to match so the arms sweep smoothly up
+		# to it rather than jumping the last stretch in one key.
 		[contact * 0.6, _pose({
 			"hip_y": 0.05, "torso": Vector3(0.06, 0.0, 0.0), "neck": Vector3(0.08, 0.0, 0.0),
-			"shoulder_l": Vector3(1.35, 0.0, -0.40), "shoulder_r": Vector3(1.35, 0.0, 0.40),
+			"shoulder_l": Vector3(2.05, 0.0, -0.40), "shoulder_r": Vector3(2.05, 0.0, 0.40),
 			"elbow_l": Vector3(-0.20, 0.0, 0.0), "elbow_r": Vector3(-0.20, 0.0, 0.0),
 			"hip_l": Vector3(-0.55, 0.0, 0.0), "knee_l": Vector3(-0.40, 0.0, 0.0),
 			"hip_r": Vector3(0.35, 0.0, 0.0), "knee_r": Vector3(-0.15, 0.0, 0.0),
 		})],
 		[contact, _pose({
 			"hip_y": 0.08, "torso": Vector3(0.10, 0.0, 0.0), "neck": Vector3(0.10, 0.0, 0.0),
-			"shoulder_l": Vector3(1.55, 0.0, -0.30), "shoulder_r": Vector3(1.55, 0.0, 0.30),
-			"elbow_l": Vector3(-0.55, 0.0, 0.0), "elbow_r": Vector3(-0.55, 0.0, 0.0),
+			"shoulder_l": Vector3(2.75, 0.0, -0.30), "shoulder_r": Vector3(2.75, 0.0, 0.30),
+			"elbow_l": Vector3(-0.35, 0.0, 0.0), "elbow_r": Vector3(-0.35, 0.0, 0.0),
 			"hip_l": Vector3(-0.40, 0.0, 0.0), "knee_l": Vector3(-0.25, 0.0, 0.0),
 			"hip_r": Vector3(0.45, 0.0, 0.0), "knee_r": Vector3(-0.10, 0.0, 0.0),
 		})],
 		[lerpf(contact, length, 0.55), _pose({
 			"hip_y": -0.02, "torso": Vector3(0.02, 0.0, 0.0),
-			"shoulder_l": Vector3(0.70, 0.0, -0.20), "elbow_l": Vector3(-0.95, 0.0, 0.0),
-			"shoulder_r": Vector3(0.55, 0.0, 0.28), "elbow_r": Vector3(-0.70, 0.0, 0.0),
+			"shoulder_l": Vector3(0.95, 0.0, -0.20), "elbow_l": Vector3(-0.95, 0.0, 0.0),
+			"shoulder_r": Vector3(0.80, 0.0, 0.28), "elbow_r": Vector3(-0.70, 0.0, 0.0),
 			"hip_l": Vector3(0.10, 0.0, 0.0), "knee_l": Vector3(-0.45, 0.0, 0.0),
 			"hip_r": Vector3(-0.10, 0.0, 0.0), "knee_r": Vector3(-0.40, 0.0, 0.0),
 		})],
@@ -439,6 +488,49 @@ static func _build_mark_aggressive(hip_height: float) -> Animation:
 			"shoulder_r": Vector3(0.40, 0.0, 0.24), "elbow_r": Vector3(-0.55, 0.0, 0.0),
 			"hip_l": Vector3(0.20, 0.0, 0.0), "knee_l": Vector3(-0.60, 0.0, 0.0),
 			"hip_r": Vector3(0.15, 0.0, 0.0), "knee_r": Vector3(-0.55, 0.0, 0.0),
+		})],
+		[length, _base_pose()],
+	], hip_height)
+
+
+## Ruck Hit-Out: the same leap MARK_AGGRESSIVE uses (identical timing — see
+## Tuning.ACTION_DURATION/ACTION_CONTACT's own comment on why HIT_OUT copies
+## that row verbatim) but resolved as a one-armed palm rather than a
+## two-handed catch — the dominant (right) arm drives up and across to tap
+## the ball away, the left trails low for balance instead of mirroring it,
+## and the recovery is a plain landing rather than mark_aggressive's own
+## fold-into-a-carry tail, since there's nothing being caught.
+static func _build_hit_out(hip_height: float) -> Animation:
+	var length := Tuning.action_duration(Tuning.Action.HIT_OUT)
+	var contact := Tuning.action_contact_time(Tuning.Action.HIT_OUT)
+	return _assemble(length, false, [
+		[0.0, _pose({
+			"hip_y": -0.10, "torso": Vector3(-0.05, 0.0, 0.0),
+			"shoulder_l": Vector3(0.45, 0.0, -0.24), "shoulder_r": Vector3(0.55, 0.0, 0.30),
+			"elbow_l": Vector3(-0.25, 0.0, 0.0), "elbow_r": Vector3(-0.30, 0.0, 0.0),
+			"hip_l": Vector3(-0.35, 0.0, 0.0), "knee_l": Vector3(-0.70, 0.0, 0.0),
+			"hip_r": Vector3(0.20, 0.0, 0.0), "knee_r": Vector3(-0.30, 0.0, 0.0),
+		})],
+		[contact * 0.6, _pose({
+			"hip_y": 0.05, "torso": Vector3(0.04, 0.0, -0.05), "neck": Vector3(0.08, 0.0, 0.0),
+			"shoulder_l": Vector3(0.70, 0.0, -0.20), "shoulder_r": Vector3(2.00, 0.0, 0.20),
+			"elbow_l": Vector3(-0.20, 0.0, 0.0), "elbow_r": Vector3(-0.15, 0.0, 0.0),
+			"hip_l": Vector3(-0.55, 0.0, 0.0), "knee_l": Vector3(-0.40, 0.0, 0.0),
+			"hip_r": Vector3(0.35, 0.0, 0.0), "knee_r": Vector3(-0.15, 0.0, 0.0),
+		})],
+		[contact, _pose({
+			"hip_y": 0.08, "torso": Vector3(0.06, 0.0, -0.10), "neck": Vector3(0.10, 0.0, 0.0),
+			"shoulder_l": Vector3(0.55, 0.0, -0.16), "shoulder_r": Vector3(2.80, 0.0, 0.10),
+			"elbow_l": Vector3(-0.20, 0.0, 0.0), "elbow_r": Vector3(-0.10, 0.0, 0.0),
+			"hip_l": Vector3(-0.40, 0.0, 0.0), "knee_l": Vector3(-0.25, 0.0, 0.0),
+			"hip_r": Vector3(0.45, 0.0, 0.0), "knee_r": Vector3(-0.10, 0.0, 0.0),
+		})],
+		[lerpf(contact, length, 0.5), _pose({
+			"hip_y": -0.04, "torso": Vector3(0.0, 0.0, -0.03),
+			"shoulder_l": Vector3(0.30, 0.0, -0.18), "shoulder_r": Vector3(1.10, 0.0, 0.20),
+			"elbow_l": Vector3(0.10, 0.0, 0.0), "elbow_r": Vector3(-0.30, 0.0, 0.0),
+			"hip_l": Vector3(0.15, 0.0, 0.0), "knee_l": Vector3(-0.55, 0.0, 0.0),
+			"hip_r": Vector3(0.10, 0.0, 0.0), "knee_r": Vector3(-0.50, 0.0, 0.0),
 		})],
 		[length, _base_pose()],
 	], hip_height)
