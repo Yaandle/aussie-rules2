@@ -67,10 +67,6 @@ const SLOTS := [
 ]
 
 
-static func slot_count() -> int:
-	return SLOTS.size()
-
-
 ## World position (Y=0, ground plane) for `slot` (a SLOTS entry, or the
 ## first `count` of them — see world_positions) given a team's
 ## attack_direction (+1 attacks +X, -1 attacks -X — same convention as

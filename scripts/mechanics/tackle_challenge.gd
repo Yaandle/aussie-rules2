@@ -1,5 +1,5 @@
 class_name TackleChallenge
-extends Node3D
+extends CoachChallenge
 
 ## The tackling coach's mini-game (design brief's third and final planned
 ## coach): the player has to run down and tackle a live opponent before
@@ -23,33 +23,19 @@ extends Node3D
 ## firing on the rival first), or a timer runs out — the safety valve every
 ## other challenge here gets for free from Ball.is_settled(); a live AI
 ## carrier never settles, so this needs its own.
+##
+## The base class's _timer is dual-purpose here: counts down the pause
+## between attempts (with _pending_callback set) while not armed, and
+## counts down the catch-them-before-they-escape window (no callback, just
+## a plain countdown _physics_process reads directly) once armed. Never
+## both at once.
 
-signal challenge_started(attempts_total: int)
 signal tackle_hit(hits: int, attempts_used: int)
 signal tackle_missed(attempts_used: int, reason: String)
-signal challenge_ended(hits: int, attempts_total: int)
-signal hint_changed(text: String)
 
 var _ball: Ball
 var _player: PlayerController
 var _rival: PlayerController
-
-var _attempts_used := 0
-var _hits := 0
-var _active := false
-
-## True from the moment a delivery hands the rival the ball until the
-## attempt resolves (tackled, disposed, or timed out) — same purpose as
-## KickChallenge/MarkChallenge's own _armed.
-var _armed := false
-
-## Dual-purpose, like MarkChallenge's own _timer: counts down the pause
-## between attempts (with _pending_callback set) while not armed, and
-## counts down the catch-them-before-they-escape window (no callback,
-## just a plain countdown _physics_process reads directly) once armed.
-## Never both at once.
-var _timer := 0.0
-var _pending_callback := Callable()
 
 
 func begin(ball: Ball, player: PlayerController, rival: PlayerController) -> void:
@@ -80,12 +66,7 @@ func _physics_process(delta: float) -> void:
 	if not _active:
 		return
 	if not _armed:
-		if _timer > 0.0:
-			_timer = maxf(0.0, _timer - delta)
-			if _timer <= 0.0 and _pending_callback.is_valid():
-				var callback := _pending_callback
-				_pending_callback = Callable()
-				callback.call()
+		_tick_schedule(delta)
 		return
 	_timer = maxf(0.0, _timer - delta)
 	if _timer <= 0.0:
@@ -167,8 +148,3 @@ func _disconnect_rival() -> void:
 		_rival.field_ball_up_called.disconnect(_on_rival_ball_up)
 	if _rival.ball_disposed.is_connected(_on_rival_disposed):
 		_rival.ball_disposed.disconnect(_on_rival_disposed)
-
-
-func _schedule(delay: float, callback: Callable) -> void:
-	_timer = delay
-	_pending_callback = callback

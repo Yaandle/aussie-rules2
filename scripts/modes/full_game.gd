@@ -370,10 +370,21 @@ func _on_holding_the_ball(tackler: PlayerController) -> void:
 
 
 func _award_free_kick(spot: Vector3, tackler: PlayerController) -> void:
+	_award_possession_at(spot, tackler)
+
+
+## Shared tail of every "possession + immunity at a spot" restart (free
+## kick, protected kick-in, out on the full) — see docs/HANDOVER.md for why
+## this exact give_possession()/grant_protection() triad is the one
+## established pattern instead of a parallel state machine per restart type.
+## MARK_HOLD_DURATION is reused rather than a new invented threshold: the
+## same duration a legal mark protects its taker for is "safe to take your
+## time with the footy in hand" everywhere in this project, not just marks.
+func _award_possession_at(spot: Vector3, receiver: PlayerController) -> void:
 	_drop_all_balls()
 	_ball.reset_at(spot + Vector3.UP * 0.3)
-	tackler.give_possession(_ball)
-	tackler.grant_protection(Tuning.MARK_HOLD_DURATION)
+	receiver.give_possession(_ball)
+	receiver.grant_protection(Tuning.MARK_HOLD_DURATION)
 	GameState.phase = GameState.Phase.PLAY
 	MatchState.clock_running = true
 
@@ -432,19 +443,9 @@ func _prepare_kick_in(scoring_team: Tuning.Team) -> void:
 		_field.goal_line_x(direction) - float(direction) * Tuning.GOAL_SQUARE_DEPTH * 0.5,
 		0.0, 0.0)
 
-	_drop_all_balls()
-
 	var kicker := _nearest_player(defenders, square_centre)
 	kicker.global_position = square_centre
-	_ball.reset_at(square_centre + Vector3.UP * 0.3)
-	kicker.give_possession(_ball)
-	# Same duration a legal mark protects its taker for — this project's own
-	# established number for "safe to take your time with the footy in
-	# hand", not a new invented threshold.
-	kicker.grant_protection(Tuning.MARK_HOLD_DURATION)
-
-	GameState.phase = GameState.Phase.PLAY
-	MatchState.clock_running = true
+	_award_possession_at(square_centre, kicker)
 
 
 func _end_quarter() -> void:
@@ -611,14 +612,9 @@ func _trigger_out_on_the_full(pos: Vector3, kicking_team: Tuning.Team) -> void:
 
 
 func _award_out_on_the_full(spot: Vector3, defenders: Array[PlayerController]) -> void:
-	_drop_all_balls()
 	var kicker := _nearest_player(defenders, spot)
 	kicker.global_position = spot
-	_ball.reset_at(spot + Vector3.UP * 0.3)
-	kicker.give_possession(_ball)
-	kicker.grant_protection(Tuning.MARK_HOLD_DURATION)
-	GameState.phase = GameState.Phase.PLAY
-	MatchState.clock_running = true
+	_award_possession_at(spot, kicker)
 
 
 ## Pulls a boundary-ish point back to just inside the boundary line, along

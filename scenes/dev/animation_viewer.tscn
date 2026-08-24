@@ -1,16 +1,22 @@
 [gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/dev/animation_viewer.gd" id="1_viewer"]
-[ext_resource type="Environment" path="res://materials/character_studio_environment.tres" id="2_env"]
+[ext_resource type="Environment" path="res://materials/dev_studio_environment.tres" id="2_env"]
 
-; Dev-only scene: a bare HumanoidRig standing on the field, driven by a
-; real AnimationTree, with a button-driven UI to preview every locomotion
-; blend point and discrete action clip in isolation. Not reachable from the
-; main menu — open this directly in the editor and press F6, same
-; precedent as scenes/main.tscn. Everything except the environment/light/
-; camera shell is built in code by animation_viewer.gd (the rig, the
-; AnimationPlayer/AnimationTree/PlayerAnimation trio, and the whole UI),
-; same reasoning as character_screen.tscn leaving its UI node empty.
+; Dev-only scene: a bare HumanoidRig in an empty white studio box, driven by
+; a real AnimationTree, with a button-driven UI to preview every locomotion
+; blend point and discrete action clip in isolation. Deliberately NOT the
+; real field.tscn/character_backdrop.tscn look this started from — that
+; read as "another game mode" rather than an isolated animation preview, so
+; there's no turf/oval/goalposts here at all, just a flat wireframe floor
+; grid (built in code, see _build_studio_floor) under plain white sky.
+;
+; Not reachable from the main menu — open this directly in the editor and
+; press F6, same precedent as scenes/main.tscn. Everything except the
+; environment/light/camera shell is built in code by animation_viewer.gd
+; (the rig, the floor grid, the AnimationPlayer/AnimationTree/
+; PlayerAnimation trio, and the whole UI), same reasoning as
+; character_screen.tscn leaving its UI node empty.
 
 [node name="AnimationViewer" type="Node3D"]
 script = ExtResource("1_viewer")
@@ -18,13 +24,12 @@ script = ExtResource("1_viewer")
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = ExtResource("2_env")
 
-; Same light transform character_backdrop.tscn uses (see that scene's own
-; comment on why the 12-number literal is written the way it is) — full
-; default cull mask here since there's no separate subject/pitch split to
-; make in a single-light dev tool.
+; Single soft key light from above and to camera-left — there's no turf to
+; graze-light here, just even modelling on the figure over the flat ambient
+; the environment already supplies.
 [node name="Sun" type="DirectionalLight3D" parent="."]
-transform = Transform3D(0.9083, -0.2298, 0.3496, 0, 0.8356, 0.5493, -0.4183, -0.4989, 0.759, 0, 40, 0)
-light_energy = 0.85
+transform = Transform3D(0.8993, 0.2622, -0.3499, 0, 0.8002, 0.5998, 0.4372, -0.5394, 0.7197, 0, 40, 0)
+light_energy = 0.55
 shadow_enabled = false
 
 [node name="Camera3D" type="Camera3D" parent="."]

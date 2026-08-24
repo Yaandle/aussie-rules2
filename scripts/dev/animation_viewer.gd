@@ -22,15 +22,24 @@ extends Node3D
 ## buttons here rather than being left out silently, so this screen stays
 ## an honest map of what exists versus what's still physics-only.
 
-const FIELD_SCENE := preload("res://scenes/field/field.tscn")
+const STAND_ON := Vector3.ZERO
 
-## Same offset character_backdrop.gd uses: stands just inside the centre
-## square's boundary line so the only marking in shot is one hairline
-## stripe, not the centre circles.
-const STAND_ON := Vector3(Tuning.CENTRE_SQUARE_SIZE * 0.5 - 1.6, 0.0, 0.0)
+const CAMERA_DISTANCE := 4.0
+const CAMERA_HEIGHT := 1.0
 
-const CAMERA_DISTANCE := 3.75
-const CAMERA_HEIGHT := 1.05
+## How far left of the subject the camera sits — pushes the figure right of
+## centre in frame (same trick character_backdrop.gd uses via its own
+## CAMERA_SIDESTEP) so it clears the three button columns on the left
+## rather than standing directly behind them.
+const CAMERA_SIDESTEP := 1.5
+
+## Wireframe floor grid, drawn in code with ImmediateMesh (same technique
+## as skeleton_wireframe.gd, which this scene also attaches to the rig —
+## no turf here, just a bounded reference square so the figure reads
+## against something instead of floating in flat white).
+const GRID_HALF_EXTENT := 1.6
+const GRID_STEP := 0.4
+const GRID_COLOUR := Color(0.72, 0.75, 0.79)
 
 ## Locomotion buttons: label -> blend target. Must agree with
 ## PlayerAnimation.BLEND_POINTS.
@@ -83,10 +92,10 @@ var _jump_tween: Tween
 
 
 func _ready() -> void:
-	add_child(FIELD_SCENE.instantiate())
+	add_child(_build_studio_floor())
 	_build_subject()
 	_camera.rotation = Vector3.ZERO
-	_camera.position = STAND_ON + Vector3(0.0, CAMERA_HEIGHT, CAMERA_DISTANCE)
+	_camera.position = STAND_ON + Vector3(-CAMERA_SIDESTEP, CAMERA_HEIGHT, CAMERA_DISTANCE)
 	_build_ui()
 
 
@@ -120,6 +129,15 @@ func _build_subject() -> void:
 	_rig.name = "Rig"
 	_rig.away_kit = false
 	_subject.add_child(_rig)
+
+	# Bone-line overlay over the mesh — see skeleton_wireframe.gd's own
+	# header, which names exactly this kind of single-figure preview as
+	# the case it's meant for. Unused everywhere else in the project until
+	# now.
+	var wireframe := SkeletonWireframe.new()
+	wireframe.name = "SkeletonWireframe"
+	_subject.add_child(wireframe)
+	wireframe.track(_rig.skeleton())
 
 	var player := AnimationPlayer.new()
 	player.name = "AnimationPlayer"
@@ -244,3 +262,45 @@ func _on_jump_pressed() -> void:
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	_jump_tween.tween_property(_rig, "position:y", 0.0, JUMP_FALL_TIME) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+
+
+## A bounded reference grid, not an infinite ground plane — a floor with no
+## edge gives the eye nothing to judge scale or footing against, which is
+## the opposite of what a "does this animation look right" tool needs.
+## Drawn as flat lines (PRIMITIVE_LINES, unshaded) rather than a textured
+## mesh, matching skeleton_wireframe.gd's own reasoning: this is a
+## reference cue, not scenery.
+func _build_studio_floor() -> MeshInstance3D:
+	var mesh := ImmediateMesh.new()
+	var instance := MeshInstance3D.new()
+	instance.name = "StudioFloor"
+	instance.mesh = mesh
+	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.vertex_color_use_as_albedo = true
+	material.albedo_color = GRID_COLOUR
+	instance.material_override = material
+
+	mesh.surface_begin(Mesh.PRIMITIVE_LINES)
+	mesh.surface_set_color(GRID_COLOUR)
+
+	var e := GRID_HALF_EXTENT
+	var steps := int(round(e * 2.0 / GRID_STEP))
+	for i in steps + 1:
+		var t := -e + i * GRID_STEP
+		mesh.surface_add_vertex(Vector3(t, 0.0, -e))
+		mesh.surface_add_vertex(Vector3(t, 0.0, e))
+		mesh.surface_add_vertex(Vector3(-e, 0.0, t))
+		mesh.surface_add_vertex(Vector3(e, 0.0, t))
+
+	# Four corner uprights, open-topped — the "box" the floor grid sits in,
+	# tall enough to frame the 1.85m rig with headroom.
+	var box_height := 2.3
+	for corner in [Vector2(-e, -e), Vector2(e, -e), Vector2(-e, e), Vector2(e, e)]:
+		mesh.surface_add_vertex(Vector3(corner.x, 0.0, corner.y))
+		mesh.surface_add_vertex(Vector3(corner.x, box_height, corner.y))
+
+	mesh.surface_end()
+	return instance
