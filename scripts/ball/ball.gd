@@ -48,6 +48,18 @@ var _was_airborne := false
 var _is_kick_flight := false
 var _flight_origin := Vector3.ZERO
 
+## Who launched the current flight — separate from `_carrier` above, which
+## exists for a different purpose (the collision-exception the launcher
+## needs so the ball doesn't immediately foul their own body) and is
+## deliberately wiped to null once _release_grace elapses (see
+## _physics_process). `_last_disposer` is set the same moment but never
+## auto-clears, so last_disposer() below still answers correctly for the
+## rest of the flight — this used to just read _carrier directly, which
+## meant it silently went back to "nobody" a fraction of a second into
+## every kick, right when Tuning.MARK_SELF_CLEAR_DISTANCE/self-catch-
+## gravity-exclusion actually needed to know.
+var _last_disposer: Node3D = null
+
 ## Which team kicked the ball currently in flight — set alongside
 ## _is_kick_flight, read by whoever adjudicates "out on the full"
 ## (RULES_REFERENCE.md §4: a free kick to the *other* side). Meaningless
@@ -141,12 +153,24 @@ func _apply_catch_gravity(state: PhysicsDirectBodyState3D) -> void:
 	state.apply_central_force(to_puller.normalized() * Tuning.CATCH_GRAVITY_ACCEL * pull * mass)
 
 
+## Excludes the disposer of THIS flight while it's still within
+## Tuning.MARK_SELF_CLEAR_DISTANCE of where they let it go (same window
+## PlayerController._mark_attempt_blocked() gates the prompt/attempt on —
+## see its own comment). Without this, a kicker is trivially the nearest
+## uncontested player to their own kick for the first instant of its
+## flight, so this force was actively pulling their own ball straight back
+## toward them — not just a UI/prompt bug, a genuine physical drift back
+## into the kicker's hands that the distance/time gates elsewhere couldn't
+## fix on their own, since the ball never actually got anywhere for those
+## gates to measure.
 func _nearest_uncontested_catcher() -> PlayerController:
 	var best: PlayerController = null
 	var best_dist := Tuning.CATCH_GRAVITY_RADIUS
 	for node in get_tree().get_nodes_in_group(&"players"):
 		var player := node as PlayerController
 		if player == null or player.is_carrying():
+			continue
+		if player == _last_disposer and distance_since_launch() < Tuning.MARK_SELF_CLEAR_DISTANCE:
 			continue
 		var dist := global_position.distance_to(player.catch_point_position())
 		if dist < best_dist:
@@ -172,6 +196,7 @@ func launch(direction: Vector3, speed: float, spin: Vector3, from: Node3D = null
 			_carrier = from
 			add_collision_exception_with(from)
 		_release_grace = Tuning.RELEASE_GRACE
+	_last_disposer = from
 	freeze = false
 	sleeping = false
 	linear_velocity = direction.normalized() * speed
@@ -288,15 +313,14 @@ func distance_since_launch() -> float:
 	return global_position.distance_to(_flight_origin)
 
 
-## Whoever most recently launched or is currently holding this ball —
-## `_carrier` stays put across a launch() that doesn't change hands (a kick
-## keeps its own kicker as `_carrier` throughout the flight; see launch()'s
-## own comment), so this reads as "who last touched it" for exactly as long
-## as that's still true. Used by PlayerController._mark_attempt_blocked()
-## to gate a player re-marking their own very-recent disposal without
-## blocking anyone else's live attempt on the same ball.
+## Whoever most recently launched this flight (see `_last_disposer`'s own
+## comment for why this isn't just `_carrier`). Used by PlayerController.
+## _mark_attempt_blocked() and this file's own _nearest_uncontested_
+## catcher() to gate a player re-marking (or catch-gravity re-pulling) their
+## own very-recent disposal, without blocking anyone else's live attempt on
+## the same ball.
 func last_disposer() -> Node3D:
-	return _carrier
+	return _last_disposer
 
 
 ## Which team's kick is currently in flight — Tuning.Team.NONE if this

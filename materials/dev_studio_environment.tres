@@ -1,0 +1,22 @@
+[gd_resource type="Environment" load_steps=1 format=3]
+
+; Plain flat-white studio backdrop for scripts/dev/animation_viewer.gd.
+; Deliberately not a sky (unlike character_studio_environment.tres /
+; menu_environment.tres / broadcast_environment.tres, which are all tuned
+; to read as the same pitch under different light) — this dev tool has no
+; turf to shade for, and the ask was an isolated white box, not a portrait
+; of the field. Flat colour background + colour ambient gives even,
+; shadow-soft lighting on the rig with nothing else to tune.
+
+[resource]
+background_mode = 1
+background_color = Color(0.965, 0.965, 0.958, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.965, 0.965, 0.958, 1)
+ambient_light_energy = 1.1
+reflected_light_source = 2
+tonemap_mode = 3
+tonemap_white = 5.0
+glow_enabled = false
+ssao_enabled = false
+fog_enabled = false

@@ -673,7 +673,7 @@ const MARK_CONTEST_RANGE := 6.0            # m
 ## this ball actually in a real flight yet". See Ball.distance_since_launch().
 ## Scoped to Aggressive only, and to no particular player — a genuinely
 ## short kick shouldn't draw a leap prompt from *anyone* nearby yet.
-const MARK_AGGRESSIVE_MIN_FLIGHT_DISTANCE := 2.5   # m
+const MARK_AGGRESSIVE_MIN_FLIGHT_DISTANCE := 3.5   # m
 
 ## How far the ball has to travel from wherever *this player* just launched
 ## it before they can attempt (or be prompted for) any mark tier on it
@@ -684,7 +684,21 @@ const MARK_AGGRESSIVE_MIN_FLIGHT_DISTANCE := 2.5   # m
 ## somewhere" (a short or blocked kick can still be well inside every
 ## tier's reach at the 0.45s mark) — see PlayerController._mark_attempt_
 ## blocked()'s own comment.
-const MARK_SELF_CLEAR_DISTANCE := 3.5   # m
+##
+## Widened again (user report: "apply the 1. changes even more, it still
+## happens") after two compounding root causes: Ball._apply_catch_gravity()
+## had no idea a kicker shouldn't be treated as a valid catch target for
+## their own fresh disposal, so it was physically dragging the ball
+## straight back toward them regardless of what the UI/attempt gates
+## decided (see _nearest_uncontested_catcher()'s own comment, which now
+## shares this same window) — and this constant's *previous* value (3.5m)
+## was still less than MARK_CONTEST_RANGE (6.0m), so there was a real dead
+## band between "the self-clear gate just lifted" and "the ball has left
+## Aggressive's own 6m contest range" where the (Y) prompt could still
+## flash on the kicker for exactly that gap. Pushed past MARK_CONTEST_RANGE
+## entirely so the two can no longer overlap: by the time this gate lifts,
+## the ball is already outside every tier's reach, contest range included.
+const MARK_SELF_CLEAR_DISTANCE := 7.5   # m, deliberately > MARK_CONTEST_RANGE
 
 const RUMBLE_MARK := Vector3(0.20, 0.35, 0.12)
 
