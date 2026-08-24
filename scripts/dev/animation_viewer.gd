@@ -14,13 +14,14 @@ extends Node3D
 ## player_animation.gd's own "NOT YET WIRED: root motion" note), so nothing
 ## about the rig's own position needs to change for a gait to read.
 ##
-## Deliberately shows only what has a real clip. Tackle/bump/spoil/smother/
-## hit-out resolve through pure physics reactions today (knockback, stun,
-## lunge — see player_controller.gd) with no AnimationTree state behind
-## them; player_animation.gd's ACTION_STATES map is the source of truth for
-## which Tuning.Action values actually animate. Those show as disabled
-## buttons here rather than being left out silently, so this screen stays
-## an honest map of what exists versus what's still physics-only.
+## Deliberately shows only what has a real clip. Tackle/bump/spoil/smother
+## resolve through pure physics reactions today (knockback, stun, lunge —
+## see player_controller.gd) with no AnimationTree state behind them (and
+## no Tuning.Action of their own to hang one on); player_animation.gd's
+## ACTION_STATES map is the source of truth for which Tuning.Action values
+## actually animate. Those show as disabled buttons here rather than being
+## left out silently, so this screen stays an honest map of what exists
+## versus what's still physics-only.
 
 const STAND_ON := Vector3.ZERO
 
@@ -65,11 +66,12 @@ const ACTIONS := [
 	["MARK — AGGRESSIVE", Tuning.Action.MARK_AGGRESSIVE],
 	["MARK — SAFE MISS", Tuning.Action.MARK_SAFE_MISS],
 	["MARK — RUNNING MISS", Tuning.Action.MARK_RUNNING_MISS],
+	["HIT-OUT", Tuning.Action.HIT_OUT],
 ]
 
 ## No AnimationTree state exists for these yet (see class doc) — listed so
 ## the gap is visible on the screen itself rather than a silent omission.
-const UNIMPLEMENTED := ["TACKLE", "BUMP", "SPOIL", "SMOTHER", "HIT-OUT"]
+const UNIMPLEMENTED := ["TACKLE", "BUMP", "SPOIL", "SMOTHER"]
 
 ## Synthetic vertical hop, independent of the skeleton — there is no jump
 ## clip to preview (MARK — AGGRESSIVE is the only clip with a jump built
