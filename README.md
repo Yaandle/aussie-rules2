@@ -35,15 +35,20 @@ project.godot            input map, autoloads, physics layers
 scripts/
   tuning.gd               every tunable constant + shared enums (Team, Action)
   main.gd                 milestone-1 sandbox harness (scenes/main.tscn)
-  autoload/                InputManager, GameState, MatchState, CharacterProfile,
-                            Settings (persisted user://settings.cfg), SceneWipe,
+  autoload/                InputManager, GameState, ControlMode (routes human input to
+                            whichever body should receive it — SINGLE_PLAYER/TEAM_COMMAND),
+                            MatchState, CharacterProfile, Settings (persisted
+                            user://settings.cfg), SceneWipe,
                             AudioManager (synthesized placeholder SFX)
-  player/                  PlayerController (weight model, disposal, contests),
-                            PlayerAnimation, HumanoidRig/HumanoidAnimations,
-                            KickTrajectory, SkeletonWireframe
-  mechanics/               PlayerBrain / HumanBrain / AIBrain, CoachNPC,
-                            CoachChallenge (shared base) + KickChallenge,
-                            MarkChallenge, TackleChallenge
+  player/                  PlayerController (weight model, disposal, contests,
+                            Slide/Lunge tackle resolution), PlayerAnimation,
+                            HumanoidRig/HumanoidAnimations, KickTrajectory,
+                            SkeletonWireframe
+  mechanics/               PlayerBrain / HumanBrain / AIBrain / CommandBrain
+                            (AIBrain + an issued-order override, TEAM_COMMAND's
+                            non-selected teammates), CoachNPC, CoachChallenge
+                            (shared base) + KickChallenge, MarkChallenge,
+                            TackleChallenge
   modes/                   full_game.gd (match state machine), kick_to_kick.gd
   ball/                    Ball (RigidBody3D: spheroid hull, drag, Magnus, carry/launch)
   camera/                  BroadcastCamera (chase rig, Full-Side broadcast rig, dialogue two-shot)
@@ -51,10 +56,15 @@ scripts/
   ai/                      TeamFormation (18-slot AFL formation data)
   ui/                      main menu, character screen, team list, settings,
                             remap screen, scoreboard, debug hud, pause/match-end screens
+  dev/                     animation_viewer.gd — dev-only clip preview + a Tackle
+                            Sandbox mode (two real, controllable players for testing
+                            tackle/contest physics in isolation)
 
 scenes/                   mirrors scripts/ — see each script's header comment
   modes/full_game.tscn     the match scene FULL GAME launches
   modes/kick_to_kick.tscn  solo practice, reached via the character screen
+  dev/animation_viewer.tscn  not reachable from the menu — open directly in the
+                              editor (see scripts/dev/ above)
   main.tscn                milestone-1 sandbox
 
 assets/shaders/           turf, boundary glow, backdrop scrims — no imported art yet
@@ -68,20 +78,34 @@ docs/
 
 | Action | Keyboard / Mouse | Pad |
 |---|---|---|
-| Move / walk / sprint | `WASD` / `Ctrl` / `Shift` | Stick / — / L3 (click) |
+| Move / walk / sprint | `WASD` / `Ctrl` / `Shift` | Stick / — / L3 (click) or RT |
 | Camera / recentre | Mouse, arrows / `C` | Right stick / R3 |
 | Kick stance — hold to aim/charge | Right Mouse (or `K`) | LT |
 | Kick execute — aimed, while in stance | Left Mouse (or `F`) | RT (while LT held) |
 | Kick hip-fire — quick, imprecise | Left Mouse (or `F`) | RT (LT not held) |
 | Handball (toward move direction) | `Q` | X |
-| Bounce (in possession) · Tackle (hold, not) | `Space` · `E` | B · B |
+| Bounce (in possession) | `Space` | B |
+| Slide tackle — hold, not carrying (higher takedown chance, real cost on a miss) | `E` | B |
+| Lunge tackle — tap, not carrying (lower commitment, weaker against a fast carrier) | `Q` | X |
 | Mark: Safe (hold) · Running (tap) · Aggressive (tap, jumps) | `G` · `Q` · `H` | A · X · Y |
 | Spoil (not carrying, near a contest) | `P` | LT (tap) |
 | Smother (not carrying, opponent mid-kick) | `Q` | X |
 | Bump: hold stance, flick right stick to swing | `L` + flick | LB + flick |
 | Hit-out — ruck contest only | `J` | RB |
-| Switch player · Pause | `Tab` · `Esc` | LB (D-pad L cycles) · Start |
+| Switch controlled player (Single Player mode) | `Tab` | D-pad Left |
+| Toggle Single Player / Team Command mode | `M` | D-pad Right |
+| Issue a move-here order (Team Command mode) | `B` | Misc1 (Xbox Share / PS Create) |
+| Pause | `Esc` | Start |
 | Reset ball · Debug HUD | `R` · `F3` | Back · D-pad up |
+
+Slide and Lunge are two different tackle commitments, not two ways to do the
+same thing — both resolve from real closing speed, approach angle, and
+carrier speed at contact (never a dice roll), but Slide favours takedown
+odds over risk and Lunge favours staying on your feet over reliability.
+Team Command is a minimal whole-team-control mode: you keep direct control
+of one player and can send the nearest teammate to a lead point ahead of
+you; it's a debug-grade entry point today (`M` to toggle), not a designed
+menu flow yet.
 
 Kick is one action with two triggers, aim and fire. Hold the kick-stance
 button to enter a slowed aiming pose — the mouse or right stick then swings
@@ -91,10 +115,12 @@ button *without* holding stance first fires an instant, less accurate
 hip-fire kick from wherever the body's facing. Settings → MOUSE KICK BUTTONS
 swaps which mouse button aims and which fires.
 
-Many action buttons are context-sensitive: Bounce while carrying becomes
-Tackle once you're not; Handball while carrying becomes Running Mark or
-Smother once you're not; Safe Mark becomes a ground pickup once the ball
-isn't airborne.
+Many action buttons are context-sensitive: on gamepad, Bounce (B) while
+carrying becomes Slide tackle once you're not; Handball (X) while carrying
+becomes Running Mark, Smother, or Lunge tackle depending on the situation
+once you're not (a nearby opponent mid-kick gets smothered, one just
+running with the ball gets lunge-tackled); Safe Mark becomes a ground
+pickup once the ball isn't airborne.
 
 **Training coaches** (`kick_to_kick.tscn` only): walk up to a coach, `Q`/X
 to talk, `Y`/A to accept. The kicking coach runs a target-practice

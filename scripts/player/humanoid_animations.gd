@@ -143,6 +143,13 @@ static func build_library(hip_height: float) -> AnimationLibrary:
 	library.add_animation(&"mark_safe_miss", _build_mark_safe_miss(hip_height))
 	library.add_animation(&"mark_running_miss", _build_mark_running_miss(hip_height))
 	library.add_animation(&"hit_out", _build_hit_out(hip_height))
+	library.add_animation(&"tackled", _build_tackled(hip_height))
+	library.add_animation(&"tackle_grab", _build_tackle_grab(hip_height))
+	library.add_animation(&"tackle_held", _build_tackle_held(hip_height))
+	library.add_animation(&"tackle_takedown", _build_tackle_takedown(hip_height))
+	library.add_animation(&"knocked_back", _build_knocked_back(hip_height))
+	library.add_animation(&"smothered", _build_smothered(hip_height))
+	library.add_animation(&"smother_dive", _build_smother_dive(hip_height))
 	return library
 
 
@@ -180,10 +187,21 @@ static func _gait_pose(phase: float, g: Dictionary) -> Dictionary:
 	# Keep the sole roughly parallel to the turf through the stride.
 	var ankle_l := clampf(-(swing_l + bend_l) * 0.55, -0.6, 0.6)
 	var ankle_r := clampf(-(swing_r + bend_r) * 0.55, -0.6, 0.6)
-	# Both hips lean toward the direction of travel for a side-step, the
-	# trailing one harder — a shuffle, not a march.
-	var abduct_l := abduct * (0.55 + 0.45 * sin(a))
-	var abduct_r := abduct * (0.55 - 0.45 * sin(a))
+	# Sideways shuffle without the legs crossing: abduction opens each leg
+	# AWAY from the centreline — a limb hangs along -Y, so a +Z rotation
+	# swings the left foot outward (+X) and a -Z rotation swings the right
+	# foot outward (-X), so the two hips never rotate toward one another.
+	# `abduct`'s sign only picks which leg leads the step (that one opens a
+	# little further on its push half of the cycle); its magnitude is the
+	# stance width. The previous version applied one signed value to BOTH
+	# hips, which by that same convention drove one leg inward across the
+	# other — the shins/knees visibly clipping through each other on a hard
+	# strafe. Splaying both outward instead removes the intersection while
+	# still reading as a weighted side-step.
+	var spread := absf(abduct)
+	var lead := signf(abduct)
+	var abduct_l := spread * (0.65 + 0.45 * maxf(0.0, lead * sin(a)))
+	var abduct_r := -spread * (0.65 + 0.45 * maxf(0.0, -lead * sin(a)))
 
 	var pose := _base_pose()
 	pose["hip_y"] = -bob * cos(2.0 * a)
@@ -531,6 +549,384 @@ static func _build_hit_out(hip_height: float) -> Animation:
 			"elbow_l": Vector3(0.10, 0.0, 0.0), "elbow_r": Vector3(-0.30, 0.0, 0.0),
 			"hip_l": Vector3(0.15, 0.0, 0.0), "knee_l": Vector3(-0.55, 0.0, 0.0),
 			"hip_r": Vector3(0.10, 0.0, 0.0), "knee_r": Vector3(-0.50, 0.0, 0.0),
+		})],
+		[length, _base_pose()],
+	], hip_height)
+
+
+## A successfully tackled player going down, facing away from the hit —
+## PlayerController._get_tackled() (and, since the hit-stick bump rework,
+## _knockdown() generally) already snaps body-facing to that direction
+## before this ever starts (_fall_toward()), so the clip itself only ever
+## has to know how to topple straight ahead in local space, never which way
+## world-space "away from the tackler" actually points.
+##
+## Bug found and fixed here, not just a sign flip: the original version of
+## this clip never actually wrote a "hips" key at all (every pose dict
+## below went straight from hip_y to torso), despite its own doc comment
+## already saying the design should be "hips" (the root bone every other
+## bone hangs off) carrying the big pitch and "torso"/"neck" only adding a
+## small relative hunch on top. With "hips" silently staying at its
+## Vector3.ZERO default the whole clip, all ~1.1-1.5 rad (63-86 deg) of
+## pitch that should have been the whole body toppling as a unit landed on
+## "torso" alone instead — the chest whipping back and forth relative to a
+## pelvis that stayed bolt upright the entire time, which is exactly the
+## "weird glitch, not a fall" report: a body snapping in half at the waist,
+## not a person going to ground. Fixed by moving that big pitch onto
+## "hips" where the design always said it belonged, and cutting "torso"/
+## "neck" down to a genuinely small hunch (max ~0.24 rad) riding on top of
+## it — legs/arms untouched, they were already using the established
+## kick-derived swing convention correctly (positive = forward/up).
+##
+## Sign, while already in here: "hips" runs along +Y like "torso" already
+## does in _gait_pose's own convention ("the torso runs along +Y, so its
+## lean is the same rotation with the opposite sign" as a limb) — negative
+## X pitches it toward -Z, i.e. toward wherever local "forward" currently
+## points. _fall_toward() has already rotated the whole body so local
+## forward IS the real fall direction by the time this clip starts, so a
+## negative "hips" pitch means the body goes down face-first in the
+## direction it's travelling — the read this clip has always wanted.
+## Least-confident part of this fix, same as before: if it now reads as
+## falling backward or into the tackler, every "hips"/"torso"/"neck" angle
+## below needs the same sign flip and nothing else changes — check in the
+## Animation Viewer's Tackle Sandbox.
+static func _build_tackled(hip_height: float) -> Animation:
+	var length := Tuning.action_duration(Tuning.Action.TACKLED)
+	var contact := Tuning.action_contact_time(Tuning.Action.TACKLED)
+	return _assemble(length, false, [
+		# Impact: thrown off balance, arms flung wide, legs starting to buckle.
+		[0.0, _pose({
+			"hip_y": -0.05, "hips": Vector3(-0.30, 0.0, 0.05), "torso": Vector3(-0.10, 0.0, 0.02),
+			"neck": Vector3(-0.05, 0.0, 0.0),
+			"shoulder_l": Vector3(0.90, 0.0, -0.95), "elbow_l": Vector3(-0.30, 0.0, 0.0),
+			"shoulder_r": Vector3(0.70, 0.0, 0.85), "elbow_r": Vector3(-0.25, 0.0, 0.0),
+			"hip_l": Vector3(0.35, 0.0, 0.0), "knee_l": Vector3(-0.60, 0.0, 0.0),
+			"hip_r": Vector3(0.20, 0.0, 0.0), "knee_r": Vector3(-0.75, 0.0, 0.0),
+		})],
+		# Mid-fall at `contact` — hips dropping hard, pitching toward the
+		# ground, arms bracing forward for the landing.
+		[contact, _pose({
+			"hip_y": -0.45, "hips": Vector3(-0.95, 0.0, 0.08), "torso": Vector3(-0.20, 0.0, 0.03),
+			"neck": Vector3(-0.10, 0.0, 0.0),
+			"shoulder_l": Vector3(1.60, 0.0, -0.55), "elbow_l": Vector3(-0.20, 0.0, 0.0),
+			"shoulder_r": Vector3(1.50, 0.0, 0.50), "elbow_r": Vector3(-0.20, 0.0, 0.0),
+			"hip_l": Vector3(0.15, 0.0, 0.0), "knee_l": Vector3(-1.00, 0.0, 0.0),
+			"hip_r": Vector3(0.05, 0.0, 0.0), "knee_r": Vector3(-1.10, 0.0, 0.0),
+		})],
+		# Hits the ground — near-flat, limbs sprawled.
+		[lerpf(contact, length, 0.35), _pose({
+			"hip_y": -0.80, "hips": Vector3(-1.30, 0.0, 0.10), "torso": Vector3(-0.24, 0.0, 0.04),
+			"neck": Vector3(-0.12, 0.0, 0.05),
+			"shoulder_l": Vector3(1.30, 0.0, -1.10), "elbow_l": Vector3(-0.45, 0.0, 0.0),
+			"shoulder_r": Vector3(1.20, 0.0, 1.05), "elbow_r": Vector3(-0.40, 0.0, 0.0),
+			"hip_l": Vector3(0.05, 0.0, 0.0), "knee_l": Vector3(-0.85, 0.0, 0.0),
+			"hip_r": Vector3(-0.05, 0.0, 0.0), "knee_r": Vector3(-0.95, 0.0, 0.0),
+		})],
+		# Down and settled — a brief stunned beat rather than an identical
+		# hold, so it reads as landing rather than freezing.
+		[lerpf(contact, length, 0.62), _pose({
+			"hip_y": -0.78, "hips": Vector3(-1.28, 0.0, 0.10), "torso": Vector3(-0.22, 0.0, 0.04),
+			"neck": Vector3(-0.10, 0.0, 0.04),
+			"shoulder_l": Vector3(1.15, 0.0, -1.00), "elbow_l": Vector3(-0.50, 0.0, 0.0),
+			"shoulder_r": Vector3(1.05, 0.0, 0.95), "elbow_r": Vector3(-0.45, 0.0, 0.0),
+			"hip_l": Vector3(0.08, 0.0, 0.0), "knee_l": Vector3(-0.80, 0.0, 0.0),
+			"hip_r": Vector3(-0.02, 0.0, 0.0), "knee_r": Vector3(-0.90, 0.0, 0.0),
+		})],
+		# Push-up recovery begins, asymmetric (one arm driving off the
+		# ground) rather than a symmetric rise — reads as getting up, not
+		# the fall playing in reverse.
+		[lerpf(contact, length, 0.88), _pose({
+			"hip_y": -0.30, "hips": Vector3(-0.50, 0.0, 0.0), "torso": Vector3(-0.08, 0.0, 0.0),
+			"neck": Vector3(0.05, 0.0, 0.0),
+			"shoulder_l": Vector3(0.60, 0.0, -0.40), "elbow_l": Vector3(-1.20, 0.0, 0.0),
+			"shoulder_r": Vector3(0.30, 0.0, 0.25), "elbow_r": Vector3(-0.35, 0.0, 0.0),
+			"hip_l": Vector3(0.25, 0.0, 0.0), "knee_l": Vector3(-0.70, 0.0, 0.0),
+			"hip_r": Vector3(-0.15, 0.0, 0.0), "knee_r": Vector3(-0.30, 0.0, 0.0),
+		})],
+		[length, _base_pose()],
+	], hip_height)
+
+
+## Tackler's hug beat (PlayerController._try_tackle, Slide connects only —
+## see Tuning.Action's own doc comment on why Lunge doesn't get one instead
+## it gets TACKLE_TAKEDOWN below): reach in and wrap both arms AROUND the
+## target rather than driving down onto them — playtest feedback wanted
+## Slide to read as a wrap-up hold (both bodies stay standing, synced with
+## the target's own TACKLE_HELD), not a knockdown, so this clip was
+## softened from an earlier "drive down" version to match: shoulders pull
+## in close to near-zero spread and elbows bend deep, the shape of arms
+## closing around someone rather than reaching past them. Not aimed at the
+## target's actual position (no root motion yet — see player_animation.gd's
+## own "NOT YET WIRED" note) — a generic committed reach-and-wrap reads
+## fine since the tackler is already facing the target at the moment of
+## contact.
+static func _build_tackle_grab(hip_height: float) -> Animation:
+	var length := Tuning.action_duration(Tuning.Action.TACKLE_GRAB)
+	var contact := Tuning.action_contact_time(Tuning.Action.TACKLE_GRAB)
+	return _assemble(length, false, [
+		[0.0, _base_pose()],
+		[contact * 0.6, _pose({
+			"hip_y": -0.04, "torso": Vector3(-0.12, 0.0, 0.0),
+			"shoulder_l": Vector3(0.70, 0.0, -0.20), "elbow_l": Vector3(-0.60, 0.0, 0.0),
+			"shoulder_r": Vector3(0.65, 0.0, 0.16), "elbow_r": Vector3(-0.55, 0.0, 0.0),
+			"hip_l": Vector3(0.10, 0.0, 0.0), "knee_l": Vector3(-0.15, 0.0, 0.0),
+		})],
+		[contact, _pose({
+			"hip_y": -0.06, "torso": Vector3(-0.10, 0.0, 0.0),
+			"shoulder_l": Vector3(0.75, 0.0, -0.05), "elbow_l": Vector3(-1.10, 0.0, 0.0),
+			"shoulder_r": Vector3(0.70, 0.0, 0.05), "elbow_r": Vector3(-1.05, 0.0, 0.0),
+			"hip_l": Vector3(0.15, 0.0, 0.0), "knee_l": Vector3(-0.20, 0.0, 0.0),
+			"hip_r": Vector3(-0.08, 0.0, 0.0), "knee_r": Vector3(-0.10, 0.0, 0.0),
+		})],
+		[lerpf(contact, length, 0.55), _pose({
+			"hip_y": -0.05, "torso": Vector3(-0.08, 0.0, 0.0),
+			"shoulder_l": Vector3(0.60, 0.0, -0.08), "elbow_l": Vector3(-0.95, 0.0, 0.0),
+			"shoulder_r": Vector3(0.55, 0.0, 0.06), "elbow_r": Vector3(-0.90, 0.0, 0.0),
+		})],
+		[length, _base_pose()],
+	], hip_height)
+
+
+## Target's reaction to a Slide connect — wrapped up and held, standing,
+## the whole point of TACKLE_HELD's existence (playtest feedback: Slide
+## should hold them up rather than knock them down, distinct from Lunge's
+## own TACKLED fall — see Tuning.Action.TACKLE_HELD's own comment). Synced
+## with the tackler's own TACKLE_GRAB just above: a small backward stagger
+## on impact (torso arches back slightly, the "same rotation, opposite
+## sign" convention _gait_pose() establishes for a limb vs. the torso —
+## positive here, unlike TACKLED's own forward crumple, since this is a
+## much smaller stagger, not a topple), arms pinned close against the body
+## (reduced shoulder spread, deep elbow bend — can't swing them, held
+## still), a brief struggle wobble, then released back to base as the ball
+## goes. No facing change — PlayerController._get_tackled() doesn't call
+## _fall_toward() for a Slide connect, the target keeps whatever way they
+## were already facing.
+static func _build_tackle_held(hip_height: float) -> Animation:
+	var length := Tuning.action_duration(Tuning.Action.TACKLE_HELD)
+	var contact := Tuning.action_contact_time(Tuning.Action.TACKLE_HELD)
+	return _assemble(length, false, [
+		[0.0, _base_pose()],
+		[contact, _pose({
+			"hip_y": -0.03, "torso": Vector3(0.12, 0.0, 0.0), "neck": Vector3(-0.03, 0.0, 0.0),
+			"shoulder_l": Vector3(0.25, 0.0, -0.05), "elbow_l": Vector3(-0.85, 0.0, 0.0),
+			"shoulder_r": Vector3(0.22, 0.0, 0.05), "elbow_r": Vector3(-0.80, 0.0, 0.0),
+			"hip_l": Vector3(-0.10, 0.0, 0.0), "knee_l": Vector3(-0.12, 0.0, 0.0),
+			"hip_r": Vector3(-0.08, 0.0, 0.0), "knee_r": Vector3(-0.10, 0.0, 0.0),
+		})],
+		[lerpf(contact, length, 0.5), _pose({
+			"hip_y": -0.02, "torso": Vector3(0.06, 0.0, 0.03), "neck": Vector3(-0.02, 0.0, 0.0),
+			"shoulder_l": Vector3(0.20, 0.0, -0.04), "elbow_l": Vector3(-0.70, 0.0, 0.0),
+			"shoulder_r": Vector3(0.18, 0.0, 0.04), "elbow_r": Vector3(-0.68, 0.0, 0.0),
+		})],
+		[length, _base_pose()],
+	], hip_height)
+
+
+## Tackler's own beat on a Lunge connect (PlayerController._try_lunge_
+## tackle) — playtest feedback: "the lunge tackle can take both players to
+## the ground," synced with the target's own TACKLED fall (same 1.3s
+## length/0.30 contact). Drives forward and down into a low, deep crouch —
+## ending kneeling near the felled target, not standing over them untouched
+## — then rises back up. Torso-only pitch is enough at these more modest
+## crouch angles (max ~0.55 rad, an everyday forward lean, not the ~1.3 rad
+## topple TACKLED/KNOCKED_BACK need the root "hips" bone for — see that
+## clip's own doc comment on why the distinction matters at the extreme end
+## but not here). The tackler themselves never actually falls or gets
+## stunned (PlayerController._try_lunge_tackle's own doc comment) — this is
+## a cosmetic crouch layered on the same "stays on feet" physical outcome
+## Lunge has always had, not a second real knockdown.
+static func _build_tackle_takedown(hip_height: float) -> Animation:
+	var length := Tuning.action_duration(Tuning.Action.TACKLE_TAKEDOWN)
+	var contact := Tuning.action_contact_time(Tuning.Action.TACKLE_TAKEDOWN)
+	return _assemble(length, false, [
+		[0.0, _base_pose()],
+		[contact * 0.5, _pose({
+			"hip_y": -0.12, "torso": Vector3(-0.35, 0.0, 0.0), "neck": Vector3(0.12, 0.0, 0.0),
+			"shoulder_l": Vector3(0.75, 0.0, -0.30), "elbow_l": Vector3(-0.55, 0.0, 0.0),
+			"shoulder_r": Vector3(0.70, 0.0, 0.28), "elbow_r": Vector3(-0.50, 0.0, 0.0),
+			"hip_l": Vector3(0.40, 0.0, 0.0), "knee_l": Vector3(-0.55, 0.0, 0.0),
+			"hip_r": Vector3(-0.15, 0.0, 0.0), "knee_r": Vector3(-0.20, 0.0, 0.0),
+		})],
+		[contact, _pose({
+			"hip_y": -0.35, "torso": Vector3(-0.55, 0.0, 0.0), "neck": Vector3(0.18, 0.0, 0.0),
+			"shoulder_l": Vector3(0.95, 0.0, -0.20), "elbow_l": Vector3(-0.75, 0.0, 0.0),
+			"shoulder_r": Vector3(0.90, 0.0, 0.18), "elbow_r": Vector3(-0.70, 0.0, 0.0),
+			"hip_l": Vector3(0.55, 0.0, 0.0), "knee_l": Vector3(-0.85, 0.0, 0.0),
+			"hip_r": Vector3(-0.30, 0.0, 0.0), "knee_r": Vector3(-0.30, 0.0, 0.0),
+		})],
+		[lerpf(contact, length, 0.55), _pose({
+			"hip_y": -0.55, "torso": Vector3(-0.45, 0.0, 0.0), "neck": Vector3(0.10, 0.0, 0.0),
+			"shoulder_l": Vector3(0.70, 0.0, -0.15), "elbow_l": Vector3(-0.90, 0.0, 0.0),
+			"shoulder_r": Vector3(0.65, 0.0, 0.14), "elbow_r": Vector3(-0.85, 0.0, 0.0),
+			"hip_l": Vector3(0.65, 0.0, 0.0), "knee_l": Vector3(-1.10, 0.0, 0.0),
+			"hip_r": Vector3(-0.20, 0.0, 0.0), "knee_r": Vector3(-0.40, 0.0, 0.0),
+		})],
+		[lerpf(contact, length, 0.85), _pose({
+			"hip_y": -0.25, "torso": Vector3(-0.20, 0.0, 0.0), "neck": Vector3(0.05, 0.0, 0.0),
+			"shoulder_l": Vector3(0.40, 0.0, -0.10), "elbow_l": Vector3(-0.60, 0.0, 0.0),
+			"shoulder_r": Vector3(0.35, 0.0, 0.10), "elbow_r": Vector3(-0.55, 0.0, 0.0),
+			"hip_l": Vector3(0.30, 0.0, 0.0), "knee_l": Vector3(-0.55, 0.0, 0.0),
+			"hip_r": Vector3(-0.10, 0.0, 0.0), "knee_r": Vector3(-0.15, 0.0, 0.0),
+		})],
+		[length, _base_pose()],
+	], hip_height)
+
+
+## A clean Bump connect's own fall — mirrors _build_tackled() exactly
+## (identical hip_y/shoulder/elbow/leg keys at every corresponding time)
+## except "hips"/"torso"/"neck" are sign-flipped positive instead of
+## negative. TACKLED's own convention pitches the body forward along
+## whatever direction _fall_toward() just snapped facing to — right for a
+## tackle (driven down in the direction of momentum), wrong for a clean
+## hit from the front, which playtest feedback confirmed was spinning the
+## target 180° to face away before falling. PlayerController._resolve_
+## bump_contact() skips the facing snap entirely for this Action
+## (_knockdown()'s own `snap_facing = false`), so the body falls straight
+## backward relative to whichever way it was already facing — the "torso
+## runs along +Y, same rotation, opposite sign as a limb" rule _gait_pose()
+## already establishes, just applied to "hips" (the root bone) the same
+## way the TACKLED fix did, with the sign that means "backward" instead of
+## "forward." Arms/legs are physically direction-agnostic (someone losing
+## their balance flails and buckles the same way whichever way they're
+## about to land) so those keys are untouched from TACKLED's own values.
+static func _build_knocked_back(hip_height: float) -> Animation:
+	var length := Tuning.action_duration(Tuning.Action.KNOCKED_BACK)
+	var contact := Tuning.action_contact_time(Tuning.Action.KNOCKED_BACK)
+	return _assemble(length, false, [
+		[0.0, _pose({
+			"hip_y": -0.05, "hips": Vector3(0.30, 0.0, 0.05), "torso": Vector3(0.10, 0.0, 0.02),
+			"neck": Vector3(0.05, 0.0, 0.0),
+			"shoulder_l": Vector3(0.90, 0.0, -0.95), "elbow_l": Vector3(-0.30, 0.0, 0.0),
+			"shoulder_r": Vector3(0.70, 0.0, 0.85), "elbow_r": Vector3(-0.25, 0.0, 0.0),
+			"hip_l": Vector3(0.35, 0.0, 0.0), "knee_l": Vector3(-0.60, 0.0, 0.0),
+			"hip_r": Vector3(0.20, 0.0, 0.0), "knee_r": Vector3(-0.75, 0.0, 0.0),
+		})],
+		[contact, _pose({
+			"hip_y": -0.45, "hips": Vector3(0.95, 0.0, 0.08), "torso": Vector3(0.20, 0.0, 0.03),
+			"neck": Vector3(0.10, 0.0, 0.0),
+			"shoulder_l": Vector3(1.60, 0.0, -0.55), "elbow_l": Vector3(-0.20, 0.0, 0.0),
+			"shoulder_r": Vector3(1.50, 0.0, 0.50), "elbow_r": Vector3(-0.20, 0.0, 0.0),
+			"hip_l": Vector3(0.15, 0.0, 0.0), "knee_l": Vector3(-1.00, 0.0, 0.0),
+			"hip_r": Vector3(0.05, 0.0, 0.0), "knee_r": Vector3(-1.10, 0.0, 0.0),
+		})],
+		[lerpf(contact, length, 0.35), _pose({
+			"hip_y": -0.80, "hips": Vector3(1.30, 0.0, 0.10), "torso": Vector3(0.24, 0.0, 0.04),
+			"neck": Vector3(0.12, 0.0, 0.05),
+			"shoulder_l": Vector3(1.30, 0.0, -1.10), "elbow_l": Vector3(-0.45, 0.0, 0.0),
+			"shoulder_r": Vector3(1.20, 0.0, 1.05), "elbow_r": Vector3(-0.40, 0.0, 0.0),
+			"hip_l": Vector3(0.05, 0.0, 0.0), "knee_l": Vector3(-0.85, 0.0, 0.0),
+			"hip_r": Vector3(-0.05, 0.0, 0.0), "knee_r": Vector3(-0.95, 0.0, 0.0),
+		})],
+		[lerpf(contact, length, 0.62), _pose({
+			"hip_y": -0.78, "hips": Vector3(1.28, 0.0, 0.10), "torso": Vector3(0.22, 0.0, 0.04),
+			"neck": Vector3(0.10, 0.0, 0.04),
+			"shoulder_l": Vector3(1.15, 0.0, -1.00), "elbow_l": Vector3(-0.50, 0.0, 0.0),
+			"shoulder_r": Vector3(1.05, 0.0, 0.95), "elbow_r": Vector3(-0.45, 0.0, 0.0),
+			"hip_l": Vector3(0.08, 0.0, 0.0), "knee_l": Vector3(-0.80, 0.0, 0.0),
+			"hip_r": Vector3(-0.02, 0.0, 0.0), "knee_r": Vector3(-0.90, 0.0, 0.0),
+		})],
+		[lerpf(contact, length, 0.88), _pose({
+			"hip_y": -0.30, "hips": Vector3(0.50, 0.0, 0.0), "torso": Vector3(0.08, 0.0, 0.0),
+			"neck": Vector3(-0.05, 0.0, 0.0),
+			"shoulder_l": Vector3(0.60, 0.0, -0.40), "elbow_l": Vector3(-1.20, 0.0, 0.0),
+			"shoulder_r": Vector3(0.30, 0.0, 0.25), "elbow_r": Vector3(-0.35, 0.0, 0.0),
+			"hip_l": Vector3(0.25, 0.0, 0.0), "knee_l": Vector3(-0.70, 0.0, 0.0),
+			"hip_r": Vector3(-0.15, 0.0, 0.0), "knee_r": Vector3(-0.30, 0.0, 0.0),
+		})],
+		[length, _base_pose()],
+	], hip_height)
+
+
+## Smother's reaction: the kick blocked at the boot, hands recoiling off
+## the impact and a half-step stumble backward — a recoil, not a knockdown,
+## so it never reaches TACKLED's near-flat sprawl (PlayerController.
+## _get_smothered plays this directly, no fall direction to compute; the
+## body doesn't turn, it just flinches).
+static func _build_smothered(hip_height: float) -> Animation:
+	var length := Tuning.action_duration(Tuning.Action.SMOTHERED)
+	var contact := Tuning.action_contact_time(Tuning.Action.SMOTHERED)
+	return _assemble(length, false, [
+		[0.0, _base_pose()],
+		[contact, _pose({
+			"hip_y": -0.04, "torso": Vector3(0.22, 0.0, 0.0), "neck": Vector3(-0.10, 0.0, 0.0),
+			"shoulder_l": Vector3(0.55, 0.0, -0.50), "elbow_l": Vector3(-0.65, 0.0, 0.0),
+			"shoulder_r": Vector3(0.50, 0.0, 0.48), "elbow_r": Vector3(-0.60, 0.0, 0.0),
+			"hip_l": Vector3(-0.20, 0.0, 0.0), "knee_l": Vector3(-0.15, 0.0, 0.0),
+			"hip_r": Vector3(-0.15, 0.0, 0.0), "knee_r": Vector3(-0.15, 0.0, 0.0),
+		})],
+		[lerpf(contact, length, 0.55), _pose({
+			"hip_y": -0.02, "torso": Vector3(0.10, 0.0, 0.0), "neck": Vector3(-0.04, 0.0, 0.0),
+			"shoulder_l": Vector3(0.25, 0.0, -0.28), "elbow_l": Vector3(-0.35, 0.0, 0.0),
+			"shoulder_r": Vector3(0.22, 0.0, 0.26), "elbow_r": Vector3(-0.32, 0.0, 0.0),
+			"hip_l": Vector3(-0.08, 0.0, 0.0), "hip_r": Vector3(-0.06, 0.0, 0.0),
+		})],
+		[length, _base_pose()],
+	], hip_height)
+
+
+## Smother's dive — the beat on the SMOTHERER, not the smothered player
+## (see Action.SMOTHERED just above for that side). Reworked into a real
+## ground dive after playtest feedback the first version never actually
+## went down ("doesn't make the player dive at the ground towards
+## oppositions player feet") — a low, forward-driving lunge into a full
+## horizontal stretch along the ground, both arms reaching far forward and
+## low at boot height (design intent: blocking the ball off the boot, not
+## catching it out of the air the way a mark's overhead reach does), one
+## leg driving off then both trailing extended behind as the body goes
+## flat, before snapping back to standing at the very end. Uses the same
+## "hips" root-bone technique _build_tackled()'s own fix established — the
+## big forward pitch belongs on "hips" (it's the root every other bone
+## hangs off), "torso" only adds a small hunch on top, or the pelvis stays
+## unnaturally upright while the chest folds double, the exact bug that fix
+## was for. Plays out to its full length regardless of whether the dive
+## actually reaches SMOTHER_RADIUS in time (see PlayerController._try_
+## smother_contact) — the dive itself is the animation, the block is a
+## separate game effect layered on top only if it connects. No facing
+## snap needed here (unlike a knockdown) — PlayerController._update_
+## smother() already keeps _smother_dive_direction, and therefore facing,
+## aimed at the live target for as long as the dive is active.
+static func _build_smother_dive(hip_height: float) -> Animation:
+	var length := Tuning.action_duration(Tuning.Action.SMOTHER_DIVE)
+	var contact := Tuning.action_contact_time(Tuning.Action.SMOTHER_DIVE)
+	return _assemble(length, false, [
+		[0.0, _base_pose()],
+		# Push-off: still upright-ish, driving leg loading up.
+		[contact * 0.35, _pose({
+			"hip_y": -0.10, "hips": Vector3(-0.25, 0.0, 0.0), "torso": Vector3(-0.15, 0.0, 0.0),
+			"neck": Vector3(0.10, 0.0, 0.0),
+			"shoulder_l": Vector3(0.55, 0.0, -0.25), "elbow_l": Vector3(-0.20, 0.0, 0.0),
+			"shoulder_r": Vector3(0.50, 0.0, 0.22), "elbow_r": Vector3(-0.20, 0.0, 0.0),
+			"hip_l": Vector3(0.55, 0.0, 0.0), "knee_l": Vector3(-0.70, 0.0, 0.0),
+			"hip_r": Vector3(-0.25, 0.0, 0.0), "knee_r": Vector3(-0.15, 0.0, 0.0),
+		})],
+		# Airborne, stretching out toward horizontal.
+		[contact * 0.7, _pose({
+			"hip_y": -0.35, "hips": Vector3(-0.75, 0.0, 0.0), "torso": Vector3(-0.22, 0.0, 0.0),
+			"neck": Vector3(0.15, 0.0, 0.0),
+			"shoulder_l": Vector3(0.80, 0.0, -0.15), "elbow_l": Vector3(-0.10, 0.0, 0.0),
+			"shoulder_r": Vector3(0.75, 0.0, 0.14), "elbow_r": Vector3(-0.10, 0.0, 0.0),
+			"hip_l": Vector3(0.30, 0.0, 0.0), "knee_l": Vector3(-0.30, 0.0, 0.0),
+			"hip_r": Vector3(-0.55, 0.0, 0.0), "knee_r": Vector3(-0.10, 0.0, 0.0),
+		})],
+		# Ground contact — full horizontal stretch, arms reaching flat at
+		# boot height, legs trailing extended behind.
+		[contact, _pose({
+			"hip_y": -0.65, "hips": Vector3(-1.15, 0.0, 0.0), "torso": Vector3(-0.20, 0.0, 0.0),
+			"neck": Vector3(0.18, 0.0, 0.05),
+			"shoulder_l": Vector3(0.95, 0.0, -0.10), "elbow_l": Vector3(-0.08, 0.0, 0.0),
+			"shoulder_r": Vector3(0.90, 0.0, 0.10), "elbow_r": Vector3(-0.08, 0.0, 0.0),
+			"hip_l": Vector3(0.10, 0.0, 0.0), "knee_l": Vector3(-0.15, 0.0, 0.0),
+			"hip_r": Vector3(-0.65, 0.0, 0.0), "knee_r": Vector3(-0.08, 0.0, 0.0),
+		})],
+		# Held flat on the ground for a beat — the block itself lands
+		# somewhere in this window.
+		[lerpf(contact, length, 0.75), _pose({
+			"hip_y": -0.60, "hips": Vector3(-1.10, 0.0, 0.0), "torso": Vector3(-0.18, 0.0, 0.0),
+			"neck": Vector3(0.15, 0.0, 0.05),
+			"shoulder_l": Vector3(0.85, 0.0, -0.12), "elbow_l": Vector3(-0.20, 0.0, 0.0),
+			"shoulder_r": Vector3(0.80, 0.0, 0.12), "elbow_r": Vector3(-0.20, 0.0, 0.0),
+			"hip_l": Vector3(0.15, 0.0, 0.0), "knee_l": Vector3(-0.20, 0.0, 0.0),
+			"hip_r": Vector3(-0.55, 0.0, 0.0), "knee_r": Vector3(-0.12, 0.0, 0.0),
 		})],
 		[length, _base_pose()],
 	], hip_height)

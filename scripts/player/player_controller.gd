@@ -99,6 +99,15 @@ var _brain: PlayerBrain = HumanBrain.new()
 ## of the time.
 var _stun_timer := 0.0
 
+## Playtest feedback on the bump rework specifically (tackle's own knockdown
+## feel was never flagged, so this is scoped to bump's two knockdown call
+## sites, not the shared _knockdown() helper itself): an all-horizontal
+## slide read as floaty. While positive, _physics_process's floor-snap bite
+## is suspended so a small upward hop (BUMP_KNOCKDOWN_HOP_SPEED) can
+## actually arc under real gravity instead of being cancelled the very next
+## frame — see _resolve_bump_contact()/_resolve_bump_miss().
+var _knockdown_hop_timer := 0.0
+
 ## Seconds left immune to _try_tackle() after taking a legal mark — the
 ## stand-the-mark protection window (Tuning.MARK_HOLD_DURATION). Cleared
 ## early the instant this player disposes of the ball; also doubles as the
@@ -154,8 +163,40 @@ var _is_ruck_contestant := false
 var _ruck_contest_timer := 0.0
 
 ## Seconds left before another Bump attempt can commit — a real hit-stick
-## commitment, not spammable (see _try_bump).
+## commitment, not spammable (see _update_bump).
 var _bump_cooldown := 0.0
+
+## Bump's hit-stick dash (see _update_bump/_try_bump_contact): while
+## _bump_dash_active is true, _update_locomotion overrides normal
+## input-driven movement with a committed dash toward _bump_dash_direction
+## — the same "external velocity owns the body for a window" shape Slide's
+## dive-in (_slide_dive_timer, just below) already uses. Direction comes
+## straight from the flick gesture, not a locked target — a bump never
+## picks a target ahead of time, it swings at a spot and physics decides
+## whether anyone was there. _bump_dash_active outlives the last frame
+## _bump_dash_timer is positive by exactly one frame — that final frame is
+## when _try_bump_contact() (running after move_and_slide, like every
+## other contest resolution in this file) gets to check "did the dash's
+## own clock run out with nobody found," which is the whiff case.
+var _bump_dash_timer := 0.0
+var _bump_dash_direction := Vector3.FORWARD
+var _bump_dash_active := false
+
+## Seconds left before another Smother attempt can launch — see
+## _update_smother.
+var _smother_dive_cooldown := 0.0
+
+## Smother's own committed dive (see _update_smother/_try_smother_contact):
+## while _smother_dive_timer is positive, _update_locomotion overrides
+## normal movement with a dive toward _smother_dive_direction, the same
+## "external velocity owns the body for a window" shape every other
+## committed movement in this file uses — except this one re-aims every
+## frame at _smother_dive_target's live position rather than a direction
+## frozen at launch, since smother (unlike Bump) already has a specific,
+## known target the instant it's triggered.
+var _smother_dive_timer := 0.0
+var _smother_dive_direction := Vector3.FORWARD
+var _smother_dive_target: PlayerController = null
 
 ## Slide tackle's dive-in (see _update_slide_dive): while _slide_dive_timer
 ## is positive, _update_locomotion overrides normal input-driven movement
@@ -287,6 +328,7 @@ func _physics_process(delta: float) -> void:
 	_bump_cooldown = _tick_down(_bump_cooldown, delta)
 	_slide_dive_cooldown = _tick_down(_slide_dive_cooldown, delta)
 	_lunge_tap_cooldown = _tick_down(_lunge_tap_cooldown, delta)
+	_smother_dive_cooldown = _tick_down(_smother_dive_cooldown, delta)
 	_possession_held_seconds = _possession_held_seconds + delta if is_carrying() else 0.0
 	if _is_ruck_contestant:
 		_ruck_contest_timer = maxf(0.0, _ruck_contest_timer - delta)
@@ -298,9 +340,17 @@ func _physics_process(delta: float) -> void:
 	_update_ruck_contest(delta)
 	_update_bump(delta)
 	_update_slide_dive(delta)
+	_update_smother(delta)
 	_update_action(delta)
 
-	if is_on_floor():
+	if _knockdown_hop_timer > 0.0:
+		# A bump knockdown's hop (BUMP_KNOCKDOWN_HOP_SPEED) is already sitting
+		# in velocity.y — let it arc under real gravity instead of the
+		# floor-snap bite below instantly cancelling it back to -0.5 the very
+		# next frame. See _resolve_bump_contact()/_resolve_bump_miss().
+		_knockdown_hop_timer = _tick_down(_knockdown_hop_timer, delta)
+		velocity.y -= Tuning.GRAVITY * delta
+	elif is_on_floor():
 		velocity.y = -0.5   # a little bite into the floor keeps is_on_floor stable
 	else:
 		velocity.y -= Tuning.GRAVITY * delta
@@ -325,7 +375,8 @@ func _physics_process(delta: float) -> void:
 	_try_gather()
 	_try_tackle()
 	_try_lunge_tackle()
-	_try_smother()
+	_try_bump_contact()
+	_try_smother_contact()
 
 	_animation.drive(locomotion_blend(), delta)
 
@@ -355,6 +406,27 @@ func _update_locomotion(delta: float) -> void:
 	if _slide_dive_timer > 0.0:
 		_heading = _slide_dive_direction
 		_speed = Tuning.TACKLE_SLIDE_DIVE_SPEED
+		velocity.x = _heading.x * _speed
+		velocity.z = _heading.z * _speed
+		return
+
+	# Bump's hit-stick dash owns the body the same way Slide's dive-in does
+	# just above — a committed lunge toward _bump_dash_direction, not the
+	# stick. See _update_bump/_try_bump_contact.
+	if _bump_dash_timer > 0.0:
+		_heading = _bump_dash_direction
+		_speed = Tuning.BUMP_DASH_SPEED
+		velocity.x = _heading.x * _speed
+		velocity.z = _heading.z * _speed
+		return
+
+	# Smother's own committed dive owns the body the same way — a lunge
+	# toward _smother_dive_direction, re-aimed at the live target every
+	# frame in _update_smother rather than frozen at launch. See
+	# _update_smother/_try_smother_contact.
+	if _smother_dive_timer > 0.0:
+		_heading = _smother_dive_direction
+		_speed = Tuning.SMOTHER_DIVE_SPEED
 		velocity.x = _heading.x * _speed
 		velocity.z = _heading.z * _speed
 		return
@@ -842,6 +914,11 @@ func _update_slide_dive(delta: float) -> void:
 	_slide_dive_cooldown = Tuning.TACKLE_SLIDE_DIVE_COOLDOWN
 
 
+## Slide connect: the target is held up, not knocked down — playtest
+## feedback wanted the two tackle types to read differently (see Tuning.
+## Action.TACKLE_HELD's own comment). TACKLE_GRAB (tackler) and TACKLE_HELD
+## (target) are a synced pair, the same "two bodies meeting" relationship
+## TACKLE_TAKEDOWN/TACKLED are for Lunge just below.
 func _try_tackle() -> void:
 	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE or _mark_readying:
 		return
@@ -856,23 +933,35 @@ func _try_tackle() -> void:
 	if target == null:
 		return
 	if _resolve_tackle_contact(self, target, true):
-		target._get_tackled(self)
+		target._get_tackled(self, true)
+		# Never blocked here: _try_tackle()'s own top guard already requires
+		# _action == NONE on self before any of this runs.
+		_begin(Tuning.Action.TACKLE_GRAB)
 	else:
-		# A whiffed Slide is the costliest miss in the kit on purpose — see
-		# TACKLE_SLIDE_MISS_STUN_DURATION's own comment. maxf, not overwrite,
-		# matches receive_bump's pattern of never shortening a stun already
-		# in progress.
+		# A whiffed Slide used to be the single costliest miss in the kit;
+		# the hit-stick bump rework gave that title to a whiffed bump instead
+		# — see TACKLE_SLIDE_MISS_STUN_DURATION's own updated comment. maxf,
+		# not overwrite, matches receive_bump's pattern of never shortening a
+		# stun already in progress.
 		_stun_timer = maxf(_stun_timer, Tuning.TACKLE_SLIDE_MISS_STUN_DURATION)
 
 
 ## Lunge tackle (Q/X tap, not carrying): a quick strip attempt at whatever's
 ## already within TACKLE_RADIUS right now — never dashes, unlike Slide's own
-## dive-in (_update_slide_dive), and stays on feet either way (see
-## _lunge_tap_cooldown). Shares its physical binding with wants_handball()/
-## wants_mark_running()/wants_smother() — excludes anyone _try_smother()
-## would also claim (kick-aiming/mid-swing: a kick already being blocked at
-## the boot is smother's job, not this one's) so the two never actually
-## compete for the same target on the same press.
+## dive-in (_update_slide_dive). Playtest feedback: "the lunge tackle can
+## take both players to the ground" — the target still goes all the way
+## down (Action.TACKLED, unchanged), and now the tackler gets their own
+## synced Action.TACKLE_TAKEDOWN beat too, driving down and ending low
+## rather than standing untouched. The tackler themselves still isn't
+## stunned and stays on their feet physically (no _stun_timer change, no
+## collision/capsule change, `_lunge_tap_cooldown` unaffected either way) —
+## TACKLE_TAKEDOWN is a cosmetic crouch layered on top of that, not a
+## second real knockdown; a whiffed Lunge still only pays the short tap
+## cooldown below, same as always. Shares its physical binding with wants_
+## handball()/wants_mark_running()/wants_smother() — excludes anyone
+## _update_smother() would also claim (kick-aiming/mid-swing: a kick
+## already being blocked at the boot is smother's job, not this one's) so
+## the two never actually compete for the same target on the same press.
 func _try_lunge_tackle() -> void:
 	if is_carrying() or _stun_timer > 0.0 or _lunge_tap_cooldown > 0.0 \
 			or _action != Tuning.Action.NONE or _mark_readying:
@@ -885,47 +974,146 @@ func _try_lunge_tackle() -> void:
 	if target == null:
 		return
 	if _resolve_tackle_contact(self, target, false):
-		target._get_tackled(self)
+		target._get_tackled(self, false)
+		_begin(Tuning.Action.TACKLE_TAKEDOWN)
 	else:
 		_lunge_tap_cooldown = Tuning.TACKLE_LUNGE_TAP_COOLDOWN
 
 
-## Called on the tackled player, by the tackler.
-func _get_tackled(by: PlayerController) -> void:
+## Called on the tackled player, by the tackler. `is_slide` picks which
+## reaction plays — a Slide connect holds the target up (Action.TACKLE_
+## HELD, standing, no fall); a Lunge connect still takes them all the way
+## down (Action.TACKLED via _knockdown(), falling facing away from the
+## hit — the same scatter direction the ball spills in, design brief: a
+## tackled player goes down "in the direction it is coming from"). The
+## ball's own drop differs too, on purpose: a Lunge connecting is a real
+## loose-ball spill (TACKLE_SPILL_SPEED scatter impulse, the same physical
+## contest a knockdown always has); a Slide connect is a held-up strip —
+## playtest feedback: "the animation drops the ball, the ball typically
+## would not spill out if the tackle is held" — so it just falls straight
+## down from wherever it was carried (drop_ball()'s own detach(), no
+## impulse at all), landing at the target's feet rather than scattering
+## away from them.
+func _get_tackled(by: PlayerController, is_slide: bool) -> void:
 	var ball := _carried_ball
 	# Captured before drop_ball() resets anything, though drop_ball() itself
 	# doesn't touch this timer — is_carrying() going false next frame is what
 	# actually zeroes it (see _physics_process) — read now regardless, so
 	# there's no dependency on exactly when that reset happens to land.
 	var holding_the_ball := _possession_held_seconds >= Tuning.PRIOR_OPPORTUNITY_GRACE
+	var scatter := _scatter_from(by, 0.0)
 	drop_ball()
-	_stun_timer = Tuning.TACKLE_STUN_DURATION
-	_action = Tuning.Action.NONE
-	_action_elapsed = 0.0
-	_action_fired = false
-	if is_instance_valid(ball):
-		ball.apply_central_impulse(_scatter_from(by, 0.0) * Tuning.TACKLE_SPILL_SPEED * ball.mass)
+	if is_slide:
+		_stun_timer = maxf(_stun_timer, Tuning.TACKLE_HELD_STUN_DURATION)
+		_action = Tuning.Action.NONE
+		_begin(Tuning.Action.TACKLE_HELD)
+	else:
+		_knockdown(scatter, Tuning.TACKLE_STUN_DURATION)
+		if is_instance_valid(ball):
+			ball.apply_central_impulse(scatter * Tuning.TACKLE_SPILL_SPEED * ball.mass)
 	if holding_the_ball:
 		holding_the_ball_called.emit(by)
 	else:
 		field_ball_up_called.emit(by, self)
 
 
-## Smother (X tap, not carrying): close down an opponent before their kick
-## leaves the boot. Targets anyone still carrying whose kick hasn't fired
-## yet — either still in stance (is_kick_aiming()) or mid-swing but before
+## Shared "play the fall/recover clip" beat behind every hard knockdown in
+## the kit — a Lunge tackle connecting (_get_tackled above, is_slide=false)
+## and, since the hit-stick bump rework, a clean bump connect or a whiffed
+## bump dash landing on the bumper themselves (_resolve_bump_contact/
+## _resolve_bump_miss below). Never touches the ball or possession —
+## callers that need that (a tackle strips it; a bump never does, by
+## design) do it themselves before calling this. `action` defaults to
+## Action.TACKLED (fall forward, in the direction of travel); Bump's clean
+## connect passes Action.KNOCKED_BACK instead (falls backward — see that
+## Action's own comment) along with `snap_facing = false`, since a backward
+## fall should NOT spin the body around to face the direction it's
+## travelling the way TACKLED's own forward crumple wants to.
+func _knockdown(direction: Vector3, stun_duration: float,
+		action: Tuning.Action = Tuning.Action.TACKLED, snap_facing: bool = true) -> void:
+	_stun_timer = maxf(_stun_timer, stun_duration)
+	_action = Tuning.Action.NONE
+	if snap_facing:
+		_fall_toward(direction)
+	_begin(action)
+
+
+## Snaps facing to `direction` immediately, bypassing _update_facing()'s
+## normal rotate_toward easing — a tackle puts the body down facing away
+## from the hit on the very frame it connects, not several frames later.
+## Also updates _heading so every subsequent frame's _update_facing() call
+## agrees with this rather than trying to rotate back toward wherever the
+## body was facing a moment before impact.
+func _fall_toward(direction: Vector3) -> void:
+	if direction.length_squared() < 0.0001:
+		return
+	_heading = direction.normalized()
+	_facing_yaw = atan2(-_heading.x, -_heading.z)
+	rotation.y = _facing_yaw
+
+
+## Smother (X tap, not carrying): a real committed dive at a kicker (design
+## brief, after playtest feedback the old instant-radius version never
+## actually moved: "does not dive the player onto the ground to smother the
+## kick"). Targets anyone still carrying whose kick hasn't fired yet —
+## either still in stance (is_kick_aiming()) or mid-swing but before
 ## contact (is_mid_kick_swing()) — since a kick already gone is nothing a
-## smother can do anything about.
-func _try_smother() -> void:
-	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE:
+## smother can do anything about. Unlike Bump, this locks the target at
+## launch (the filter below already has to find exactly one to trigger at
+## all) and re-aims _smother_dive_direction at their live position every
+## frame while the dive is active — see the block below and Tuning's own
+## Smother section. Resolution (did the dive actually reach them in time)
+## happens post-move in _try_smother_contact(), the same split every other
+## contest in this file follows.
+func _update_smother(delta: float) -> void:
+	if _smother_dive_timer > 0.0:
+		_smother_dive_timer = _tick_down(_smother_dive_timer, delta)
+		if is_instance_valid(_smother_dive_target):
+			var to_target := _smother_dive_target.global_position - global_position
+			to_target.y = 0.0
+			if to_target.length_squared() > 0.0001:
+				_smother_dive_direction = to_target.normalized()
+		return
+	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE \
+			or _smother_dive_cooldown > 0.0:
 		return
 	if not _brain.wants_smother():
 		return
-	var target := _nearest_player(Tuning.SMOTHER_RADIUS, func(other: PlayerController) -> bool:
+	var target := _nearest_player(Tuning.SMOTHER_COMMIT_RANGE, func(other: PlayerController) -> bool:
 		return other.team != team and other.is_carrying() \
 			and (other.is_kick_aiming() or other.is_mid_kick_swing()))
-	if target != null:
+	if target == null:
+		return
+
+	_smother_dive_target = target
+	var to_target := target.global_position - global_position
+	to_target.y = 0.0
+	_smother_dive_direction = to_target.normalized() if to_target.length_squared() > 0.0001 \
+		else -global_transform.basis.z
+	_smother_dive_timer = Tuning.SMOTHER_DIVE_DURATION
+	_smother_dive_cooldown = Tuning.SMOTHER_DIVE_COOLDOWN
+	_begin(Tuning.Action.SMOTHER_DIVE)
+
+
+## Runs every physics frame a smother dive is live, after the body has
+## actually moved this frame (same ordering _try_tackle()/_try_bump_
+## contact() use). The dive's own clip (Action.SMOTHER_DIVE) plays out
+## regardless of outcome — this only decides the game effect: did it
+## actually reach SMOTHER_RADIUS of the target while their kick was still
+## blockable. If the target disposed, got tackled, or their kick already
+## fired before the dive got there, this just quietly does nothing and the
+## dive's own timer runs out on its own — no separate miss penalty, the
+## same "stays on feet, minimal cost" precedent Lunge tackle already set
+## for a low-commitment miss.
+func _try_smother_contact() -> void:
+	if _smother_dive_timer <= 0.0 or not is_instance_valid(_smother_dive_target):
+		return
+	var target := _smother_dive_target
+	if not target.is_carrying() or not (target.is_kick_aiming() or target.is_mid_kick_swing()):
+		return
+	if global_position.distance_to(target.global_position) <= Tuning.SMOTHER_RADIUS:
 		target._get_smothered(self)
+		_smother_dive_timer = 0.0
 
 
 ## Shared spill-direction math for _get_tackled/_get_smothered: away from
@@ -942,13 +1130,20 @@ func _scatter_from(attacker: PlayerController, up_bias: float) -> Vector3:
 ## Called on the smothered player, by the smotherer. Cancels the kick
 ## outright — whatever stage the swing was at, it doesn't complete — and
 ## the ball drops right at their feet rather than spilling like a tackle:
-## blocked at the boot means it barely moves.
+## blocked at the boot means it barely moves. Plays the Action.SMOTHERED
+## recoil/stumble (design brief: "should visibly react/stumble, not just
+## silently lose the ball") — a reaction, not a knockdown, so unlike
+## _get_tackled/_knockdown this never touches facing or _stun_timer, just
+## the usual _action != NONE gate for its own short duration. `_action` is
+## force-reset to NONE first (same as _knockdown) since the player is very
+## likely mid-KICK right now — that's the whole reason they were a valid
+## smother target (is_kick_aiming()/is_mid_kick_swing()) — and _begin()
+## would otherwise refuse to start a new action over an active one.
 func _get_smothered(by: PlayerController) -> void:
 	var ball := _carried_ball
 	drop_ball()
 	_action = Tuning.Action.NONE
-	_action_elapsed = 0.0
-	_action_fired = false
+	_begin(Tuning.Action.SMOTHERED)
 	if is_instance_valid(ball):
 		ball.knock(_scatter_from(by, 0.3) * Tuning.SMOTHER_SPILL_SPEED * ball.mass)
 
@@ -957,18 +1152,39 @@ func _get_smothered(by: PlayerController) -> void:
 # Design brief priority 7: LB hold + Right Stick flick, Madden's hit-stick
 # model. Out-of-possession only, same as tackle/spoil/smother. The flick
 # gesture itself lives in InputManager (a raw device primitive that didn't
-# exist before this pass); this section only decides what a completed
-# flick, while stance is held, actually does.
+# exist before this pass).
+#
+# Rebuilt from an instant proximity+cone check into a real committed dash,
+# the same "external velocity owns the body for a window" shape Slide's
+# dive-in (_update_slide_dive) already uses: a completed flick launches
+# _bump_dash_timer/_bump_dash_direction (see _update_locomotion's own
+# dash branch for the movement side), and resolution happens after the
+# body has actually moved — _try_bump_contact(), called alongside
+# _try_tackle()/_try_smother_contact() post-move in _physics_process, the
+# same "physics decides after the body moves" split every other contest
+# here follows. Unlike Slide's dive-in, which never locks onto a target ahead
+# of time either but just fizzles for free if it never reaches anyone, a
+# bump dash that reaches the end of its own clock with nobody found is a
+# genuine whiff (design brief: full commitment, full consequence) — see
+# _resolve_bump_miss.
 
-func _update_bump(_delta: float) -> void:
-	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE:
+func _update_bump(delta: float) -> void:
+	if _bump_dash_timer > 0.0:
+		_bump_dash_timer = _tick_down(_bump_dash_timer, delta)
+		_apply_bump_assist(delta)
+		return
+	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE or _bump_cooldown > 0.0:
 		return
 	if not _brain.wants_bump_stance():
 		return
 	var flick := InputManager.flick_vector()
 	if flick == Vector2.ZERO:
 		return
-	_try_bump(flick)
+
+	_bump_dash_direction = _flick_world_direction(flick)
+	_bump_dash_timer = Tuning.BUMP_DASH_DURATION
+	_bump_dash_active = true
+	_bump_cooldown = Tuning.BUMP_COOLDOWN
 
 
 ## `flick_raw` is the stick's raw (x, y) at the instant the gesture
@@ -989,43 +1205,136 @@ func _flick_world_direction(flick_raw: Vector2) -> Vector3:
 	return dir.normalized() if dir.length_squared() > 0.0001 else forward
 
 
-## No target to lock onto ahead of time — a bump is a physical swing, not a
-## selection. Range/cone gate whether the flick actually connected with
-## whoever's nearby, the same "physically doing the right thing is what
-## resolves it" stance every other contest here already takes.
-func _try_bump(flick_raw: Vector2) -> void:
-	if _bump_cooldown > 0.0:
-		return
+## Gentle homing correction while a bump dash is live — the same "nudge
+## toward the play, don't lock onto it" spirit _apply_aim_assist() already
+## uses for kicks (KICK_AIM_ASSIST_*). Added directly off real playtesting:
+## a dash frozen at the flick's exact instant direction almost never
+## connects with a carrier who's still moving by the time the dash gets
+## there ("I cannot hit the other player over with the hit stick"). Only
+## pulls toward a carrier already roughly in front of the swing (BUMP_
+## ASSIST_CONE_DEG, wider than the contact cone BUMP_CONE_DEG itself) and
+## within plausible reach (BUMP_ASSIST_RANGE) — a correction on top of a
+## real flick, not a substitute for aiming one.
+func _apply_bump_assist(delta: float) -> void:
 	var carrier := _nearest_opposing_carrier()
 	if carrier == null:
 		return
 	var to_carrier := carrier.global_position - global_position
 	to_carrier.y = 0.0
-	if to_carrier.length() > Tuning.BUMP_RANGE or to_carrier.length_squared() < 0.0001:
+	var dist := to_carrier.length()
+	if dist < 0.01 or dist > Tuning.BUMP_ASSIST_RANGE:
 		return
+	var to_carrier_dir := to_carrier / dist
+	if _bump_dash_direction.angle_to(to_carrier_dir) > deg_to_rad(Tuning.BUMP_ASSIST_CONE_DEG):
+		return
+	var k := minf(1.0, Tuning.BUMP_ASSIST_STRENGTH * delta)
+	_bump_dash_direction = _bump_dash_direction.slerp(to_carrier_dir, k).normalized()
 
-	var flick_dir := _flick_world_direction(flick_raw)
-	var aim_error := flick_dir.angle_to(to_carrier.normalized())
-	if aim_error > deg_to_rad(Tuning.BUMP_CONE_DEG):
-		return   # swung at empty air — physically nothing to connect with, no signal
 
-	_bump_cooldown = Tuning.BUMP_COOLDOWN
+## Runs every physics frame a bump dash is live, after the body has
+## actually moved this frame (same ordering _try_tackle()/_try_smother_
+## contact() use). No target to lock onto ahead of time — a bump is a physical
+## swing, not a selection — so this just keeps asking "is anyone in range
+## and roughly in front of the swing right now," the same "physically
+## doing the right thing is what resolves it" stance every other contest
+## here takes. The instant that's true, it connects (_resolve_bump_
+## contact); if the dash's own clock runs out first, it's a whiff
+## (_resolve_bump_miss). _bump_dash_active (not _bump_dash_timer) gates
+## this so the one frame the timer reaches exactly zero still gets
+## evaluated — see that field's own doc comment. Both resolution branches
+## also zero _bump_dash_timer itself, not just _bump_dash_active — a
+## connect can land well before the dash's own clock runs out (unlike
+## Slide's dive-in, a bump dash has no launch-range gate, so it can
+## connect on its very first frame), and _update_locomotion's dash-override
+## branch keys off _bump_dash_timer > 0.0; leaving it positive would keep
+## sliding the bumper forward at full dash speed, straight through whoever
+## they just hit, until the leftover clock ran out on its own.
+func _try_bump_contact() -> void:
+	if not _bump_dash_active:
+		return
+	var carrier := _nearest_opposing_carrier()
+	if carrier != null:
+		var to_carrier := carrier.global_position - global_position
+		to_carrier.y = 0.0
+		var dist := to_carrier.length()
+		if dist <= Tuning.BUMP_RANGE and dist > 0.0001 \
+				and _bump_dash_direction.angle_to(to_carrier.normalized()) <= deg_to_rad(Tuning.BUMP_CONE_DEG):
+			_resolve_bump_contact(carrier)
+			_bump_dash_active = false
+			_bump_dash_timer = 0.0
+			return
+	if _bump_dash_timer <= 0.0:
+		_resolve_bump_miss()
+		_bump_dash_active = false
 
-	# "Timing relative to the ball carrier's approach determines the
-	# outcome" (design brief): landed while they're genuinely closing on
-	# the bumper is clean; landed on someone stationary or moving away
-	# still connects (they were in range and in the cone) but glances
-	# rather than lands properly.
+
+## A bump dash connecting — clean or mistimed exactly as the old
+## instant-resolve version already decided it (design brief: "timing
+## relative to the ball carrier's approach determines the outcome" —
+## BUMP_APPROACH_DOT_MIN/BUMP_MISTIMED_SCALE, unchanged). A clean connect
+## now goes further than a knockback: the carrier goes all the way down,
+## Action.KNOCKED_BACK, not Action.TACKLED — a clean hit from the front
+## should send them straight down onto their back, still facing roughly
+## where they already were, not spin them 180° to face away first the way
+## TACKLED's own "face the fall direction" convention would (playtest
+## feedback caught exactly that spin). `snap_facing = false` is what skips
+## it — see _knockdown()'s own doc comment. The bumper stays on their feet
+## either way, the whole point of a hit-stick over a tackle. A mistimed/
+## glancing connect stays the original lighter physics-only reaction with
+## no clip of its own.
+func _resolve_bump_contact(carrier: PlayerController) -> void:
+	var to_carrier := carrier.global_position - global_position
+	to_carrier.y = 0.0
 	var carrier_velocity := Vector3(carrier.velocity.x, 0.0, carrier.velocity.z)
 	var approach_dot := 0.0
-	if carrier_velocity.length_squared() > 0.01:
+	if carrier_velocity.length_squared() > 0.01 and to_carrier.length_squared() > 0.0001:
 		approach_dot = carrier_velocity.normalized().dot(-to_carrier.normalized())
 	var clean := approach_dot >= Tuning.BUMP_APPROACH_DOT_MIN
 	var scale := 1.0 if clean else Tuning.BUMP_MISTIMED_SCALE
 
-	carrier.receive_bump(flick_dir * Tuning.BUMP_KNOCKBACK_SPEED * scale,
+	carrier.receive_bump(_bump_dash_direction * Tuning.BUMP_KNOCKBACK_SPEED * scale,
 		Tuning.BUMP_STUN_DURATION * scale, self)
+	if clean:
+		carrier._knockdown(_bump_dash_direction, Tuning.BUMP_KNOCKDOWN_STUN_DURATION,
+			Tuning.Action.KNOCKED_BACK, false)
+		carrier._apply_knockdown_hop()
 	bump_landed.emit(self, carrier, clean)
+
+
+## The dash ran its full course without ever finding a target — a genuine
+## whiff. Overcommitting a hit-stick swing at nobody sends the bumper down
+## too, tumbling forward in the direction they were already committed to
+## (Action.TACKLED, unchanged — an overextending whiff reads as toppling
+## forward past the swing, not backward, so this keeps the default action/
+## facing-snap _knockdown() already has), with real extra recovery on top
+## of Action.TACKLED's own clip length — see BUMP_MISS_STUN_DURATION's own
+## comment on why this is deliberately the single biggest miss penalty in
+## the kit. Playtest feedback: this used to keep sliding at the dash's own
+## full speed for a good half-second after the miss was already decided
+## (_update_locomotion's dash-override branch stops as soon as _bump_dash_
+## timer hits zero, but nothing had ever reset the velocity IT had already
+## set, so normal locomotion's own braking curve took over from wherever
+## that left off) — zeroing horizontal velocity here means the fall starts
+## from a dead stop exactly where the whiff happened, not several metres
+## further on.
+func _resolve_bump_miss() -> void:
+	velocity.x = 0.0
+	velocity.z = 0.0
+	_knockdown(_bump_dash_direction, Tuning.BUMP_MISS_STUN_DURATION)
+	_apply_knockdown_hop()
+
+
+## The vertical half of "add a bit of gravity" (playtest feedback on the
+## bump rework — an all-horizontal slide read as floaty). A small upward
+## pop, then real gravity pulls it back down over BUMP_KNOCKDOWN_HOP_
+## DURATION (see _knockdown_hop_timer's own doc comment for why the
+## floor-snap bite in _physics_process has to be suspended for this to
+## actually arc rather than being cancelled the next frame). Scoped to
+## bump's two knockdown call sites only — tackle's own knockdown feel
+## wasn't part of this report.
+func _apply_knockdown_hop() -> void:
+	velocity.y = Tuning.BUMP_KNOCKDOWN_HOP_SPEED
+	_knockdown_hop_timer = Tuning.BUMP_KNOCKDOWN_HOP_DURATION
 
 
 ## Stand-the-mark (RULES_REFERENCE.md's MARK_STAND_MIN_DISTANCE entry): a
@@ -1102,10 +1411,14 @@ func _nearest_opposing_carrier() -> PlayerController:
 		return other.team != team and other.is_carrying())
 
 
-## Called on the bumped player, by the bumper. A knockback that overrides
-## normal movement until it decays (see _update_locomotion) plus a short
-## stun — distinct from a tackle, which strips the ball outright; a bump
-## only ever disrupts balance (real AFL: dispossession is a tackle's job).
+## Called on the bumped player, by the bumper, on every connect (clean or
+## mistimed) — a knockback that overrides normal movement until it decays
+## (see _update_locomotion) plus a stun. Never strips the ball, distinct
+## from a tackle (real AFL: dispossession is a tackle's job) — the ball
+## stays carried even through a clean connect's full knockdown. A clean
+## connect layers _knockdown() on top of this from _resolve_bump_contact
+## (the carrier goes all the way down, not just knocked off balance); this
+## function by itself only ever does the physics side.
 func receive_bump(impulse: Vector3, stun_duration: float, _by: PlayerController) -> void:
 	_knockback = Vector3(impulse.x, 0.0, impulse.z)
 	_stun_timer = maxf(_stun_timer, stun_duration)
@@ -1701,7 +2014,7 @@ func is_kick_aiming() -> bool:
 
 
 ## True from the moment a KICK's swing begins until the ball actually
-## leaves at its contact instant — see _try_smother, which reads this
+## leaves at its contact instant — see _update_smother, which reads this
 ## alongside is_kick_aiming() to find a target whose kick can still be
 ## blocked.
 func is_mid_kick_swing() -> bool:
@@ -1757,8 +2070,11 @@ func _update_action(delta: float) -> void:
 			Tuning.Action.HIT_OUT:
 				_resolve_hit_out()
 			Tuning.Action.MARK_SAFE, Tuning.Action.MARK_RUNNING, \
-					Tuning.Action.MARK_SAFE_MISS, Tuning.Action.MARK_RUNNING_MISS:
-				pass   # already resolved in _update_marking(); this leg is cosmetic only
+					Tuning.Action.MARK_SAFE_MISS, Tuning.Action.MARK_RUNNING_MISS, \
+					Tuning.Action.TACKLED, Tuning.Action.TACKLE_GRAB, Tuning.Action.SMOTHERED, \
+					Tuning.Action.SMOTHER_DIVE, Tuning.Action.TACKLE_HELD, \
+					Tuning.Action.TACKLE_TAKEDOWN, Tuning.Action.KNOCKED_BACK:
+				pass   # already resolved in _update_marking()/_get_tackled()/_get_smothered(); this leg is cosmetic only
 			_:
 				_dispose()
 

@@ -3761,3 +3761,1031 @@ kick_to_kick.gd`/`full_game.gd` (the `_get_tackled` signal contract
 `holding_the_ball_called`/`field_ball_up_called` is unchanged, so the
 existing `TackleChallenge` coach minigame and the ruck/holding-the-ball
 handlers keep working as-is).
+
+
+## Handover — Tackle Sandbox mode in the animation dev viewer (Agent: mechanics/engine)
+
+Follow-up to the Slide/Lunge pass above, requested directly rather than
+sequenced from a task brief: `kick_to_kick.tscn`'s AI rival always sprints
+the instant it has the ball (`AIBrain._think_carrying`), which makes it
+genuinely hard to set up a deliberate tackle attempt there to watch the new
+Slide/Lunge resolution play out. `scenes/dev/animation_viewer.tscn` — until
+now a pure animation-clip preview with no physics at all (a bare
+`HumanoidRig` driven directly by `PlayerAnimation`, no `CharacterBody3D`) —
+gained a second mode built for exactly this: two real, controllable
+`PlayerController` instances a developer can position freely and tackle on
+demand.
+
+### What changed and why
+
+`AnimationViewer` now has a `ViewMode` (`CLIP_PREVIEW`, unchanged, still the
+default; `TACKLE_SANDBOX`, new), toggled by two buttons at the top of the
+screen. `TACKLE_SANDBOX` instantiates the same `field.tscn`/`player.tscn`/
+`ball.tscn`/`broadcast_camera.tscn` scenes `full_game.gd`/`kick_to_kick.gd`
+already use — not a stand-in — so Slide/Lunge resolve through the real
+`_resolve_tackle_contact` (closing speed, approach angle, stun/cooldown,
+all of it), not a simplified preview version.
+
+The actual design problem this solves: kick_to_kick's rival is `AIBrain`-
+driven and can't be made to just stand still. Here, whichever of the two
+players ISN'T currently controlled gets a bare `PlayerBrain` (every `wants_*`
+defaults `false`, `wish_direction()` always `Vector3.ZERO`) instead of an
+`AIBrain` — it simply stands wherever it was last driven to. `switch_player`
+(the same action `full_game.gd`'s human-slot cycling already uses) swaps
+which of the two gets `HumanBrain`, so a developer can walk one player into
+any position/approach angle they want, switch control to the other, and
+attempt a Slide or Lunge tackle against a deliberately-placed target — real
+input, real bindings, nothing sandbox-specific to learn. A `RESET` button
+puts both back at a fixed 3m gap facing each other with the ball on one
+side and every tackle timer zeroed; `GIVE BALL TO A`/`GIVE BALL TO B` swap
+possession without a full reset. A status readout shows who's in control,
+who's carrying, and both players' live stun timer / Lunge cooldown — the
+two numbers that actually distinguish a Slide miss from a Lunge miss.
+
+### A real fix found along the way: reset positions were facing away from each other
+
+`_reset_sandbox()` originally set each player's rotation facing *away* from
+the other (mirroring how they'd stand in a real kickoff formation, which
+wasn't the right model to copy here). Backwards for a tool whose entire
+point is "walk toward the other player and tackle them" — fixed to face
+them at each other instead, so the first step out of a RESET is already
+useful.
+
+### A test-only artifact, not a real bug: same-frame reposition race
+
+Headless verification of this feature — via a self-test hook run through
+`ANIM_VIEWER_SELFTEST=1` against the real scene (removed before this was
+considered done, not part of the diff) — hit what first looked like a
+serious physics bug: a freshly-constructed `CharacterBody3D`, repositioned
+in the *same physics frame* it's instantiated, could read back a garbled
+transform for its first several physics steps (an idle player drifting to
+match the mover's position with a growing vertical offset, or — with facing
+corrected — a full-speed collision launching the idle player hundreds of
+metres away). Isolated with a minimal repro completely outside this file
+(two bare `player.tscn` instances, no `AnimationViewer`, no ball, no
+tackle-sandbox code at all) — same symptom, confirming it's a pre-existing
+Jolt/Godot initial-registration race, not anything introduced by this
+change. Confirmed harmless for real use: the sandbox stays hidden behind
+`CLIP_PREVIEW` for those first few frames regardless of when construction
+happens, and a real developer's first click on the `TACKLE SANDBOX` button
+is already many frames past the window by the time `_reset_sandbox()` ever
+runs for real — human reaction time alone clears it. The self-test confirmed
+this directly: waiting a few `physics_frame` ticks after construction before
+touching anything (standing in for that unavoidable real-world delay) made
+all 13 checks pass cleanly, including a full end-to-end Slide tackle
+resolving correctly through the real sandbox instances. Flagging this here
+rather than silently — if anyone ever sees a player rocket across the map on
+contact in `full_game`/`kick_to_kick`, this same-frame-construction race is
+the first thing worth ruling out, though nothing in normal match flow
+constructs and immediately repositions a player in one frame the way a
+synthetic test can.
+
+### How it was verified
+
+Plain headless boot re-verified clean on `animation_viewer.tscn`,
+`full_game.tscn`, and `kick_to_kick.tscn`. The self-test (described above,
+removed before finishing) covered: default mode is `CLIP_PREVIEW`; mode
+switches to `TACKLE_SANDBOX` and back; `RESET` places both players apart,
+facing each other, ball on B, A in control; `switch_player` moves
+`HumanBrain` to whichever is now active and leaves the other idle; the
+`BroadcastCamera` follows the swap; `GIVE BALL TO A`/`B` and `RESET` both
+correctly move possession; and an end-to-end scripted Slide tackle
+(stationary tackler, carrier closing the distance — the same geometry the
+Slide/Lunge formulas were already proven against) resolves correctly
+through the real sandbox instances. All 13 checks passed.
+
+### Files changed
+
+`scripts/dev/animation_viewer.gd` only — `ViewMode` enum, the
+`TACKLE_SANDBOX`-half of `_ready()`/`_process()`/`_unhandled_input()`, and
+new `_build_tackle_sandbox`/`_reset_sandbox`/`_give_ball_to`/
+`_set_active_player`/`_apply_active_brain`/`_update_sandbox_status`/
+`_build_sandbox_ui`/`_build_mode_toggle`/`_set_mode`. The existing
+`CLIP_PREVIEW` code path (`_build_subject`, the locomotion/action/misc
+button groups, the studio floor) is untouched, just toggled alongside the
+new mode rather than replaced.
+
+
+## Handover — Action.TACKLED: a tackled player falls and gets up (Agent: mechanics/engine)
+
+Direct follow-up: the Tackle Sandbox above made it obvious a tackle
+connecting had no animation at all — the tackled player just stopped,
+still standing, for `TACKLE_STUN_DURATION`. This adds the fall/recover
+clip `player_animation.gd`'s own doc comment already named as the thing to
+add "if that ever changes" for tackle specifically (bump/spoil/smother
+stay physics-only, unaffected — this is only a Slide or Lunge connecting).
+
+### What changed and why
+
+New `Tuning.Action.TACKLED` (appended — the enum is positionally indexed by
+`ACTION_DURATION`/`ACTION_CONTACT`, existing slots never move), a new
+procedural clip `HumanoidAnimations._build_tackled()` (impact lurch → hips
+dropping and pitching forward → near-flat sprawl → a brief stunned beat →
+an asymmetric one-arm push-up recovery → back to `_base_pose()`), and
+`player_animation.gd`'s `ACTION_STATES` map picking it up like every other
+action clip — no new machinery, this rides the same
+`AnimationNodeStateMachine`/`play_action()`/`current_state()` plumbing
+kick/handball/marks already use.
+
+`PlayerController._get_tackled()` now computes the fall direction from the
+same `_scatter_from(by, 0.0)` the ball already spills along — "falls in the
+direction it is coming from" reads as: away from the tackler, exactly where
+the loose ball goes too, not a second, independent direction calculation.
+New `_fall_toward(direction)` snaps `rotation.y`/`_facing_yaw`/`_heading` to
+face that direction immediately (bypassing `_update_facing()`'s normal
+`rotate_toward` easing — a tackle puts you down facing away from the hit on
+the frame it connects, not several frames of gradual turning later), then
+`_begin(Tuning.Action.TACKLED)` plays the clip. `_update_action()`'s
+contact-time match statement treats `TACKLED` as cosmetic-only (the tackle
+itself already resolved — spilled ball, stun timer — before the clip ever
+starts), alongside the existing mark-miss reactions.
+
+`TACKLE_STUN_DURATION` raised from 0.5s to 1.3s to match
+`ACTION_DURATION[TACKLED]` exactly — the old value was tuned back when a
+tackle was a pure physics reaction with nothing to watch; now that the rig
+visibly goes down and gets back up, the "can't act" window has to last as
+long as that takes, or the player would be moving again while still drawn
+lying on the ground. `Tuning.action_speed_scale()` gets an explicit `0.0`
+case for `TACKLED` too — redundant with what `_stun_timer` already forces
+onto gait for this action's entire span, added anyway for the same reason
+every other action in that match statement is explicit rather than relying
+on incidental behaviour.
+
+`animation_viewer.gd`'s clip-preview action list gains a `TACKLED` button
+(moved out of the `UNIMPLEMENTED`/no-clip-yet row, which now reads BUMP/
+SPOIL/SMOTHER only) — and because the real tackle-split logic lives in
+`player_controller.gd` regardless of which mode is driving a `PlayerController`,
+the Tackle Sandbox added in the pass above shows this fall animation for
+free on any Slide/Lunge that connects, with no sandbox-specific wiring.
+
+### Least-confident part of this change, flagged rather than hidden
+
+The bone-rotation sign convention for pitching the whole body forward
+(`_build_tackled`'s "hips"/"torso" keys) is inferred from `_build_kick()`'s
+own established forward-lean direction, not independently verified against
+a render — this project's animations are all procedural bone-track data
+with no visual proof-render step available to a headless agent. If the fall
+reads as toppling backward, or into the tackler rather than away, every
+angle in `_build_tackled()` needs the same sign flip and nothing else about
+the clip changes. The Animation Viewer's Tackle Sandbox (previous pass) is
+built for exactly this kind of check — trigger a real tackle there and look.
+
+Deliberately out of scope for this pass: the tackled player's collision
+shape stays the standing 1.85m capsule the whole time, even flat on the
+ground — a fallen player still blocks movement/collision like a standing
+one. Real per-state collision-shape resizing is a reasonable follow-up once
+the fall pose itself is confirmed to look right, not bundled in blind.
+
+### An additional data point on the same-frame-construction race from the pass above
+
+Verifying this needed the same "two fresh `PlayerController`s, one
+scripted, one carrying the ball" pattern the Tackle Sandbox's own
+self-test used — and hit the identical symptom (one idle body drifting to
+match the mover's position, climbing toward a ~1.85m vertical offset,
+velocity pinned near zero) in a completely fresh scratch scene with no
+`AnimationViewer` involved at all. Waiting a few `physics_frame`s first
+(the previous pass's fix) works, but so does something not tried before:
+spawning and discarding two or three throwaway `PlayerController`
+instances *before* the real test pair, with zero elapsed physics time in
+between (all synchronous within the same `_ready()`) — the earlier pass's
+own scratch harness had incidentally done exactly this (a `ControlMode`
+regression check spawning three players ahead of the real test pair) and
+never hit the race at all, which is what this pass traced it back to.
+Whatever the exact mechanism (Jolt lazily building some per-shape
+acceleration structure the first few `CharacterBody3D`s pay for once?),
+it's consistent across every repro so far: it only ever hits the first
+couple of `PlayerController` instances a fresh scene ever constructs.
+Noting the throwaway-spawn workaround here alongside the physics-frame-wait
+one since it's more convenient for a synchronous (non-`await`) test script.
+Still nothing seen in real match flow, which never constructs this few
+bodies this close together in one frame.
+
+### How it was verified
+
+Plain headless boot re-verified clean on `animation_viewer.tscn`,
+`full_game.tscn`, and `kick_to_kick.tscn` (confirms `_build_tackled()`
+constructs without error — bone paths resolve, `Quaternion.from_euler`
+doesn't choke on any of the new keyframes — since every `player.tscn`
+instance builds the whole `AnimationLibrary` including this clip on
+`_ready()`). A scratch physics test (two real `PlayerController`s, a
+scripted brain driving a straight-line Slide tackle, three throwaway
+instances spawned first per the workaround above) confirmed: the tackle
+connects through the real resolver; `_action` becomes `Tuning.Action.TACKLED`
+on the tackled player; `rotation.y` snaps to face away from the tackler
+(measured dot product ≈ -0.98, i.e. facing almost exactly opposite);
+`_stun_timer` reads ≈1.3s immediately after; the `AnimationTree` actually
+travels to the `"tackled"` state (`animation_state()` reports it); the
+action is still `TACKLED` partway through the clip; and both `_action` and
+`_stun_timer` cleanly return to neutral once the full duration elapses. All
+9 checks passed.
+
+### Files changed
+
+`scripts/tuning.gd` (`Action.TACKLED` appended; `ACTION_DURATION`/
+`ACTION_CONTACT` index 10; `action_speed_scale()` case;
+`TACKLE_STUN_DURATION` 0.5→1.3), `scripts/player/humanoid_animations.gd`
+(new `_build_tackled()`, registered in `build_library()`),
+`scripts/player/player_animation.gd` (`ACTION_STATES` entry, doc comment),
+`scripts/player/player_controller.gd` (`_get_tackled()` now computes fall
+direction and calls `_begin()` instead of hand-resetting `_action`; new
+`_fall_toward()`; `_update_action()`'s cosmetic-only match arm),
+`scripts/dev/animation_viewer.gd` (`TACKLED` moved from `UNIMPLEMENTED` to
+`ACTIONS`, doc comments updated). Not touched: the tackle-split resolver
+itself (`_resolve_tackle_contact`, `_try_tackle`, `_try_lunge_tackle`) —
+this pass is purely the cosmetic layer on top of an already-resolved
+outcome, same relationship every other `_MISS` clip already has to its own
+resolution logic.
+
+
+## Handover — TACKLED pose bug fixed, tackler grab beat, bump rebuilt into a hit-stick, Smother gets a reaction clip (Agent: mechanics/engine)
+
+Direct follow-up to the three passes above: `Action.TACKLED` landed with a
+correctness bug in the pose data itself (not just an unverified sign
+guess), Bump and Smother were still the last two contests in the kit with
+zero animation. This pass fixes the fall, adds a synced grab beat on the
+tackler, rebuilds Bump from an instant proximity check into a real
+Madden-style committed dash, and gives Smother its own reaction clip.
+
+### 1. `Action.TACKLED`: the actual bug, not just the flagged sign guess
+
+The previous pass's own doc comment already described the intended
+design — `"hips"` (the root bone every other bone hangs off) should carry
+the big topple rotation, `"torso"`/`"neck"` only a small relative hunch on
+top, so the body falls as one unit instead of folding at the waist. The
+code never did that: every pose dict in `_build_tackled()` went straight
+from `hip_y` to `torso`, so `"hips"` silently sat at its `Vector3.ZERO`
+default for the whole clip, and all ~1.1-1.5 rad (63-86 deg) of pitch that
+was supposed to topple the whole body landed on `"torso"` alone — the
+chest whipping back and forth relative to a pelvis that never left
+upright. That reads exactly like the "weird glitch, not a fall" report: a
+body snapping in half at the waist, not a person going to ground. This is
+a much higher-confidence diagnosis than the sign question the previous
+pass flagged, found by re-reading the clip's own pose dicts key-by-key
+against its doc comment rather than by guessing from a render that still
+doesn't exist.
+
+Fixed by moving the big pitch onto `"hips"` where the design always said
+it belonged, and cutting `"torso"`/`"neck"` down to a genuinely small
+hunch (max ~0.24 rad) riding on top of it. Legs and arms are untouched —
+they were already using the established kick-derived swing convention
+correctly, the bug was isolated to the root/torso/neck triplet. Sign
+followed the same reasoning `_gait_pose()`'s own comment already
+establishes for `"torso"` ("the torso runs along +Y, so its lean is the
+same rotation with the opposite sign" as a limb): negative X pitches
+`"hips"` toward local -Z, which is wherever `_fall_toward()` has already
+rotated the body to face by the time this clip starts — i.e. the real
+fall direction — so the body now goes down face-first the way it's
+travelling. Same caveat as last time, now scoped to three keys instead of
+the whole clip: if this still reads as falling backward or into the
+tackler, `"hips"`/`"torso"`/`"neck"` need the same sign flip and nothing
+else changes.
+
+### 2. Tackler grab beat
+
+New `Tuning.Action.TACKLE_GRAB` — a short (0.4s) reach-and-drive-down clip
+that plays on the TACKLER, not the tackled player, the instant a Slide
+connects (`PlayerController._try_tackle`). Not aimed at the target's
+actual position (no root motion yet), just a generic committed reach —
+the tackler is already facing the target at the moment of contact, so a
+canned pose reads fine, the same way every other action clip in this file
+is a canned pose regardless of exact aim. Lunge deliberately does not get
+one: it's the kit's "stays on feet, minimal commitment" tackle, and a grab
+beat would undercut that distinction (documented on `Action`'s own enum
+comment so the asymmetry doesn't look like an oversight later).
+
+### 3. Bump rebuilt into a real hit-stick
+
+The old `_try_bump()` resolved instantly off a proximity+cone check the
+frame a flick completed. Rebuilt into a committed dash — the same
+"external velocity owns the body for a window" shape Slide's dive-in
+(`_update_slide_dive`) already uses — except a bump dash never locks onto
+a target first (direction comes straight from the flick gesture), so it
+can genuinely swing at empty air. `_update_bump()` now only launches the
+dash (`_bump_dash_timer`/`_bump_dash_direction`/`_bump_dash_active`,
+`Tuning.BUMP_DASH_SPEED` 11.5 m/s over `BUMP_DASH_DURATION` 0.4s — the
+fastest committed movement in the kit); `_try_bump_contact()`, called
+post-move alongside `_try_tackle()`/`_try_smother()` in
+`_physics_process` (the same "physics decides after the body moves"
+ordering every other contest here follows), checks every frame the dash
+is live whether an opposing carrier is now in `BUMP_RANGE`/`BUMP_CONE_DEG`
+of the dash direction.
+
+Three outcomes, all through the same shared `_knockdown()` helper (new —
+factored out of the old `_get_tackled()`, see below):
+- **Clean connect** (`BUMP_APPROACH_DOT_MIN` timing check, unchanged from
+  the old instant-resolve version): the carrier goes all the way down,
+  reusing `Action.TACKLED`'s fall/recover clip on top of the existing
+  knockback impulse (design brief: "reusing Action.TACKLED's knockdown is
+  a fine default") — `BUMP_KNOCKDOWN_STUN_DURATION` (aliased straight to
+  `TACKLE_STUN_DURATION` so it always matches the clip's own length). The
+  bumper stays standing — the whole point of a hit-stick over a tackle —
+  and the ball is never stripped, same as before; a bumped carrier keeps
+  the ball even while animated flat on the ground for the stun window.
+- **Mistimed/glancing connect** (stationary or retreating carrier): stays
+  the original lighter physics-only knockback+stun, no clip — unchanged
+  behaviour, just reached through the new dash instead of an instant check.
+- **Miss** — the dash's own clock runs out with nobody ever found. Unlike
+  Slide's dive-in, which just fizzles for free if it never reaches anyone,
+  overcommitting a hit-stick swing at nobody now sends the bumper down too
+  (`_resolve_bump_miss()`, same `Action.TACKLED` knockdown, tumbling along
+  the direction they were already committed to) with `BUMP_MISS_STUN_
+  DURATION` (2.0s) on top — deliberately the single biggest miss penalty
+  in the kit now, ahead of `TACKLE_SLIDE_MISS_STUN_DURATION` (1.3s, the
+  previous record holder — its own comment is updated to say so explicitly
+  rather than leaving a stale "costliest in the kit" claim sitting next to
+  a bigger number). `TACKLE_SLIDE_MISS_STUN_DURATION` is still the
+  costliest *tackle* commitment; it's no longer the costliest thing you
+  can whiff, period, and both comments now say why.
+
+`bump_landed(bumper, carrier, clean)`'s signal contract is unchanged
+(still fires once per connect, clean or mistimed) — `audio_manager.gd`'s
+existing `_on_bump_landed` needed no changes.
+
+### 4. `_knockdown()`: one shared helper behind every hard knockdown
+
+Factored out of `_get_tackled()`: `_knockdown(direction, stun_duration)`
+sets `_stun_timer` (via `maxf`, never shortening one in progress — same
+pattern `receive_bump()` already used), force-resets `_action` to `NONE`,
+calls `_fall_toward(direction)`, then `_begin(Tuning.Action.TACKLED)`.
+`_get_tackled()` now just computes its scatter direction, drops the ball,
+and calls this. The bump outcomes above call it too — a clean connect and
+a whiffed dash both go down through the identical fall/recover clip a
+real tackle uses, just via this shared entry point instead of three
+near-duplicate copies of the same four lines. Never touches the ball or
+possession itself — callers that need that keep doing it themselves first
+(a tackle strips it via `drop_ball()`; a bump never does, by design).
+
+### 5. Smother gets a reaction clip
+
+New `Tuning.Action.SMOTHERED` and `HumanoidAnimations._build_smothered()`
+— a short (0.45s) recoil/stumble, not a knockdown: hands flinching off the
+blocked kick, half a beat of stumble, recovery. Deliberately does not
+route through `_knockdown()` — no facing change, no `_stun_timer` — a
+smothered player is gated off other actions for the clip's own short span
+by the ordinary `_action != Tuning.Action.NONE` guard, the same "reaction,
+not a stun" precedent `MARK_SAFE_MISS`/`MARK_RUNNING_MISS` already set
+(neither of those gets a hard stun either). `_get_smothered()` still
+force-resets `_action` to `NONE` before calling `_begin()` — the smothered
+player is essentially always still mid-`KICK` at this exact instant (that
+`_action` state is literally what made them a valid smother target via
+`is_kick_aiming()`/`is_mid_kick_swing()`), and `_begin()` refuses to start
+a new action over one already in progress.
+
+### How it was verified
+
+Plain headless boot re-verified clean on `full_game.tscn`,
+`kick_to_kick.tscn`, and `animation_viewer.tscn` (confirms every new/edited
+clip builds without error — bone paths resolve, no malformed keyframes —
+since `player.tscn` builds the whole `AnimationLibrary` on `_ready()`).
+
+A scratch physics scene (`_scratch_contest_test.tscn` + `.gd`, deleted
+after the run) instantiated `field.tscn`/two `player.tscn`s/`ball.tscn`
+directly, drove both through a small scripted `PlayerBrain` subclass
+(`wish_dir`/`gait_value`/`tackle_wanted`/`lunge_wanted`/`smother_wanted`,
+plus direct field-injection of `_bump_dash_*` state where a real flick
+gesture would otherwise be needed — `InputManager.flick_vector()` itself
+is unchanged by this pass and wasn't re-tested), and ran headless with
+`--fixed-fps 60` through nine scenarios in sequence: Slide connect (target
+`TACKLED` + stunned, tackler plays `TACKLE_GRAB`, ball spilled), a clean
+bump connect (carrier `TACKLED` and stunned ~`BUMP_KNOCKDOWN_STUN_
+DURATION`, bumper untouched and still carrying-free to stand, carrier
+keeps the ball), a mistimed bump connect (no knockdown, light stun only,
+ball kept), a bump miss (bumper self-`TACKLED`, stun exceeding both
+`BUMP_MISS_STUN_DURATION` and a whiffed Slide's own stun), a smother
+(target `SMOTHERED`, ball dropped, no hard stun), and Lunge connect/miss
+regression checks (target `TACKLED` with no tackler penalty on connect;
+no knockdown and only the short tap cooldown on miss). All 23 checks
+passed.
+
+Hit the documented same-frame-construction-race artifact again while
+writing this test, in a new shape: this time it wasn't about *when* two
+fresh `PlayerController`s are constructed relative to physics frames, but
+where they're constructed *to* — both spawned at `player.tscn`'s shared
+default transform (effectively the same position) for several physics
+frames before the test's own `_reset_sandbox()`-style repositioning ever
+ran, so Jolt's overlap resolver launched them apart (one clocked at
+100+ m/s, still arcing upward under gravity when sampled). The three-
+throwaway-spawn workaround from the previous passes didn't help here since
+it addresses a different trigger; the actual fix was assigning each
+player a distinct `global_position` immediately in `_ready()`, before the
+first physics step, rather than waiting for a later phase to move them
+apart. Noting this as a third data point on the same underlying class of
+issue (documented across the previous two handover entries) — still never
+seen in real match flow, which never spawns two players on top of each
+other.
+
+### What still needs a human look
+
+The `Action.TACKLED` fix is a structural bug fix (a bone that was never
+being written at all), not just a sign flip, so confidence is higher than
+last pass — but it's still unrendered. Please open the Tackle Sandbox
+(`animation_viewer.tscn` → TACKLE SANDBOX mode) and check, in order:
+1. A Slide tackle connecting: does the tackled player now fall as one
+   toppling body (hips leading, chest/head only slightly hunched) rather
+   than bending double at the waist? Does it fall in the direction of the
+   hit, not backward or into the tackler? Does the tackler's own grab beat
+   read as a synced "catching" motion, not a separate, disconnected twitch?
+2. A bump connecting cleanly (hold Bump stance, flick at the other player
+   at close range while they're closing on you): does the dash read as a
+   real committed lunge, and does a clean hit visibly floor the target
+   while you stay upright?
+3. A bump whiffed at empty air: does the dash carry you forward and, on
+   missing, put you down for noticeably longer than a whiffed Slide?
+4. A Smother connecting: does the target visibly flinch/stumble now,
+   rather than just silently losing the ball?
+If any of these reads wrong, the fix is scoped and documented above (sign
+flips are called out explicitly at each site) — this shouldn't need
+another blind pass.
+
+### Files changed
+
+`scripts/tuning.gd` (`Action.TACKLE_GRAB`/`Action.SMOTHERED` appended;
+`ACTION_DURATION`/`ACTION_CONTACT` extended; Bump section rebuilt —
+`BUMP_DASH_SPEED`/`BUMP_DASH_DURATION`/`BUMP_KNOCKDOWN_STUN_DURATION`/
+`BUMP_MISS_STUN_DURATION` new, `BUMP_STUN_DURATION`'s doc comment narrowed
+to the mistimed case only; `TACKLE_SLIDE_MISS_STUN_DURATION`'s comment
+updated for the new cost ordering), `scripts/player/humanoid_animations.gd`
+(`_build_tackled()`'s pose data fixed — `"hips"` now carries the topple,
+`"torso"`/`"neck"` cut down to a hunch; new `_build_tackle_grab()`/
+`_build_smothered()`, registered in `build_library()`),
+`scripts/player/player_animation.gd` (`ACTION_STATES` gains
+`TACKLE_GRAB`/`SMOTHERED`, doc comment updated),
+`scripts/player/player_controller.gd` (new `_knockdown()` helper;
+`_get_tackled()` simplified to call it; `_get_smothered()` now calls
+`_begin(Action.SMOTHERED)`; `_try_tackle()` plays `TACKLE_GRAB` on a Slide
+connect; Bump section rebuilt — `_update_bump()` now launches a dash,
+new `_try_bump_contact()`/`_resolve_bump_contact()`/`_resolve_bump_miss()`
+replace the old instant-resolve `_try_bump()`; `_update_locomotion()` gets
+a bump-dash movement-override branch alongside Slide's own; `_update_
+action()`'s cosmetic-only match arm extended), `scripts/dev/
+animation_viewer.gd` (`TACKLE_GRAB`/`SMOTHERED` buttons added to
+`ACTIONS`, `UNIMPLEMENTED` down to just `SPOIL`, Tackle Sandbox's reset/
+status readout extended with bump cooldown, doc comments updated). Not
+touched: `_resolve_tackle_contact`, `_try_lunge_tackle`, `InputManager.
+flick_vector()`/`_flick_world_direction()` — this pass changed what a
+successful contest *does*, not how any of the underlying contests decide
+success in the first place.
+
+
+## Handover — bump assist/knockback/gravity retune, Smother rebuilt into a real dive, Animation Viewer's free-roam sandbox replaced with click-to-run contests (Agent: mechanics/engine)
+
+Direct follow-up to the pass above, driven entirely by real playtest
+feedback rather than a written brief: "the opposition player with ball
+falls over when I tackle with just a click of b", "the hitstick somewhat
+works... but they move too far/fast", "I cannot hit the other player over
+with the hit stick", "the X to smother does not dive the player onto the
+ground... but rather knock the player over like tapping B", plus a
+request to fold the previous pass's Tackle Sandbox into the normal
+click-and-watch animation-preview flow instead of a second, free-roam
+mode.
+
+### 1. Bump: assist added, dash/knockback cut, a real "gravity" hop
+
+Real playtesting exposed two problems the previous pass's scratch tests
+never would have caught (they injected a dash pointed straight at a
+stationary or matched-velocity target — never a genuinely moving one the
+dash has to catch up to):
+
+- **"Cannot hit the other player"**: `_bump_dash_direction` was set once
+  at the flick and never corrected. Against a real, moving carrier, the
+  ~0.4s the dash takes to travel is easily enough time for them to walk
+  out of `BUMP_RANGE`/`BUMP_CONE_DEG` by the time the bumper's dash
+  arrives at where they *used* to be. Fixed the same way kicks already
+  solve the equivalent problem: `_apply_bump_assist()`, a gentle per-frame
+  homing correction (`Vector3.slerp` toward the nearest opposing carrier,
+  gated by `BUMP_ASSIST_CONE_DEG`/`BUMP_ASSIST_RANGE` so it only nudges a
+  swing that's already roughly aimed, never substitutes for aiming one),
+  the same "correction on top of real input, not a lock-on" shape
+  `_apply_aim_assist()`'s `KICK_AIM_ASSIST_*` already established.
+- **"Moves too far/fast"**: `BUMP_DASH_SPEED` cut 11.5→9.5 m/s (~4.6m of
+  travel down to ~3.8m) and `BUMP_KNOCKBACK_SPEED` cut 5.5→3.0 m/s — a
+  clean connect used to send the target sliding over 2m along the ground,
+  which read as flying rather than falling.
+- **"Add a bit of gravity"**: a knockdown's slide was all-horizontal, no
+  vertical component at all, which is very likely a real part of why it
+  read as floaty regardless of the distance numbers above. Both bump
+  knockdowns (`_resolve_bump_contact`'s clean case, `_resolve_bump_miss`)
+  now call new `_apply_knockdown_hop()`: a small upward `velocity.y` pop
+  (`BUMP_KNOCKDOWN_HOP_SPEED`), with `_physics_process`'s own floor-snap
+  bite suspended for `BUMP_KNOCKDOWN_HOP_DURATION` (new `_knockdown_hop_
+  timer` field) so real `Tuning.GRAVITY` actually gets to arc it back down
+  instead of the very next frame's `velocity.y = -0.5` floor bite silently
+  cancelling the hop before it ever moved anything. Scoped to bump's two
+  knockdown sites only — tackle's own knockdown feel was never part of
+  this report, so `_get_tackled()`/`_knockdown()` are untouched.
+
+### 2. "The opposition player falls over with just a click of B" — investigated, not changed
+
+Slide tackle's own bar (`TACKLE_SLIDE_MIN_CLOSING_SPEED` 0.5 m/s,
+`TACKLE_SLIDE_MAX_ANGLE_DEG` 160°) is deliberately low — see that
+constant's own long-standing comment: "higher takedown chance... its cost
+lives entirely in TACKLE_SLIDE_MISS_STUN_DURATION, not in failing against
+a fast carrier." Any real forward movement while holding Tackle near a
+carrier clears that bar easily, so a single tap connecting is the design
+working as specified, not a bug — see this handover's own closing section
+for the full explanation handed back to the user rather than silently
+retuned, since raising Slide's bar is a balance call outside what was
+actually asked for this pass.
+
+### 3. Smother rebuilt into a real dive, on the smotherer
+
+The previous pass gave the *victim* a reaction clip (`Action.SMOTHERED`)
+but left the smotherer's own trigger exactly as it always was: an instant
+"already standing within `SMOTHER_RADIUS` (1.1m)" check with zero
+animation and zero movement. In real play that essentially never fires —
+you have to already be standing on top of a kicker at the exact instant
+they enter their kick stance, which the shared-binding dispatch (`_try_
+lunge_tackle()`/`_update_smother()` both read the same physical Q/X press
+— see `_try_lunge_tackle()`'s own doc comment) almost always loses to
+Lunge tackle instead, since Lunge's filter (not kick-aiming) is the one
+that matches whenever the opponent hasn't started their kick yet. That's
+exactly the reported "X... knock[s] the player over like tapping B" —
+Lunge firing successfully (correctly, per the previous pass's fix) while
+the user was expecting Smother.
+
+Rebuilt `_update_smother()`/new `_try_smother_contact()` into a real
+committed dive, the same "external velocity owns the body for a window"
+shape as Slide's dive-in and Bump's dash — except, unlike Bump, Smother
+already knows exactly who it's diving at the instant it triggers (its own
+existing target filter has to find one specific kick-aiming/mid-swing
+carrier to fire at all), so it locks that target and **re-aims at their
+live position every single frame** rather than freezing a direction at
+launch — a stronger, fully-committed correction Bump's own gentler
+assist doesn't need. New `Action.SMOTHER_DIVE` (`HumanoidAnimations.
+_build_smother_dive()`) plays on the smotherer regardless of outcome — a
+low, forward-driving lunge with both arms reaching low and forward (design
+intent: blocking the ball off the boot, not catching it out of the air,
+unlike a mark's overhead reach). Trigger range widened from the old
+instant `SMOTHER_RADIUS` to `SMOTHER_COMMIT_RANGE` (3.0m) — a real
+anticipation window instead of requiring you to already be standing on
+top of them. On arrival within `SMOTHER_RADIUS` while the kick is still
+blockable, `_get_smothered()` fires exactly as before (kick cancelled,
+ball dropped, `Action.SMOTHERED` on the victim) — unchanged. A dive that
+never reaches its target in time (kick already fired, target disposed,
+timer ran out) just quietly does nothing, no miss penalty, the same
+"stays on feet, minimal cost" precedent Lunge tackle's own miss already
+set — a dive is inherently a bigger commitment than Lunge's tap-in-place,
+but not one this pass was asked to punish harder.
+
+This does **not** widen *when* Smother can trigger (still only once the
+target is genuinely `is_kick_aiming()`/`is_mid_kick_swing()` at the moment
+of the press) — only what happens once it does. If Q/X keeps resolving as
+Lunge instead of Smother, it's because the opponent hadn't started their
+kick yet at that instant; see the closing section below.
+
+### 4. Animation Viewer: free-roam Tackle Sandbox replaced with click-to-run CONTESTS
+
+Direct request: remove the full `field.tscn`/free movement/`switch_player`
+sandbox mode entirely and fold tackle-family previews into the same
+click-a-button-and-watch shape every other clip already has — "if I
+select the tackle features just generate another character in and run
+the simulation of the player doing the action."
+
+`ViewMode`/`TACKLE_SANDBOX` are gone. A new `CONTESTS` button group sits
+alongside `LOCOMOTION`/`ACTIONS`/`OTHER`: **TACKLE — SLIDE**, **TACKLE —
+LUNGE**, **BUMP — CLEAN HIT**, **BUMP — MISS**, **SMOTHER**. Pressing one
+lazily builds (once) a second real `PlayerController` + `Ball` (same
+`player.tscn`/`ball.tscn` full_game.gd/kick_to_kick.gd instantiate, not a
+stand-in), hides the single-figure clip-preview rig, and runs a short,
+fixed, non-interactive scripted approach through the real gameplay
+resolvers — `_resolve_tackle_contact`, `_try_bump_contact`, `_try_
+smother_contact`, exactly what a real match runs — driven by a small
+`ContestBrain` (every want a plain field this script sets directly, the
+scripted-choreography equivalent of `HumanBrain` reading real input) not
+live input. `_step_contest()` watches for the real resolution signal
+(`TACKLED`/`TACKLE_GRAB`/`SMOTHERED` actually firing) each frame and stops
+driving once it lands (or `CONTEST_TIMEOUT` — 3s — expires); the two
+bodies keep simulating on their own after that exactly like a real match
+would (a knockdown's own `Action` duration plays the fall *and* the
+recovery with no extra logic needed), so leaving a contest on screen for a
+few seconds shows the whole cycle, not a freeze-frame. Pressing the same
+button again just re-launches the identical scenario from scratch.
+
+Bump has no brain-mediated trigger to script — `_update_bump()` reads
+`InputManager.flick_vector()` directly, a raw device gesture with nothing
+to fake headless or in a scripted vignette. `BUMP_CLEAN`/`BUMP_MISS`
+inject the dash fields directly instead (`_bump_dash_direction`/`_timer`/
+`_active`/`_bump_cooldown`), the same private-field-injection this
+project's own scratch physics tests already use for the identical reason
+— after `BUMP_CONTEST_TRIGGER_DELAY` (0.6s) lets the carrier close real
+distance and reach real speed first, so the assist added in §1 has
+something genuine to correct rather than firing at point-blank range.
+Every other scenario (both Tackle variants, Smother) is fully brain-
+mediated — `_brain.wants_tackle()`/`wants_lunge_tackle()`/`wants_smother()`
+returning true is all it takes, the same as a real human holding/tapping
+the button, because that dispatch was already brain-agnostic.
+
+The full 165x135m `Field` scene is gone from this screen entirely,
+replaced by a small (20x20m) invisible `StaticBody3D`/`BoxShape3D` floor —
+same `collision_layer = 1`/`collision_mask = 0` shape `Field`'s own
+"Ground" node uses, just sized for a two-body vignette instead of a real
+oval; the existing decorative wireframe grid (already built for the
+single-subject preview) stays the only *visible* floor cue for both modes.
+Camera stays a second fixed transform (`CONTEST_CAMERA_*`, pulled back and
+raised from the single-subject framing) rather than the old sandbox's
+`BroadcastCamera` follow-rig — a static shot, matching every other button
+on this screen, not a controllable one.
+
+A genuine bug found and fixed while building this, not just in the
+mechanics: the first version of `_step_contest()`'s "has this resolved
+yet" check treated `_contest_a._action == Tuning.Action.SMOTHER_DIVE` as
+a resolution signal, same as `TACKLE_GRAB`. For a tackle that's correct —
+`_try_tackle()` only ever starts `TACKLE_GRAB` in the same call that
+already resolved the target's `TACKLED` — but Smother's dive is a real
+~0.4s travel window before it connects or doesn't; treating "started
+diving" as "resolved" cut the vignette's own driving logic off mid-flight,
+before `_try_smother_contact()` ever got a chance to land it. Fixed by
+dropping `SMOTHER_DIVE` from that check — the underlying PlayerController
+physics were never affected (this bug only lived in the viewer's own
+bookkeeping of when to stop polling), but the self-test below caught it
+immediately once it started checking the actual outcome instead of just
+"did an animation start."
+
+`player_animation.gd`'s ACTION_STATES doc comment updated (Spoil is now
+the only pure-physics-reaction holdout; Bump's own dash still has no
+Action of its own, only its outcomes reuse `TACKLED`).
+
+### How it was verified
+
+Plain headless boot re-verified clean on `animation_viewer.tscn`,
+`full_game.tscn`, `kick_to_kick.tscn`, and the main menu.
+
+Three scratch physics scenes (all deleted after their runs, not part of
+the diff): a new consolidated regression scene re-checked Slide connect,
+Lunge connect/miss, Bump clean/miss, and Smother end-to-end (14 checks, all
+green — not the previous pass's literal 23-check script re-run verbatim,
+a fresh script covering the same ground) after `_knockdown()`/dispatch
+refactoring incidental to this pass, confirming nothing in this pass
+regressed the previous one's own machinery. Two authoring mistakes in this
+new script itself were caught and fixed along the way, not product bugs:
+the Lunge-miss and Bump-clean phases both started with the two bodies too
+far apart for the scenario to physically work (Bump's own dash can only
+ever cover ~3.8m in its 0.4s window — not the 6m gap the first draft used
+— so tightening the reset distance, not the mechanic, was the fix). A
+second scene targeted exactly what changed here: a bump dash aimed
+at a carrier's *starting* position while they sprint laterally away still
+connects (assist working), the hop actually applies (`_knockdown_hop_
+timer` > 0 immediately after both a clean connect and a miss), a clean
+connect's own knockback slide measured directly (impact position vs.
+position ~0.6s later) came in under 2m — down from north of 2m at the old
+5.5 m/s — and a full Smother-dive scenario (target kept "kicking" via a
+scripted `wants_kick()` override, since the previous version of this test
+tried setting `_charging` directly and had it silently overwritten by the
+carrier's own `_update_charge()` the very next frame — a test-harness bug,
+caught and fixed, not a product one) connects and drops the ball. 9/9
+checks passed. One real bug surfaced and fixed mid-test: `_try_bump_
+contact()` cleared `_bump_dash_active` on a connect but not `_bump_dash_
+timer` itself, and `_update_locomotion`'s dash-override branch keys off
+the timer, not the flag — a connect landing well before the dash's own
+clock ran out (trivial for Bump, which unlike Slide's dive-in has no
+launch-range gate and can connect on its very first frame) would have kept
+sliding the bumper forward at full dash speed, straight through whoever
+they just hit, until the leftover clock happened to expire on its own.
+Fixed by zeroing both fields together; re-verified with a dedicated
+same-frame-connect scratch scene (3/3 checks) before the main test above
+was written.
+
+A temporary self-test hook in `animation_viewer.gd` itself (`ANIM_VIEWER_
+SELFTEST=1` env var, same pattern the previous pass's own Tackle Sandbox
+self-test used) exercised the actual UI-facing flow end to end: boots to
+the single subject visible; each of the five CONTESTS buttons hides it,
+shows both contest bodies, and drives to a real resolution signal within
+the timeout; switching back to a plain locomotion button hides the contest
+bodies again. 10/10 checks passed once the SMOTHER_DIVE-as-"resolved" bug
+above and a GDScript lambda-closure counting bug in the self-test itself
+(outer `checks`/`passed` locals mutated only inside a lambda never
+propagate back out — GDScript captures locals by value, not reference; the
+fix was moving the counters to member fields) were both found and fixed.
+Removed before this pass was considered done, per the project's own
+scratch-test convention.
+
+### What still needs a human look
+
+Everything from the previous handover entry still applies (the `Action.
+TACKLED` pose fix in particular is still unrendered) — this pass adds:
+
+1. Open the Animation Viewer (`animation_viewer.tscn`) and try each of the
+   five CONTESTS buttons. Does the framing (`CONTEST_CAMERA_DISTANCE`
+   8.0m / `CONTEST_CAMERA_HEIGHT` 1.6m, picked without a render to check
+   against) actually fit both bodies and the approach comfortably, or does
+   it need pulling back further / repositioning? This is the single
+   least-confident number in this whole pass — everything else at least
+   has a scratch-physics check behind it; camera framing has none.
+2. In real play: does Bump actually connect reliably now against a moving
+   AI carrier, and does the knockdown read as weighted rather than floaty?
+   The assist and hop are both scratch-tested in isolation but this is
+   their first time facing a real AI-driven opponent rather than a
+   scripted one.
+3. Does Smother's new dive read as a genuine committed lunge, and — the
+   open question flagged in §3 above — does it actually trigger often
+   enough in real play now that its range is wider, or does it still lose
+   to Lunge tackle most of the time because the opponent usually hasn't
+   started kicking yet? If the latter, that's a *when does it trigger*
+   question, not a *what does it look like* one, and would need a
+   deliberate follow-up brief rather than a guess.
+
+**On "which button does what"**, since that was asked directly: Slide
+tackle is **hold** Tackle (keyboard E / gamepad B). Lunge tackle, Handball,
+Running Mark, and Smother all share the **same** physical tap (keyboard Q
+/ gamepad X) — which one actually fires is decided by game state, not a
+separate binding: carrying the ball → Handball; not carrying, ball
+airborne and reachable → Running Mark; not carrying, an opponent is
+carrying and *not* yet kicking → Lunge tackle; not carrying, an opponent
+is carrying and *already* in their kick stance or mid-swing → Smother.
+Bump is **hold** Bump stance (keyboard L / gamepad Left Bumper) plus a
+flick of the right stick (or equivalent) toward the target — a swing, not
+a second tap.
+
+### Files changed
+
+`scripts/tuning.gd` (Bump section retuned — `BUMP_DASH_SPEED` 11.5→9.5,
+`BUMP_KNOCKBACK_SPEED` 5.5→3.0, new `BUMP_ASSIST_STRENGTH`/`BUMP_ASSIST_
+CONE_DEG`/`BUMP_ASSIST_RANGE`/`BUMP_KNOCKDOWN_HOP_SPEED`/`BUMP_KNOCKDOWN_
+HOP_DURATION`; new Smother section — `SMOTHER_COMMIT_RANGE`/`SMOTHER_DIVE_
+SPEED`/`SMOTHER_DIVE_DURATION`/`SMOTHER_DIVE_COOLDOWN`; `Action.SMOTHER_
+DIVE` appended, `ACTION_DURATION`/`ACTION_CONTACT` extended),
+`scripts/player/player_controller.gd` (new `_knockdown_hop_timer` field +
+floor-snap suspension in `_physics_process`; new `_apply_bump_assist()`/
+`_apply_knockdown_hop()`; `_resolve_bump_contact()`/`_resolve_bump_miss()`
+call the hop; `_try_bump_contact()` now zeroes `_bump_dash_timer` on
+connect, not just `_bump_dash_active`; `_try_smother()` replaced by
+`_update_smother()` (launch + live re-aim) and new `_try_smother_
+contact()` (post-move resolve); new `_smother_dive_*` fields; `_update_
+locomotion()` gets a smother-dive movement-override branch),
+`scripts/player/humanoid_animations.gd` (new `_build_smother_dive()`,
+registered in `build_library()`), `scripts/player/player_animation.gd`
+(`ACTION_STATES` gains `SMOTHER_DIVE`, doc comment updated),
+`scripts/dev/animation_viewer.gd` (rewritten — `ViewMode`/`TACKLE_
+SANDBOX`/`BroadcastCameraScene`/`FieldScene` all removed; new `ContestKind`/
+`CONTESTS`/`ContestBrain`/`_launch_contest()`/`_step_contest()`/
+`_build_contest_floor()`; `ACTIONS` list drops the four tackle-family
+entries; `_show_single_subject()`/`_show_contest()` replace the old
+`_set_mode()`). Not touched: `_resolve_tackle_contact`, `_try_tackle`,
+`_try_lunge_tackle`, `InputManager.flick_vector()`/`_flick_world_
+direction()`, `Action.TACKLED`/`TACKLE_GRAB`/`SMOTHERED`'s own clips — this
+pass retuned Bump's numbers and rebuilt Smother's trigger/movement, it
+didn't touch either tackle variant's resolution logic or any existing clip
+data.
+
+
+## Handover — Smother dive rebuilt to actually reach ground, Bump's fall direction/momentum fixed, Tackle split into a standing hug (Slide) vs. a ground takedown (Lunge) (Agent: mechanics/engine)
+
+Direct follow-up to the pass above, again driven by real playtest feedback
+rather than a written brief: the Smother dive from the previous pass never
+actually went to ground, Bump's clean-hit target was spinning 180° before
+falling and the miss kept sliding well past where it resolved, and — the
+biggest ask — Slide and Lunge tackles both just knocked the target flat,
+when the brief now wants them to read as two distinct real tackle types.
+
+### 1. Tackle split: Slide holds them up, Lunge takes them down
+
+`_get_tackled(by, is_slide)` — new `is_slide` parameter, the single fork
+this whole feature hangs off:
+- **Slide connect**: the target no longer falls. New `Action.TACKLE_HELD`
+  (target) plays instead of `Action.TACKLED` — standing, wrapped up, ball
+  stripped, a `TACKLE_HELD_STUN_DURATION` (0.55s) window instead of
+  `TACKLE_STUN_DURATION`'s 1.3s since nobody's getting up off the ground.
+  `Action.TACKLE_GRAB` (tackler, unchanged trigger site — still plays
+  alongside on every Slide connect) was itself softened to match: the
+  previous version's forward-driving pose is replaced with arms pulling in
+  close (shoulder spread down near zero, elbows bent deep) so it reads as
+  wrapping around someone who stays standing, not driving them down.
+- **Lunge connect**: unchanged for the target — still `Action.TACKLED` via
+  `_knockdown()`, still falls all the way down. What's new is the
+  tackler: `_try_lunge_tackle()` now also plays `Action.TACKLE_TAKEDOWN`
+  on a connect, a driving crouch that ends low/kneeling near the felled
+  target before rising back up, synced to `TACKLED`'s own 1.3s length.
+  The tackler themselves is still not stunned and doesn't actually fall —
+  `_lunge_tap_cooldown`/`_stun_timer` are untouched either way, this is a
+  cosmetic beat layered on the same "stays on feet" physical outcome Lunge
+  has always had, not a second real knockdown.
+
+`Tuning.Action`'s own doc comment (and the stale "Lunge deliberately
+doesn't get one, a grab beat would undercut the stays-on-feet distinction"
+line specifically) is rewritten — that reasoning was correct for the
+previous pass's design and is now actively wrong, left in place it would
+have contradicted the code sitting right next to it.
+
+### 2. Bump: fall direction and miss-momentum both fixed
+
+**Direction** — a clean connect was calling `_knockdown()` with the
+default `snap_facing = true`, which invokes `_fall_toward()` and rotates
+the target to face the direction of the hit — the same convention
+`Action.TACKLED` wants (topple forward, in the direction of travel) but
+wrong for a bump: a hit from the front should send the target straight
+down onto their back, not spin them 180° to face away first. `_knockdown()`
+gained two new parameters — `action` (which clip to play) and
+`snap_facing` (bool) — and a clean bump connect now passes `Action.
+KNOCKED_BACK` with `snap_facing = false`: a new clip
+(`HumanoidAnimations._build_knocked_back`) that mirrors `_build_tackled()`
+exactly (identical hip_y/shoulder/elbow/leg keys) except "hips"/"torso"/
+"neck" are sign-flipped positive instead of negative — the body arches
+*backward* instead of crumpling forward, and because facing was never
+touched, it does so while still facing wherever it already was (roughly
+toward the bumper, since a clean connect requires the carrier to have
+been closing on them).
+
+**Miss momentum** — `_resolve_bump_miss()` now zeroes `velocity.x`/`z`
+before calling `_knockdown()`. The bug: `_update_locomotion`'s dash-
+override branch stops applying itself the instant `_bump_dash_timer` hits
+zero, but nothing had ever reset the *velocity that branch had already
+set* — normal locomotion's own braking curve (`Tuning.BRAKING`, 14 m/s²)
+took over from wherever that left off, which at `BUMP_DASH_SPEED` (9.5
+m/s) is a good half-second of continued sliding after the whiff was
+already decided. Now the fall starts from a dead stop exactly where the
+overextension happened, matching the brief's own "start the diving
+animation from where the player is... and then they hit the ground."
+
+### 3. Smother dive reworked to actually reach the ground
+
+The previous pass's dive clip pitched the torso forward but never dropped
+`hip_y` more than -0.20 or used the root "hips" bone at all — it stayed a
+standing lunge, never a real dive, which is exactly what was reported
+("doesn't make the player dive at the ground towards oppositions player
+feet"). Rebuilt `_build_smother_dive()` using the same technique
+`_build_tackled()`'s own fix established: the big forward pitch belongs on
+"hips" (the root bone every other bone hangs off), with "torso" only
+adding a small hunch on top, not the whole rotation — plus `hip_y` now
+drops to -0.65 at ground contact (comparable to `TACKLED`'s own -0.80),
+arms reaching flat and low (minimal elbow bend, low shoulder angle — boot
+height, not overhead), legs trailing extended behind in an asymmetric
+dive silhouette. `SMOTHER_DIVE_DURATION`/`ACTION_DURATION[SMOTHER_DIVE]`
+both raised 0.4s→0.55s together (kept in sync, as they always have to be)
+to give the dive room to actually travel and land before snapping back to
+standing. Framed in the design brief itself as "more of an advanced
+feature that not many players use" — this pass fixed the read (a real
+ground dive) without adding new mechanics (stun, homing beyond what
+already existed, etc.) on top.
+
+### How it was verified
+
+Plain headless boot re-verified clean on `full_game.tscn`,
+`kick_to_kick.tscn`, `animation_viewer.tscn`, and the main menu (confirms
+every new/edited clip — `tackle_held`, `tackle_takedown`, `knocked_back`,
+the reworked `tackle_grab`/`smother_dive` — builds without error, since
+`player.tscn` builds the whole `AnimationLibrary` on `_ready()`).
+
+A new scratch physics scene (deleted after its run, not part of the diff)
+drove both tackle types and both bump outcomes through the real resolvers:
+Slide connect confirmed the target plays `TACKLE_HELD` (not `TACKLED`),
+the tackler plays `TACKLE_GRAB`, the ball spills, and the stun matches
+`TACKLE_HELD_STUN_DURATION`; Lunge connect confirmed the target still
+plays `TACKLED` and the tackler now plays `TACKLE_TAKEDOWN`; a clean bump
+connect confirmed the target plays `KNOCKED_BACK` (not `TACKLED`) and,
+measuring `rotation.y` immediately before and after, that the body's
+facing changed by only ~0.21 rad (~12°) — not the ~180° spin the old
+version produced; a bump miss confirmed the bumper's own position barely
+moved (~0.18m) in the 0.3s immediately after the whiff resolved, versus
+sliding at the full 9.5 m/s dash speed the old version would have. 11/11
+checks passed.
+
+A temporary self-test hook in `animation_viewer.gd` (`ANIM_VIEWER_
+SELFTEST=1`, same pattern as the previous two passes) re-ran all five
+CONTESTS scenarios end to end through the real click-to-run flow and
+checked each one's *new* resolution signal specifically (`TACKLE_HELD`
+for Slide, `TACKLED` for Lunge, `KNOCKED_BACK` for a clean bump, `TACKLED`
+for a bump miss, `SMOTHERED`/ball-dropped for Smother) rather than the
+previous pass's now-superseded checks. 10/10 checks passed on the first
+run — no new bugs surfaced in the viewer's own orchestration logic this
+time, since `_step_contest()`'s resolution-signal list was updated
+alongside the mechanics themselves rather than after the fact. Removed
+before this pass was considered done, per the project's own scratch-test
+convention.
+
+### What still needs a human look
+
+Everything from the previous two handover entries still applies. This
+pass adds:
+
+1. Open the Animation Viewer's CONTESTS group and check **TACKLE — SLIDE**:
+   does the wrap/hug now read as two bodies embracing while both stay
+   standing, not a knockdown? Does **TACKLE — LUNGE** still read as a real
+   takedown, with the tackler visibly driving down and ending low near the
+   fallen target rather than standing over them untouched?
+2. **BUMP — CLEAN HIT**: does the target now fall straight backward
+   without spinning around first? Does it genuinely read as "hit from the
+   front, knocked onto their back" rather than an ambiguous topple?
+3. **BUMP — MISS**: does the bumper now visibly collapse right where they
+   overextended, rather than sliding several more metres first?
+4. **SMOTHER**: does the dive now clearly reach the ground and stretch
+   toward the kicker's feet, rather than staying an upright lunge?
+5. Camera framing for the CONTESTS view is still the one number in this
+   whole area with no scratch-physics check behind it (framing can only be
+   judged by eye) — worth a look now that Slide's outcome in particular
+   keeps both bodies standing closer together rather than one prone on the
+   ground, which changes what the shot actually needs to frame.
+
+### Files changed
+
+`scripts/tuning.gd` (`Action.TACKLE_HELD`/`TACKLE_TAKEDOWN`/`KNOCKED_BACK`
+appended; `ACTION_DURATION`/`ACTION_CONTACT` extended and `TACKLE_GRAB`/
+`SMOTHER_DIVE`'s own entries lengthened; new `TACKLE_HELD_STUN_DURATION`;
+`BUMP_KNOCKDOWN_STUN_DURATION` now its own literal instead of aliased to
+`TACKLE_STUN_DURATION`, comment updated to name `KNOCKED_BACK`; `SMOTHER_
+DIVE_DURATION` 0.4→0.55), `scripts/player/player_controller.gd`
+(`_get_tackled()` gains `is_slide`; `_try_tackle()`/`_try_lunge_tackle()`
+updated for the split; `_knockdown()` gains `action`/`snap_facing`
+parameters; `_resolve_bump_contact()`'s clean branch passes `Action.
+KNOCKED_BACK`/`snap_facing=false`; `_resolve_bump_miss()` zeroes
+`velocity.x`/`z` first), `scripts/player/humanoid_animations.gd`
+(`_build_tackle_grab()` reworked, new `_build_tackle_held()`/`_build_
+tackle_takedown()`/`_build_knocked_back()`, `_build_smother_dive()`
+reworked, all registered in `build_library()`), `scripts/player/
+player_animation.gd` (`ACTION_STATES` gains the three new entries, doc
+comment updated), `scripts/dev/animation_viewer.gd` (`_step_contest()`'s
+resolution-signal list updated for the new actions, class doc comment's
+tackle-family clip list updated). Not touched: `_resolve_tackle_contact`,
+`_apply_bump_assist`, `_apply_knockdown_hop`, `InputManager.flick_
+vector()` — this pass changed which clip plays and how facing/momentum
+are handled around each knockdown, not how any contest decides success in
+the first place or the assist/gravity work from the previous pass.
+
+
+## Handover — BUMP — MISS contest vignette kept inside the floor grid (Agent: mechanics/engine)
+
+Small, scoped follow-up, explicitly requested viewer-only: the user had
+made their own UI-polish edits to `animation_viewer.gd` (styled buttons,
+eased camera moves between the single-subject and contest framings — see
+that file's own `_make_button()`/`_move_camera_to()`) between passes and
+asked for this fix without touching anything else, mechanics included.
+
+`ContestKind.BUMP_MISS`'s scripted vignette put A at `z=-2.0` dashing
+along a fixed `(1,0,0)` direction for the *full* `Tuning.BUMP_DASH_
+DURATION`/`BUMP_DASH_SPEED` (~4.6m of travel) while B stood at `(3.0, 0,
+-2.0)` — well outside the small (±1.6m) decorative floor grid
+`_build_studio_floor()` draws, and the dash direction happened to run
+almost directly at B's own position despite the code comment claiming it
+was "off to the side, out of the swing." New `BUMP_MISS_CONTEST_DASH_
+SCALE` (0.5, viewer-only — does not touch `Tuning.BUMP_DASH_DURATION` or
+anything a real match uses) halves the dash's travel window for this
+scenario specifically, and both bodies were repositioned (A at `z=-1.0`,
+B at `(0.85, 0, 0.5)`) so the ~1.9m halved dash runs close past B — B sits
+0.85m off the dash's straight line, just past the 0.7m two `CapsuleShape3D`
+collision shapes (radius 0.35 each) would need to actually touch, so A
+visibly closes in, misses narrowly, and its own follow-through carries it
+just past B's position — all of it inside the grid's ±1.6m extent. B still
+never carries the ball for this scenario (unchanged from before), so
+there's no valid target for `_try_bump_contact()` regardless of how close
+the geometry runs — a genuine whiff, not a swing that was never close.
+
+### How it was verified
+
+Plain headless boot re-verified clean on `animation_viewer.tscn` and the
+main menu. A temporary self-test hook (`ANIM_VIEWER_SELFTEST=1`, same
+pattern as previous passes, removed before this was done) ran the
+BUMP_MISS scenario and measured, every physics frame the dash was active:
+minimum A-to-B distance (0.85m — never dropped low enough to suggest a
+capsule collision), total distance A actually travelled (2.05m — in the
+expected ~1.9-2.1m range for a halved dash plus its own settle), and the
+furthest either coordinate ever got from the origin (1.05m, inside the
+1.6m grid bound). All 5 checks passed.
+
+### Files changed
+
+`scripts/dev/animation_viewer.gd` only (`BUMP_MISS_CONTEST_DASH_SCALE`
+new; `ContestKind.BUMP_MISS`'s own case in `_launch_contest()`
+repositioned; its dash-trigger branch in `_step_contest()` scales the
+injected `_bump_dash_timer` and fixes the direction comment). Not touched:
+every other CONTESTS scenario (Slide/Lunge/clean-bump/Smother all still
+run outside the ±1.6m grid too — only BUMP_MISS was flagged this pass, so
+only it was fixed), `scripts/tuning.gd`, `scripts/player/player_
+controller.gd`, and every other mechanics file from the previous two
+passes — this was scoped to the viewer's own scripted vignette only, per
+direct instruction.
+
+
+## Handover — TACKLE_HELD no longer spills the ball (Agent: mechanics/engine)
+
+One-line playtest report: "on Tackle-Slide the B player is tackle-held
+which is good, but the animation drops the ball, the ball typically would
+not spill out if the tackle is held." `_get_tackled()` applied the same
+`TACKLE_SPILL_SPEED` scatter impulse regardless of `is_slide` — correct
+for a Lunge connect (a real loose-ball contest, the ball launched away
+from a body hitting the ground) but wrong for a Slide connect, where
+nobody goes to ground at all; a held-up strip should just drop the ball
+straight down at the target's feet.
+
+Fixed by moving the `ball.apply_central_impulse(...)` call inside the
+`else` (Lunge) branch only. `drop_ball()` itself (`Ball.detach()`) already
+does the right thing with no impulse — the ball simply stops being carried
+and falls under its own physics from wherever it was held, which is
+exactly "drops rather than spills." Holding-the-ball adjudication
+(`holding_the_ball_called`/`field_ball_up_called`) is untouched — that's
+about whether the tackle draws a free kick, not about how the ball
+physically leaves the carrier's hands, so it still fires the same way for
+both tackle types.
+
+### How it was verified
+
+Plain headless boot re-verified clean on `full_game.tscn`. A scratch
+physics scene (deleted after the run) drove a Slide connect and a Lunge
+connect back to back and read `Ball.linear_velocity` immediately after
+each: Slide left the ball at ~0.00 m/s horizontal (no scatter — it's
+falling under gravity, not flying anywhere), Lunge still measured ~3.00
+m/s (`Tuning.TACKLE_SPILL_SPEED`, unchanged). 4/4 checks passed.
+
+### Files changed
+
+`scripts/player/player_controller.gd` only (`_get_tackled()`'s ball-
+impulse line moved inside the Lunge-only branch, doc comment updated).
+Nothing else touched.

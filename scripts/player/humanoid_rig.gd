@@ -49,6 +49,19 @@ const COLOUR_TREAD := Color("#141513")
 
 @export var away_kit := false
 
+## Viewer-only high-fidelity switch (scripts/dev/animation_viewer.gd sets it
+## before _ready). A dev screen renders one to three bodies, not 16-a-side,
+## so it can afford much rounder primitives and slightly richer materials
+## than the on-field budget allows. Only vertex counts and material params
+## change — no extra MeshInstance3D/draw calls, the one cost the header says
+## must not scale with the roster — so the on-field default stays untouched.
+@export var high_detail := false
+
+## Segment multiplier applied to every curved primitive when high_detail is
+## on. Smoother silhouettes on capsules/spheres/cylinders; boxes are flat
+## either way so they're left alone.
+const DETAIL_SCALE := 2.4
+
 ## name, parent, rest offset from parent bone (bone-local, i.e. before the
 ## parent's own rotation is applied — matches Skeleton3D.set_bone_rest's
 ## own convention of a Transform3D relative to the parent bone). Order
@@ -224,8 +237,8 @@ func _capsule_on(bone_short: String, part_name: String, radius: float, length: f
 	var mesh := CapsuleMesh.new()
 	mesh.radius = radius
 	mesh.height = maxf(length, radius * 2.0 + 0.001)
-	mesh.radial_segments = 12
-	mesh.rings = 5
+	mesh.radial_segments = _segments(12)
+	mesh.rings = _segments(5)
 	return _mesh_on(bone_short, part_name, mesh, offset, colour, roughness)
 
 
@@ -234,8 +247,8 @@ func _sphere_on(bone_short: String, part_name: String, radius: float, offset: Ve
 	var mesh := SphereMesh.new()
 	mesh.radius = radius
 	mesh.height = radius * 2.0
-	mesh.radial_segments = radial_segments
-	mesh.rings = rings
+	mesh.radial_segments = _segments(radial_segments)
+	mesh.rings = _segments(rings)
 	return _mesh_on(bone_short, part_name, mesh, offset, colour)
 
 
@@ -245,7 +258,7 @@ func _cylinder_on(bone_short: String, part_name: String, top_radius: float, bott
 	mesh.top_radius = top_radius
 	mesh.bottom_radius = bottom_radius
 	mesh.height = height
-	mesh.radial_segments = 14
+	mesh.radial_segments = _segments(14)
 	return _mesh_on(bone_short, part_name, mesh, offset, colour, roughness)
 
 
@@ -261,12 +274,30 @@ func _mesh_on(bone_short: String, part_name: String, mesh: Mesh, offset: Vector3
 	return node
 
 
+## Curved-primitive tessellation, scaled up only when high_detail is set —
+## rounded to the nearest whole segment and floored at the on-field value so
+## the low-detail path is bit-for-bit unchanged.
+func _segments(base: int) -> int:
+	if not high_detail:
+		return base
+	return maxi(base, int(round(base * DETAIL_SCALE)))
+
+
 func _material(colour: Color, roughness := 0.78) -> StandardMaterial3D:
-	var key := "%s|%.2f" % [colour, roughness]
+	var key := "%s|%.2f|%s" % [colour, roughness, high_detail]
 	if _materials.has(key):
 		return _materials[key]
 	var material := StandardMaterial3D.new()
 	material.albedo_color = colour
 	material.roughness = roughness
+	# High detail gives the figure a little more form under the studio key
+	# light: a touch less roughness for a soft sheen on skin/cloth, and a
+	# faint rim so the silhouette separates from the flat-white backdrop the
+	# viewer sits on. On-field bodies keep the plain matte look.
+	if high_detail:
+		material.roughness = clampf(roughness - 0.14, 0.2, 1.0)
+		material.rim_enabled = true
+		material.rim = 0.35
+		material.rim_tint = 0.2
 	_materials[key] = material
 	return material
