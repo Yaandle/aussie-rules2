@@ -115,10 +115,12 @@ button *without* holding stance first fires an instant, less accurate
 hip-fire kick from wherever the body's facing. Settings → MOUSE KICK BUTTONS
 swaps which mouse button aims and which fires.
 
-Many action buttons are context-sensitive: Bounce while carrying becomes
-Tackle once you're not; Handball while carrying becomes Running Mark or
-Smother once you're not; Safe Mark becomes a ground pickup once the ball
-isn't airborne.
+Many action buttons are context-sensitive: on gamepad, Bounce (B) while
+carrying becomes Slide tackle once you're not; Handball (X) while carrying
+becomes Running Mark, Smother, or Lunge tackle depending on the situation
+once you're not (a nearby opponent mid-kick gets smothered, one just
+running with the ball gets lunge-tackled); Safe Mark becomes a ground
+pickup once the ball isn't airborne.
 
 **Training coaches** (`kick_to_kick.tscn` only): walk up to a coach, `Q`/X
 to talk, `Y`/A to accept. The kicking coach runs a target-practice

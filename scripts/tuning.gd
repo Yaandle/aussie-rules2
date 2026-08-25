@@ -39,13 +39,60 @@ enum Team { HOME, AWAY, NONE }
 ## without a visible pop, so its miss stays feedback-only (rumble/SFX/ring),
 ## same clip either way.
 ##
-## TACKLED: the cosmetic fall/recover reaction for a successfully tackled
-## player (PlayerController._get_tackled) — a Slide or Lunge connecting, not
-## a bump (bump has its own separate knockback/stun, no clip). Like the mark
-## misses above, the outcome (ball spilled) is already resolved before this
-## ever starts; the clip is purely the visual consequence.
+## TACKLED: the cosmetic fall/recover reaction for anyone knocked flat by a
+## contest (PlayerController._knockdown) — a Lunge tackle connecting
+## (_get_tackled with is_slide=false), or a whiffed bump dash landing on
+## the bumper themselves (_resolve_bump_miss). Falls forward, in the
+## direction of travel — see _fall_toward(). A Slide connecting no longer
+## uses this (see TACKLE_HELD below) and a clean bump connect no longer
+## uses this either (see KNOCKED_BACK below) — both used to, until real
+## playtesting asked for a different read on each. Like the mark misses
+## above, the outcome (ball spilled, or not) is already resolved before
+## this ever starts; the clip is purely the visual consequence.
+##
+## TACKLE_GRAB: the TACKLER's own beat on a Slide connect, synced with the
+## target's TACKLE_HELD — playtest feedback wanted Slide to read as a wrap-
+## up hold (both stay standing) rather than a knockdown, so this clip
+## itself was softened to match (see HumanoidAnimations._build_tackle_
+## grab's own doc comment).
+##
+## TACKLE_HELD: the target's own reaction to a Slide connect — standing,
+## wrapped up, ball stripped, not knocked down. Distinct from TACKLED
+## (which Lunge's target still uses): playtest feedback specifically wanted
+## the two tackle types to read differently — Slide holds them up, Lunge
+## can take both players to the ground.
+##
+## TACKLE_TAKEDOWN: the TACKLER's own beat on a Lunge connect, synced with
+## the target's TACKLED fall — driving them down and ending low/kneeling
+## rather than standing untouched, since playtest feedback wanted "the
+## lunge tackle can take both players to the ground." The tackler
+## themselves doesn't get a hard stun or go fully prone (see
+## PlayerController._try_lunge_tackle's own doc comment) — this is a
+## cosmetic crouch, not a second knockdown.
+##
+## SMOTHERED: the reaction clip for a blocked kick (PlayerController.
+## _get_smothered) — a stumble/recoil, not a knockdown, so it does not
+## route through _knockdown() and gets its own (shorter, unstunned) slot.
+##
+## SMOTHER_DIVE: the beat on the SMOTHERER, not the smothered player — a
+## committed dive at the kicker's feet/boot (PlayerController._update_
+## smother), reworked after playtest feedback that the first version never
+## actually went to ground ("doesn't make the player dive at the ground
+## towards oppositions player feet"). Plays whether or not the dive
+## actually connects (see Tuning's own Smother section) — the dive itself
+## is the animation, the block is the separate game effect.
+##
+## KNOCKED_BACK: a clean Bump connect's own fall — playtest feedback: the
+## target was spinning 180° to face away before falling (TACKLED's own
+## "face the direction of the fall" convention, wrong for this case) when
+## a clean hit from the front should send them straight down onto their
+## back, still facing roughly where they were already facing. Mirrors
+## TACKLED's own pose data (see HumanoidAnimations._build_knocked_back's
+## doc comment) but skips _fall_toward()'s facing snap entirely — see
+## PlayerController._knockdown()'s own `snap_facing` parameter.
 enum Action { NONE, KICK, HANDBALL, BOUNCE, MARK_SAFE, MARK_RUNNING, MARK_AGGRESSIVE, HIT_OUT,
-	MARK_SAFE_MISS, MARK_RUNNING_MISS, TACKLED }
+	MARK_SAFE_MISS, MARK_RUNNING_MISS, TACKLED, TACKLE_GRAB, SMOTHERED, SMOTHER_DIVE,
+	TACKLE_HELD, TACKLE_TAKEDOWN, KNOCKED_BACK }
 
 
 # ── Ground geometry (metres) ─────────────────────────────────────────
@@ -317,8 +364,38 @@ const KICK_MOUSE_REACH_SENSITIVITY := 0.0035
 ## fires there — see _update_action's cosmetic-only branch); the clip
 ## still needs *a* contact time for Tuning.action_contact_time's shared
 ## bookkeeping the same way MARK_SAFE_MISS/MARK_RUNNING_MISS do.
-const ACTION_DURATION := [0.0, 0.78, 0.45, 0.50, 0.55, 0.40, 0.95, 0.95, 0.35, 0.30, 1.3]
-const ACTION_CONTACT := [0.0, 0.42, 0.20, 0.22, 0.08, 0.06, 0.40, 0.40, 0.10, 0.10, 0.30]
+##
+## TACKLE_GRAB (index 11): a wrap-and-hold beat, synced with TACKLE_HELD
+## (index 14) — both share this same 0.55s length so tackler and target
+## settle together, not one finishing well before the other. No stun of
+## its own; the tackler is free to move again the moment it ends.
+##
+## SMOTHERED (index 12): shorter than TACKLED — a recoil, not a fall — and
+## unstunned like MARK_SAFE_MISS/MARK_RUNNING_MISS, just gated off other
+## actions for its own short span by the usual _action != NONE guard.
+##
+## SMOTHER_DIVE (index 13): matches SMOTHER_DIVE_DURATION — the clip plays
+## for exactly as long as the physical dive itself overrides locomotion.
+## Lengthened from an original 0.4s alongside the rework into a genuine
+## ground dive (see HumanoidAnimations._build_smother_dive) — the extra
+## time is what gives the dive somewhere to actually go before snapping
+## back to base.
+##
+## TACKLE_HELD (index 14): see TACKLE_GRAB above — same 0.55s length,
+## deliberately shorter than TACKLED's own 1.3s since nobody goes to
+## ground here; TACKLE_HELD_STUN_DURATION matches it the same way
+## TACKLE_STUN_DURATION matches TACKLED.
+##
+## TACKLE_TAKEDOWN (index 15): matches TACKLED's own 1.3s so the tackler's
+## drive-down-and-rise finishes around the same time the target's fall-
+## and-recover does — two bodies moving through one shared beat, not two
+## independently-timed animations that happen to overlap.
+##
+## KNOCKED_BACK (index 16): matches TACKLED's own 1.3s/0.30 contact split
+## exactly — see that clip's own comment; this is a sign-mirrored variant
+## of the same fall, not a differently-paced one.
+const ACTION_DURATION := [0.0, 0.78, 0.45, 0.50, 0.55, 0.40, 0.95, 0.95, 0.35, 0.30, 1.3, 0.55, 0.45, 0.55, 0.55, 1.3, 1.3]
+const ACTION_CONTACT := [0.0, 0.42, 0.20, 0.22, 0.08, 0.06, 0.40, 0.40, 0.10, 0.10, 0.30, 0.22, 0.12, 0.38, 0.15, 0.30, 0.30]
 
 # AFL rule: a player running with the ball must bounce or touch it to
 # ground every 15 metres. Carried over unchanged from Prototype 1's
@@ -504,14 +581,21 @@ const OUT_OF_BOUNDS_PAUSE_DURATION := 2.0   # s, paused for a boundary throw-in
 # this reason). Holding-the-ball adjudication (free kick vs ball-up) is not
 # modelled yet — see RULES_REFERENCE.md §4.
 const TACKLE_RADIUS := 1.4             # m, more generous than GATHER_RADIUS
-# Raised from the original 0.5 alongside the new Action.TACKLED fall/recover
-# clip (PlayerController._get_tackled, HumanoidAnimations._build_tackled) —
-# 0.5s was tuned back when a tackle was a pure physics reaction with no
-# animation to cover; now that a tackled player visibly goes down and gets
-# back up, the "can't act" window needs to last as long as that clip does
-# (ACTION_DURATION[TACKLED] below) or the player would be back on their feet
-# and moving while the rig still reads as lying on the ground.
+# Raised from the original 0.5 alongside the original Action.TACKLED fall/
+# recover clip (PlayerController._get_tackled, HumanoidAnimations._build_
+# tackled) — 0.5s was tuned back when a tackle was a pure physics reaction
+# with no animation to cover; now that a tackled player visibly goes down
+# and gets back up, the "can't act" window needs to last as long as that
+# clip does (ACTION_DURATION[TACKLED] below) or the player would be back on
+# their feet and moving while the rig still reads as lying on the ground.
+# Only used by Lunge's target now — a Slide connect uses TACKLE_HELD_STUN_
+# DURATION just below instead, since playtest feedback wanted the two
+# tackle types to read differently (see Action.TACKLE_HELD's own comment).
 const TACKLE_STUN_DURATION := 1.3      # s the tackled player can't act
+# Slide's target: standing, wrapped up, not knocked down — matches ACTION_
+# DURATION[TACKLE_HELD] the same way TACKLE_STUN_DURATION matches TACKLED,
+# just a much shorter window since nobody's getting up off the ground here.
+const TACKLE_HELD_STUN_DURATION := 0.55   # s
 const TACKLE_SPILL_SPEED := 3.0        # m/s the loose ball scatters at
 
 # Slide tackle resolution (_resolve_tackle_contact(..., is_slide=true)):
@@ -524,9 +608,11 @@ const TACKLE_SLIDE_CLOSING_SPEED_SCALE := 0.05  # required closing speed added p
 const TACKLE_SLIDE_MAX_ANGLE_DEG := 160.0       # deg — wide; closing_speed is the real gate, this just excludes a carrier pulling straight away
 # 2.6x PRIOR_OPPORTUNITY_GRACE (0.5s) — long enough that a whiffed slide
 # can't reset within a single possession-grace window; longer than
-# TACKLE_SLIDE_DIVE_COOLDOWN (1.1s) and BUMP_COOLDOWN (1.0s), keeping Slide
-# the single costliest whiff in the kit, on purpose — it's the highest-
-# commitment move in the whole defensive moveset.
+# TACKLE_SLIDE_DIVE_COOLDOWN (1.1s) and BUMP_COOLDOWN (1.0s). Used to be the
+# single costliest whiff in the kit outright; the hit-stick bump rework
+# below gave BUMP_MISS_STUN_DURATION an even bigger number on purpose (a
+# bigger swing deserves a bigger miss) — Slide stays the costliest *tackle*
+# commitment, just no longer the costliest thing you can whiff, period.
 const TACKLE_SLIDE_MISS_STUN_DURATION := 1.3    # s
 
 # Lunge tackle (X tap, not carrying — a quick poke/strip at whatever's
@@ -610,16 +696,41 @@ const FREE_KICK_RETREAT_DISTANCE := 10.0   # m
 const SMOTHER_RADIUS := 1.1            # m
 const SMOTHER_SPILL_SPEED := 1.5       # m/s
 
+# Rebuilt from an instant "already within SMOTHER_RADIUS" check into a real
+# committed dive at the kicker (PlayerController._update_smother/_try_
+# smother_contact) — playtest feedback: "the X to smother does not dive the
+# player onto the ground to smother the kick but rather knock the player
+# over like tapping B" (that was Lunge tackle firing instead, on the same
+# shared physical binding, because the old smother never actually moved —
+# it only ever fired if you were already standing right on top of a kicker,
+# which real play almost never lines up). Unlike Bump, this locks onto a
+# specific target at launch (PlayerController._try_smother's own existing
+# filter already has to find exactly one kick-aiming/mid-swing carrier to
+# even trigger — "block THIS kick" is inherently targeted, not a swing at a
+# spot) and re-aims at their live position every frame it's live, a
+# stronger and more direct correction than Bump's own gentler assist.
+const SMOTHER_COMMIT_RANGE := 3.0      # m — well beyond SMOTHER_RADIUS, close enough to require real anticipation of the kick
+const SMOTHER_DIVE_SPEED := 9.0        # m/s — a genuine committed dive, just under BUMP_DASH_SPEED
+# Raised from an original 0.4s after playtest feedback the dive "doesn't
+# make the player dive at the ground towards oppositions player feet" —
+# 0.4s wasn't enough window for the clip to actually reach the ground and
+# read as a dive rather than a lunge. Matches ACTION_DURATION[SMOTHER_
+# DIVE] exactly, same relationship every other paired duration in this
+# file has.
+const SMOTHER_DIVE_DURATION := 0.55    # s the dive overrides normal locomotion
+const SMOTHER_DIVE_COOLDOWN := 0.6     # s between attempts — matches SPOIL_COOLDOWN, a committed tap, not a battering
+
 
 # ── Bump ─────────────────────────────────────────────────────────────
 # LB hold + Right Stick flick (design brief priority 7): Madden's hit-stick
-# model. A bump disrupts balance — knockback plus a short stun — it does
-# not itself strip the ball the way a tackle does (real AFL: a legal bump
-# can put a carrier off their line or to ground; dispossessing them is a
-# tackle's job, not a bump's). Every number below is a physics-simulation
-# parameter (impulse speed, cooldown, a detection cone/window), the same
-# category SPOIL_IMPULSE_SPEED/TACKLE_SPILL_SPEED already are — none of
-# them are AFL rule thresholds.
+# model. A bump disrupts balance — knockback plus a short stun, or on a
+# clean connect a full knockdown — it does not itself strip the ball the
+# way a tackle does (real AFL: a legal bump can put a carrier off their
+# line or to ground; dispossessing them is a tackle's job, not a bump's).
+# Every number below is a physics-simulation parameter (impulse speed,
+# cooldown, a detection cone/window), the same category SPOIL_IMPULSE_
+# SPEED/TACKLE_SPILL_SPEED already are — none of them are AFL rule
+# thresholds.
 #
 # CRITICAL, per the brief: dangerous/high contact needs a free-kick
 # consequence under the real rules, and RULES_REFERENCE.md has zero
@@ -627,16 +738,73 @@ const SMOTHER_SPILL_SPEED := 1.5       # m/s
 # call something "dangerous" by). That half is deliberately NOT built here
 # — see PlayerController.bump_landed's own doc comment — rather than
 # guessing a number and presenting it as an official rule.
+#
+# Rebuilt from an instant proximity+cone check into a real committed dash
+# (PlayerController._update_bump/_try_bump_contact), the same "external
+# velocity owns the body for a window" shape Slide's dive-in
+# (TACKLE_SLIDE_DIVE_*) already uses — except a bump dash never locks onto
+# a target first (direction comes straight from the flick gesture), so it
+# can genuinely swing at empty air. BUMP_RANGE/BUMP_CONE_DEG keep their
+# original meaning, just evaluated every physics frame the dash is live
+# instead of once at the instant of the flick.
 const BUMP_RANGE := 2.0                # m, contact range for an attempt to even register
 const BUMP_CONE_DEG := 55.0            # deg the flick can be off dead-on the carrier and still count as aimed at them
-const BUMP_KNOCKBACK_SPEED := 5.5      # m/s, a clean connect
-const BUMP_STUN_DURATION := 0.4        # s — shorter than TACKLE_STUN_DURATION; a bump unbalances, it doesn't wrap someone up
+# Faster than TACKLE_SLIDE_DIVE_SPEED (10.5) — the single fastest committed
+# movement in the kit, matching the single biggest miss penalty below.
+# Cut from an original 11.5/4.6m of travel after real playtesting reported
+# the dash carrying the bumper "too far/fast" — still faster than a sprint,
+# still the fastest committed move in the kit, just not a cross-field lunge.
+const BUMP_DASH_SPEED := 9.5           # m/s
+const BUMP_DASH_DURATION := 0.4        # s the dash overrides normal locomotion — ~3.8m of travel at BUMP_DASH_SPEED
+# Real playtesting: the dash's direction was frozen at the exact instant of
+# the flick and never corrected, so it almost never actually connected with
+# a carrier who was still moving by the time the dash got there — "I cannot
+# hit the other player over with the hit stick." Same fix kicks already have
+# (KICK_AIM_ASSIST_*): a gentle homing correction while the dash is live,
+# not a lock-on — see PlayerController._apply_bump_assist().
+const BUMP_ASSIST_STRENGTH := 8.0      # per-frame turn rate toward the carrier, same shape as KICK_AIM_ASSIST_STRENGTH
+const BUMP_ASSIST_CONE_DEG := 70.0     # deg — wider than BUMP_CONE_DEG (55) so assist can correct a somewhat-off flick, not just confirm an already-perfect one
+const BUMP_ASSIST_RANGE := 7.0         # m — beyond BUMP_DASH_SPEED*BUMP_DASH_DURATION's own ~3.8m reach, so assist can pick up a target the dash is still closing on
+# Also cut after the same report: a clean connect used to send the target
+# sliding 5.5 m/s worth of ground, which read as flying rather than falling.
+const BUMP_KNOCKBACK_SPEED := 3.0      # m/s, a clean connect
+const BUMP_STUN_DURATION := 0.4        # s — the mistimed/glancing case only; shorter than TACKLE_STUN_DURATION, a stumble, not a wrap-up
 const BUMP_COOLDOWN := 1.0             # s between attempts — a real commitment, not spammable
+# "Add a bit of gravity" (playtest feedback: an all-horizontal slide read as
+# floaty/unweighted) — a knockdown now gets a small vertical pop, then real
+# gravity (Tuning.GRAVITY) pulls it back down over this window rather than
+# the floor-snap bite in _physics_process instantly cancelling the hop the
+# very next frame. See PlayerController._knockdown_hop_timer.
+const BUMP_KNOCKDOWN_HOP_SPEED := 2.2      # m/s upward, on the instant of any bump-triggered knockdown
+const BUMP_KNOCKDOWN_HOP_DURATION := 0.3   # s the floor-snap bite is suspended so the hop can actually arc
+# A clean connect (see BUMP_APPROACH_DOT_MIN below) sends the carrier all
+# the way down — reusing Action.KNOCKED_BACK's own fall/recover clip
+# (mirrors Action.TACKLED's pose data but falls backward, facing unchanged
+# — playtest feedback: a clean hit from the front was spinning the target
+# 180° to face away before falling, when it should just go straight down
+# onto their back — see that Action's own comment), so this has to cover
+# the same window ACTION_DURATION[KNOCKED_BACK] does, exactly like TACKLE_
+# STUN_DURATION does for ACTION_DURATION[TACKLED]. Same number as that
+# constant (both clips share the same 1.3s length) but kept as its own
+# named constant rather than aliased to it, since the two are conceptually
+# independent — TACKLE_STUN_DURATION changing for tackle-specific reasons
+# shouldn't silently retune Bump too.
+const BUMP_KNOCKDOWN_STUN_DURATION := 1.3
+# The whiff: the dash's own timer runs out with nobody ever found. Unlike
+# Slide's dive-in (which just fizzles for free if it never reaches anyone
+# — see _update_slide_dive), overcommitting a hit-stick swing at nobody
+# costs the bumper the same Action.TACKLED knockdown a clean connect gives
+# their target, plus real extra recovery on top: deliberately the single
+# biggest miss penalty in the kit (bigger than TACKLE_SLIDE_MISS_STUN_
+# DURATION's 1.3s, previously the record holder — see that constant's own
+# updated comment) — the bigger the swing, the bigger the whiff.
+const BUMP_MISS_STUN_DURATION := 2.0   # s
 # "Timing relative to the ball carrier's approach determines the outcome"
 # (design brief): a bump landed while the carrier is genuinely closing on
-# the bumper is clean (full strength); one landed on a carrier who isn't
+# the bumper is clean (full knockdown); one landed on a carrier who isn't
 # closing (stationary, or moving away) still connects if in range/cone,
-# but glances rather than connects properly.
+# but glances rather than connects properly — knockback and a brief stun,
+# no clip.
 const BUMP_APPROACH_DOT_MIN := 0.1     # carrier velocity . (toward bumper) at/above this = clean timing
 const BUMP_MISTIMED_SCALE := 0.35      # knockback/stun fraction applied when timing wasn't clean
 

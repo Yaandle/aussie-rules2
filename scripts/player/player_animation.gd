@@ -45,10 +45,18 @@ const BLEND_POINTS := [
 	[Vector2(0.75, 0.75), &"run_fwd_r"],
 ]
 
-## Bump/spoil/smother stay pure physics reactions (no Tuning.Action of
-## their own — see player_controller.gd's Bump/Contests sections) and join
-## this list if that ever changes. Tackle (a Slide or Lunge connecting, not
-## a bump) no longer belongs in that group — see Action.TACKLED.
+## Spoil stays a pure physics reaction (no Tuning.Action of its own — see
+## PlayerController._try_spoil) and joins this list if that ever changes.
+## Bump's own dash (_update_bump) is still a pure movement mechanic like
+## Slide's dive-in, with no Action of its own; only its outcomes reuse
+## existing clips — a clean connect plays Action.KNOCKED_BACK on the
+## carrier, a whiffed dash plays Action.TACKLED on the bumper themselves
+## (see _resolve_bump_contact/_resolve_bump_miss), a mistimed/glancing
+## connect stays animation-free. Tackle now splits by type: a Slide
+## connect plays TACKLE_GRAB/TACKLE_HELD (tackler/target, both stay
+## standing); a Lunge connect plays TACKLE_TAKEDOWN/TACKLED (tackler/
+## target, target goes all the way down) — see Action.TACKLE_HELD's own
+## comment for why the two read differently.
 const ACTION_STATES := {
 	Tuning.Action.KICK: &"kick",
 	Tuning.Action.HANDBALL: &"handball",
@@ -60,6 +68,12 @@ const ACTION_STATES := {
 	Tuning.Action.MARK_RUNNING_MISS: &"mark_running_miss",
 	Tuning.Action.HIT_OUT: &"hit_out",
 	Tuning.Action.TACKLED: &"tackled",
+	Tuning.Action.TACKLE_GRAB: &"tackle_grab",
+	Tuning.Action.TACKLE_HELD: &"tackle_held",
+	Tuning.Action.TACKLE_TAKEDOWN: &"tackle_takedown",
+	Tuning.Action.KNOCKED_BACK: &"knocked_back",
+	Tuning.Action.SMOTHERED: &"smothered",
+	Tuning.Action.SMOTHER_DIVE: &"smother_dive",
 }
 
 const LOCOMOTION_STATE := &"locomotion"
