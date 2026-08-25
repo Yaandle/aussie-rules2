@@ -122,6 +122,14 @@ const CONTESTS := [
 ## something genuine to correct rather than firing at point-blank range.
 const BUMP_CONTEST_TRIGGER_DELAY := 0.6
 
+## BUMP — MISS only: shortens the dash's own travel window for this
+## vignette specifically (viewer-side only, does not touch Tuning.BUMP_
+## DASH_DURATION or anything a real match uses) — feedback on the first
+## version was the whiff carried the bumper too far and off the edge of
+## the floor grid below. Distance scales directly with this (BUMP_DASH_
+## SPEED unchanged), so 0.5 halves it.
+const BUMP_MISS_CONTEST_DASH_SCALE := 0.5
+
 ## How long an APPROACH phase waits for a contest to resolve before giving
 ## up and holding anyway (a missed cue shouldn't hang the screen forever).
 const CONTEST_TIMEOUT := 3.0
@@ -134,6 +142,16 @@ const JUMP_HEIGHT := 0.45
 const JUMP_RISE_TIME := 0.28
 const JUMP_FALL_TIME := 0.32
 
+## Every clickable control on this screen is one width/height so the three
+## columns line up as a grid rather than a ragged stack of 200/220px odds.
+const BUTTON_WIDTH := 224.0
+const BUTTON_HEIGHT := 34.0
+
+## Camera moves between the single-subject framing and the wider contest one
+## are eased over this rather than cut — a hard jump between two quite
+## different distances (4m vs 8m) reads as a glitch, not a shot change.
+const CAMERA_MOVE_TIME := 0.35
+
 const PlayerScene := preload("res://scenes/player/player.tscn")
 const BallScene := preload("res://scenes/ball/ball.tscn")
 
@@ -142,6 +160,7 @@ const BallScene := preload("res://scenes/ball/ball.tscn")
 
 var _subject: Node3D
 var _rig: HumanoidRig
+var _wireframe: SkeletonWireframe
 var _player_animation: PlayerAnimation
 var _current_blend := Vector2.ZERO
 var _state_label: Label
@@ -150,6 +169,7 @@ var _jump_tween: Tween
 
 var _preview_columns: HBoxContainer
 var _studio_floor: MeshInstance3D
+var _camera_tween: Tween
 
 ## Non-input brain for both contest characters — every want is a plain
 ## field this script sets directly, the scripted-choreography equivalent
@@ -203,12 +223,46 @@ var _contest_bump_triggered := false
 
 
 func _ready() -> void:
+	add_child(_build_ground_plane())
+	add_child(_build_fill_light())
 	_studio_floor = _build_studio_floor()
 	add_child(_studio_floor)
 	_build_subject()
 	_camera.rotation = Vector3.ZERO
 	_camera.position = STAND_ON + Vector3(-CAMERA_SIDESTEP, CAMERA_HEIGHT, CAMERA_DISTANCE)
 	_build_ui()
+
+
+## A large white ground the figure stands on, meeting the flat-white sky with
+## no visible horizon — a seamless studio cove — so the key light's shadow
+## has something to fall on and the model reads as grounded rather than
+## floating. Same near-white as the background (materials/dev_studio_
+## environment.tres) so the cove stays seamless; sits a hair below the y=0
+## reference grid so the grid lines still read on top without z-fighting.
+func _build_ground_plane() -> MeshInstance3D:
+	var mesh := PlaneMesh.new()
+	mesh.size = Vector2(60.0, 60.0)
+	var instance := MeshInstance3D.new()
+	instance.name = "StudioGround"
+	instance.mesh = mesh
+	instance.position.y = -0.004
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(0.95, 0.95, 0.944)
+	material.roughness = 1.0
+	instance.material_override = material
+	return instance
+
+
+## A dim fill from the camera-right, opposite the key, so the shadow side of
+## the figure keeps some form instead of crushing to flat ambient. No shadow
+## of its own — one soft contact shadow from the key is the whole intent.
+func _build_fill_light() -> DirectionalLight3D:
+	var light := DirectionalLight3D.new()
+	light.name = "Fill"
+	light.rotation_degrees = Vector3(-28.0, -46.0, 0.0)
+	light.light_energy = 0.28
+	light.shadow_enabled = false
+	return light
 
 
 func _process(delta: float) -> void:
@@ -240,16 +294,22 @@ func _build_subject() -> void:
 	_rig = HumanoidRig.new()
 	_rig.name = "Rig"
 	_rig.away_kit = false
+	_rig.high_detail = true   # one figure on screen — see HumanoidRig.high_detail
 	_subject.add_child(_rig)
 
 	# Bone-line overlay over the mesh — see skeleton_wireframe.gd's own
 	# header, which names exactly this kind of single-figure preview as
 	# the case it's meant for. Unused everywhere else in the project until
-	# now.
-	var wireframe := SkeletonWireframe.new()
-	wireframe.name = "SkeletonWireframe"
-	_subject.add_child(wireframe)
-	wireframe.track(_rig.skeleton())
+	# now. Flags below (set before it enters the tree, so _ready() reads
+	# them) turn on the viewer-only polish — a full on-top overlay with
+	# joint markers and no stray root line.
+	_wireframe = SkeletonWireframe.new()
+	_wireframe.name = "SkeletonWireframe"
+	_wireframe.on_top = true
+	_wireframe.show_joints = true
+	_wireframe.skip_root = true
+	_subject.add_child(_wireframe)
+	_wireframe.track(_rig.skeleton())
 
 	var player := AnimationPlayer.new()
 	player.name = "AnimationPlayer"
@@ -300,7 +360,6 @@ func _build_ui() -> void:
 	hints.position = Vector2(24.0, 674.0)
 	hints.set_hints([
 		{"keys": "Esc / C", "label": "Back to menu"},
-		{"keys": "Click a CONTESTS button", "label": "Spawn an opponent and run that contest"},
 	])
 	_ui.add_child(hints)
 
@@ -316,12 +375,10 @@ func _build_locomotion_group() -> VBoxContainer:
 	for entry: Array in LOCOMOTION:
 		var label: String = entry[0]
 		var blend: Vector2 = entry[1]
-		var button := Button.new()
-		button.text = label
+		var button := _make_button(label)
 		button.toggle_mode = true
 		button.button_group = toggle_group
 		button.button_pressed = blend == Vector2.ZERO
-		button.custom_minimum_size = Vector2(200.0, 32.0)
 		button.pressed.connect(func() -> void:
 			_show_single_subject()
 			_current_blend = blend)
@@ -339,9 +396,7 @@ func _build_action_group() -> VBoxContainer:
 	for entry: Array in ACTIONS:
 		var label: String = entry[0]
 		var action: Tuning.Action = entry[1]
-		var button := Button.new()
-		button.text = label
-		button.custom_minimum_size = Vector2(220.0, 32.0)
+		var button := _make_button(label)
 		button.pressed.connect(func() -> void:
 			_show_single_subject()
 			_player_animation.play_action(action))
@@ -359,9 +414,7 @@ func _build_contest_group() -> VBoxContainer:
 	for entry: Array in CONTESTS:
 		var label: String = entry[0]
 		var kind: ContestKind = entry[1]
-		var button := Button.new()
-		button.text = label
-		button.custom_minimum_size = Vector2(220.0, 32.0)
+		var button := _make_button(label)
 		button.pressed.connect(func() -> void: _launch_contest(kind))
 		group.add_child(button)
 
@@ -377,23 +430,78 @@ func _build_misc_group() -> VBoxContainer:
 	group.add_child(UIStyle.label("OTHER", UIStyle.SIZE_LABEL,
 		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
 
-	var jump_button := Button.new()
-	jump_button.text = "JUMP"
-	jump_button.custom_minimum_size = Vector2(200.0, 32.0)
+	var jump_button := _make_button("JUMP")
 	jump_button.pressed.connect(func() -> void:
 		_show_single_subject()
 		_on_jump_pressed())
 	group.add_child(jump_button)
 
+	# Show/hide the bone overlay — on by default, the "pressed" style doubling
+	# as the on state exactly like the LOCOMOTION toggles.
+	var wire_button := _make_button("WIREFRAME")
+	wire_button.toggle_mode = true
+	wire_button.button_pressed = true
+	wire_button.toggled.connect(func(on: bool) -> void:
+		if _wireframe != null:
+			_wireframe.visible = on)
+	group.add_child(wire_button)
+
 	group.add_child(UIStyle.label("PHYSICS-ONLY — NO CLIP YET", UIStyle.SIZE_LABEL,
 		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
 	for label: String in UNIMPLEMENTED:
-		var button := Button.new()
-		button.text = label
+		var button := _make_button(label)
 		button.disabled = true
-		button.custom_minimum_size = Vector2(200.0, 32.0)
 		group.add_child(button)
 	return group
+
+
+## A Button dressed in RetroWindow's shell — warm parchment fill, near-black
+## rule, sharp corners, rust accent on hover/press — so a clicked control
+## reads as the same family as this screen's labels rather than as Godot's
+## default grey theme sitting on top of them. Toggle buttons (the LOCOMOTION
+## column) reuse the same styles: the "pressed" look doubles as the
+## toggled-on highlight, marking the live gait.
+func _make_button(text: String) -> Button:
+	var button := Button.new()
+	button.text = text
+	button.custom_minimum_size = Vector2(BUTTON_WIDTH, BUTTON_HEIGHT)
+	button.focus_mode = Control.FOCUS_NONE   # mouse-click screen; no cursor to steal focus
+	button.add_theme_font_override(&"font", UIStyle.font(UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
+	button.add_theme_font_size_override(&"font_size", UIStyle.SIZE_LABEL)
+	for colour: StringName in [&"font_color", &"font_hover_color", &"font_pressed_color"]:
+		button.add_theme_color_override(colour, RetroWindow.BORDER)
+	button.add_theme_color_override(&"font_disabled_color", UIStyle.TEXT_MUTED)
+	button.add_theme_stylebox_override(&"normal", _button_box(&"normal"))
+	button.add_theme_stylebox_override(&"hover", _button_box(&"hover"))
+	button.add_theme_stylebox_override(&"pressed", _button_box(&"pressed"))
+	button.add_theme_stylebox_override(&"disabled", _button_box(&"disabled"))
+	button.add_theme_stylebox_override(&"focus", StyleBoxEmpty.new())
+	return button
+
+
+func _button_box(kind: StringName) -> StyleBoxFlat:
+	var box := StyleBoxFlat.new()
+	box.set_corner_radius_all(RetroWindow.RADIUS)   # sharp, matching the shell
+	box.set_border_width_all(2)
+	box.border_color = RetroWindow.BORDER
+	box.content_margin_left = 12.0
+	box.content_margin_right = 12.0
+	box.content_margin_top = 5.0
+	box.content_margin_bottom = 5.0
+	box.anti_aliasing_size = 1.0
+	match kind:
+		&"hover":
+			box.bg_color = RetroWindow.ACCENT.lightened(0.66)
+			box.border_color = RetroWindow.ACCENT
+		&"pressed":
+			box.bg_color = RetroWindow.ACCENT.lightened(0.42)
+			box.border_color = RetroWindow.ACCENT
+		&"disabled":
+			box.bg_color = Color(RetroWindow.PANEL, 0.45)
+			box.border_color = SoftBrutalist.DISABLED_BORDER
+		_:   # normal
+			box.bg_color = RetroWindow.PANEL
+	return box
 
 
 func _on_jump_pressed() -> void:
@@ -416,8 +524,7 @@ func _on_jump_pressed() -> void:
 ## which one is on screen and getting driven by _process.
 func _show_single_subject() -> void:
 	_subject.visible = true
-	_camera.position = STAND_ON + Vector3(-CAMERA_SIDESTEP, CAMERA_HEIGHT, CAMERA_DISTANCE)
-	_camera.rotation = Vector3.ZERO
+	_move_camera_to(STAND_ON + Vector3(-CAMERA_SIDESTEP, CAMERA_HEIGHT, CAMERA_DISTANCE))
 	if _contest_built:
 		_contest_a.visible = false
 		_contest_b.visible = false
@@ -430,9 +537,23 @@ func _show_contest() -> void:
 	_contest_a.visible = true
 	_contest_b.visible = true
 	_contest_ball.visible = true
-	_camera.position = STAND_ON \
-		+ Vector3(-CONTEST_CAMERA_SIDESTEP, CONTEST_CAMERA_HEIGHT, CONTEST_CAMERA_DISTANCE)
+	_move_camera_to(STAND_ON \
+		+ Vector3(-CONTEST_CAMERA_SIDESTEP, CONTEST_CAMERA_HEIGHT, CONTEST_CAMERA_DISTANCE))
+
+
+## Eases the camera to a framing rather than cutting. Only the two preview
+## modes are ever this far apart; every plain locomotion/action button
+## re-targets the same single-subject spot, so those calls settle instantly
+## (the tween is already there) and cost nothing.
+func _move_camera_to(target: Vector3) -> void:
+	if _camera_tween != null and _camera_tween.is_valid():
+		_camera_tween.kill()
 	_camera.rotation = Vector3.ZERO
+	if _camera.position.is_equal_approx(target):
+		return
+	_camera_tween = create_tween()
+	_camera_tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_camera_tween.tween_property(_camera, "position", target, CAMERA_MOVE_TIME)
 
 
 # ── Contests: real PlayerController/Ball physics, two bodies, a short
@@ -458,8 +579,12 @@ func _ensure_contest_built() -> void:
 	_contest_ball = BallScene.instantiate()
 	add_child(_contest_ball)
 
+	# high_detail set before add_child so the rig's own _ready() builds the
+	# fuller mesh — same window, same one-to-three-bodies budget as the
+	# single subject (see HumanoidRig.high_detail).
 	_contest_a = PlayerScene.instantiate()
 	_contest_a.team = Tuning.Team.HOME
+	(_contest_a.get_node("Rig") as HumanoidRig).high_detail = true
 	add_child(_contest_a)
 	_contest_a.global_position = Vector3(-2.0, 0.0, 0.0)
 	_brain_a = ContestBrain.new()
@@ -467,7 +592,9 @@ func _ensure_contest_built() -> void:
 
 	_contest_b = PlayerScene.instantiate()
 	_contest_b.team = Tuning.Team.AWAY
-	(_contest_b.get_node("Rig") as HumanoidRig).away_kit = true
+	var rig_b := _contest_b.get_node("Rig") as HumanoidRig
+	rig_b.away_kit = true
+	rig_b.high_detail = true
 	add_child(_contest_b)
 	_contest_b.global_position = Vector3(2.0, 0.0, 0.0)   # distinct from A's spot from frame 0
 	_brain_b = ContestBrain.new()
@@ -562,9 +689,16 @@ func _launch_contest(kind: ContestKind) -> void:
 			_brain_b.wish_dir = Vector3(0.0, 0.0, -1.0)
 			_brain_b.gait_value = 1.0
 		ContestKind.BUMP_MISS:
-			_contest_a.global_position = Vector3(0.0, 0.0, -2.0)
+			# Half-length dash (BUMP_MISS_CONTEST_DASH_SCALE, in _step_
+			# contest below) covers ~1.9m along +Z from here — B sits near
+			# the far end of that run, 0.85m to the side (comfortably past
+			# the 0.7m two collision capsules would need to actually touch)
+			# so A visibly runs up close, whiffs just wide, and its own
+			# follow-through carries it past B's position — all of it
+			# inside the floor grid's ±1.6m extent.
+			_contest_a.global_position = Vector3(0.0, 0.0, -1.0)
 			_contest_a.rotation.y = deg_to_rad(180.0)
-			_contest_b.global_position = Vector3(3.0, 0.0, -2.0)   # off to the side, out of the swing
+			_contest_b.global_position = Vector3(0.85, 0.0, 0.5)
 			_contest_b.rotation.y = 0.0
 		ContestKind.SMOTHER:
 			_contest_a.global_position = Vector3(0.0, 0.0, -2.5)
@@ -600,14 +734,27 @@ func _step_contest(delta: float) -> void:
 			if not _contest_bump_triggered and _contest_timer >= BUMP_CONTEST_TRIGGER_DELAY:
 				_contest_bump_triggered = true
 				var dir: Vector3
+				var dash_timer := Tuning.BUMP_DASH_DURATION
 				if _contest_kind == ContestKind.BUMP_CLEAN:
 					dir = _contest_b.global_position - _contest_a.global_position
 				else:
-					dir = Vector3(1.0, 0.0, 0.0)   # a clean swing at empty air
+					# Fixed forward, NOT aimed at B directly — B sits close
+					# enough to this line to read as a deliberate near-miss
+					# (see ContestKind.BUMP_MISS's own setup below) but far
+					# enough to the side that the two collision capsules
+					# (CapsuleShape3D radius 0.35 each, so 0.7m clears both)
+					# never actually touch — aiming straight at B would just
+					# collide with their capsule and stall the dash, which
+					# reads as running into them, not past them. B never
+					# carries the ball either way, so there's no valid
+					# _try_bump_contact() target regardless of how close the
+					# geometry runs — a genuine whiff, not a swing at nothing.
+					dir = Vector3(0.0, 0.0, 1.0)
+					dash_timer *= BUMP_MISS_CONTEST_DASH_SCALE
 				dir.y = 0.0
 				_contest_a._bump_dash_direction = dir.normalized() if dir.length_squared() > 0.0001 \
 					else Vector3.FORWARD
-				_contest_a._bump_dash_timer = Tuning.BUMP_DASH_DURATION
+				_contest_a._bump_dash_timer = dash_timer
 				_contest_a._bump_dash_active = true
 				_contest_a._bump_cooldown = Tuning.BUMP_COOLDOWN
 

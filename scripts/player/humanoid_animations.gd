@@ -187,10 +187,21 @@ static func _gait_pose(phase: float, g: Dictionary) -> Dictionary:
 	# Keep the sole roughly parallel to the turf through the stride.
 	var ankle_l := clampf(-(swing_l + bend_l) * 0.55, -0.6, 0.6)
 	var ankle_r := clampf(-(swing_r + bend_r) * 0.55, -0.6, 0.6)
-	# Both hips lean toward the direction of travel for a side-step, the
-	# trailing one harder — a shuffle, not a march.
-	var abduct_l := abduct * (0.55 + 0.45 * sin(a))
-	var abduct_r := abduct * (0.55 - 0.45 * sin(a))
+	# Sideways shuffle without the legs crossing: abduction opens each leg
+	# AWAY from the centreline — a limb hangs along -Y, so a +Z rotation
+	# swings the left foot outward (+X) and a -Z rotation swings the right
+	# foot outward (-X), so the two hips never rotate toward one another.
+	# `abduct`'s sign only picks which leg leads the step (that one opens a
+	# little further on its push half of the cycle); its magnitude is the
+	# stance width. The previous version applied one signed value to BOTH
+	# hips, which by that same convention drove one leg inward across the
+	# other — the shins/knees visibly clipping through each other on a hard
+	# strafe. Splaying both outward instead removes the intersection while
+	# still reading as a weighted side-step.
+	var spread := absf(abduct)
+	var lead := signf(abduct)
+	var abduct_l := spread * (0.65 + 0.45 * maxf(0.0, lead * sin(a)))
+	var abduct_r := -spread * (0.65 + 0.45 * maxf(0.0, -lead * sin(a)))
 
 	var pose := _base_pose()
 	pose["hip_y"] = -bob * cos(2.0 * a)

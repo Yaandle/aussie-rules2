@@ -982,12 +982,18 @@ func _try_lunge_tackle() -> void:
 
 ## Called on the tackled player, by the tackler. `is_slide` picks which
 ## reaction plays — a Slide connect holds the target up (Action.TACKLE_
-## HELD, standing, ball stripped, no fall); a Lunge connect still takes
-## them all the way down (Action.TACKLED via _knockdown(), falling facing
-## away from the hit — the same scatter direction the ball spills in,
-## design brief: a tackled player goes down "in the direction it is coming
-## from"). Ball-drop/holding-the-ball logic is identical either way — only
-## the cosmetic reaction differs.
+## HELD, standing, no fall); a Lunge connect still takes them all the way
+## down (Action.TACKLED via _knockdown(), falling facing away from the
+## hit — the same scatter direction the ball spills in, design brief: a
+## tackled player goes down "in the direction it is coming from"). The
+## ball's own drop differs too, on purpose: a Lunge connecting is a real
+## loose-ball spill (TACKLE_SPILL_SPEED scatter impulse, the same physical
+## contest a knockdown always has); a Slide connect is a held-up strip —
+## playtest feedback: "the animation drops the ball, the ball typically
+## would not spill out if the tackle is held" — so it just falls straight
+## down from wherever it was carried (drop_ball()'s own detach(), no
+## impulse at all), landing at the target's feet rather than scattering
+## away from them.
 func _get_tackled(by: PlayerController, is_slide: bool) -> void:
 	var ball := _carried_ball
 	# Captured before drop_ball() resets anything, though drop_ball() itself
@@ -1003,8 +1009,8 @@ func _get_tackled(by: PlayerController, is_slide: bool) -> void:
 		_begin(Tuning.Action.TACKLE_HELD)
 	else:
 		_knockdown(scatter, Tuning.TACKLE_STUN_DURATION)
-	if is_instance_valid(ball):
-		ball.apply_central_impulse(scatter * Tuning.TACKLE_SPILL_SPEED * ball.mass)
+		if is_instance_valid(ball):
+			ball.apply_central_impulse(scatter * Tuning.TACKLE_SPILL_SPEED * ball.mass)
 	if holding_the_ball:
 		holding_the_ball_called.emit(by)
 	else:

@@ -4699,3 +4699,93 @@ tackle-family clip list updated). Not touched: `_resolve_tackle_contact`,
 vector()` — this pass changed which clip plays and how facing/momentum
 are handled around each knockdown, not how any contest decides success in
 the first place or the assist/gravity work from the previous pass.
+
+
+## Handover — BUMP — MISS contest vignette kept inside the floor grid (Agent: mechanics/engine)
+
+Small, scoped follow-up, explicitly requested viewer-only: the user had
+made their own UI-polish edits to `animation_viewer.gd` (styled buttons,
+eased camera moves between the single-subject and contest framings — see
+that file's own `_make_button()`/`_move_camera_to()`) between passes and
+asked for this fix without touching anything else, mechanics included.
+
+`ContestKind.BUMP_MISS`'s scripted vignette put A at `z=-2.0` dashing
+along a fixed `(1,0,0)` direction for the *full* `Tuning.BUMP_DASH_
+DURATION`/`BUMP_DASH_SPEED` (~4.6m of travel) while B stood at `(3.0, 0,
+-2.0)` — well outside the small (±1.6m) decorative floor grid
+`_build_studio_floor()` draws, and the dash direction happened to run
+almost directly at B's own position despite the code comment claiming it
+was "off to the side, out of the swing." New `BUMP_MISS_CONTEST_DASH_
+SCALE` (0.5, viewer-only — does not touch `Tuning.BUMP_DASH_DURATION` or
+anything a real match uses) halves the dash's travel window for this
+scenario specifically, and both bodies were repositioned (A at `z=-1.0`,
+B at `(0.85, 0, 0.5)`) so the ~1.9m halved dash runs close past B — B sits
+0.85m off the dash's straight line, just past the 0.7m two `CapsuleShape3D`
+collision shapes (radius 0.35 each) would need to actually touch, so A
+visibly closes in, misses narrowly, and its own follow-through carries it
+just past B's position — all of it inside the grid's ±1.6m extent. B still
+never carries the ball for this scenario (unchanged from before), so
+there's no valid target for `_try_bump_contact()` regardless of how close
+the geometry runs — a genuine whiff, not a swing that was never close.
+
+### How it was verified
+
+Plain headless boot re-verified clean on `animation_viewer.tscn` and the
+main menu. A temporary self-test hook (`ANIM_VIEWER_SELFTEST=1`, same
+pattern as previous passes, removed before this was done) ran the
+BUMP_MISS scenario and measured, every physics frame the dash was active:
+minimum A-to-B distance (0.85m — never dropped low enough to suggest a
+capsule collision), total distance A actually travelled (2.05m — in the
+expected ~1.9-2.1m range for a halved dash plus its own settle), and the
+furthest either coordinate ever got from the origin (1.05m, inside the
+1.6m grid bound). All 5 checks passed.
+
+### Files changed
+
+`scripts/dev/animation_viewer.gd` only (`BUMP_MISS_CONTEST_DASH_SCALE`
+new; `ContestKind.BUMP_MISS`'s own case in `_launch_contest()`
+repositioned; its dash-trigger branch in `_step_contest()` scales the
+injected `_bump_dash_timer` and fixes the direction comment). Not touched:
+every other CONTESTS scenario (Slide/Lunge/clean-bump/Smother all still
+run outside the ±1.6m grid too — only BUMP_MISS was flagged this pass, so
+only it was fixed), `scripts/tuning.gd`, `scripts/player/player_
+controller.gd`, and every other mechanics file from the previous two
+passes — this was scoped to the viewer's own scripted vignette only, per
+direct instruction.
+
+
+## Handover — TACKLE_HELD no longer spills the ball (Agent: mechanics/engine)
+
+One-line playtest report: "on Tackle-Slide the B player is tackle-held
+which is good, but the animation drops the ball, the ball typically would
+not spill out if the tackle is held." `_get_tackled()` applied the same
+`TACKLE_SPILL_SPEED` scatter impulse regardless of `is_slide` — correct
+for a Lunge connect (a real loose-ball contest, the ball launched away
+from a body hitting the ground) but wrong for a Slide connect, where
+nobody goes to ground at all; a held-up strip should just drop the ball
+straight down at the target's feet.
+
+Fixed by moving the `ball.apply_central_impulse(...)` call inside the
+`else` (Lunge) branch only. `drop_ball()` itself (`Ball.detach()`) already
+does the right thing with no impulse — the ball simply stops being carried
+and falls under its own physics from wherever it was held, which is
+exactly "drops rather than spills." Holding-the-ball adjudication
+(`holding_the_ball_called`/`field_ball_up_called`) is untouched — that's
+about whether the tackle draws a free kick, not about how the ball
+physically leaves the carrier's hands, so it still fires the same way for
+both tackle types.
+
+### How it was verified
+
+Plain headless boot re-verified clean on `full_game.tscn`. A scratch
+physics scene (deleted after the run) drove a Slide connect and a Lunge
+connect back to back and read `Ball.linear_velocity` immediately after
+each: Slide left the ball at ~0.00 m/s horizontal (no scatter — it's
+falling under gravity, not flying anywhere), Lunge still measured ~3.00
+m/s (`Tuning.TACKLE_SPILL_SPEED`, unchanged). 4/4 checks passed.
+
+### Files changed
+
+`scripts/player/player_controller.gd` only (`_get_tackled()`'s ball-
+impulse line moved inside the Lunge-only branch, doc comment updated).
+Nothing else touched.

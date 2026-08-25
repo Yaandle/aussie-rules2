@@ -13,10 +13,19 @@ background_mode = 1
 background_color = Color(0.965, 0.965, 0.958, 1)
 ambient_light_source = 2
 ambient_light_color = Color(0.965, 0.965, 0.958, 1)
-ambient_light_energy = 1.1
+; Trimmed from 1.1 so the key light's soft shadow and the SSAO below actually
+; read on the figure — a fully flat ambient washes both out. Still bright
+; enough to keep the studio reading as a white box, not a lit stage.
+ambient_light_energy = 0.92
 reflected_light_source = 2
 tonemap_mode = 3
 tonemap_white = 5.0
 glow_enabled = false
-ssao_enabled = false
+; Subtle contact occlusion in the creases (armpits, knees, under the chin) —
+; cheap here with one figure on screen, and the single biggest readability
+; lift for a blocked-out model under otherwise flat studio light.
+ssao_enabled = true
+ssao_radius = 0.4
+ssao_intensity = 1.4
+ssao_power = 2.0
 fog_enabled = false

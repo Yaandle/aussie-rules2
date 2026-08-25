@@ -24,13 +24,17 @@ script = ExtResource("1_viewer")
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = ExtResource("2_env")
 
-; Single soft key light from above and to camera-left — there's no turf to
-; graze-light here, just even modelling on the figure over the flat ambient
-; the environment already supplies.
+; Soft key light from above and to camera-left. A gentle contact shadow is
+; enabled now that the viewer renders a higher-detail figure (a fill light
+; and studio floor are added in code — see animation_viewer.gd _ready) — it
+; grounds the model without turning the flat-white studio into a harsh
+; single-source scene. shadow_blur softens the edge to match the soft key.
 [node name="Sun" type="DirectionalLight3D" parent="."]
 transform = Transform3D(0.8993, 0.2622, -0.3499, 0, 0.8002, 0.5998, 0.4372, -0.5394, 0.7197, 0, 40, 0)
-light_energy = 0.55
-shadow_enabled = false
+light_energy = 0.85
+shadow_enabled = true
+shadow_blur = 2.0
+directional_shadow_max_distance = 20.0
 
 [node name="Camera3D" type="Camera3D" parent="."]
 fov = 55.0
