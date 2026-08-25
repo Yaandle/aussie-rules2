@@ -38,8 +38,14 @@ enum Team { HOME, AWAY, NONE }
 ## no cheap way to fork an already-playing AnimationNodeStateMachine state
 ## without a visible pop, so its miss stays feedback-only (rumble/SFX/ring),
 ## same clip either way.
+##
+## TACKLED: the cosmetic fall/recover reaction for a successfully tackled
+## player (PlayerController._get_tackled) — a Slide or Lunge connecting, not
+## a bump (bump has its own separate knockback/stun, no clip). Like the mark
+## misses above, the outcome (ball spilled) is already resolved before this
+## ever starts; the clip is purely the visual consequence.
 enum Action { NONE, KICK, HANDBALL, BOUNCE, MARK_SAFE, MARK_RUNNING, MARK_AGGRESSIVE, HIT_OUT,
-	MARK_SAFE_MISS, MARK_RUNNING_MISS }
+	MARK_SAFE_MISS, MARK_RUNNING_MISS, TACKLED }
 
 
 # ── Ground geometry (metres) ─────────────────────────────────────────
@@ -304,8 +310,15 @@ const KICK_MOUSE_REACH_SENSITIVITY := 0.0035
 ## whiffed reach reads as a quick stumble-and-reset, not a settle-into-
 ## carry, so both are noticeably shorter than the catch clips they sit
 ## beside (MARK_SAFE/MARK_RUNNING at indices 4/5).
-const ACTION_DURATION := [0.0, 0.78, 0.45, 0.50, 0.55, 0.40, 0.95, 0.95, 0.35, 0.30]
-const ACTION_CONTACT := [0.0, 0.42, 0.20, 0.22, 0.08, 0.06, 0.40, 0.40, 0.10, 0.10]
+##
+## TACKLED (index 10): matches TACKLE_STUN_DURATION exactly, on purpose —
+## see that constant's own comment. Contact (0.30) is where the body
+## actually hits the ground mid-clip, not a resolution instant (nothing
+## fires there — see _update_action's cosmetic-only branch); the clip
+## still needs *a* contact time for Tuning.action_contact_time's shared
+## bookkeeping the same way MARK_SAFE_MISS/MARK_RUNNING_MISS do.
+const ACTION_DURATION := [0.0, 0.78, 0.45, 0.50, 0.55, 0.40, 0.95, 0.95, 0.35, 0.30, 1.3]
+const ACTION_CONTACT := [0.0, 0.42, 0.20, 0.22, 0.08, 0.06, 0.40, 0.40, 0.10, 0.10, 0.30]
 
 # AFL rule: a player running with the ball must bounce or touch it to
 # ground every 15 metres. Carried over unchanged from Prototype 1's
@@ -491,7 +504,14 @@ const OUT_OF_BOUNDS_PAUSE_DURATION := 2.0   # s, paused for a boundary throw-in
 # this reason). Holding-the-ball adjudication (free kick vs ball-up) is not
 # modelled yet — see RULES_REFERENCE.md §4.
 const TACKLE_RADIUS := 1.4             # m, more generous than GATHER_RADIUS
-const TACKLE_STUN_DURATION := 0.5      # s the tackled player can't act
+# Raised from the original 0.5 alongside the new Action.TACKLED fall/recover
+# clip (PlayerController._get_tackled, HumanoidAnimations._build_tackled) —
+# 0.5s was tuned back when a tackle was a pure physics reaction with no
+# animation to cover; now that a tackled player visibly goes down and gets
+# back up, the "can't act" window needs to last as long as that clip does
+# (ACTION_DURATION[TACKLED] below) or the player would be back on their feet
+# and moving while the rig still reads as lying on the ground.
+const TACKLE_STUN_DURATION := 1.3      # s the tackled player can't act
 const TACKLE_SPILL_SPEED := 3.0        # m/s the loose ball scatters at
 
 # Slide tackle resolution (_resolve_tackle_contact(..., is_slide=true)):
@@ -1110,5 +1130,11 @@ static func action_speed_scale(action: Action) -> float:
 			return MARK_RUNNING_SPEED_SCALE
 		Action.MARK_AGGRESSIVE, Action.HIT_OUT:
 			return MARK_AGGRESSIVE_SPEED_SCALE
+		Action.TACKLED:
+			# Redundant with _stun_timer (which already forces gait to 0 for
+			# this action's entire duration — see TACKLE_STUN_DURATION's own
+			# comment) but explicit rather than incidental: a player lying on
+			# the ground moves at 0, full stop, not "reduced".
+			return 0.0
 		_:
 			return ACTION_SPEED_SCALE

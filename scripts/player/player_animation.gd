@@ -45,9 +45,10 @@ const BLEND_POINTS := [
 	[Vector2(0.75, 0.75), &"run_fwd_r"],
 ]
 
-## Tackle/bump/spoil/smother stay pure physics reactions (no Tuning.Action
-## of their own — see player_controller.gd's Contests/Bump sections) and
-## join this list if that ever changes.
+## Bump/spoil/smother stay pure physics reactions (no Tuning.Action of
+## their own — see player_controller.gd's Bump/Contests sections) and join
+## this list if that ever changes. Tackle (a Slide or Lunge connecting, not
+## a bump) no longer belongs in that group — see Action.TACKLED.
 const ACTION_STATES := {
 	Tuning.Action.KICK: &"kick",
 	Tuning.Action.HANDBALL: &"handball",
@@ -58,6 +59,7 @@ const ACTION_STATES := {
 	Tuning.Action.MARK_SAFE_MISS: &"mark_safe_miss",
 	Tuning.Action.MARK_RUNNING_MISS: &"mark_running_miss",
 	Tuning.Action.HIT_OUT: &"hit_out",
+	Tuning.Action.TACKLED: &"tackled",
 }
 
 const LOCOMOTION_STATE := &"locomotion"

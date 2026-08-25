@@ -143,6 +143,7 @@ static func build_library(hip_height: float) -> AnimationLibrary:
 	library.add_animation(&"mark_safe_miss", _build_mark_safe_miss(hip_height))
 	library.add_animation(&"mark_running_miss", _build_mark_running_miss(hip_height))
 	library.add_animation(&"hit_out", _build_hit_out(hip_height))
+	library.add_animation(&"tackled", _build_tackled(hip_height))
 	return library
 
 
@@ -531,6 +532,80 @@ static func _build_hit_out(hip_height: float) -> Animation:
 			"elbow_l": Vector3(0.10, 0.0, 0.0), "elbow_r": Vector3(-0.30, 0.0, 0.0),
 			"hip_l": Vector3(0.15, 0.0, 0.0), "knee_l": Vector3(-0.55, 0.0, 0.0),
 			"hip_r": Vector3(0.10, 0.0, 0.0), "knee_r": Vector3(-0.50, 0.0, 0.0),
+		})],
+		[length, _base_pose()],
+	], hip_height)
+
+
+## A successfully tackled player going down, facing away from the hit —
+## PlayerController._get_tackled() already snaps body-facing to that
+## direction before this ever starts (_fall_toward()), so the clip itself
+## only ever has to know how to topple straight ahead in local space, never
+## which way world-space "away from the tackler" actually points.
+##
+## `hip_r`'s sign convention borrows straight from _build_kick() above
+## (positive = leg swinging forward/up, negative = back) — legs buckling
+## forward under the hit uses the same positive direction a kick's follow-
+## through leg does, just from a stumble instead of a swing. "hips" pitches
+## the whole skeleton (it's the root bone every other bone hangs off), so a
+## big positive rotation there alone would already lie the entire body flat;
+## "torso"/"neck" only add a small relative hunch on top of that rather than
+## an independent 90 degrees, so the fall reads as one body toppling as a
+## unit, not the spine folding double at the waist.
+##
+## Least-confident guess in this whole file, flagged rather than hidden:
+## the fall pitches toward positive-X hip/torso rotation on the assumption
+## that mirrors _build_kick()'s established forward-lean sign — if this
+## reads as falling the wrong way (backward, or into the hit rather than
+## away from it) in the Animation Viewer's Tackle Sandbox, every angle
+## below just needs its sign flipped, nothing else about the clip changes.
+static func _build_tackled(hip_height: float) -> Animation:
+	var length := Tuning.action_duration(Tuning.Action.TACKLED)
+	var contact := Tuning.action_contact_time(Tuning.Action.TACKLED)
+	return _assemble(length, false, [
+		# Impact: thrown off balance, arms flung wide, legs starting to buckle.
+		[0.0, _pose({
+			"hip_y": -0.05, "torso": Vector3(0.35, 0.0, 0.05), "neck": Vector3(0.10, 0.0, 0.0),
+			"shoulder_l": Vector3(0.90, 0.0, -0.95), "elbow_l": Vector3(-0.30, 0.0, 0.0),
+			"shoulder_r": Vector3(0.70, 0.0, 0.85), "elbow_r": Vector3(-0.25, 0.0, 0.0),
+			"hip_l": Vector3(0.35, 0.0, 0.0), "knee_l": Vector3(-0.60, 0.0, 0.0),
+			"hip_r": Vector3(0.20, 0.0, 0.0), "knee_r": Vector3(-0.75, 0.0, 0.0),
+		})],
+		# Mid-fall at `contact` — hips dropping hard, pitching toward the
+		# ground, arms bracing forward for the landing.
+		[contact, _pose({
+			"hip_y": -0.45, "torso": Vector3(1.10, 0.0, 0.08), "neck": Vector3(0.18, 0.0, 0.0),
+			"shoulder_l": Vector3(1.60, 0.0, -0.55), "elbow_l": Vector3(-0.20, 0.0, 0.0),
+			"shoulder_r": Vector3(1.50, 0.0, 0.50), "elbow_r": Vector3(-0.20, 0.0, 0.0),
+			"hip_l": Vector3(0.15, 0.0, 0.0), "knee_l": Vector3(-1.00, 0.0, 0.0),
+			"hip_r": Vector3(0.05, 0.0, 0.0), "knee_r": Vector3(-1.10, 0.0, 0.0),
+		})],
+		# Hits the ground — near-flat, limbs sprawled.
+		[lerpf(contact, length, 0.35), _pose({
+			"hip_y": -0.80, "torso": Vector3(1.50, 0.0, 0.10), "neck": Vector3(0.22, 0.0, 0.10),
+			"shoulder_l": Vector3(1.30, 0.0, -1.10), "elbow_l": Vector3(-0.45, 0.0, 0.0),
+			"shoulder_r": Vector3(1.20, 0.0, 1.05), "elbow_r": Vector3(-0.40, 0.0, 0.0),
+			"hip_l": Vector3(0.05, 0.0, 0.0), "knee_l": Vector3(-0.85, 0.0, 0.0),
+			"hip_r": Vector3(-0.05, 0.0, 0.0), "knee_r": Vector3(-0.95, 0.0, 0.0),
+		})],
+		# Down and settled — a brief stunned beat rather than an identical
+		# hold, so it reads as landing rather than freezing.
+		[lerpf(contact, length, 0.62), _pose({
+			"hip_y": -0.78, "torso": Vector3(1.48, 0.0, 0.10), "neck": Vector3(0.20, 0.0, 0.08),
+			"shoulder_l": Vector3(1.15, 0.0, -1.00), "elbow_l": Vector3(-0.50, 0.0, 0.0),
+			"shoulder_r": Vector3(1.05, 0.0, 0.95), "elbow_r": Vector3(-0.45, 0.0, 0.0),
+			"hip_l": Vector3(0.08, 0.0, 0.0), "knee_l": Vector3(-0.80, 0.0, 0.0),
+			"hip_r": Vector3(-0.02, 0.0, 0.0), "knee_r": Vector3(-0.90, 0.0, 0.0),
+		})],
+		# Push-up recovery begins, asymmetric (one arm driving off the
+		# ground) rather than a symmetric rise — reads as getting up, not
+		# the fall playing in reverse.
+		[lerpf(contact, length, 0.88), _pose({
+			"hip_y": -0.30, "torso": Vector3(0.55, 0.0, 0.0), "neck": Vector3(0.05, 0.0, 0.0),
+			"shoulder_l": Vector3(0.60, 0.0, -0.40), "elbow_l": Vector3(-1.20, 0.0, 0.0),
+			"shoulder_r": Vector3(0.30, 0.0, 0.25), "elbow_r": Vector3(-0.35, 0.0, 0.0),
+			"hip_l": Vector3(0.25, 0.0, 0.0), "knee_l": Vector3(-0.70, 0.0, 0.0),
+			"hip_r": Vector3(-0.15, 0.0, 0.0), "knee_r": Vector3(-0.30, 0.0, 0.0),
 		})],
 		[length, _base_pose()],
 	], hip_height)

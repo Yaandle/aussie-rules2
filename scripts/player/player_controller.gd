@@ -890,7 +890,11 @@ func _try_lunge_tackle() -> void:
 		_lunge_tap_cooldown = Tuning.TACKLE_LUNGE_TAP_COOLDOWN
 
 
-## Called on the tackled player, by the tackler.
+## Called on the tackled player, by the tackler. Falls facing away from the
+## hit — the same scatter direction the ball spills in (design brief: a
+## tackled player goes down "in the direction it is coming from") — and
+## plays the Action.TACKLED fall/recover clip, not a bump's separate
+## knockback/stun (a bump unbalances, a tackle puts you on the ground).
 func _get_tackled(by: PlayerController) -> void:
 	var ball := _carried_ball
 	# Captured before drop_ball() resets anything, though drop_ball() itself
@@ -898,17 +902,32 @@ func _get_tackled(by: PlayerController) -> void:
 	# actually zeroes it (see _physics_process) — read now regardless, so
 	# there's no dependency on exactly when that reset happens to land.
 	var holding_the_ball := _possession_held_seconds >= Tuning.PRIOR_OPPORTUNITY_GRACE
+	var scatter := _scatter_from(by, 0.0)
 	drop_ball()
 	_stun_timer = Tuning.TACKLE_STUN_DURATION
 	_action = Tuning.Action.NONE
-	_action_elapsed = 0.0
-	_action_fired = false
+	_fall_toward(scatter)
+	_begin(Tuning.Action.TACKLED)
 	if is_instance_valid(ball):
-		ball.apply_central_impulse(_scatter_from(by, 0.0) * Tuning.TACKLE_SPILL_SPEED * ball.mass)
+		ball.apply_central_impulse(scatter * Tuning.TACKLE_SPILL_SPEED * ball.mass)
 	if holding_the_ball:
 		holding_the_ball_called.emit(by)
 	else:
 		field_ball_up_called.emit(by, self)
+
+
+## Snaps facing to `direction` immediately, bypassing _update_facing()'s
+## normal rotate_toward easing — a tackle puts the body down facing away
+## from the hit on the very frame it connects, not several frames later.
+## Also updates _heading so every subsequent frame's _update_facing() call
+## agrees with this rather than trying to rotate back toward wherever the
+## body was facing a moment before impact.
+func _fall_toward(direction: Vector3) -> void:
+	if direction.length_squared() < 0.0001:
+		return
+	_heading = direction.normalized()
+	_facing_yaw = atan2(-_heading.x, -_heading.z)
+	rotation.y = _facing_yaw
 
 
 ## Smother (X tap, not carrying): close down an opponent before their kick
@@ -1757,8 +1776,9 @@ func _update_action(delta: float) -> void:
 			Tuning.Action.HIT_OUT:
 				_resolve_hit_out()
 			Tuning.Action.MARK_SAFE, Tuning.Action.MARK_RUNNING, \
-					Tuning.Action.MARK_SAFE_MISS, Tuning.Action.MARK_RUNNING_MISS:
-				pass   # already resolved in _update_marking(); this leg is cosmetic only
+					Tuning.Action.MARK_SAFE_MISS, Tuning.Action.MARK_RUNNING_MISS, \
+					Tuning.Action.TACKLED:
+				pass   # already resolved in _update_marking()/_get_tackled(); this leg is cosmetic only
 			_:
 				_dispose()
 

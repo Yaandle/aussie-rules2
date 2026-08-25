@@ -14,14 +14,15 @@ extends Node3D
 ## player_animation.gd's own "NOT YET WIRED: root motion" note), so nothing
 ## about the rig's own position needs to change for a gait to read.
 ##
-## Deliberately shows only what has a real clip. Tackle/bump/spoil/smother
-## resolve through pure physics reactions today (knockback, stun, lunge —
-## see player_controller.gd) with no AnimationTree state behind them (and
-## no Tuning.Action of their own to hang one on); player_animation.gd's
-## ACTION_STATES map is the source of truth for which Tuning.Action values
-## actually animate. Those show as disabled buttons here rather than being
-## left out silently, so this screen stays an honest map of what exists
-## versus what's still physics-only.
+## Deliberately shows only what has a real clip. Bump/spoil/smother resolve
+## through pure physics reactions today (knockback — see player_controller.gd)
+## with no AnimationTree state behind them (and no Tuning.Action of their own
+## to hang one on); player_animation.gd's ACTION_STATES map is the source of
+## truth for which Tuning.Action values actually animate. Those show as
+## disabled buttons here rather than being left out silently, so this screen
+## stays an honest map of what exists versus what's still physics-only. A
+## real tackle connecting (Slide or Lunge, not a bump) is no longer in that
+## group — see Tuning.Action.TACKLED and its TACKLED button below.
 ##
 ## A second mode, TACKLE SANDBOX, sits alongside the clip preview for
 ## exactly the physics-only contests the preview can't show: two real
@@ -81,11 +82,14 @@ const ACTIONS := [
 	["MARK — SAFE MISS", Tuning.Action.MARK_SAFE_MISS],
 	["MARK — RUNNING MISS", Tuning.Action.MARK_RUNNING_MISS],
 	["HIT-OUT", Tuning.Action.HIT_OUT],
+	["TACKLED", Tuning.Action.TACKLED],
 ]
 
 ## No AnimationTree state exists for these yet (see class doc) — listed so
 ## the gap is visible on the screen itself rather than a silent omission.
-const UNIMPLEMENTED := ["TACKLE", "BUMP", "SPOIL", "SMOTHER"]
+## Tackle moved out of this list once Action.TACKLED landed — bump/spoil/
+## smother stay physics-only reactions with no clip of their own.
+const UNIMPLEMENTED := ["BUMP", "SPOIL", "SMOTHER"]
 
 ## Synthetic vertical hop, independent of the skeleton — there is no jump
 ## clip to preview (MARK — AGGRESSIVE is the only clip with a jump built

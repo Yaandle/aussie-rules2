@@ -3864,3 +3864,134 @@ new `_build_tackle_sandbox`/`_reset_sandbox`/`_give_ball_to`/
 `CLIP_PREVIEW` code path (`_build_subject`, the locomotion/action/misc
 button groups, the studio floor) is untouched, just toggled alongside the
 new mode rather than replaced.
+
+
+## Handover — Action.TACKLED: a tackled player falls and gets up (Agent: mechanics/engine)
+
+Direct follow-up: the Tackle Sandbox above made it obvious a tackle
+connecting had no animation at all — the tackled player just stopped,
+still standing, for `TACKLE_STUN_DURATION`. This adds the fall/recover
+clip `player_animation.gd`'s own doc comment already named as the thing to
+add "if that ever changes" for tackle specifically (bump/spoil/smother
+stay physics-only, unaffected — this is only a Slide or Lunge connecting).
+
+### What changed and why
+
+New `Tuning.Action.TACKLED` (appended — the enum is positionally indexed by
+`ACTION_DURATION`/`ACTION_CONTACT`, existing slots never move), a new
+procedural clip `HumanoidAnimations._build_tackled()` (impact lurch → hips
+dropping and pitching forward → near-flat sprawl → a brief stunned beat →
+an asymmetric one-arm push-up recovery → back to `_base_pose()`), and
+`player_animation.gd`'s `ACTION_STATES` map picking it up like every other
+action clip — no new machinery, this rides the same
+`AnimationNodeStateMachine`/`play_action()`/`current_state()` plumbing
+kick/handball/marks already use.
+
+`PlayerController._get_tackled()` now computes the fall direction from the
+same `_scatter_from(by, 0.0)` the ball already spills along — "falls in the
+direction it is coming from" reads as: away from the tackler, exactly where
+the loose ball goes too, not a second, independent direction calculation.
+New `_fall_toward(direction)` snaps `rotation.y`/`_facing_yaw`/`_heading` to
+face that direction immediately (bypassing `_update_facing()`'s normal
+`rotate_toward` easing — a tackle puts you down facing away from the hit on
+the frame it connects, not several frames of gradual turning later), then
+`_begin(Tuning.Action.TACKLED)` plays the clip. `_update_action()`'s
+contact-time match statement treats `TACKLED` as cosmetic-only (the tackle
+itself already resolved — spilled ball, stun timer — before the clip ever
+starts), alongside the existing mark-miss reactions.
+
+`TACKLE_STUN_DURATION` raised from 0.5s to 1.3s to match
+`ACTION_DURATION[TACKLED]` exactly — the old value was tuned back when a
+tackle was a pure physics reaction with nothing to watch; now that the rig
+visibly goes down and gets back up, the "can't act" window has to last as
+long as that takes, or the player would be moving again while still drawn
+lying on the ground. `Tuning.action_speed_scale()` gets an explicit `0.0`
+case for `TACKLED` too — redundant with what `_stun_timer` already forces
+onto gait for this action's entire span, added anyway for the same reason
+every other action in that match statement is explicit rather than relying
+on incidental behaviour.
+
+`animation_viewer.gd`'s clip-preview action list gains a `TACKLED` button
+(moved out of the `UNIMPLEMENTED`/no-clip-yet row, which now reads BUMP/
+SPOIL/SMOTHER only) — and because the real tackle-split logic lives in
+`player_controller.gd` regardless of which mode is driving a `PlayerController`,
+the Tackle Sandbox added in the pass above shows this fall animation for
+free on any Slide/Lunge that connects, with no sandbox-specific wiring.
+
+### Least-confident part of this change, flagged rather than hidden
+
+The bone-rotation sign convention for pitching the whole body forward
+(`_build_tackled`'s "hips"/"torso" keys) is inferred from `_build_kick()`'s
+own established forward-lean direction, not independently verified against
+a render — this project's animations are all procedural bone-track data
+with no visual proof-render step available to a headless agent. If the fall
+reads as toppling backward, or into the tackler rather than away, every
+angle in `_build_tackled()` needs the same sign flip and nothing else about
+the clip changes. The Animation Viewer's Tackle Sandbox (previous pass) is
+built for exactly this kind of check — trigger a real tackle there and look.
+
+Deliberately out of scope for this pass: the tackled player's collision
+shape stays the standing 1.85m capsule the whole time, even flat on the
+ground — a fallen player still blocks movement/collision like a standing
+one. Real per-state collision-shape resizing is a reasonable follow-up once
+the fall pose itself is confirmed to look right, not bundled in blind.
+
+### An additional data point on the same-frame-construction race from the pass above
+
+Verifying this needed the same "two fresh `PlayerController`s, one
+scripted, one carrying the ball" pattern the Tackle Sandbox's own
+self-test used — and hit the identical symptom (one idle body drifting to
+match the mover's position, climbing toward a ~1.85m vertical offset,
+velocity pinned near zero) in a completely fresh scratch scene with no
+`AnimationViewer` involved at all. Waiting a few `physics_frame`s first
+(the previous pass's fix) works, but so does something not tried before:
+spawning and discarding two or three throwaway `PlayerController`
+instances *before* the real test pair, with zero elapsed physics time in
+between (all synchronous within the same `_ready()`) — the earlier pass's
+own scratch harness had incidentally done exactly this (a `ControlMode`
+regression check spawning three players ahead of the real test pair) and
+never hit the race at all, which is what this pass traced it back to.
+Whatever the exact mechanism (Jolt lazily building some per-shape
+acceleration structure the first few `CharacterBody3D`s pay for once?),
+it's consistent across every repro so far: it only ever hits the first
+couple of `PlayerController` instances a fresh scene ever constructs.
+Noting the throwaway-spawn workaround here alongside the physics-frame-wait
+one since it's more convenient for a synchronous (non-`await`) test script.
+Still nothing seen in real match flow, which never constructs this few
+bodies this close together in one frame.
+
+### How it was verified
+
+Plain headless boot re-verified clean on `animation_viewer.tscn`,
+`full_game.tscn`, and `kick_to_kick.tscn` (confirms `_build_tackled()`
+constructs without error — bone paths resolve, `Quaternion.from_euler`
+doesn't choke on any of the new keyframes — since every `player.tscn`
+instance builds the whole `AnimationLibrary` including this clip on
+`_ready()`). A scratch physics test (two real `PlayerController`s, a
+scripted brain driving a straight-line Slide tackle, three throwaway
+instances spawned first per the workaround above) confirmed: the tackle
+connects through the real resolver; `_action` becomes `Tuning.Action.TACKLED`
+on the tackled player; `rotation.y` snaps to face away from the tackler
+(measured dot product ≈ -0.98, i.e. facing almost exactly opposite);
+`_stun_timer` reads ≈1.3s immediately after; the `AnimationTree` actually
+travels to the `"tackled"` state (`animation_state()` reports it); the
+action is still `TACKLED` partway through the clip; and both `_action` and
+`_stun_timer` cleanly return to neutral once the full duration elapses. All
+9 checks passed.
+
+### Files changed
+
+`scripts/tuning.gd` (`Action.TACKLED` appended; `ACTION_DURATION`/
+`ACTION_CONTACT` index 10; `action_speed_scale()` case;
+`TACKLE_STUN_DURATION` 0.5→1.3), `scripts/player/humanoid_animations.gd`
+(new `_build_tackled()`, registered in `build_library()`),
+`scripts/player/player_animation.gd` (`ACTION_STATES` entry, doc comment),
+`scripts/player/player_controller.gd` (`_get_tackled()` now computes fall
+direction and calls `_begin()` instead of hand-resetting `_action`; new
+`_fall_toward()`; `_update_action()`'s cosmetic-only match arm),
+`scripts/dev/animation_viewer.gd` (`TACKLED` moved from `UNIMPLEMENTED` to
+`ACTIONS`, doc comments updated). Not touched: the tackle-split resolver
+itself (`_resolve_tackle_contact`, `_try_tackle`, `_try_lunge_tackle`) —
+this pass is purely the cosmetic layer on top of an already-resolved
+outcome, same relationship every other `_MISS` clip already has to its own
+resolution logic.
