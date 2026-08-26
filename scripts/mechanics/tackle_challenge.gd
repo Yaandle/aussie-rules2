@@ -47,6 +47,7 @@ func begin(ball: Ball, player: PlayerController, rival: PlayerController) -> voi
 	_active = true
 	_armed = false
 	_connect_rival()
+	_set_rival_gait_scale(Tuning.TACKLE_CHALLENGE_RIVAL_GAIT_SCALE)
 	challenge_started.emit(Tuning.TACKLE_CHALLENGE_ATTEMPTS)
 	hint_changed.emit("Tackling practice — run the rival down and hold E to tackle before they get rid of it.")
 	_deliver()
@@ -123,6 +124,7 @@ func _resolve(hit: bool, reason: String) -> void:
 	if _attempts_used >= Tuning.TACKLE_CHALLENGE_ATTEMPTS:
 		_active = false
 		_disconnect_rival()
+		_set_rival_gait_scale(1.0)
 		challenge_ended.emit(_hits, Tuning.TACKLE_CHALLENGE_ATTEMPTS)
 	else:
 		_schedule(Tuning.TACKLE_CHALLENGE_NEXT_DELAY, _deliver)
@@ -137,6 +139,20 @@ func _connect_rival() -> void:
 		_rival.field_ball_up_called.connect(_on_rival_ball_up)
 	if not _rival.ball_disposed.is_connected(_on_rival_disposed):
 		_rival.ball_disposed.connect(_on_rival_disposed)
+
+
+## Dials the rival's AIBrain.carry_gait_scale — see that field's own
+## comment and Tuning.TACKLE_CHALLENGE_RIVAL_GAIT_SCALE for why this drill
+## needs it at all. Guarded/typed rather than assumed: every rival
+## kick_to_kick.gd spawns is an AIBrain (_spawn_rival), but this stays
+## defensive rather than trusting a caller three files away not to change
+## that.
+func _set_rival_gait_scale(scale: float) -> void:
+	if not is_instance_valid(_rival):
+		return
+	var ai_brain := _rival.brain() as AIBrain
+	if ai_brain != null:
+		ai_brain.carry_gait_scale = scale
 
 
 func _disconnect_rival() -> void:

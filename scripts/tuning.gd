@@ -1262,6 +1262,23 @@ const TACKLE_CHALLENGE_LATERAL_SPREAD := 3.0   # m random offset per attempt, sa
 # what actually ends an attempt nobody resolves in time.
 const TACKLE_CHALLENGE_TIME_LIMIT := 5.0       # s
 const TACKLE_CHALLENGE_NEXT_DELAY := 1.6       # s after an attempt resolves before the next one, matches MARK_CHALLENGE_NEXT_DELAY's pacing
+# Diagnosed bug fix: the rival is a stock AIBrain PlayerController with the
+# same ACCELERATION (10.5 m/s^2) and SPRINT_SPEED (8.4 m/s) the human
+# player gets by default (CharacterProfile.speed_scale() is 1.0 unless the
+# character screen's SPEED stat was changed) — two bodies with identical
+# accel/top speed hold whatever gap they started at constant forever, so
+# TACKLE_CHALLENGE_LEAD_DISTANCE was a literally uncatchable head start,
+# not a hard-but-fair one. AIBrain.carry_gait_scale (drill-only, see its
+# own comment) is set to this for the rival's whole TackleChallenge
+# appearance, reproducing a coach easing a training partner back to a
+# beatable pace — a real closing-speed differential a committed, well-
+# angled chase can close inside TACKLE_CHALLENGE_TIME_LIMIT (verified with
+# a scripted chase-bot brain under real headless physics). The
+# actual tackle still has to pass _resolve_tackle_contact's real closing-
+# speed/approach-angle gate same as any other Slide/Lunge attempt — this
+# only fixes the geometry that made getting there impossible in the first
+# place.
+const TACKLE_CHALLENGE_RIVAL_GAIT_SCALE := 0.75
 
 
 ## Maps a 0..1 gait scalar onto the three named speeds, so WALK_SPEED,
