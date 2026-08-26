@@ -1556,9 +1556,26 @@ func _update_aerial_contest(ball: Ball, _delta: float) -> void:
 		_attempt_running_mark(ball)
 		return
 
-	if _brain.wants_mark_aggressive() and ball.global_position.distance_to(
-			_carry_point.global_position) <= Tuning.MARK_CONTEST_RANGE \
-			and ball.distance_since_launch() >= Tuning.MARK_AGGRESSIVE_MIN_FLIGHT_DISTANCE:
+	# Gate on distance/flight-distance *before* consulting the brain —
+	# consume_buffered_press() (what wants_mark_aggressive() calls under the
+	# hood) erases the buffered press the instant it's read, per its own
+	# doc comment: "callers must only call this at the point they are
+	# actually about to act on it." With the brain check first (short-
+	# circuit `and`), a press read on a frame where the ball was still a
+	# hair outside MARK_CONTEST_RANGE or MIN_FLIGHT_DISTANCE got silently
+	# eaten — _begin_aggressive_mark() never fired, but the buffer was
+	# already gone, so a later frame (ball now genuinely in range) saw
+	# nothing left to consume. That reads to the player as "I timed it
+	# right and nothing happened" — issue 2's exact symptom, since the ring
+	# cue's own "press now" instant is timed off mark_timing_offset() (see
+	# MarkPrompt._press_target_offset), not off this distance gate, so the
+	# two can legitimately disagree by a frame or two on a fast/steep
+	# delivery. Checking the gates first means a press that arrives early
+	# stays buffered (Tuning.INPUT_BUFFER_WINDOW) until the ball is
+	# actually in range, instead of being thrown away.
+	if ball.global_position.distance_to(_carry_point.global_position) <= Tuning.MARK_CONTEST_RANGE \
+			and ball.distance_since_launch() >= Tuning.MARK_AGGRESSIVE_MIN_FLIGHT_DISTANCE \
+			and _brain.wants_mark_aggressive():
 		_begin_aggressive_mark()
 
 
@@ -1706,10 +1723,41 @@ func mark_timing_offset(ball: Ball) -> float:
 	# for a Running mark taken at pace, where closing the gap is a joint
 	# effort between the ball's flight and the player's own sprint toward
 	# it, not the ball's velocity alone.
-	var closing_speed := -to_catch.normalized().dot(ball.linear_velocity - velocity)
-	if closing_speed > Tuning.MARK_TIMING_MIN_CLOSING_SPEED:
-		return -dist / closing_speed
-	return Tuning.MARK_TIMING_PAST_PEAK_OFFSET
+	var to_catch_dir := to_catch.normalized()
+	var closing_speed := -to_catch_dir.dot(ball.linear_velocity - velocity)
+	if closing_speed <= Tuning.MARK_TIMING_MIN_CLOSING_SPEED:
+		return Tuning.MARK_TIMING_PAST_PEAK_OFFSET
+	# A falling ball's closing speed keeps rising under gravity right up to
+	# the catch — a real, physical acceleration, not sensor noise — so a
+	# plain dist/closing_speed (constant-velocity) ETA is a systematic
+	# under-estimate of urgency: it reads the *slowest* closing speed of
+	# the remaining approach (now) and assumes that rate the whole way in.
+	# Safe/Running never notice, because they grade the very instant the
+	# button is pressed — this is only ever asked "is it here right now,"
+	# never "how long until." Aggressive is the one tier that *commits*
+	# ACTION_CONTACT[MARK_AGGRESSIVE] (0.4s) ahead of its own resolution
+	# (the jump has to physically rise first — see _resolve_aggressive_
+	# mark's own comment), so it's the one tier actually relying on this
+	# number as a forward prediction, and the bias bit exactly there:
+	# scripted verification (a real Ball/PlayerController physics run, not
+	# just this comment) showed a steep coach-drill-style delivery's true
+	# closest approach landing roughly twice as soon as the plain linear
+	# estimate promised, so a jump committed off "offset == -0.4s" was
+	# still mid-air, arm still rising, after the ball had already passed
+	# and moved on — a real, reproducible cause of "aggressive mark misses
+	# on seemingly correct timing," not player error. Folding in gravity's
+	# contribution to closing acceleration (constant-acceleration ETA,
+	# solved the same way a real trajectory would be — drag omitted, same
+	# simplification Ball.predicted_landing_position() already makes for a
+	# live in-the-loop estimate) corrects for exactly that rise.
+	var closing_accel := -to_catch_dir.dot(Vector3(0.0, -Tuning.GRAVITY, 0.0))
+	if absf(closing_accel) > 0.001:
+		var discriminant := closing_speed * closing_speed + 2.0 * closing_accel * dist
+		if discriminant >= 0.0:
+			var eta := (-closing_speed + sqrt(discriminant)) / closing_accel
+			if eta > 0.0:
+				return -eta
+	return -dist / closing_speed
 
 
 ## The physical (never probabilistic — RULES_REFERENCE.md §3) consequence

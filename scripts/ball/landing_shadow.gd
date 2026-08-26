@@ -29,6 +29,22 @@ const MARKER_HEIGHT := 0.03       ## m off the turf, same reasoning as Field's l
 const PULSE_SPEED := 2.4
 const PULSE_ALPHA_AMOUNT := 0.25
 
+## Exponential smoothing rate for chasing the raw recomputed landing point
+## (user report: shadow "jitters at the end of the trajectory"). The raw
+## estimate is recomputed from scratch every frame from the ball's live
+## position/velocity (see _estimate_landing's own comment on why — no
+## cached prediction), which is honest but noisy: any small per-frame
+## change in the ball's velocity (drag, a spoil, catch-gravity easing) is a
+## forward simulation run all the way out again, and late in the arc, when
+## the remaining flight time is short, that noise stops being smoothed out
+## by distance/time and starts reading as visible jitter right at the
+## point players most need to read it precisely. Smoothing the marker's
+## displayed position toward the raw target (rather than snapping to it)
+## fixes that without touching the prediction math itself. Same
+## exp-decay-toward-target shape used elsewhere for camera/UI easing in
+## this project; not physically meaningful, purely a display filter.
+const SMOOTHING_RATE := 12.0   # higher = snappier/less lag, lower = smoother/more lag
+
 ## Same accent family as KickTrajectory's own preview, so a live shadow
 ## and a pre-kick aim preview read as one visual language rather than two
 ## unrelated overlay systems — see that file's colour comment for why the
@@ -57,11 +73,26 @@ func _process(delta: float) -> void:
 		visible = false
 		return
 
+	var was_visible := visible
 	visible = true
 	_time += delta
 	var landing := _estimate_landing(ball.global_position, ball.linear_velocity)
 	landing.y = MARKER_HEIGHT
-	global_position = landing
+	if was_visible:
+		# Damp toward the freshly recomputed target instead of snapping to
+		# it — see SMOOTHING_RATE's own comment for why the raw estimate is
+		# noisy late in the arc. Frame-rate independent via the standard
+		# 1 - exp(-rate*delta) decay, same shape weight_towards()/lerp-per-
+		# frame smoothing uses elsewhere in this project.
+		var t := 1.0 - exp(-SMOOTHING_RATE * delta)
+		global_position = global_position.lerp(landing, t)
+	else:
+		# Just became visible (ball only just went airborne, or this is the
+		# very first frame it's tracked) — jump straight to the real
+		# estimate rather than lerping in from wherever the marker was last
+		# left (possibly stale, possibly the origin), which would otherwise
+		# read as its own visible glide-in.
+		global_position = landing
 
 	var pulse := sin(_time * PULSE_SPEED)
 	_material.albedo_color = Color(_colour.r, _colour.g, _colour.b,
