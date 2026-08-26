@@ -9,6 +9,23 @@ extends CanvasLayer
 ## against AFL's 15m bounce rule. If the blend position is not moving
 ## when the player turns hard, the strafe axis is not being fed — that is
 ## the kind of thing this exists to catch. F3 / D-pad up toggles it.
+##
+## Reset-ball hint: "debug_reset" (R / Back-View — see project.godot's
+## [input] section) is a real player-facing convenience in kick_to_kick's
+## practice loop, not only a dev tool, despite the action's debug-flavoured
+## name — the only place it was previously surfaced at all was as one row
+## of this file's own CONTROLS table below, which only exists while this
+## whole debug overlay is toggled on (F3), and even then reads as one line
+## of dense reference text among many rather than a real prompt. _reset_hint
+## is a small always-on KeyHintBar chip (same [chip] label pattern
+## character_screen.gd's own control legend already uses — see
+## key_hint_bar.gd) that stays visible independently of the F3 toggle
+## below, which now only hides/shows _panel and _label rather than this
+## whole CanvasLayer, so a persistent child can opt out of that toggle
+## without needing a second CanvasLayer. Its keyboard label is read live
+## off Settings.keyboard_keycode() (same helper remap_screen.gd's own
+## _key_display_name() uses) rather than hardcoded, so a player who
+## rebinds Reset Ball still sees the key they actually bound.
 
 const BAR_WIDTH := 14
 
@@ -44,10 +61,27 @@ const CONTROLS := [
 	["Toggle this HUD", "F3", "D-Pad Up"],
 ]
 
+## Where the persistent Reset Ball chip sits — bottom-left, clear of
+## _panel's own top-left ~640x400 box (see debug_hud.tscn) and of the
+## centred crosshair/mark-prompt overlays. Fixed pixel position, same as
+## character_screen.gd's own KeyHintBar placement — the project's viewport
+## is a fixed 1280x720 canvas under "canvas_items" stretch (project.godot's
+## [display] section), so an absolute position scales correctly with the
+## window instead of needing anchor math.
+const RESET_HINT_POSITION := Vector2(16.0, 680.0)
+
 var player: PlayerController
 var ball: Ball
 
 var _controls_text := ""
+var _debug_info_visible := true
+
+## Keyed by InputManager.Device, same {"keys", "label"} shape KeyHintBar
+## already expects everywhere else it's used (character_screen.gd's
+## _hint_sets) — built once in _ready() since the keyboard entry has to
+## read the live (possibly player-remapped) binding, not a hardcoded one.
+var _reset_hint_sets := {}
+var _reset_hint: KeyHintBar
 
 @onready var _panel: Panel = $Panel
 @onready var _label: Label = $Label
@@ -81,14 +115,50 @@ func _ready() -> void:
 	_label.add_theme_constant_override(&"outline_size", 3)
 
 	_controls_text = "\n".join(_controls_lines())
+	_panel.visible = _debug_info_visible
+	_label.visible = _debug_info_visible
+
+	_reset_hint_sets = {
+		InputManager.Device.KEYBOARD: [{"keys": _reset_key_label(), "label": "Reset Ball"}],
+		# Wording matches this file's own CONTROLS table above (button 4 —
+		# see project.godot's debug_reset binding) so the two don't drift
+		# into disagreeing labels for the same physical button.
+		InputManager.Device.GAMEPAD: [{"keys": "Back / View", "label": "Reset Ball"}],
+	}
+	_reset_hint = KeyHintBar.new()
+	_reset_hint.position = RESET_HINT_POSITION
+	add_child(_reset_hint)
+	_apply_reset_hint()
+	InputManager.device_changed.connect(_on_device_changed)
 
 
 func _process(_delta: float) -> void:
 	if Input.is_action_just_pressed(&"debug_hud"):
-		visible = not visible
-	if not visible:
+		_debug_info_visible = not _debug_info_visible
+		_panel.visible = _debug_info_visible
+		_label.visible = _debug_info_visible
+	if not _debug_info_visible:
 		return
 	_label.text = _compose()
+
+
+func _on_device_changed(_device: int) -> void:
+	_apply_reset_hint()
+
+
+func _apply_reset_hint() -> void:
+	var keyboard: Array = _reset_hint_sets[InputManager.Device.KEYBOARD]
+	_reset_hint.set_hints(_reset_hint_sets.get(InputManager.device, keyboard))
+
+
+## Live off Settings, not a hardcoded "R" — mirrors remap_screen.gd's own
+## _key_display_name() so a rebound key shows correctly here too rather
+## than silently going stale the moment a player remaps Reset Ball.
+func _reset_key_label() -> String:
+	var keycode := Settings.keyboard_keycode(&"debug_reset")
+	if keycode == KEY_NONE:
+		return "—"
+	return OS.get_keycode_string(keycode).to_upper()
 
 
 func _compose() -> String:
