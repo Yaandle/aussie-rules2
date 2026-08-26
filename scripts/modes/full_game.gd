@@ -43,6 +43,12 @@ var _pause_callback := Callable()
 var _prev_ball_pos := Vector3.ZERO
 var _prev_ball_pos_valid := false
 
+## Seconds until "call for the ball" can be used again — see
+## Tuning.CALL_FOR_BALL_COOLDOWN. Only ever non-zero in
+## Settings.PlayerControlMode.SINGLE_PLAYER, since that's the only mode the
+## action is routed in at all.
+var _call_for_ball_cooldown := 0.0
+
 
 func _ready() -> void:
 	GameState.mode = GameState.Mode.FULL_GAME
@@ -77,6 +83,10 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	_check_out_of_bounds()
+	# Ticked ahead of the pause gate below, not inside the live-play branch:
+	# a call made just before a goal/ball-up shouldn't stay on cooldown for
+	# the whole stoppage as well.
+	_call_for_ball_cooldown = maxf(0.0, _call_for_ball_cooldown - delta)
 
 	if _pause_timer > 0.0:
 		_pause_timer = maxf(0.0, _pause_timer - delta)
@@ -95,9 +105,21 @@ func _apply_camera_mode(setting: Settings.FullGameCameraMode) -> void:
 		if setting == Settings.FullGameCameraMode.FULL_SIDE else BroadcastCamera.Mode.CHASE)
 
 
+## The two player-control modes (Settings.PlayerControlMode, chosen on the
+## Full Game pregame screen) differ here and nowhere else: FULL_TEAM keeps
+## switch_player, SINGLE_PLAYER swaps it for call_for_ball. Gated at the
+## input site rather than inside each handler so the split is readable in
+## one place — which action even exists in which mode is the whole setting.
+## Note this is Settings.PlayerControlMode, NOT ControlMode.Scheme: both
+## teams stay registered as ControlMode.Scheme.SINGLE_PLAYER regardless,
+## exactly as before this pass.
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"switch_player"):
-		_switch_human_player()
+		if Settings.player_control_mode == Settings.PlayerControlMode.FULL_TEAM:
+			_switch_human_player()
+	elif event.is_action_pressed(&"call_for_ball"):
+		if Settings.player_control_mode == Settings.PlayerControlMode.SINGLE_PLAYER:
+			_call_for_ball()
 	elif event.is_action_pressed(&"toggle_control_scheme"):
 		_toggle_control_scheme()
 	elif event.is_action_pressed(&"issue_command"):
@@ -724,6 +746,13 @@ func _reset_ball() -> void:
 ## In TEAM_COMMAND this key instead cycles which teammate is selected
 ## (directly human-driven) — same physical button, same "move on to the
 ## next body" meaning, just within the other scheme's own bookkeeping.
+##
+## Only reached at all in Settings.PlayerControlMode.FULL_TEAM (see
+## _unhandled_input) — SINGLE_PLAYER leaves the human on whichever body
+## _spawn_teams() started them on for the whole match and gets
+## _call_for_ball() instead. Nothing inside this function changed for that:
+## the mode gate is at the input site, so FULL_TEAM's behaviour is byte-for-
+## byte what it always was.
 func _switch_human_player() -> void:
 	if ControlMode.scheme_for(Tuning.Team.HOME) == ControlMode.Scheme.TEAM_COMMAND:
 		_cycle_team_command_selection()
@@ -739,6 +768,109 @@ func _switch_human_player() -> void:
 
 	next.set_brain(HumanBrain.new())
 	ControlMode.set_controlled_player(Tuning.Team.HOME, next)
+
+
+# ── Call for the ball (SINGLE_PLAYER player-control mode) ────────────
+# Settings.PlayerControlMode.SINGLE_PLAYER locks the human to one body for
+# the whole match, which takes switch_player's escape hatch away: when a
+# teammate has the footy there is otherwise nothing at all the human can do
+# to influence what happens to it. This is that mode's replacement — lead
+# into space, shout for it, and the carrier may or may not give it to you.
+# Not an AFL rule (see Tuning's CALL_FOR_BALL_* block), and deliberately a
+# request rather than a command: a guaranteed handball would make the AI a
+# ball-delivery service and every contest optional.
+
+## No-ops (silently, no cooldown burned) whenever there's nothing to ask
+## for: ball loose, AWAY has it, or the human is already the carrier. That
+## last case is not a special case worth feedback — the answer to "give me
+## the ball" when you're holding it is nothing. Deliberately no toast/
+## prompt/SFX on any of these: this project has no general-purpose player-
+## feedback channel to reuse (AudioManager's only public cues are the
+## umpire's whistle and full time, both of which would read as an actual
+## umpiring decision here), and inventing one is UI scope this pass doesn't
+## own.
+func _call_for_ball() -> void:
+	if GameState.phase != GameState.Phase.PLAY or _call_for_ball_cooldown > 0.0:
+		return
+	var caller := ControlMode.controlled_player(Tuning.Team.HOME)
+	if not is_instance_valid(caller) or caller.is_carrying():
+		return
+	var carrier := _ball.holder() as PlayerController
+	if carrier == null or carrier == caller or carrier.team != Tuning.Team.HOME:
+		return
+	# The carrier is a real HOME teammate, so the shout happens and costs its
+	# cooldown from here on, whether or not it works — including the
+	# out-of-range case below, which is a call that simply couldn't be heard
+	# rather than one that was never made.
+	_call_for_ball_cooldown = Tuning.CALL_FOR_BALL_COOLDOWN
+
+	if caller.global_position.distance_to(carrier.global_position) > Tuning.CALL_FOR_BALL_RANGE:
+		return
+	# Only an AI-run teammate can be asked. A human-driven carrier can't be
+	# (there's only one human body in this mode, and it's the caller), but
+	# the cast keeps this correct rather than crashing the day local
+	# multiplayer puts a second HumanBrain on the field.
+	var carrier_ai := carrier.brain() as AIBrain
+	if carrier_ai == null:
+		return
+	if randf() >= _call_for_ball_success_chance(carrier, caller):
+		return   # refused — the carrier just plays on under its own judgement
+	carrier_ai.request_handball_to(caller)
+
+
+## 0..1 chance that `carrier` actually gives it up when `caller` shouts.
+## Three factors, all measured off geometry that already exists in this
+## match rather than off any invented per-player rating — there is no
+## per-teammate stat data in this project to weigh (CharacterProfile is a
+## single global profile describing the human's own body, and every AI
+## PlayerController is spawned from one identical scene with identical
+## Tuning-driven physics), so a "teammate rating" term would be fabricated.
+##
+## 1. PRESSURE on the carrier — nearest AWAY player's distance to them,
+##    against Tuning.AI_PRESSURE_RADIUS. Pressure RAISES the chance, and
+##    that direction is chosen to agree with the AI this mechanic is asking
+##    a favour of: AIBrain._think_carrying already treats an opponent inside
+##    AI_PRESSURE_RADIUS as the trigger to offload immediately (it handballs
+##    on its own at that point). A carrier who is already looking to get rid
+##    of it takes the option being offered; one running free would rather
+##    back itself and shoot, so the call has to be more persuasive. The
+##    opposite reading ("too rattled to risk it") would have the mechanic
+##    fight the existing state machine instead of reinforcing it, and would
+##    make the call useless in exactly the situation a teammate leading into
+##    space is most valuable.
+## 2. OPENNESS of the caller — nearest AWAY player's distance to THEM.
+##    Rewards actually leading into space; a caller with a defender draped
+##    on them is a bad option and the carrier treats it as one. Fully open
+##    at twice AI_PRESSURE_RADIUS (i.e. at double the range at which the AI
+##    itself considers a player pressured), covered at zero.
+## 3. RANGE — caller-to-carrier distance against Tuning.CALL_FOR_BALL_RANGE,
+##    a mild tax across the band rather than a second cliff; the hard cliff
+##    is _call_for_ball()'s own range refusal above.
+func _call_for_ball_success_chance(carrier: PlayerController, caller: PlayerController) -> float:
+	var pressure := 1.0 - clampf(
+		_nearest_opponent_distance(_away_players, carrier.global_position)
+		/ Tuning.AI_PRESSURE_RADIUS, 0.0, 1.0)
+	var openness := clampf(
+		_nearest_opponent_distance(_away_players, caller.global_position)
+		/ (Tuning.AI_PRESSURE_RADIUS * 2.0), 0.0, 1.0)
+	var reach := clampf(
+		carrier.global_position.distance_to(caller.global_position)
+		/ Tuning.CALL_FOR_BALL_RANGE, 0.0, 1.0)
+
+	return clampf(
+		Tuning.CALL_FOR_BALL_BASE_CHANCE
+		+ Tuning.CALL_FOR_BALL_PRESSURE_BONUS * pressure
+		+ Tuning.CALL_FOR_BALL_OPENNESS_BONUS * openness
+		- Tuning.CALL_FOR_BALL_RANGE_PENALTY * reach,
+		Tuning.CALL_FOR_BALL_MIN_CHANCE, Tuning.CALL_FOR_BALL_MAX_CHANCE)
+
+
+## INF when `players` is empty, so an absent opponent reads as "no pressure
+## at all" through the clamps above rather than as zero distance (maximum
+## pressure), which is what a plain 0.0 fallback would have meant.
+func _nearest_opponent_distance(players: Array[PlayerController], spot: Vector3) -> float:
+	var nearest := _nearest_player(players, spot)
+	return INF if nearest == null else nearest.global_position.distance_to(spot)
 
 
 ## Debug/prototyping entry point for ControlMode.Scheme.TEAM_COMMAND —

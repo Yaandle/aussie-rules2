@@ -61,7 +61,7 @@ class Entry:
 
 var _entries: Array[Entry] = [
 	Entry.new("FULL GAME", "4-a-side, real clock, quarters, scoring",
-		"res://scenes/modes/full_game.tscn", true, "menuscreen_field"),
+		"res://scenes/ui/full_game_pregame_screen.tscn", true, "menuscreen_field"),
 	Entry.new("SCENARIO", "Practice a set situation", "", false, "menuscreen_board"),
 	Entry.new("GOAL KICKING", "Shots on goal from the arc", "", false,
 		"menuscreen_ball"),
@@ -192,8 +192,20 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed(&"move_right") or event.is_action_pressed(&"ui_right") \
 			or event.is_action_pressed(&"move_back") or event.is_action_pressed(&"ui_down"):
 		_move(1)
-	elif event.is_action_pressed(&"ui_accept"):
+	elif event.is_action_pressed(&"ui_accept") or _is_gamepad_a_press(event):
 		_select()
+
+
+## ui_accept's built-in default binding already includes joypad button 0,
+## but every other action a player's thumb rests on this screen
+## (character_menu/team_menu, plus mark_safe/confirm elsewhere in the
+## project) is bound explicitly in project.godot rather than left to an
+## engine default — this checks the physical A/Cross press directly too,
+## so selecting the highlighted card doesn't depend on ui_accept's
+## default surviving whatever InputMap state this screen is reached in.
+func _is_gamepad_a_press(event: InputEvent) -> bool:
+	return event is InputEventJoypadButton and event.is_pressed() \
+		and (event as InputEventJoypadButton).button_index == JOY_BUTTON_A
 
 
 func _move(step: int) -> void:

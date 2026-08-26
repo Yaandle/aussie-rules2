@@ -1239,6 +1239,51 @@ const AI_LOOSE_BALL_REACTION_MAX := 0.40   # s
 # mode; see docs/HANDOVER.md's control-mode entry.
 const COMMAND_LEAD_DISTANCE := 12.0     # m
 
+# Call for the ball (Settings.PlayerControlMode.SINGLE_PLAYER — see
+# FullGame._call_for_ball). Not an AFL rule: there is no "calling" mechanic
+# in the laws of the game, so nothing here has a rule number to cite. It
+# exists because SINGLE_PLAYER locks the human to one body for the whole
+# match, which removes switch_player's escape hatch and leaves them with no
+# way at all to influence a teammate's disposal. Every number below is
+# either derived from an existing constant in this file or explained where
+# it sits.
+#
+# Range is the one number that IS derived rather than felt out: the flat
+# ballistic range of this project's own handball (HANDBALL_SPEED 15 m/s at
+# HANDBALL_ANGLE 9 deg) is v^2 * sin(2*theta) / g = 225 * 0.309 / 9.80665
+# ~= 7.1 m, doubled because a handball is a lead pass onto a running
+# receiver, not a pass to the chest — the receiver covers the back half.
+# Past that a handball simply cannot reach, so the call is refused outright
+# rather than rolled for and then thrown short.
+const CALL_FOR_BALL_RANGE := 14.0       # m, ~2x a handball's own flat range
+
+# A player can shout for it, not machine-gun it. Without a cooldown the
+# probability below is meaningless — mashing the key converts any non-zero
+# chance into a certainty within a second. Roughly the length of one called
+# lead; short enough that a genuine second effort is still allowed.
+const CALL_FOR_BALL_COOLDOWN := 1.2     # s
+
+# Chance = BASE + PRESSURE_BONUS*p + OPENNESS_BONUS*o - RANGE_PENALTY*r,
+# clamped to MIN..MAX. See FullGame._call_for_ball_success_chance() for what
+# p/o/r actually measure and why pressure on the carrier RAISES the chance.
+# BASE sits below even money: a called handball is a request, and the
+# carrier's own AI is entitled to back its own judgement most of the time.
+# The three weights are sized so pressure is the dominant term (it's the
+# factor the human can actually create, by drawing a defender), openness
+# second (it rewards leading into space rather than standing still), and
+# range a modest tax rather than a cliff (the hard cliff is
+# CALL_FOR_BALL_RANGE above).
+const CALL_FOR_BALL_BASE_CHANCE := 0.35
+const CALL_FOR_BALL_PRESSURE_BONUS := 0.30
+const CALL_FOR_BALL_OPENNESS_BONUS := 0.25
+const CALL_FOR_BALL_RANGE_PENALTY := 0.20
+# Never a certainty and never impossible — the same reason this project
+# resolves contests physically rather than on a die roll applies to the
+# edges of a die roll it does keep: a guaranteed outcome stops being a
+# decision.
+const CALL_FOR_BALL_MIN_CHANCE := 0.05
+const CALL_FOR_BALL_MAX_CHANCE := 0.95
+
 
 # ── Training coaches ────────────────────────────────────────────────
 # All three now exist (design brief): kicking, marking, and tackling —

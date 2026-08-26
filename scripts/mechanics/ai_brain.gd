@@ -74,6 +74,13 @@ var _kick_execute_pressed := false
 var _ball_was_held := true
 var _reaction_timer := 0.0
 
+## An accepted "call for the ball" (see request_handball_to) — who to
+## handball to, and how many physics frames of the two-frame turn-then-
+## release sequence are left. Zero frames means no call is pending, which is
+## every frame except the two after a successful call.
+var _call_receiver: PlayerController = null
+var _call_frames := 0
+
 
 func update(controller: PlayerController, delta: float) -> void:
 	_handball_pressed = false
@@ -118,6 +125,43 @@ func update(controller: PlayerController, delta: float) -> void:
 		_think_defend(controller, holder, pos)
 
 
+## "Call for the ball" (Settings.PlayerControlMode.SINGLE_PLAYER — see
+## FullGame._call_for_ball, which is the only caller and which has already
+## decided the call succeeded by the time this is reached). Asks a carrying
+## brain to handball to `receiver` instead of continuing its own carry.
+##
+## Deliberately routed through _think_carrying's existing _handball_pressed
+## path rather than launching the ball directly: PlayerController._begin()
+## captures a handball's aim from _wish_dir at the instant of the press, so
+## pointing this brain's own movement intent at the receiver first IS the
+## aiming mechanism. There is no second way to aim a handball, and building
+## one would be a parallel disposal system with its own accuracy.
+##
+## Two frames, not one, and that ordering is load-bearing: _wish_dir is
+## written by PlayerController._update_locomotion, which runs *after*
+## _update_charge reads wants_handball() within the same physics frame. A
+## handball pressed on the same frame the aim changes would therefore fire
+## along the previous frame's _wish_dir — straight at goal, the direction
+## _think_carrying was already running. Frame one turns the intent, frame
+## two releases into it.
+##
+## Any kick this brain had committed to is abandoned: the two are mutually
+## exclusive disposals and _update_charge would otherwise still be holding
+## stance while the handball fires.
+func request_handball_to(receiver: PlayerController) -> void:
+	_call_receiver = receiver
+	_call_frames = 2
+	_kick_committed = false
+	_kick_pressed = false
+
+
+## True while a successful call is still being carried out — full_game.gd's
+## scripted verification reads this, and it keeps "is a call in flight"
+## answerable without exposing the frame counter itself.
+func has_pending_call() -> bool:
+	return _call_frames > 0 and is_instance_valid(_call_receiver)
+
+
 func wish_direction(_controller: PlayerController) -> Vector3:
 	return _move_dir
 
@@ -149,6 +193,22 @@ func wants_mark_safe() -> bool:
 # ── Decisions ────────────────────────────────────────────────────────
 
 func _think_carrying(controller: PlayerController, delta: float, pos: Vector3) -> void:
+	# An accepted call overrides this brain's own carry judgement for exactly
+	# the two frames it takes to turn and release (see request_handball_to).
+	# Gait 0 rather than a run: the carrier checks its stride to give the
+	# handball, it doesn't run at its own teammate. Two physics frames is
+	# ~33ms of that check, which is why it doesn't need to be any subtler.
+	if _call_frames > 0:
+		if not is_instance_valid(_call_receiver):
+			_call_frames = 0
+		else:
+			_call_frames -= 1
+			_move_toward(_call_receiver.global_position, pos, 0.0)
+			if _call_frames <= 0:
+				_handball_pressed = true
+				_call_receiver = null
+			return
+
 	var goal_point := Vector3(
 		attack_direction * Tuning.FIELD_HALF_LENGTH, 0.0, _lateral_target_z(pos))
 	_move_toward(goal_point, pos, carry_gait_scale)
