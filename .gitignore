@@ -23,3 +23,6 @@ mono_crash.*.json
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Claude Code local state (worktrees, session config)
+/.claude/
