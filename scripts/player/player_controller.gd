@@ -1541,7 +1541,7 @@ func _update_aerial_contest(ball: Ball, _delta: float) -> void:
 			if not _mark_readying:
 				InputManager.rumble(Tuning.RUMBLE_MARK_PRESS)
 			_mark_readying = true
-			var mult := _timing_reach_mult(mark_timing_offset(ball),
+			var mult := _timing_reach_mult(mark_timing_offset(ball, Tuning.Action.MARK_SAFE),
 				Tuning.MARK_SAFE_IDEAL_WINDOW, Tuning.MARK_SAFE_OK_WINDOW)
 			if mult > 0.0 and _ball_in_catch_reach(ball, Tuning.MARK_SAFE_REACH_SCALE * mult):
 				_complete_mark(ball, Tuning.Action.MARK_SAFE)
@@ -1587,7 +1587,7 @@ func _update_aerial_contest(ball: Ball, _delta: float) -> void:
 ## the same "is this even live" test _update_aerial_contest's own
 ## Aggressive branch already uses, not a new number.
 func _attempt_running_mark(ball: Ball) -> void:
-	var mult := _timing_reach_mult(mark_timing_offset(ball),
+	var mult := _timing_reach_mult(mark_timing_offset(ball, Tuning.Action.MARK_RUNNING),
 		Tuning.MARK_RUNNING_IDEAL_WINDOW, Tuning.MARK_RUNNING_OK_WINDOW)
 	if mult > 0.0 and _ball_in_catch_reach(ball, Tuning.MARK_RUNNING_REACH_SCALE * mult):
 		_complete_mark(ball, Tuning.Action.MARK_RUNNING)
@@ -1676,7 +1676,7 @@ func _resolve_aggressive_mark() -> void:
 	var ball := _live_ball()
 	var mult := 0.0
 	if is_instance_valid(ball) and not ball.is_held:
-		mult = _timing_reach_mult(mark_timing_offset(ball),
+		mult = _timing_reach_mult(mark_timing_offset(ball, Tuning.Action.MARK_AGGRESSIVE),
 			Tuning.MARK_AGGRESSIVE_IDEAL_WINDOW, Tuning.MARK_AGGRESSIVE_OK_WINDOW)
 	if mult > 0.0 and _ball_in_catch_reach(ball, Tuning.MARK_AGGRESSIVE_REACH_SCALE * mult):
 		_finish_mark_catch(ball, Tuning.Action.MARK_AGGRESSIVE)
@@ -1714,10 +1714,47 @@ func _ball_in_catch_reach(ball: Ball, reach_scale: float) -> bool:
 ## the resolution logic uses to draw an honest countdown — same convention
 ## as live_mark_prompt()/catch_point_position() below, both also written
 ## for an outside caller.
-func mark_timing_offset(ball: Ball) -> float:
+##
+## `tier` scopes the "basically here" arrived-radius check below to the
+## reach the *caller* actually cares about — MARK_SAFE/MARK_RUNNING/
+## MARK_AGGRESSIVE, or NONE (the default) for a generic/tier-agnostic read
+## (e.g. a ruck contest). Multi-trial scripted verification caught a real
+## bug from treating every caller alike here: a single shared radius wide
+## enough to rescue Aggressive's own frame-skip case (see below) was wide
+## enough to read as "arrived" well before the ball was actually inside
+## Running's much tighter reach, so Running's same-frame resolution (no
+## forward delay to self-correct on, unlike Aggressive) was grading a press
+## as ideal-timed while still genuinely out of reach — the ring cue itself
+## would tell a real player to press before the ball had actually arrived.
+func mark_timing_offset(ball: Ball, tier: Tuning.Action = Tuning.Action.NONE) -> float:
 	var to_catch := ball.global_position - _carry_point.global_position
 	var dist := to_catch.length()
 	if dist < 0.001:
+		return 0.0
+	# "Basically here" (relative to *this tier's own* reach) beats any
+	# velocity-based read, checked first and unconditionally — not just
+	# when closing speed happens to be low. A fast crossing (both ball and
+	# Running-tier player can easily be moving at several m/s) can swing
+	# the radial closing speed from clearly closing to clearly departing
+	# within a single 60Hz physics step, so a check gated on "closing speed
+	# is currently low" can miss the ball's true closest approach entirely
+	# — it can legitimately never sample a frame where closing speed reads
+	# inside any narrow band, however wide, right as the two paths cross.
+	# Multi-trial scripted verification (many geometries, a real
+	# Running-tier player actually moving) caught exactly this: carry-point
+	# distance bottomed out well inside reach on a frame where the
+	# closing-speed-gated version of this check never fired at all, reading
+	# the whole approach as "never arrived." Distance alone doesn't have
+	# that blind spot.
+	var arrived_radius := Tuning.MARK_TIMING_ARRIVED_RADIUS
+	match tier:
+		Tuning.Action.MARK_SAFE:
+			arrived_radius = Tuning.MARK_CATCH_RADIUS * Tuning.MARK_SAFE_REACH_SCALE + Tuning.MARK_ASSIST_RADIUS_BONUS
+		Tuning.Action.MARK_RUNNING:
+			arrived_radius = Tuning.MARK_CATCH_RADIUS * Tuning.MARK_RUNNING_REACH_SCALE + Tuning.MARK_ASSIST_RADIUS_BONUS
+		Tuning.Action.MARK_AGGRESSIVE, _:
+			pass   # the wide, Aggressive-scoped default above already fits
+	if dist <= arrived_radius:
 		return 0.0
 	# Relative to this player's own motion, not just the ball's — matters
 	# for a Running mark taken at pace, where closing the gap is a joint

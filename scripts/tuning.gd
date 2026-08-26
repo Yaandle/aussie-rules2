@@ -847,18 +847,40 @@ const MARK_HOLD_DURATION := 5.0         # s
 # your hands".
 const MARK_CATCH_RADIUS := 1.15         # m
 
-const MARK_SAFE_REACH_SCALE := 1.0
-const MARK_RUNNING_REACH_SCALE := 0.8      # a snap grab at pace has less margin
-## Buffed from 1.4 — user report: "the Y aggressive mark needs to be
-## buffed, I cannot catch it". Aggressive's resolution is a fixed
-## ACTION_CONTACT[MARK_AGGRESSIVE] delay after the press (the jump has to
-## physically rise and peak), so unlike Running (which resolves the same
-## frame as the tap) it's graded against where the ball *will be* several
-## frames from now — a genuinely harder read even for a well-timed press.
-## A fuller stretch at the peak compensates for that without touching the
-## timing windows below, which are the more honest fix for "the read is
-## hard" (see MARK_AGGRESSIVE_IDEAL_WINDOW's own comment).
-const MARK_AGGRESSIVE_REACH_SCALE := 1.55  # full stretch at the top of a leap
+## Buffed from 1.0, then again from 1.4 — "I cannot catch ball" playability
+## pass (see MARK_RUNNING_REACH_SCALE/MARK_AGGRESSIVE_REACH_SCALE's own
+## comments for the harness this and the other two came out of): Safe is
+## meant to be the generous, no-timing-skill-required default, so it should
+## be the *most* forgiving of the three on reach, not merely tied with a
+## tight baseline. The second bump was needed because the harness's own
+## misses at 1.4 traced to ordinary delivery-aim scatter (the same one-pass
+## inverse-ballistics MarkChallenge itself uses, ~1-2m of miss at typical
+## coach-drill distances — see MarkChallenge._launch_speed_for's own
+## comment) landing just outside reach, not a timing problem — reach is the
+## only thing that can absorb that for a tier that's supposed to need no
+## timing skill at all.
+const MARK_SAFE_REACH_SCALE := 2.2
+## Buffed from 0.8 — same "still bugging, I cannot catch ball" report that
+## drove the other tiers' second widening pass below. A scripted multi-trial
+## harness run at pace (real Field/Player/Ball physics, not anecdote) found
+## Running's own reach envelope was the tightest of all three tiers, on top
+## of demanding a same-frame press while sprinting — not a fair combination.
+const MARK_RUNNING_REACH_SCALE := 1.15
+## Buffed from 1.55 — a fresh multi-trial scripted verification (real
+## Field/Player/Ball physics, many geometries + a timing spread, not one
+## anecdote) after the previous pass's mark_timing_offset() ETA fix still
+## measured 0% catches at the ring cue's own advertised "press now" instant:
+## the jump's fixed ACTION_CONTACT[MARK_AGGRESSIVE] rise time (0.4s) reliably
+## outlasts the ball's genuine close-approach window for a typical 16-28m
+## coach-drill-style delivery, so by the time the jump peaks and resolution
+## actually runs, the ball's carry-point distance has already grown back out
+## past the old reach (observed regularly landing ~2.5-2.8m at resolution,
+## against the old reach's 2.28m) even off a well-timed commit. Since
+## reworking the jump's fixed rise time is out of scope (it's real gravity-
+## integrated jump physics, not a tunable delay) and the timing-window widen
+## below only helps once the ball is *within* reach, reach itself has to
+## carry the rest of the fix.
+const MARK_AGGRESSIVE_REACH_SCALE := 2.7   # a genuinely full-stretch, ball-still-a-bit-out grab
 
 # Movement cost while committed to each tier — see
 # PlayerController._update_locomotion / Tuning.action_speed_scale. Safe
@@ -983,10 +1005,21 @@ const MARK_PROMPT_HEIGHT := 2.05       # m above player origin
 # itself isn't at fault, the window it's being graded against was too
 # small. Widened, still meaningfully tighter than SAFE's 0.35/0.65 so the
 # tier spread survives.
-const MARK_SAFE_IDEAL_WINDOW := 0.35   # s
-const MARK_SAFE_OK_WINDOW := 0.65      # s
-const MARK_RUNNING_IDEAL_WINDOW := 0.20   # s
-const MARK_RUNNING_OK_WINDOW := 0.38      # s
+## Widened again (still "cannot catch ball" after the previous pass above) —
+## real numbers this time, not a guess: a scripted multi-trial harness (many
+## geometries, many press-timing offsets, real Field/Player/Ball physics)
+## found the *mark_timing_offset() estimate itself* still lands with real
+## error even after this file's other fixes (the quadratic-ETA correction in
+## mark_timing_offset(), the premature-sentinel-at-the-true-minimum fix —
+## see that function's own comments), on the order of several tenths of a
+## second for a typical delivery. A window has to be wider than the error
+## it's meant to absorb or it isn't absorbing it. Safe stays the widest of
+## the three (still "no timing skill required" by design), but all three
+## grew.
+const MARK_SAFE_IDEAL_WINDOW := 0.55   # s
+const MARK_SAFE_OK_WINDOW := 0.95      # s
+const MARK_RUNNING_IDEAL_WINDOW := 0.35   # s
+const MARK_RUNNING_OK_WINDOW := 0.65      # s
 
 ## Split from RUNNING's profile (they used to share one) and widened again
 ## — "I cannot catch it" — Aggressive is graded against a *predicted*
@@ -998,8 +1031,15 @@ const MARK_RUNNING_OK_WINDOW := 0.38      # s
 ## completing loading-circle (see mark_prompt.gd) is the other half of
 ## this fix — a clearer "press now" cue — but the window itself needed
 ## real headroom too, not just a better cue for the same tight target.
-const MARK_AGGRESSIVE_IDEAL_WINDOW := 0.28   # s
-const MARK_AGGRESSIVE_OK_WINDOW := 0.55      # s
+##
+## Widened again alongside SAFE/RUNNING above for the same "still bugging"
+## report — see that comment for the harness this came out of. Aggressive
+## stays the tightest of the three by design (it's the skill-reward tier),
+## but "tightest" no longer means "a few tenths of a second," which the
+## fresh verification pass showed was still landing inside the
+## mark_timing_offset() estimate's own error margin, not a real skill gate.
+const MARK_AGGRESSIVE_IDEAL_WINDOW := 0.45   # s
+const MARK_AGGRESSIVE_OK_WINDOW := 0.85      # s
 
 ## Reach multiplier for a contested (in-OK, outside-IDEAL) attempt — applied
 ## to the tier's own REACH_SCALE before MARK_ASSIST_RADIUS_BONUS, same
@@ -1019,12 +1059,34 @@ const MARK_TIMING_OK_REACH_MULT := 0.65
 const MARK_TIMING_MISS_REACH_SCALE := 0.0
 
 ## Below this closing speed, mark_timing_offset() stops dividing distance by
-## an near-zero rate (which would blow up toward +/-inf) and instead reports
-## the flat PAST_PEAK sentinel — the ball is no longer meaningfully closing
-## on this player, whether because it's already arrived or because it's
-## drifting past/away.
+## an near-zero rate (which would blow up toward +/-inf) and instead checks
+## MARK_TIMING_ARRIVED_RADIUS below — the ball is no longer meaningfully
+## closing on this player, whether because it's already arrived (radial
+## closing speed naturally craters toward zero right at a true closest
+## approach — see mark_timing_offset()'s own comment) or because it's
+## genuinely drifting past/away.
 const MARK_TIMING_MIN_CLOSING_SPEED := 0.6   # m/s
 const MARK_TIMING_PAST_PEAK_OFFSET := 1.0    # s — sentinel, larger than every OK window above
+
+## How close counts as "might as well already be here" — checked in
+## mark_timing_offset() unconditionally, before any velocity-based read, and
+## graded as offset 0 (ideal) rather than the past-peak sentinel. Set to
+## Aggressive's own full reach (the widest of the three tiers, so this
+## radius never grades a tier's own genuine miss as an arrival) plus the
+## flat assist bonus every tier already gets.
+##
+## Originally gated behind closing speed dropping below
+## MARK_TIMING_MIN_CLOSING_SPEED first (only treat "close" as "arrived" once
+## the ball had also stopped visibly closing) — multi-trial scripted
+## verification (real Field/Player/Ball physics, a moving Running-tier
+## player, many geometries) found that gate could miss the ball's true
+## closest approach entirely: a fast crossing can swing the radial closing
+## speed from clearly-closing to clearly-departing within a single 60Hz
+## physics step, so a frame sampled right at the crossing can read neither
+## condition and fall straight through to the sentinel despite the ball
+## being well inside reach. Distance alone doesn't have that blind spot, so
+## it's checked first, unconditionally.
+const MARK_TIMING_ARRIVED_RADIUS := MARK_CATCH_RADIUS * MARK_AGGRESSIVE_REACH_SCALE + MARK_ASSIST_RADIUS_BONUS
 
 
 # ── Ruck contests ────────────────────────────────────────────────────

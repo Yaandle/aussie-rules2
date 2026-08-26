@@ -191,7 +191,13 @@ func _press_target_offset(tier: Tuning.Action) -> float:
 ## hide-then-show step left to flicker.
 func _update_ring() -> void:
 	_ring_visible_this_frame = true
-	var offset := player.mark_timing_offset(ball)
+	# `_tier` (updated by the caller just before this runs — see this
+	# function's own doc comment) scopes the "basically here" arrived-
+	# radius to the tier actually live right now, same as every resolution
+	# call site does — see mark_timing_offset()'s own comment for why a
+	# generic/tier-agnostic radius drew the ring's own "press now" instant
+	# too early for Running.
+	var offset := player.mark_timing_offset(ball, _tier)
 	if offset >= Tuning.MARK_TIMING_PAST_PEAK_OFFSET:
 		_ring_progress = 0.0   # nothing meaningful to count down yet — sweep hasn't started
 		return
