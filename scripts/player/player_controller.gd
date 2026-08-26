@@ -1541,7 +1541,7 @@ func _update_aerial_contest(ball: Ball, _delta: float) -> void:
 			if not _mark_readying:
 				InputManager.rumble(Tuning.RUMBLE_MARK_PRESS)
 			_mark_readying = true
-			var mult := _timing_reach_mult(mark_timing_offset(ball),
+			var mult := _timing_reach_mult(mark_timing_offset(ball, Tuning.Action.MARK_SAFE),
 				Tuning.MARK_SAFE_IDEAL_WINDOW, Tuning.MARK_SAFE_OK_WINDOW)
 			if mult > 0.0 and _ball_in_catch_reach(ball, Tuning.MARK_SAFE_REACH_SCALE * mult):
 				_complete_mark(ball, Tuning.Action.MARK_SAFE)
@@ -1556,9 +1556,26 @@ func _update_aerial_contest(ball: Ball, _delta: float) -> void:
 		_attempt_running_mark(ball)
 		return
 
-	if _brain.wants_mark_aggressive() and ball.global_position.distance_to(
-			_carry_point.global_position) <= Tuning.MARK_CONTEST_RANGE \
-			and ball.distance_since_launch() >= Tuning.MARK_AGGRESSIVE_MIN_FLIGHT_DISTANCE:
+	# Gate on distance/flight-distance *before* consulting the brain —
+	# consume_buffered_press() (what wants_mark_aggressive() calls under the
+	# hood) erases the buffered press the instant it's read, per its own
+	# doc comment: "callers must only call this at the point they are
+	# actually about to act on it." With the brain check first (short-
+	# circuit `and`), a press read on a frame where the ball was still a
+	# hair outside MARK_CONTEST_RANGE or MIN_FLIGHT_DISTANCE got silently
+	# eaten — _begin_aggressive_mark() never fired, but the buffer was
+	# already gone, so a later frame (ball now genuinely in range) saw
+	# nothing left to consume. That reads to the player as "I timed it
+	# right and nothing happened" — issue 2's exact symptom, since the ring
+	# cue's own "press now" instant is timed off mark_timing_offset() (see
+	# MarkPrompt._press_target_offset), not off this distance gate, so the
+	# two can legitimately disagree by a frame or two on a fast/steep
+	# delivery. Checking the gates first means a press that arrives early
+	# stays buffered (Tuning.INPUT_BUFFER_WINDOW) until the ball is
+	# actually in range, instead of being thrown away.
+	if ball.global_position.distance_to(_carry_point.global_position) <= Tuning.MARK_CONTEST_RANGE \
+			and ball.distance_since_launch() >= Tuning.MARK_AGGRESSIVE_MIN_FLIGHT_DISTANCE \
+			and _brain.wants_mark_aggressive():
 		_begin_aggressive_mark()
 
 
@@ -1570,7 +1587,7 @@ func _update_aerial_contest(ball: Ball, _delta: float) -> void:
 ## the same "is this even live" test _update_aerial_contest's own
 ## Aggressive branch already uses, not a new number.
 func _attempt_running_mark(ball: Ball) -> void:
-	var mult := _timing_reach_mult(mark_timing_offset(ball),
+	var mult := _timing_reach_mult(mark_timing_offset(ball, Tuning.Action.MARK_RUNNING),
 		Tuning.MARK_RUNNING_IDEAL_WINDOW, Tuning.MARK_RUNNING_OK_WINDOW)
 	if mult > 0.0 and _ball_in_catch_reach(ball, Tuning.MARK_RUNNING_REACH_SCALE * mult):
 		_complete_mark(ball, Tuning.Action.MARK_RUNNING)
@@ -1659,7 +1676,7 @@ func _resolve_aggressive_mark() -> void:
 	var ball := _live_ball()
 	var mult := 0.0
 	if is_instance_valid(ball) and not ball.is_held:
-		mult = _timing_reach_mult(mark_timing_offset(ball),
+		mult = _timing_reach_mult(mark_timing_offset(ball, Tuning.Action.MARK_AGGRESSIVE),
 			Tuning.MARK_AGGRESSIVE_IDEAL_WINDOW, Tuning.MARK_AGGRESSIVE_OK_WINDOW)
 	if mult > 0.0 and _ball_in_catch_reach(ball, Tuning.MARK_AGGRESSIVE_REACH_SCALE * mult):
 		_finish_mark_catch(ball, Tuning.Action.MARK_AGGRESSIVE)
@@ -1697,19 +1714,87 @@ func _ball_in_catch_reach(ball: Ball, reach_scale: float) -> bool:
 ## the resolution logic uses to draw an honest countdown — same convention
 ## as live_mark_prompt()/catch_point_position() below, both also written
 ## for an outside caller.
-func mark_timing_offset(ball: Ball) -> float:
+##
+## `tier` scopes the "basically here" arrived-radius check below to the
+## reach the *caller* actually cares about — MARK_SAFE/MARK_RUNNING/
+## MARK_AGGRESSIVE, or NONE (the default) for a generic/tier-agnostic read
+## (e.g. a ruck contest). Multi-trial scripted verification caught a real
+## bug from treating every caller alike here: a single shared radius wide
+## enough to rescue Aggressive's own frame-skip case (see below) was wide
+## enough to read as "arrived" well before the ball was actually inside
+## Running's much tighter reach, so Running's same-frame resolution (no
+## forward delay to self-correct on, unlike Aggressive) was grading a press
+## as ideal-timed while still genuinely out of reach — the ring cue itself
+## would tell a real player to press before the ball had actually arrived.
+func mark_timing_offset(ball: Ball, tier: Tuning.Action = Tuning.Action.NONE) -> float:
 	var to_catch := ball.global_position - _carry_point.global_position
 	var dist := to_catch.length()
 	if dist < 0.001:
+		return 0.0
+	# "Basically here" (relative to *this tier's own* reach) beats any
+	# velocity-based read, checked first and unconditionally — not just
+	# when closing speed happens to be low. A fast crossing (both ball and
+	# Running-tier player can easily be moving at several m/s) can swing
+	# the radial closing speed from clearly closing to clearly departing
+	# within a single 60Hz physics step, so a check gated on "closing speed
+	# is currently low" can miss the ball's true closest approach entirely
+	# — it can legitimately never sample a frame where closing speed reads
+	# inside any narrow band, however wide, right as the two paths cross.
+	# Multi-trial scripted verification (many geometries, a real
+	# Running-tier player actually moving) caught exactly this: carry-point
+	# distance bottomed out well inside reach on a frame where the
+	# closing-speed-gated version of this check never fired at all, reading
+	# the whole approach as "never arrived." Distance alone doesn't have
+	# that blind spot.
+	var arrived_radius := Tuning.MARK_TIMING_ARRIVED_RADIUS
+	match tier:
+		Tuning.Action.MARK_SAFE:
+			arrived_radius = Tuning.MARK_CATCH_RADIUS * Tuning.MARK_SAFE_REACH_SCALE + Tuning.MARK_ASSIST_RADIUS_BONUS
+		Tuning.Action.MARK_RUNNING:
+			arrived_radius = Tuning.MARK_CATCH_RADIUS * Tuning.MARK_RUNNING_REACH_SCALE + Tuning.MARK_ASSIST_RADIUS_BONUS
+		Tuning.Action.MARK_AGGRESSIVE, _:
+			pass   # the wide, Aggressive-scoped default above already fits
+	if dist <= arrived_radius:
 		return 0.0
 	# Relative to this player's own motion, not just the ball's — matters
 	# for a Running mark taken at pace, where closing the gap is a joint
 	# effort between the ball's flight and the player's own sprint toward
 	# it, not the ball's velocity alone.
-	var closing_speed := -to_catch.normalized().dot(ball.linear_velocity - velocity)
-	if closing_speed > Tuning.MARK_TIMING_MIN_CLOSING_SPEED:
-		return -dist / closing_speed
-	return Tuning.MARK_TIMING_PAST_PEAK_OFFSET
+	var to_catch_dir := to_catch.normalized()
+	var closing_speed := -to_catch_dir.dot(ball.linear_velocity - velocity)
+	if closing_speed <= Tuning.MARK_TIMING_MIN_CLOSING_SPEED:
+		return Tuning.MARK_TIMING_PAST_PEAK_OFFSET
+	# A falling ball's closing speed keeps rising under gravity right up to
+	# the catch — a real, physical acceleration, not sensor noise — so a
+	# plain dist/closing_speed (constant-velocity) ETA is a systematic
+	# under-estimate of urgency: it reads the *slowest* closing speed of
+	# the remaining approach (now) and assumes that rate the whole way in.
+	# Safe/Running never notice, because they grade the very instant the
+	# button is pressed — this is only ever asked "is it here right now,"
+	# never "how long until." Aggressive is the one tier that *commits*
+	# ACTION_CONTACT[MARK_AGGRESSIVE] (0.4s) ahead of its own resolution
+	# (the jump has to physically rise first — see _resolve_aggressive_
+	# mark's own comment), so it's the one tier actually relying on this
+	# number as a forward prediction, and the bias bit exactly there:
+	# scripted verification (a real Ball/PlayerController physics run, not
+	# just this comment) showed a steep coach-drill-style delivery's true
+	# closest approach landing roughly twice as soon as the plain linear
+	# estimate promised, so a jump committed off "offset == -0.4s" was
+	# still mid-air, arm still rising, after the ball had already passed
+	# and moved on — a real, reproducible cause of "aggressive mark misses
+	# on seemingly correct timing," not player error. Folding in gravity's
+	# contribution to closing acceleration (constant-acceleration ETA,
+	# solved the same way a real trajectory would be — drag omitted, same
+	# simplification Ball.predicted_landing_position() already makes for a
+	# live in-the-loop estimate) corrects for exactly that rise.
+	var closing_accel := -to_catch_dir.dot(Vector3(0.0, -Tuning.GRAVITY, 0.0))
+	if absf(closing_accel) > 0.001:
+		var discriminant := closing_speed * closing_speed + 2.0 * closing_accel * dist
+		if discriminant >= 0.0:
+			var eta := (-closing_speed + sqrt(discriminant)) / closing_accel
+			if eta > 0.0:
+				return -eta
+	return -dist / closing_speed
 
 
 ## The physical (never probabilistic — RULES_REFERENCE.md §3) consequence

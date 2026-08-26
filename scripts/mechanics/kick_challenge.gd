@@ -11,16 +11,31 @@ extends CoachChallenge
 ## The target ring is a mechanics-owned gameplay gizmo — an Area3D plus an
 ## unshaded torus, the same kind of primitive KickTrajectory's landing
 ## ring already is — not a modelled prop.
+##
+## Pulse: a static ring at the edge of the field can read as flat/matte
+## against a low-detail turf background, especially from the distance this
+## is usually kicked from. A subtle scale/alpha "breathing" loop — same
+## idiom KickTrajectory's own landing ring already uses for exactly the
+## same "read as live, not decal" reason (see that file's RING_PULSE_*
+## constants) — keeps it reading as an active target rather than a marking
+## painted on the grass, without competing for attention the way a faster
+## or larger pulse would.
 
 signal target_hit(hits: int, attempts_used: int)
 signal target_missed(attempts_used: int)
 
 const RING_COLOUR := Color(0.95, 0.35, 0.25, 0.85)
 
+const RING_PULSE_SPEED := 2.0        ## same speed as KickTrajectory's landing-ring pulse
+const RING_PULSE_SCALE_AMOUNT := 0.05
+const RING_PULSE_ALPHA_AMOUNT := 0.15
+
 @onready var _zone: Area3D = $TargetZone
 @onready var _ring_mesh: MeshInstance3D = $TargetZone/Ring
 
 var _ball: Ball = null
+var _ring_material: StandardMaterial3D
+var _time := 0.0
 
 
 func _ready() -> void:
@@ -40,8 +55,20 @@ func _ready() -> void:
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	ring.material = material
 	_ring_mesh.mesh = ring
+	_ring_material = material
 
 	_zone.body_entered.connect(_on_body_entered)
+
+
+func _process(delta: float) -> void:
+	if not visible:
+		return
+	_time += delta
+	var pulse := sin(_time * RING_PULSE_SPEED)
+	_ring_mesh.scale = Vector3.ONE * (1.0 + pulse * RING_PULSE_SCALE_AMOUNT)
+	var alpha_mod := 1.0 + pulse * RING_PULSE_ALPHA_AMOUNT
+	_ring_material.albedo_color = Color(RING_COLOUR.r, RING_COLOUR.g, RING_COLOUR.b,
+		clampf(RING_COLOUR.a * alpha_mod, 0.0, 1.0))
 
 
 func begin(ball: Ball, target_position: Vector3) -> void:
@@ -54,8 +81,9 @@ func begin(ball: Ball, target_position: Vector3) -> void:
 	_active = true
 	_armed = false
 	visible = true
+	_time = 0.0
 	challenge_started.emit(Tuning.KICK_CHALLENGE_ATTEMPTS)
-	hint_changed.emit("Hold K/LT to aim, tap F/RT to strike the target ring.")
+	hint_changed.emit("Hold K/LT to aim — the ring around your reticle fills with power — then tap F/RT to strike the target ring.")
 
 
 func attempts_remaining() -> int:

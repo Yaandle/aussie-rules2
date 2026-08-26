@@ -173,16 +173,39 @@ func _press_target_offset(tier: Tuning.Action) -> float:
 ## Only ever called from _process() while `tier` is already known live —
 ## no redundant re-checks here. `_tier` has already been updated to the
 ## current live tier by the caller before this runs.
+##
+## Always marks the ring visible once live — it used to bail out (leaving
+## the ring hidden) whenever mark_timing_offset() reported "not
+## meaningfully closing yet" (early in the ball's flight, before real
+## closing speed builds — see that function's own comment) or "past peak"
+## (right at the tail of a live window). That made the ring's first
+## appearance a hard pop-in sometime *after* the badge had already been
+## showing alone, and — since closing_speed can wobble across that
+## MARK_TIMING_MIN_CLOSING_SPEED threshold for a frame or two right around
+## a trajectory's apex — could flicker the ring on/off before it settled.
+## Reported as "shows static, flickers away, then reappears with the
+## timing cue" instead of one continuous cue. Now the ring is part of the
+## same live moment as the badge from frame one, just sitting at progress
+## 0 (a zero-length arc — effectively invisible, but never toggled off)
+## until there's a real countdown to show, so there's no separate
+## hide-then-show step left to flicker.
 func _update_ring() -> void:
-	var offset := player.mark_timing_offset(ball)
+	_ring_visible_this_frame = true
+	# `_tier` (updated by the caller just before this runs — see this
+	# function's own doc comment) scopes the "basically here" arrived-
+	# radius to the tier actually live right now, same as every resolution
+	# call site does — see mark_timing_offset()'s own comment for why a
+	# generic/tier-agnostic radius drew the ring's own "press now" instant
+	# too early for Running.
+	var offset := player.mark_timing_offset(ball, _tier)
 	if offset >= Tuning.MARK_TIMING_PAST_PEAK_OFFSET:
-		return   # ball's no longer meaningfully closing — nothing left to count down
+		_ring_progress = 0.0   # nothing meaningful to count down yet — sweep hasn't started
+		return
 	var to_press := offset - _press_target_offset(_tier)
 	# 0 at the start of the countdown window, 1 (a full lap) right at the
 	# press-now instant — see this file's own header for why a sweep reads
 	# more directly as "go" than the old shrinking-ring version did.
 	_ring_progress = clampf(1.0 + to_press / RING_LEAD_TIME, 0.0, 1.0)
-	_ring_visible_this_frame = true
 
 
 func _draw_badge(canvas: Control) -> void:

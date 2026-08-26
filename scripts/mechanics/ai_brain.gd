@@ -37,6 +37,19 @@ var lateral_bias := 0.0
 ## home_press_intensity() the same way lateral_bias is.
 var press_intensity := 1.0
 
+## Drill-only dial: multiplies the gait a carrying brain runs for goal at
+## in _think_carrying (1.0 is this file's original un-tuned behaviour —
+## nobody but TackleChallenge ever sets this to anything else). Exists
+## because a live ball-carrier here shares the human player's own
+## acceleration/top speed 1:1 (see Tuning.TACKLE_CHALLENGE_RIVAL_GAIT_SCALE's
+## own comment for the math) — a straight foot race between two bodies
+## with identical accel/top speed keeps whatever gap they started at
+## constant forever, which is what made kick_to_kick.tscn's tackling coach
+## drill an unwinnable chase rather than a real contest. Full Game's AI
+## never touches this field, so this is purely additive: every carrying
+## AIBrain that doesn't opt in runs exactly as it always has.
+var carry_gait_scale := 1.0
+
 var _move_dir := Vector3.ZERO
 var _gait := 0.0
 var _kick_pressed := false
@@ -138,7 +151,7 @@ func wants_mark_safe() -> bool:
 func _think_carrying(controller: PlayerController, delta: float, pos: Vector3) -> void:
 	var goal_point := Vector3(
 		attack_direction * Tuning.FIELD_HALF_LENGTH, 0.0, _lateral_target_z(pos))
-	_move_toward(goal_point, pos, 1.0)
+	_move_toward(goal_point, pos, carry_gait_scale)
 
 	if _kick_committed:
 		if _kick_hold_timer > 0.0:
