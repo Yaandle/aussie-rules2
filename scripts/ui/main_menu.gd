@@ -99,13 +99,13 @@ const SCREEN_MARGIN_Y := SoftBrutalist.SPACE_4      ## 32
 const BAND_GAP := int(SoftBrutalist.SPACE_4)        ## 32
 const CHROME_HEIGHT := 20.0
 const FOOTER_HEIGHT := 28.0
-const CARD_SEPARATION := int(SoftBrutalist.SPACE_3) ## 24
+const CARD_SEPARATION := int(SoftBrutalist.SPACE_5) ## 40
 ## Smaller than a full-bleed hero tile on purpose — these sit centred over
 ## the live 3D backdrop (menu_backdrop.tscn) with room left on every side,
 ## so the montage behind them stays visible rather than getting crowded out.
-const CARD_MIN_WIDTH := 190.0
-const CARD_MIN_HEIGHT := 235.0
-const CARD_PAD := SoftBrutalist.SPACE_2             ## 16
+const CARD_MIN_WIDTH := 152.0
+const CARD_MIN_HEIGHT := 188.0
+const CARD_PAD := 12.0
 ## Sharp, matching RetroWindow's unrounded shell — the mode-select cards
 ## now read as the same "windowed retro console" family as the rest of
 ## the front end's borders (settings/pause/team-list/remap/character).
@@ -117,8 +117,8 @@ const CARD_RADIUS := RetroWindow.RADIUS
 ## retro rule against the photo underneath, short of RetroWindow's full
 ## card-scale 4px — these are small tiles, not a full window shell.
 const CARD_BORDER_WIDTH := 3
-const ARROW_BADGE_SIZE := 28.0
-const TEXT_BLOCK_HEIGHT := 62.0
+const ARROW_BADGE_SIZE := 22.0
+const TEXT_BLOCK_HEIGHT := 64.0
 
 ## Shader saturation / border / shadow-offset tween length — longer than
 ## SoftBrutalist's button-hover transitions (0.12-0.18s) since this is the
@@ -458,6 +458,7 @@ func _build_card(entry: Entry, index: int) -> CardWidgets:
 
 	var title_label := SoftBrutalist.label(entry.title, SoftBrutalist.SIZE_HEADING, Color.WHITE,
 		SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_LABEL)
+	title_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	text_column.add_child(title_label)
 
 	if entry.unlocked:

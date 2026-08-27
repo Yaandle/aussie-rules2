@@ -92,17 +92,17 @@ const HEADER_HEIGHT := 66.0
 const FOOTER_HEIGHT := 24.0
 
 ## Nine cards plus eight gaps has to clear the screen's own side margins:
-## 9*118 + 8*12 = 1158, against 1280 - 40*2 = 1200 usable. Card height is
+## 9*90 + 8*18 = 954, against 1280 - 40*2 = 1200 usable. Card height is
 ## set by the tallest content a card can hold — a two-line wrapped title
 ## ("DEFENSIVE PRESSURE"), a two-line wrapped value, and the cursor glyph
 ## row under it.
-const CARD_WIDTH := 118.0
-const CARD_HEIGHT := 126.0
-const CARD_SEPARATION := 12
-const CARD_PAD_X := 9
-const CARD_PAD_Y := 10
-const CARD_GLYPH_SIZE := 14.0
-const CARD_CHEVRON_GAP := 9
+const CARD_WIDTH := 90.0
+const CARD_HEIGHT := 96.0
+const CARD_SEPARATION := 18
+const CARD_PAD_X := 7
+const CARD_PAD_Y := 8
+const CARD_GLYPH_SIZE := 11.0
+const CARD_CHEVRON_GAP := 6
 
 ## What the four fixed bands leave for the preview. Written as the
 ## subtraction rather than as a measured constant so moving any band's
@@ -128,6 +128,7 @@ const READOUT_INSET_X := 14.0
 const READOUT_HEIGHT := 52.0
 const READOUT_BOTTOM := 8.0
 const READOUT_ROW_GAP := 1
+
 
 const TITLE_TEXT := "FULL GAME"
 ## Lifted from main_menu.gd's own FULL GAME Entry subtitle, so the card
@@ -212,7 +213,7 @@ func _ready() -> void:
 
 	_cards = [
 		Card.new(SettingsScreen.Row.new("PLAYER CONTROL",
-			["SINGLE PLAYER", "FULL TEAM"], Settings.player_control_mode,
+			["1 PLAYER", "FULL TEAM"], Settings.player_control_mode,
 			_set_player_control)),
 		Card.new(SettingsScreen.Row.new("CAMERA",
 			["3RD PERSON", "FULL-SIDE"], Settings.full_game_camera_mode,
@@ -484,27 +485,59 @@ func _build_header(parent: Control) -> void:
 ## remaining settings are shown in the readout strip below the board, and
 ## FORMATION is echoed there as well so its change is unambiguous rather
 ## than "some dots moved a bit".
+## The preview band is a full-width landscape RetroWindow card (the landscape
+## panel IS the card, not a border over a portrait one). The formation
+## whiteboard sits portrait-sized and centred inside it. The readout strip
+## overlays the bottom of the portrait area within the wider card.
 func _build_preview(parent: Control) -> void:
 	var band := HBoxContainer.new()
 	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# The one expanding band: it takes whatever the four fixed bands leave.
 	band.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	band.alignment = BoxContainer.ALIGNMENT_CENTER
 	parent.add_child(band)
 
-	var inner := RetroWindow.card(band, Vector2(PREVIEW_WIDTH, PREVIEW_HEIGHT), 0.0)
-	# card() returns the inner MarginContainer; the node actually parented
-	# into the band's layout is two levels up (inner -> panel -> wrapper),
-	# so the size flag has to land there — same hop team_list_screen.gd's
-	# _build_whiteboard()/_build_header() make.
-	var wrapper := inner.get_parent().get_parent() as Control
+	# Landscape card — fixed width, centred; slightly inset from the screen edges.
+	var wrapper := Control.new()
+	wrapper.custom_minimum_size = Vector2(900.0, PREVIEW_HEIGHT)
+	wrapper.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	wrapper.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	wrapper.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	band.add_child(wrapper)
+
+	var shadow := Panel.new()
+	shadow.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shadow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var shadow_style := StyleBoxFlat.new()
+	shadow_style.bg_color = RetroWindow.SHADOW
+	shadow_style.set_corner_radius_all(RetroWindow.RADIUS)
+	shadow.add_theme_stylebox_override(&"panel", shadow_style)
+	shadow.offset_left = 6; shadow.offset_right = 6
+	shadow.offset_top  = 6; shadow.offset_bottom = 6
+	wrapper.add_child(shadow)
+
+	var body := Panel.new()
+	body.set_anchors_preset(Control.PRESET_FULL_RECT)
+	body.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	body.add_theme_stylebox_override(&"panel", RetroWindow.panel_style())
+	wrapper.add_child(body)
+
+	# Portrait-sized holder, centred in the landscape card. The whiteboard
+	# fills it; the readout strip overlays its bottom edge (same as before).
+	var board_holder := Control.new()
+	board_holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	board_holder.set_anchors_preset(Control.PRESET_CENTER)
+	board_holder.offset_left   = -PREVIEW_WIDTH * 0.5
+	board_holder.offset_right  =  PREVIEW_WIDTH * 0.5
+	board_holder.offset_top    = -PREVIEW_HEIGHT * 0.5
+	board_holder.offset_bottom =  PREVIEW_HEIGHT * 0.5
+	body.add_child(board_holder)
 
 	_whiteboard = FormationWhiteboard.new()
+	_whiteboard.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_whiteboard.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	inner.add_child(_whiteboard)
+	board_holder.add_child(_whiteboard)
 
-	_build_readout(inner.get_parent() as Control)
+	_build_readout(board_holder)
 
 
 ## Three label/value rows overlaid on the empty parchment band below the
@@ -612,7 +645,7 @@ func _build_card(card: Card, index: int) -> void:
 
 	var column := VBoxContainer.new()
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	column.add_theme_constant_override(&"separation", 4)
+	column.add_theme_constant_override(&"separation", 2)
 	inset.add_child(column)
 
 	# Titles wrap rather than clip — "DEFENSIVE PRESSURE" does not fit a

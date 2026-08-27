@@ -505,16 +505,16 @@ const CAM_DIALOGUE_FOV := 42.0         # deg, tighter for an intimate two-shot
 # full-ground rig: mounted outside the boundary and elevated, not hovering
 # over the ball. Unlike the old top-down version this replaces, the rig's
 # pivot sits at a genuinely fixed position outside the field on the Z axis
-# (SIDE_OFFSET, well past Field.SURROUND_MARGIN's fence at ~76.5m) rather
+# (SIDE_OFFSET, just past Field.SURROUND_MARGIN's fence at ~76.5m) rather
 # than reaching "outside" only as a side effect of enough arm-length/pitch
 # tuning — "positioned outside the field" is where the rig actually lives.
 # ARM stays short on purpose: HEIGHT does the elevation directly now
 # (global_position.y), so the spring arm isn't being asked to carry both
 # jobs the way the old fixed-pitch version needed it to.
-const CAM_FULL_SIDE_SIDE_OFFSET := 100.0   # m outside the boundary (Z) — where the rig is mounted
-const CAM_FULL_SIDE_HEIGHT := 34.0         # m elevation
+const CAM_FULL_SIDE_SIDE_OFFSET := 60.0    # m outside the boundary (Z) — where the rig is mounted
+const CAM_FULL_SIDE_HEIGHT := 18.0         # m elevation
 const CAM_FULL_SIDE_ARM := 6.0             # m — short; position/height already do the work
-const CAM_FULL_SIDE_FOV := 50.0
+const CAM_FULL_SIDE_FOV := 68.0
 const CAM_FULL_SIDE_FOLLOW_RATE := 2.2     # slower than CAM_FOLLOW_RATE — a deliberate pan, not a chase
 
 # Player-switch pan. recenter()'s instant snap (position + yaw + pitch all
