@@ -5485,3 +5485,93 @@ check + latch), `scripts/modes/full_game.gd` (`_on_run_too_far` handler +
 connect), `scripts/tuning.gd` (new `AI_*` constants),
 `docs/RULES_REFERENCE.md` / `docs/FEATURE_AUDIT.md` (15 m rule now
 enforced, AI section updated).
+
+## Handover — ruck no-crowd, FULL_TEAM proximity switch + auto-carrier + camera snap (Agent: AI brain)
+
+Two areas, both verified headless (scratch `_scratch_ruck_cam_test.*`,
+deleted): a standalone ruck setup for Area 1, a real `full_game.tscn`
+instance driven for Area 2.
+
+### 1. Non-ruck AI no longer crowds a ball-up / centre bounce
+
+Symptom: at a stoppage, the whole side sprinted in and stood over the ball
+the instant the umpire threw it up. Root cause: `AIBrain.update()` only
+held non-involved players while `ball.is_held` (umpire still holding it);
+the frame `FullGame._release_ruck_contest` launches the toss, `is_held`
+goes false and every nearby AI ran `_think_loose_ball` / `_think_support`.
+`PlayerController._ruck_contest_locked()` only blocked *gathering*, not
+movement.
+
+Fix: `_ruck_contest_locked()` -> public `ruck_contest_locked()` (two
+internal callers updated), and `AIBrain.update()`'s hold-the-line branch
+widened:
+```
+if (holder == null and ball.is_held) \n        or (not controller.is_ruck_contestant() and controller.ruck_contest_locked()):
+    _move_toward(home_position, pos, 0.5); return
+```
+Control-mode agnostic, so it also fixes SINGLE_PLAYER: with the human on a
+non-ruck position, only the AI ruck contests and the rest stay spread. The
+lock self-clears on a connected hit-out (`_on_hit_out_resolved`) or when
+`RUCK_CONTEST_WINDOW` lapses, so normal chasing resumes after the tap.
+Verified: outfield AI drift 0.06 m over the throw-up (was a 16 m sprint).
+
+### 2. FULL_TEAM control + camera
+
+**Proximity switch.** `ControlMode.next_in_roster()` took an optional
+`reference` world point; given one it returns the nearest roster member to
+it that is not `current` (press again while on the nearest -> second
+nearest). `FullGame._switch_human_player()` passes `_ball.global_position`,
+so one press reaches the defender under the ball instead of spawn-array
+order. No-reference calls (TEAM_COMMAND's selection cycle) keep the old
+index round-robin. Verified: switch landed on the player 1.5 m from the
+ball, not the index-next one 12 m away.
+
+**Auto-carrier.** New `FullGame._on_home_gained_possession()` off
+`ball_gathered` (covers marks — `_finish_mark_catch` routes through
+`_complete_gather`): in FULL_TEAM + SINGLE_PLAYER scheme + open play, the
+HumanBrain is moved straight onto whoever HOME wins the ball. Suppressed
+for `Tuning.AUTO_CARRIER_SWITCH_GRACE` (1.5 s) after a manual switch so it
+cannot undo a deliberate pick. Brain hand-off factored into
+`_assign_human_to()`, shared with the manual switch. Verified both:
+takeover fires, and the grace blocks it.
+
+*Headless note:* in an unmanned AI-vs-AI `full_game.tscn` run, HOME's
+ball-winner now freezes under the input-less HumanBrain each time it gains
+the ball. Harmless for "boots clean / completes" checks (ran 16k frames,
+zero errors); a balance-sensitive headless test should set
+`Settings.player_control_mode = SINGLE_PLAYER`.
+
+**Camera snap on switch.** `BroadcastCamera.switch_target()` now snaps
+`_focus`/`global_position` onto the new player outright (was left to
+`_update_focus()`'s lerp, which barely read as a switch) and the
+yaw/pitch reorient window was shortened/quickened (`CAM_SWITCH_PAN_DURATION`
+0.6->0.35, `CAM_SWITCH_YAW_RATE` 5->14). `_on_focus_changed` /
+`_update_full_side` already key off `target`, so FULL_SIDE follows the
+switch with no extra wiring (verified). Verified CHASE: rig jumped 3.2 m
+onto the new player, ending 0.1 m from them in XZ.
+
+**Zoom.** Per the task's starting values, tune-by-eye: `CAM_DISTANCE`
+6->4.5, `CAM_FOV_BASE` 72->64; `CAM_FULL_SIDE_SIDE_OFFSET` 60->35,
+`CAM_FULL_SIDE_HEIGHT` 18->11, `CAM_FULL_SIDE_FOV` 68->55. At SIDE_OFFSET 35
+(vs `FIELD_HALF_WIDTH` 67.5) the full-side rig now sits *inside* the
+boundary — an elevated infield vantage rather than an outside-the-fence
+mount; push back toward ~50 if it should clear the line. All feel numbers,
+unplayed.
+
+### Not done
+
+The optional SINGLE_PLAYER pregame position pick (let the human choose a
+non-index-0 roster slot, index 0 stays the AI ruck) — needs a new pregame
+card + `Settings` field + `_spawn_teams` wiring, which is UI-agent scope.
+Flagged, not built.
+
+### Files changed
+
+`scripts/mechanics/ai_brain.gd` (ruck hold-the-line branch),
+`scripts/player/player_controller.gd` (`ruck_contest_locked()` public),
+`scripts/autoload/control_mode.gd` (`next_in_roster` reference arg),
+`scripts/modes/full_game.gd` (`_assign_human_to`, `_on_home_gained_
+possession`, proximity switch, `_manual_switch_grace`),
+`scripts/camera/broadcast_camera.gd` (`switch_target` position snap),
+`scripts/tuning.gd` (`AUTO_CARRIER_SWITCH_GRACE`, camera zoom + switch
+constants), `docs/FEATURE_AUDIT.md`.

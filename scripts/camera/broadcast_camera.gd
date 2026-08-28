@@ -148,21 +148,21 @@ func recenter() -> void:
 	_camera.fov = Tuning.CAM_FOV_BASE
 
 
-## Swings the rig across onto `new_target` instead of recenter()'s instant
-## cut — the human-controlled-player switch's own entry point, not a second
-## way to do what recenter() already does. Position needs nothing special:
-## _update_focus()'s existing per-frame lerp (CAM_FOLLOW_RATE) carries
-## global_position across to the new focus point smoothly all by itself the
-## moment `target` changes, since nothing here calls recenter() to hard-set
-## it. Only yaw/pitch need help — normal play never re-aims them except from
-## stick/mouse input, so left alone they would keep facing wherever they
-## last pointed, at whatever stale angle that was to the new target, for as
-## long as nobody touched the camera stick. _switch_timer gates a short
-## window (CAM_SWITCH_PAN_DURATION) where _update_rotation() eases them
-## toward the new target's facing instead, then hands control back.
+## Moves the rig onto `new_target` for the human-controlled-player switch.
+##
+## Was a soft yaw-only ease with position left to _update_focus()'s own
+## lerp — playtest: on the chase cam that barely read as a switch at all,
+## the view just drifted. Now the focus position snaps straight onto the
+## new player and yaw/pitch reorient behind them over a short brisk window
+## (CAM_SWITCH_PAN_DURATION at CAM_SWITCH_YAW_RATE), so the cut is
+## unmistakable while keeping a beat of motion rather than a single-frame
+## teleport. FULL_SIDE recomputes its own rig position from `target` every
+## frame, so setting `target` here is all that mode needs.
 func switch_target(new_target: Node3D) -> void:
 	target = new_target
 	_ball_weight = 0.0
+	_focus = _target_focus()
+	global_position = _focus
 	_switch_timer = Tuning.CAM_SWITCH_PAN_DURATION
 
 

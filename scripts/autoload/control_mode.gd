@@ -97,17 +97,37 @@ func set_controlled_player(team: Tuning.Team, player: PlayerController) -> void:
 		focus_changed.emit(team, previous_focus, next_focus)
 
 
-## Round-robins to the next roster entry after the current controlled
-## player and returns it — the mode script still has to actually swap the
-## brains on the old/new player and call set_controlled_player(); this
-## just picks who's next so that ordering logic isn't duplicated at each
-## call site.
-func next_in_roster(team: Tuning.Team, current: PlayerController) -> PlayerController:
+## Picks who the human should switch to next — the mode script still swaps
+## the brains and calls set_controlled_player(); this only owns the "who's
+## next" ordering so it isn't duplicated at each call site.
+##
+## With `reference` given (a world point — the ball, normally), returns the
+## roster member nearest to it that isn't already `current`, so one press
+## lands on the player who actually matters (the defender under the ball,
+## the next option up the ground) instead of whoever sits next in the spawn
+## array. Pressing again while already on the nearest steps to the
+## second-nearest, so it still cycles, just anchored on "who matters" rather
+## than on array index. Without a reference it falls back to plain
+## roster-index round-robin (TEAM_COMMAND's selection cycle, which has no
+## single "player who matters" to sort toward).
+func next_in_roster(team: Tuning.Team, current: PlayerController,
+		reference := Vector3.INF) -> PlayerController:
 	var roster := roster_for(team)
 	if roster.size() <= 1:
 		return current
-	var idx := roster.find(current)
-	return roster[(idx + 1) % roster.size()] if idx >= 0 else roster[0]
+
+	if reference == Vector3.INF:
+		var idx := roster.find(current)
+		return roster[(idx + 1) % roster.size()] if idx >= 0 else roster[0]
+
+	var ordered := roster.duplicate()
+	ordered.sort_custom(func(a: PlayerController, b: PlayerController) -> bool:
+		return a.global_position.distance_squared_to(reference) \
+			< b.global_position.distance_squared_to(reference))
+	for player: PlayerController in ordered:
+		if player != current:
+			return player
+	return current
 
 
 func selected_player(team: Tuning.Team) -> PlayerController:

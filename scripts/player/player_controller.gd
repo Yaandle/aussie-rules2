@@ -954,7 +954,7 @@ func _try_gather() -> void:
 	if is_carrying() or _gather_cooldown > 0.0 or _action != Tuning.Action.NONE \
 			or _stun_timer > 0.0:
 		return
-	if _ruck_contest_locked():
+	if ruck_contest_locked():
 		return
 	var reach := Tuning.GATHER_RADIUS \
 		+ minf(_speed * Tuning.GATHER_LUNGE_PER_SPEED, Tuning.GATHER_LUNGE_MAX)
@@ -1862,7 +1862,7 @@ func _update_ground_pickup(ball: Ball, _delta: float) -> void:
 		return
 	if ball.linear_velocity.length() > Tuning.GATHER_MAX_BALL_SPEED:
 		return
-	if _ruck_contest_locked():
+	if ruck_contest_locked():
 		return
 	var reach := Tuning.GROUND_PICKUP_RADIUS + _speed * Tuning.GROUND_PICKUP_LUNGE_PER_SPEED
 	var to_ball := ball.global_position - _carry_point.global_position
@@ -2183,14 +2183,16 @@ func is_ruck_contestant() -> bool:
 
 ## True while a ruck contest is live (a centre bounce / field ball-up /
 ## boundary throw-in) and this player is NOT one of the two nominated
-## ruckmen — used by _try_gather / _update_ground_pickup to keep the
+## ruckmen. Used by _try_gather / _update_ground_pickup to keep the
 ## on-ballers ringed around the contest from just scooping the ball
-## straight off the umpire's throw-up. The two contestants get first use of
+## straight off the umpire's throw-up, and by AIBrain.update() to hold
+## those same non-ruckmen on their positions instead of crashing the pack
+## the frame the throw-up is released. The two contestants get first use of
 ## it; everyone else waits for the tap (FullGame clears the flags early on
 ## a connected hit-out — see _on_hit_out_resolved) or for the contest
 ## window to lapse (RUCK_CONTEST_WINDOW, self-expiring). No-op in modes
 ## with no ruck contests, since nobody is ever a contestant there.
-func _ruck_contest_locked() -> bool:
+func ruck_contest_locked() -> bool:
 	for node in get_tree().get_nodes_in_group(&"players"):
 		var other := node as PlayerController
 		if other != null and other != self and other.is_ruck_contestant():

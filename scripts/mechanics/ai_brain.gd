@@ -147,14 +147,24 @@ func update(controller: PlayerController, delta: float) -> void:
 			Tuning.AI_LOOSE_BALL_REACTION_MIN, Tuning.AI_LOOSE_BALL_REACTION_MAX)
 	_ball_was_held = is_held
 
-	# The umpire has it (Ball.lock_at/lock_to — a stoppage in progress).
-	# is_held is true but holder() is null, since no *player* has it, and
-	# without this that combination reads as a loose ball and the whole
-	# side sprints at the umpire's hands and stands on top of him. Nobody
-	# can play a ball the umpire is holding: hold the line and wait for it
-	# to be thrown, which is also what stops the throw-up being plucked out
-	# of the air on the frame it is released.
-	if holder == null and ball.is_held:
+	# Hold the line — don't chase or support the ball — in either of two
+	# stoppage situations:
+	#  1. The umpire has it (Ball.lock_at/lock_to). is_held is true but
+	#     holder() is null since no *player* has it; without this guard that
+	#     combination reads as a loose ball and the whole side sprints at
+	#     the umpire's hands and stands on top of him.
+	#  2. A ruck contest is live and this player is NOT one of the two
+	#     nominated ruckmen. ball.is_held goes false the instant the
+	#     throw-up is released (FullGame._release_ruck_contest), so without
+	#     this every nearby AI would immediately crash the pack — only the
+	#     two ruckmen should contest. PlayerController.ruck_contest_locked()
+	#     already self-clears on a connected hit-out
+	#     (FullGame._on_hit_out_resolved) or when RUCK_CONTEST_WINDOW
+	#     lapses, so normal chasing resumes after the tap on its own.
+	# Control-mode agnostic: this also keeps SINGLE_PLAYER's non-ruck AI
+	# spread when the human is playing a non-ruck position.
+	if (holder == null and ball.is_held) \
+			or (not controller.is_ruck_contestant() and controller.ruck_contest_locked()):
 		_move_toward(home_position, pos, 0.5)
 		return
 

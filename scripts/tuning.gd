@@ -495,8 +495,10 @@ const RELEASE_GRACE := 0.25            # s the disposed ball ignores its own kic
 ## read as tiny, distant dots, making it hard to track teammates/passing
 ## lanes or judge a kick's target. Closer + higher + a touch more pitch
 ## gives more field awareness per frame without going all the way to
-## Full-Side's broadcast distance.
-const CAM_DISTANCE := 6.0              # m behind the focus point
+## Full-Side's broadcast distance. DISTANCE cut again 6.0 -> 4.5 on a
+## "still too far" playtest note — the player now fills more of the frame;
+## tune by eye alongside CAM_FOV_BASE.
+const CAM_DISTANCE := 4.5              # m behind the focus point
 const CAM_FOCUS_HEIGHT := 1.6          # m up the player's body that the rig frames
 const CAM_PITCH_DEFAULT := -18.0       # deg
 const CAM_PITCH_MIN := -55.0
@@ -521,7 +523,10 @@ const CAM_LOOKAHEAD_MAX := 2.5         # m cap on that lead
 ## Widened slightly alongside the closer CAM_DISTANCE above — a tighter
 ## distance without a wider lens would claw back the peripheral view the
 ## distance cut was meant to preserve, just from a different cause.
-const CAM_FOV_BASE := 72.0
+## Then narrowed 72 -> 64 with the further DISTANCE cut to 4.5: past a
+## point a wide lens fighting a close rig just distorts, so some of the
+## "zoom in" ask is spent on the lens, not only the arm.
+const CAM_FOV_BASE := 64.0
 const CAM_FOV_SPRINT_GAIN := 10.0      # deg added at SPRINT_SPEED — speed you can feel
 const CAM_FOV_RATE := 5.0
 const CAM_PUNCH_KICK := -6.0           # deg of transient tighten on a kick (§6)
@@ -575,22 +580,25 @@ const CAM_DIALOGUE_FOV := 42.0         # deg, tighter for an intimate two-shot
 # ARM stays short on purpose: HEIGHT does the elevation directly now
 # (global_position.y), so the spring arm isn't being asked to carry both
 # jobs the way the old fixed-pitch version needed it to.
-const CAM_FULL_SIDE_SIDE_OFFSET := 60.0    # m outside the boundary (Z) — where the rig is mounted
-const CAM_FULL_SIDE_HEIGHT := 18.0         # m elevation
+# Pulled in on a "still too far" playtest note: SIDE_OFFSET 60 -> 35,
+# HEIGHT 18 -> 11, FOV 68 -> 55. At 35 (against FIELD_HALF_WIDTH 67.5) the
+# rig now sits inside the boundary line — an elevated infield broadcast
+# vantage rather than a true outside-the-fence mount. Push SIDE_OFFSET back
+# toward ~50 if it should clear the boundary again; tune by eye.
+const CAM_FULL_SIDE_SIDE_OFFSET := 35.0    # m off the centreline (Z) — where the rig is mounted
+const CAM_FULL_SIDE_HEIGHT := 11.0         # m elevation
 const CAM_FULL_SIDE_ARM := 6.0             # m — short; position/height already do the work
-const CAM_FULL_SIDE_FOV := 68.0
+const CAM_FULL_SIDE_FOV := 55.0
 const CAM_FULL_SIDE_FOLLOW_RATE := 2.2     # slower than CAM_FOLLOW_RATE — a deliberate pan, not a chase
 
-# Player-switch pan. recenter()'s instant snap (position + yaw + pitch all
-# set in one frame) is correct for "camera, get back on me" moments —
-# exiting dialogue, entering a mode — but read as a teleport on a mid-match
-# player switch, which was a named rough edge in the polish-pass brief.
-# BroadcastCamera.switch_target() leaves _update_focus()'s own per-frame
-# lerp (CAM_FOLLOW_RATE) to carry position across on its own; only yaw/pitch
-# need a dedicated rate here, since normal play only ever turns the rig from
-# stick/mouse input, never re-aims it at a target on its own.
-const CAM_SWITCH_PAN_DURATION := 0.6       # s the rig eases toward the new target's facing
-const CAM_SWITCH_YAW_RATE := 5.0           # slower than CAM_ROTATE_RATE — a swing across, not a snap
+# Player-switch reorient. The soft version of this (0.6s / rate 5.0, with
+# position left to _update_focus()'s own lerp) was reported as not reading
+# as a switch at all — the view just drifted. BroadcastCamera.switch_target()
+# now snaps the focus position onto the new player outright, and these
+# shorten/quicken the yaw/pitch swing behind them so the reorient still has
+# a beat of motion without being a single-frame teleport.
+const CAM_SWITCH_PAN_DURATION := 0.35      # s the rig eases toward the new target's facing
+const CAM_SWITCH_YAW_RATE := 14.0          # brisk — a hard swing across, close to CAM_ROTATE_RATE
 
 
 # ── Input feel ───────────────────────────────────────────────────────
@@ -1416,6 +1424,13 @@ const AI_LOOSE_BALL_CEDE_MARGIN := 2.0  # m — an opponent this much nearer the
 # from the follow cam. Expect this to move once someone actually plays the
 # mode; see docs/HANDOVER.md's control-mode entry.
 const COMMAND_LEAD_DISTANCE := 12.0     # m
+
+# Settings.PlayerControlMode.FULL_TEAM auto-carrier control (FullGame.
+# _on_home_gained_possession): the human is jumped onto whoever HOME wins
+# the ball. For this long after a *manual* switch_player press, that jump
+# is held off, so a deliberate switch to a defender isn't undone the moment
+# a teammate marks it. Feel value, not a rule.
+const AUTO_CARRIER_SWITCH_GRACE := 1.5  # s
 
 # Call for the ball (Settings.PlayerControlMode.SINGLE_PLAYER — see
 # FullGame._call_for_ball). Not an AFL rule: there is no "calling" mechanic

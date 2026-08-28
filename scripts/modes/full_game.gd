@@ -36,7 +36,7 @@ var _mark_prompt: MarkPrompt
 ## The two ruckmen in the current live ruck contest (set in _release_ruck_
 ## contest). Cleared the instant a hit-out connects so the on-ballers are
 ## freed to gather the tap — see _on_hit_out_resolved and
-## PlayerController._ruck_contest_locked.
+## PlayerController.ruck_contest_locked.
 var _ruck_contestants: Array[PlayerController] = []
 
 var _pause_timer := 0.0
@@ -54,6 +54,13 @@ var _prev_ball_pos_valid := false
 ## Settings.PlayerControlMode.SINGLE_PLAYER, since that's the only mode the
 ## action is routed in at all.
 var _call_for_ball_cooldown := 0.0
+
+## Seconds left in which auto-carrier control (FULL_TEAM: HumanBrain jumps
+## onto whoever HOME wins the ball) stays suppressed after a manual
+## switch_player press, so it can't immediately yank the human off the body
+## they just deliberately chose. See _on_home_gained_possession /
+## Tuning.AUTO_CARRIER_SWITCH_GRACE.
+var _manual_switch_grace := 0.0
 
 
 func _ready() -> void:
@@ -93,6 +100,7 @@ func _physics_process(delta: float) -> void:
 	# a call made just before a goal/ball-up shouldn't stay on cooldown for
 	# the whole stoppage as well.
 	_call_for_ball_cooldown = maxf(0.0, _call_for_ball_cooldown - delta)
+	_manual_switch_grace = maxf(0.0, _manual_switch_grace - delta)
 
 	if _pause_timer > 0.0:
 		_pause_timer = maxf(0.0, _pause_timer - delta)
@@ -146,11 +154,11 @@ func _unhandled_input(event: InputEvent) -> void:
 ##
 ## Camera decision (documented per TASK's request not to silently pick
 ## one): `previous == null` means this is the very first focus this match
-## has ever had — nothing meaningful to pan away from — so the camera
-## snaps via recenter(). Every subsequent change, whether a SINGLE_PLAYER
-## switch or a TEAM_COMMAND selection change, pans via switch_target(),
-## matching the pan behaviour _switch_human_player already had before this
-## pass and extending it to the new scheme rather than special-casing it.
+## has ever had — nothing meaningful to move away from — so the camera
+## snaps via recenter(). Every subsequent change, whether a switch or a
+## TEAM_COMMAND selection change, goes through switch_target(), which snaps
+## the focus onto the new player and does a brisk reorient behind them
+## (soft-pan feedback: the old easing barely read as a switch at all).
 func _on_focus_changed(team: Tuning.Team, previous: PlayerController, next: PlayerController) -> void:
 	if team != Tuning.Team.HOME:
 		return
@@ -216,6 +224,11 @@ func _spawn_teams() -> void:
 		player.holding_the_ball_called.connect(_on_holding_the_ball)
 		player.run_too_far_called.connect(_on_run_too_far)
 		player.hit_out_resolved.connect(_on_hit_out_resolved)
+		# FULL_TEAM auto-carrier control — jump the human onto whoever HOME
+		# wins the ball. ball_gathered covers marks too (_finish_mark_catch
+		# routes through _complete_gather), so it's the one "now has it"
+		# hook. Bound with the player since the signal only carries the ball.
+		player.ball_gathered.connect(_on_home_gained_possession.bind(player))
 		# Box-score stats (docs/FEATURE_AUDIT.md) — bound with the player
 		# itself since neither signal carries a reference to who disposed/
 		# marked, only what happened.
@@ -906,26 +919,64 @@ func _reset_ball() -> void:
 ## next body" meaning, just within the other scheme's own bookkeeping.
 ##
 ## Only reached at all in Settings.PlayerControlMode.FULL_TEAM (see
-## _unhandled_input) — SINGLE_PLAYER leaves the human on whichever body
-## _spawn_teams() started them on for the whole match and gets
-## _call_for_ball() instead. Nothing inside this function changed for that:
-## the mode gate is at the input site, so FULL_TEAM's behaviour is byte-for-
-## byte what it always was.
+## _unhandled_input) — Settings.PlayerControlMode.SINGLE_PLAYER leaves the
+## human on whichever body _spawn_teams() started them on for the whole
+## match and gets _call_for_ball() instead.
+##
+## Two changes for FULL_TEAM play: the switch now picks by proximity to the
+## ball (ControlMode.next_in_roster with a reference point) rather than
+## spawn-array order, and it arms _manual_switch_grace so auto-carrier
+## control (_on_home_gained_possession) can't immediately override the pick.
 func _switch_human_player() -> void:
 	if ControlMode.scheme_for(Tuning.Team.HOME) == ControlMode.Scheme.TEAM_COMMAND:
 		_cycle_team_command_selection()
 		return
 
 	var previous := ControlMode.controlled_player(Tuning.Team.HOME)
-	var next := ControlMode.next_in_roster(Tuning.Team.HOME, previous)
+	# Proximity-cycled, not index-cycled: pass the ball as the reference so
+	# one press reaches the player who matters (the defender under it, the
+	# next option up the ground) instead of whoever sits next in the spawn
+	# array. See ControlMode.next_in_roster.
+	var next := ControlMode.next_in_roster(Tuning.Team.HOME, previous, _ball.global_position)
 	if next == previous:
 		return
 
-	var ai := _configure_ai_brain(AIBrain.new(), Tuning.Team.HOME, 1.0, previous.global_position)
-	previous.set_brain(ai)
+	# A deliberate hand-pick — hold auto-carrier control off briefly so it
+	# can't immediately drag the human back off this choice.
+	_manual_switch_grace = Tuning.AUTO_CARRIER_SWITCH_GRACE
+	_assign_human_to(next)
 
+
+## Move the one HumanBrain onto `next`, hand the old body a fresh AI brain,
+## and tell ControlMode. Shared by _switch_human_player (manual) and
+## _on_home_gained_possession (auto-carrier) so the two can't drift on how
+## a hand-off is actually done.
+func _assign_human_to(next: PlayerController) -> void:
+	var previous := ControlMode.controlled_player(Tuning.Team.HOME)
+	if next == previous or not is_instance_valid(next):
+		return
+	if is_instance_valid(previous):
+		previous.set_brain(_configure_ai_brain(
+			AIBrain.new(), Tuning.Team.HOME, 1.0, previous.global_position))
 	next.set_brain(HumanBrain.new())
 	ControlMode.set_controlled_player(Tuning.Team.HOME, next)
+
+
+## FULL_TEAM: when HOME wins the ball in open play, put the human straight
+## onto the carrier — you control whoever has it without hunting for the
+## switch key. Suppressed for AUTO_CARRIER_SWITCH_GRACE seconds after a
+## manual switch (so it can't undo a deliberate pick), and only in
+## SINGLE_PLAYER scheme — TEAM_COMMAND has its own selection model.
+func _on_home_gained_possession(_ball_ref: Ball, carrier: PlayerController) -> void:
+	if Settings.player_control_mode != Settings.PlayerControlMode.FULL_TEAM:
+		return
+	if ControlMode.scheme_for(Tuning.Team.HOME) != ControlMode.Scheme.SINGLE_PLAYER:
+		return
+	if carrier.team != Tuning.Team.HOME or GameState.phase != GameState.Phase.PLAY:
+		return
+	if _manual_switch_grace > 0.0:
+		return
+	_assign_human_to(carrier)
 
 
 # ── Call for the ball (SINGLE_PLAYER player-control mode) ────────────
