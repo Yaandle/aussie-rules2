@@ -4789,3 +4789,699 @@ m/s (`Tuning.TACKLE_SPILL_SPEED`, unchanged). 4/4 checks passed.
 `scripts/player/player_controller.gd` only (`_get_tackled()`'s ball-
 impulse line moved inside the Lunge-only branch, doc comment updated).
 Nothing else touched.
+
+
+---
+
+## Handover — Core rulebook v1 merged into RULES_REFERENCE, and its two confirmed bugs plus three of its conflicts fixed
+
+A gameplay rulebook (objective, scoring, match structure, ball movement,
+marking, tackling, out of bounds, ball physics, infringements, officials,
+control modes) was specified for the project. It was merged into
+`docs/RULES_REFERENCE.md` rather than into a new file — that document was
+already the gameplay-rules knowledge file per the README's project layout.
+It now has two halves under one intro: the original Prototype 1 -> Prototype
+2 translation record, unchanged, and `# Core rulebook v1`, the rule set
+itself with each rule pointed at the module that owns it.
+
+Every point in the rulebook was audited against the actual code before
+anything was written down, and the places where the rulebook and the
+implementation disagreed were flagged in the document rather than silently
+resolved either way. This pass then fixed the tractable ones.
+
+### Marking prompt appearing in general play (rulebook §5) — fixed
+
+Reported: the marking contest icon shows up when the opposition handballs,
+and when an AI teammate handballs past the player. Confirmed in code —
+`PlayerController.live_mark_prompt()` gated on `ball.is_airborne()`, which
+is true of any ball off the ground, handballs included.
+
+It now gates on `Ball.is_kick_flight()`, which already existed and was
+already being used for exactly this "is this a live, untouched kick"
+question by the out-of-bounds check. The flag clears on landing and on
+`knock()`, so a bounced or spoiled ball stops prompting too.
+
+Deliberately gated in `live_mark_prompt()` and not in the shared
+`_mark_attempt_blocked()`: catching a teammate's handball out of the air is
+still a legitimate catch, it just isn't a marking contest — which is
+already the position `Ball.is_mark_eligible()` takes when it decides
+whether a take earns real mark protection. `MarkPrompt` derives entirely
+from `live_mark_prompt()`, so the one change covers the UI.
+
+### Out of bounds only firing on obvious kicks (rulebook §7) — fixed
+
+Reported: works for clear out-of-bounds kicks, fails when the ball rolls
+out in general play or after a bounce. Confirmed in code — the rolled-out
+branch of `FullGame._check_out_of_bounds()` was gated on
+`_ball.is_settled()`, so a ball crossing the line kept playing until it
+came to a complete stop somewhere outside.
+
+Rewritten as the single decision tree the rulebook describes: the ball
+leaving play is one call made on the crossing frame, and only then does
+"was it out on the full?" pick the restart. `_check_out_on_the_full()` is
+gone as a separate mechanism; the ball's position is tracked every live
+frame and the exact crossing point comes from the same bisection that
+mechanism already used. "Fully rolled over the line" is one shared
+predicate, `_is_in_play()`, which expands the oval test by the ball's own
+radius (so a ball still fractionally touching the line is in play) and is
+used by the crossing test and the bisection alike, so the two can't
+disagree about where the line is. `is_settled()` survives only as a
+fallback for a ball that is somehow already out with no crossing ever
+observed — otherwise it could sit out of bounds indefinitely. The
+pause/`is_held` re-entry guards are unchanged.
+
+### Tackle hold (rulebook §6) — done, both halves
+
+Asked for: hold both players physically together for 1-2s on a successful
+tackle, visibly grabbed and hugged rather than snapping to a resolved
+state.
+
+Durations: the Slide connect pair (`TACKLE_GRAB`/`TACKLE_HELD`, and
+`TACKLE_HELD_STUN_DURATION` with them) went 0.55s -> 1.0s. That is inside
+the asked-for range and still clearly under Lunge's 1.3s takedown, so the
+earlier playtest decision that the two tackle types should read differently
+survives — it was the gap that carried that read, not the absolute value.
+The clips stretch by themselves, since `HumanoidAnimations` builds them
+from `ACTION_DURATION`/`ACTION_CONTACT`.
+
+Physical hold: new `_begin_tackle_hold()`/`_end_tackle_hold()` on
+`PlayerController`. For the window, the tackler is pinned at
+`Tuning.TACKLE_HOLD_DISTANCE` (0.72 m — two 0.35 m capsules, just clear of
+interpenetrating) and both players turn to face each other. Only the
+tackler drives the pair, so the two can never fight over the same offset.
+It runs as a branch in `_update_locomotion`, the same "something external
+owns the body for a window" shape `_knockback` and the Slide/bump/smother
+dives already use, and it works through velocity rather than by writing
+`global_position` — so it still passes through `move_and_slide()` and can't
+shove either body into geometry. The closing velocity is capped at
+`TACKLE_SLIDE_DIVE_SPEED` so a pathological frame drags rather than
+teleports. The lock releases on its own timer, on `_complete_gather()` (a
+free kick or kick-in placement, or the tackler simply picking up what they
+stripped) and on `set_ruck_contestant()` (a ball-up) — both reposition
+players outright, and a stale lock would drag them back off the spot.
+
+### Goal restart too rushed (rulebook §3) — done
+
+The rushed beat is the one after the teams have reset, not the celebration
+before it, so `SCORE_PAUSE_DURATION` was left alone — it is shared with the
+behind kick-in and is also the scoreboard flash length, and adding 2s to it
+would have lengthened both. `FullGame._prepare_centre_bounce()` now takes
+the delay as a parameter, and the goal restart passes the new
+`Tuning.GOAL_RESTART_BOUNCE_DELAY` (`CENTRE_BOUNCE_DELAY + 2.0`). A quarter
+start and a field ball-up keep the standard, snappier value.
+
+### Ball bounce (rulebook §8) — done, tuned together
+
+`BALL_BOUNCE` 0.45 -> 0.55 and `BOUNCE_SPEED` 8.0 -> 10.0 m/s, with
+`BOUNCE_ANGLE` deliberately untouched so the up-versus-ahead split that
+makes a running player run onto the rebound is unchanged and only the scale
+grew. These interact — the manual bounce rebounds off the same restitution
+the kick landing does — which is why they moved together. The manual bounce
+now comes back at ~4.3 m/s for a ~0.95 m apex before drag, against ~0.4 m
+before. Feel targets, not rule numbers; they want a real playtest.
+
+### Left open, on purpose
+
+Recorded in `docs/RULES_REFERENCE.md` next to the rules they belong to, not
+quietly dropped:
+
+- **§2 "untouched" goals.** Scoring is pure trigger-volume geometry; there
+  is no last-touched tracking and no post colliders, so a deflected ball or
+  one off a post still scores a goal. Needs a real touch flag on `Ball` and
+  colliders on the posts.
+- **§5 tier naming.** The rulebook's Standard/Strong/Aggressive is a pure
+  risk ladder; the code's middle tier `MARK_RUNNING` is a gait distinction.
+  Unresolved, and the `Action` enum must not be renamed meanwhile — it is
+  positionally indexed by `ACTION_DURATION`/`ACTION_CONTACT`.
+- **§7 "embedded in the rules -> action system".** The check is now one
+  decision tree, but still a per-frame poll in `full_game.gd`; there is no
+  separate action system here to embed it in. Whether to build one is a
+  project-wide question.
+- **§9 dangerous contact and deliberate rushed behinds**, and **§10 boundary
+  and goal umpires** — the first is the item `FEATURE_AUDIT.md` already
+  records as blocked on a design decision rather than an invented default;
+  the second is new work with no entities in the project at all.
+
+### How it was verified
+
+`--headless --editor --quit` for a class-cache rescan, then plain headless
+boots of `full_game.tscn`, `kick_to_kick.tscn` and `main_menu.tscn` — all
+exit 0 with no errors. Three scratch physics scenes (all deleted after the
+run) against the real `full_game.tscn` and real scenes:
+
+- **Out of bounds.** A ball rolling out in general play — no kick flight —
+  is now called after 23 frames (0.38s), while still moving
+  (`is_settled()` false), 0.65 m past the line. Before, nothing fired until
+  it stopped. A live kick crossing the line in the air still resolves as
+  out on the full and resets to the throw-in point 2.03 m inside the line.
+- **Tackle hold.** Five real AI-vs-AI Slide tackles in a headless match:
+  every one held for exactly 60 frames (1.00s), closing from contact range
+  (up to 1.34 m) to the 0.72 m target and staying pinned there.
+- **Mark prompt.** The same ball arriving at the same player at catching
+  height: no prompt at all when launched as a handball, `MARK_SAFE` when
+  launched as a kick.
+
+### Files changed
+
+`docs/RULES_REFERENCE.md` (rulebook merged in, conflicts flagged, then
+updated with what this pass resolved), `scripts/modes/full_game.gd`
+(out-of-bounds decision tree, goal restart delay),
+`scripts/player/player_controller.gd` (mark prompt gate, tackle hold),
+`scripts/tuning.gd` (tackle hold durations and distance, goal restart
+delay, bounce values).
+
+
+---
+
+## Handover — Backpedal could be parked in permanently, match officials built, Slide tackle now visibly holds, stoppages lengthened
+
+Follow-on pass to the rulebook merge above, all from direct playtest
+feedback.
+
+### Backpedal got stuck (playtest report) — fixed
+
+Reported: "sometimes I look the other way and it gets stuck in the
+backpedal and I have to do a small turn forwards and around."
+
+Root cause, confirmed by reproduction: `_update_facing()` deliberately
+leaves facing alone while `_backpedaling` is true — that freeze is the
+whole mechanic, eyes on the play while the feet answer the stick. But the
+only exit was `facing_alignment >= BACKPEDAL_EXIT_DOT`, and
+`facing_alignment` is facing versus stick. With facing frozen, holding the
+stick behind the body left that value pinned at roughly -1 forever. The
+only way out was to swing the stick back around to where the body already
+looked — exactly the "small turn forwards and around" in the report.
+Reproduced by spawning a player facing -Z and holding +Z without ever
+moving the stick: still backpedalling after 5 s, body never turned, speed
+stuck at the 3.0 m/s shuffle cap.
+
+Fixed with `Tuning.BACKPEDAL_MAX_DURATION` (1.0 s): a continuous shuffle
+that long stops being a defender reading the play and becomes a request to
+go that way, so the backpedal drops out and the normal branch turns the
+body toward the stick at the usual turn rate. That is the "-to-turn" half
+of the design brief's own "backpedal-to-turn transitions" — a shuffle is a
+transition, not a mode you can be parked in. No turn burst on this exit:
+the burst belongs to the `EXIT_DOT` case, where facing has already come
+around and only the drive-off is left.
+
+A timeout needs a lockout with it, or the very next frame re-enters (the
+body has turned a few degrees and is still well inside
+`BACKPEDAL_ENTER_DOT`). `_backpedal_locked_out` blocks re-entry until
+facing has caught up past `BACKPEDAL_EXIT_DOT`, or the stick is released.
+Every exit now goes through one `_end_backpedal(locked_out)` so the timer
+can never be left running into the next one.
+
+### Match officials (rulebook §10) — built
+
+`scripts/field/umpire.gd` (`Umpire`), spawned by `Field._build_umpires()`
+with the rest of the ground furniture: a boundary umpire either side on
+the line, and a goal umpire at each end 2.5 m behind the goal line facing
+back down the ground.
+
+Built from the same procedural `HumanoidRig` the players use, through new
+`kit_torso` / `kit_shorts` / `kit_stripes` / `kit_stripe_colour` overrides
+on it. Those are additive — alpha 0 and 0 stripes mean "unset", which is
+every player, so the on-field kit is untouched. Boundary umpire: five
+black vertical stripes over white, each one thin box slightly deeper than
+the chest so a single mesh reads front and back. Goal umpire: white
+overalls, a flag (pole plus cloth) parented to each hand bone.
+
+The flag raise is the only thing any official actually does. `Field`
+connects its own `scored` signal, so it fires wherever the field is used
+rather than needing each mode to remember: on a goal, the umpire at that
+team's attacking end poses both upper-arm bones up over 0.28 s, holds 4 s
+(past `SCORE_PAUSE_DURATION`, so it's still up while the teams walk back),
+then eases down over 0.45 s. Bones are posed directly — an umpire has one
+moving part, and a whole `AnimationTree` for a single lerp is machinery
+for its own sake.
+
+**No collision on any of them, deliberately.** A player runs through one
+and the ball is never deflected. Rulings are made by `FullGame` and
+`PlayerController` as they always have been; an official with a body that
+could interfere with play would be a class of physics bug for no rules
+benefit. A behind is one flag waved in the real game — not modelled, same
+reasoning.
+
+### Slide tackle reading as one wrestle, and the Animation Viewer
+
+The physical hold added in the previous pass
+(`PlayerController._begin_tackle_hold`) is what makes the tackler visibly
+wrapped around the carrier rather than two clips playing side by side, and
+the Animation Viewer's TACKLE — SLIDE vignette already runs the real
+`_try_tackle` path, so it picks that up with no special-casing. Two things
+did need doing:
+
+- `_launch_contest()` now clears both bodies' hold state alongside every
+  other private field it resets. Re-running a scenario while a hold was
+  still live would have had the new setup's teleported positions dragged
+  straight back toward the old contest.
+- `_build_tackle_held()`'s doc comment said "no facing change — the target
+  keeps whatever way they were already facing." That is no longer true:
+  the hold points both players at each other, which is what makes the clip
+  read as being wrapped up by someone rather than staggering on the spot.
+
+### Stoppages were too quick (playtest report) — lengthened
+
+The post-goal delay added in the previous pass was reported as not being
+applied. It was — measured at 3.02 s from the teams resetting to the ball
+going up, against 1.0 s before. The real note was that it still wasn't
+enough, so `CENTRE_BOUNCE_DELAY` itself doubled, 1.0 s → 2.0 s. It is
+shared by the quarter start, a field ball-up and the holding-the-ball free
+kick (and is the scoreboard flash length for the latter two), so every
+stoppage got the same extra beat, and `GOAL_RESTART_BOUNCE_DELAY` follows
+it to 4.0 s since it is derived from it. Re-measured: 4.02 s after a goal.
+
+### How it was verified
+
+`--headless --editor --quit` for a class-cache rescan, then headless boots
+of `full_game.tscn`, `kick_to_kick.tscn`, `animation_viewer.tscn`,
+`main_menu.tscn` and `character_screen.tscn` — all clean, zero errors.
+Scratch physics scenes (all deleted after the run):
+
+- **Backpedal.** Stick held straight behind the body and never moved:
+  enters at 0.03 s, exits at exactly the 1.00 s cap, body comes round to
+  face the stick 0.22 s later, zero re-entries, and it finishes running at
+  full jog speed (4.80 m/s) instead of parked at the 3.0 m/s shuffle cap.
+  The same scenario with the cap raised to a stand-in "infinity" reproduces
+  the original bug exactly: still backpedalling after 5 s, facing dot
+  -1.00, speed 3.00.
+- **Officials.** Four umpires built at the expected positions and facings
+  (goal umpires at x = ±83.5 looking back down the ground, boundary
+  umpires at z = ±68.1 looking in), with the stripe and flag meshes
+  present. A HOME goal raises only the +X umpire's flags (HOME attacks
+  +X), fully up within 40 frames and back down after the hold.
+- **Restart timing.** Measured before and after the change: 3.02 s, then
+  4.02 s, from the teams resetting to the ball going up.
+
+### Files changed
+
+`scripts/player/player_controller.gd` (backpedal timeout/lockout,
+`_end_backpedal()`), `scripts/tuning.gd` (`BACKPEDAL_MAX_DURATION`,
+`CENTRE_BOUNCE_DELAY` doubled), `scripts/field/umpire.gd` (new),
+`scripts/field/field.gd` (`_build_umpires()`, flag-raise hook),
+`scripts/player/humanoid_rig.gd` (additive kit overrides),
+`scripts/player/humanoid_animations.gd` (stale TACKLE_HELD comment),
+`scripts/dev/animation_viewer.gd` (hold reset, doc note),
+`docs/RULES_REFERENCE.md` (§3 and §10 updated to match).
+
+
+---
+
+## Handover — Field umpire throws the ball up, mark retreat, Slide tackle wrap rebuilt, goal umpire flag pose
+
+All from direct playtest feedback on the previous pass.
+
+### The Slide tackle wrap wasn't reading — rebuilt
+
+Feedback: "the player animation for the Slide tackle visibly holding is not
+visible, they just collide and the arms move a bit; the player should wrap
+its arms and limbs around the other player." Two separate causes, both
+fixed.
+
+**They were too far apart to wrap.** `TACKLE_HOLD_DISTANCE` was 0.72 m,
+chosen so the two 0.35 m capsules wouldn't fight `move_and_slide()` by
+overlapping. But an arm only reaches 0.57 m from the shoulder, so at that
+range the hands can never get around the other body — it can only ever
+look like two players colliding. `_begin_tackle_hold()` now adds a mutual
+collision exception for the length of the hold and removes it in
+`_end_tackle_hold()`, which lets the pin come in to 0.55 m with no
+shoving. The exception is only between those two bodies; everyone else
+still collides with both.
+
+**The clip was a reach, not a wrap.** `_build_tackle_grab` moved the
+shoulders about 0.7 rad — a reach forward with the elbows half bent.
+Rebuilt around an actual clamp: shoulders swing to ~1.4 rad (straight out
+in front) and *past each other* — the Z sign flips relative to
+`_base_pose`'s own outward rest spread, so the arms cross around the far
+side of the body being held — with the elbows folded to ~1.95 rad so the
+forearms come back in rather than pointing off into space, the torso
+folded over the hold, hips dropped and both legs braced. The clamp now
+holds through the whole 1.0s with two opposing torso-twist beats in it, so
+the pair strains rather than freezing mid-pose, and releases only in the
+last tenth. `_build_tackle_held` got the matching treatment on the other
+side: arched back, arms pinned in and folded shut, struggling against the
+hold on the same two beats.
+
+The Animation Viewer's TACKLE — SLIDE vignette shows all of this with no
+special-casing: it already runs the real `_try_tackle` path.
+
+### Field umpire, and a real throw-up (rulebook §10 / §3)
+
+Feedback: the striped black-and-white official wasn't there, and it's the
+one who should throw the ball up.
+
+`Umpire.Role.FIELD` added — same black-and-white vertical stripes as the
+boundary umpires, which is a field umpire's uniform in the real game.
+`Field` builds him and exposes `field_umpire()`.
+
+`FullGame._begin_ruck_contest()` now splits in two. The first half sends
+the umpire to the stoppage — standing to the side of the two contestants
+rather than between them, facing the contest — and starts his throw-up
+performance; play is dead and the ball parked for
+`Tuning.BALL_UP_THROW_DURATION` (1.4s). The second half,
+`_release_ruck_contest()`, is the ball actually going up: the same
+physical launch this always used. The two contestants are nominated there
+rather than at the top of the throw, so `RUCK_CONTEST_WINDOW` starts when
+the ball does instead of burning down through the wind-up.
+
+The throw itself is four beats over that duration — crouch over the ball,
+hold, fast sweep up to the release, settle back — posing the two upper
+arms and the spine directly. `Umpire` has no `AnimationPlayer`: one moving
+part at a time, nothing to blend against, so a whole `AnimationTree` would
+be machinery for a pair of lerps.
+
+Note for later: a real boundary throw-in is the *boundary* umpire's, thrown
+over their head from off the ground. This project resolves the centre
+bounce, a field ball-up and a throw-in through one shared contest, so the
+field umpire performs all three. Recorded in `RULES_REFERENCE.md` §7
+rather than quietly fudged.
+
+### Goal umpire flag pose
+
+Was arms up and slightly forward, which read as tucked back over the
+shoulders. Now dead straight, out in front and up — about 35° above
+horizontal — in a shallow V (`ARM_RAISED_SPREAD` 0.42 rad) so the two
+flags read as two flags rather than overlapping into one.
+
+### Walking back off the mark (rulebook §5)
+
+Request: "when a player takes the mark, the player catching the ball
+pushes back on the mark, so they basically have to move backwards about 5m
+then they can do the rest of the kicking animation or play on."
+
+`PlayerController._begin_mark_retreat()`, started from `_finish_mark_catch`
+only on a *legal* mark — the same `MARK_STAND_MIN_DISTANCE` test that
+already grants protection and stand-the-mark, so a scrambled catch in
+general play gets none of this. It drives the body back
+`Tuning.MARK_RETREAT_DISTANCE` (5 m) along the team's own defensive
+direction at `MARK_RETREAT_SPEED`, through the same "something external
+owns the body for a window" branch in `_update_locomotion` that knockback,
+the dives and the tackle hold already use.
+
+Deliberately does **not** touch `_heading`: facing is driven from it, so
+leaving it alone keeps the player looking downfield while their feet carry
+them backwards — both what a real kicker does, and what makes
+`locomotion_blend()` pick the backward run clip instead of spinning them
+around to jog at their own goal. `_update_charge()` refuses to charge a
+kick while it runs; handball and running are untouched, so "play on" stays
+available and it is the set shot that waits. Distance is retired at the
+intended rate rather than by measured displacement, so being blocked by
+the fence or another body can't leave it running forever, and `drop_ball()`
+ends it (covering disposal, being stripped, and every stoppage reset).
+
+### Stoppage pacing
+
+`CENTRE_BOUNCE_DELAY` was doubled to 2.0s in the previous pass; the 1.4s
+throw-up now sits on top of it, so a ball-up runs about 3.4s from whistle
+to ball in the air, and a restart after a goal about 5.4s from the teams
+resetting.
+
+### How it was verified
+
+Class-cache rescan, then headless boots of `full_game.tscn`,
+`kick_to_kick.tscn`, `animation_viewer.tscn`, `main_menu.tscn` and
+`character_screen.tscn` — all zero errors. Scratch physics scenes (deleted
+after the run):
+
+- **Mark retreat.** A real 22 m kick marked by a player holding the kick
+  button throughout: legal mark and retreat both start on the catch, the
+  player walks back 4.99 m of the 5.0 m target over 1.47s, the kick
+  refuses to charge for the whole retreat, and charges normally 30 frames
+  after it ends.
+- **Field umpire and throw-up.** Present, role FIELD, 5 stripes, 31 meshes.
+  At a real ball-up he is at the stoppage (x −45.0, z −8.5, not the
+  centre), the ball sits at 0.00 m/s through the whole performance, and it
+  is released 1.38s in — one frame short of `BALL_UP_THROW_DURATION`'s 1.4s
+  — leaving at 6.85 m/s.
+- **Tackle pin.** A real AI tackle in the same match held at exactly
+  0.55 m, so the closer distance holds with the collision exception in
+  place and nothing shoves the pair apart.
+
+The two things still needing a human eye are the ones that always do here:
+whether the rebuilt wrap actually looks like a wrap, and whether the
+umpire's flag and throw poses read from a broadcast camera.
+
+### Files changed
+
+`scripts/field/umpire.gd` (FIELD role, throw-up, `stand_at()`, flag pose),
+`scripts/field/field.gd` (field umpire built and exposed),
+`scripts/modes/full_game.gd` (`_begin_ruck_contest` split around the
+throw), `scripts/player/player_controller.gd` (mark retreat, tackle-hold
+collision exception), `scripts/player/humanoid_animations.gd`
+(TACKLE_GRAB/TACKLE_HELD rebuilt), `scripts/tuning.gd`
+(`BALL_UP_THROW_DURATION`, `MARK_RETREAT_*`, `TACKLE_HOLD_DISTANCE`),
+`docs/RULES_REFERENCE.md` (§3, §5, §7, §10).
+
+---
+
+## Handover — Ball locked for the whole dead-ball window
+
+Playtest report on the previous pass: "the players are grabbing the ball
+before the umpire can throw it up." Correct — the throw-up parked the ball
+at the stoppage spot as a settled rigid body, and a settled rigid body is
+still a ball. `PlayerController._try_gather()` only skips a ball that is
+`is_held`, and nothing was holding it, so whoever got there first simply
+picked it up mid-ceremony.
+
+`Ball.lock_at(position)` / `Ball.unlock()`. Locked, the body is frozen
+kinematic (a rigid body resting on the turf can still be nudged by a
+player running over it) and `is_held` reports true. That property was
+already the single question every consumer asks — gathering, marking,
+hit-outs, `is_airborne()`, the out-of-bounds settle test — so widening its
+meaning from "in a player's hands" to "not available to be played" fixes
+all of them at once rather than adding a second flag each would have had
+to learn about. `reset_at()` and `launch()` both unlock, so a lock can
+never outlive the next thing that puts the ball somewhere and no call site
+has to remember to release it.
+
+Applied to every dead-ball path in `full_game.gd`, not just the throw-up —
+they all had the same hole, and the walk-back delays got longer in the
+previous pass, which widened it:
+
+- the centre bounce and the restart after a goal (`_prepare_centre_bounce`)
+- the throw-up itself (`_begin_ruck_contest`)
+- a field ball-up (`_on_field_ball_up`)
+- out on the full (`_trigger_out_on_the_full`)
+- a boundary throw-in (`_trigger_out_of_bounds`) — which also now brings
+  the ball back to the line at the whistle instead of letting it roll on
+  into the fence for the whole pause, matching what out-on-the-full
+  already did
+- a score (`_on_scored`), so nobody behind the goals collects it during
+  the celebration
+
+### How it was verified
+
+Headless boots of `full_game.tscn`, `kick_to_kick.tscn`,
+`animation_viewer.tscn` and `main_menu.tscn`, all clean. A scratch scene
+(deleted) drove a real match through each path in turn and watched both
+the lock flag and every player's `is_carrying()` every frame:
+
+- centre bounce: ball dead 3.42s (2.0s walk-back + 1.4s throw), then live
+- rolled out of bounds in general play: locked 25 frames after it crossed,
+  brought back to z 65.5 on the line, released 3.40s later
+- goal: locked for the celebration, released 8.42s later (3.0s + 4.0s +
+  1.4s, as designed)
+- **zero frames**, across all of it, in which any player held a locked ball
+
+### Files changed
+
+`scripts/ball/ball.gd` (`lock_at()`/`unlock()`, `is_held` widened),
+`scripts/modes/full_game.gd` (six dead-ball paths lock the ball),
+`docs/RULES_REFERENCE.md` (§3).
+
+---
+
+## Handover — Ball actually held in the umpire's hands, AI no longer swarms him, tackler's forearms turned the right way
+
+Two playtest reports, and one real bug found while verifying the first.
+
+### The ball floated in front of the umpire instead of being held
+
+`lock_at()` pinned the ball at the contest spot while the umpire performed
+the throw-up beside it, so it hung in mid-air a metre or so in front of
+him. `Ball.lock_to(point)` added: the same "not available to be played"
+lock, but riding a node every frame. `Umpire` builds a `BallGrip`
+`BoneAttachment3D` on the left hand with the hold point offset half a hand
+span toward the other one, so it sits on the centreline between them —
+and that offset survives the whole throw because the throw only rotates
+the arms about their own X axis, which leaves the local X axis alone.
+
+The launch also moved into the hands: `_release_ruck_contest()` now solves
+the plain projectile for the horizontal speed that carries the ball from
+wherever his hands actually are to the contest spot in the time the toss
+spends in the air, rather than launching straight up from the spot. And it
+fires at `Umpire.THROW_RELEASE_END` (78% of the beat) rather than at the
+end — the last stretch of the clip is the follow-through, which happens
+after the ball has gone.
+
+**The lock stopped freezing the body.** `lock_at()` froze it kinematic;
+coming out of that in the same frame the launch velocity is assigned loses
+the velocity, because the body is still kinematic when the assignment
+lands. It now pins position and zeroes velocity every physics frame
+instead — same effect (any nudge is undone the same frame), no freeze
+transition to get wrong.
+
+### The AI swarmed the umpire, and plucked the throw-up out of his hands
+
+Found while verifying the above: the ball was being taken 0.02s after
+release, one frame, every time. `Ball.holder()` returns the *carrying
+player*, so while the umpire has it `is_held` is true but `holder()` is
+null — and `AIBrain` read that combination as a loose ball and sent the
+whole side sprinting at the umpire's hands. By the release they were
+standing on top of him, inside their own gather reach.
+
+`AIBrain` now holds position for a ball that is held with no player
+holding it: nobody can play a ball the umpire has. Measured before and
+after, same scenario: apex 1.31 m and taken in one frame, versus apex
+6.83 m and not taken within two seconds of release — an actual ball-up,
+contested on the way down. `Field.UMPIRE_CENTRE_OFFSET` also went 1.6 m →
+2.4 m so the release point is clear of a contestant's reach
+(`GATHER_RADIUS + GATHER_LUNGE_MAX` = 1.70 m) even without the AI fix.
+
+### Tackler's forearms pointed backwards
+
+Report: "the player's arms point the opposite direction, behind the
+player, not in front." The upper arms were right — 1.42 rad is just past
+horizontal forward, and the file's own convention is confirmed by the
+handball clip, whose punching arm swings from −0.55 (drawn back) to +0.95
+(punched through). The elbows were the problem: folded ~1.95 rad, which
+puts the hands back at the tackler's own chest with the forearms pointing
+behind the upper arms. Both `_build_tackle_grab` and `_build_tackle_held`
+now use a shallow bend (0.62–0.74 rad on the grab) so the forearms carry
+on forward around the target, with a little more shoulder crossing to
+bring them together in front.
+
+### How it was verified
+
+Headless boots of `full_game.tscn`, `kick_to_kick.tscn`,
+`animation_viewer.tscn`, `main_menu.tscn` — all clean. A scratch scene
+(deleted) watched a real throw-up frame by frame: the ball tracks the grip
+point to within 0.000 m for all 186 frames of the hold, travels with the
+hands from y 0.80 in the crouch up to y 2.05 at release, then tosses to a
+6.83 m apex with nobody able to take it on the way up. The launch itself
+was instrumented directly and reads v = (0.08, 10.00, 0.61) at the moment
+it leaves, unfrozen and unheld.
+
+### Files changed
+
+`scripts/ball/ball.gd` (`lock_to()`, pinned-transform lock),
+`scripts/field/umpire.gd` (`BallGrip` hold point, `ball_hold_point()`),
+`scripts/field/field.gd` (`UMPIRE_CENTRE_OFFSET` 2.4 m),
+`scripts/modes/full_game.gd` (ball locked to the hands, projectile toss,
+release at the top of the sweep), `scripts/mechanics/ai_brain.gd` (hold
+position while an official has the ball),
+`scripts/player/humanoid_animations.gd` (elbow fold on both tackle clips).
+
+## Handover — AI disposal target selection, 15m run rule, CommandBrain reflex fix (Agent: AI brain)
+
+A directed pass on the AI brain only. The `docs/FEATURE_AUDIT.md` "leave
+the AI baseline alone" priority call was consciously overridden for this
+one — the doc's AI section and dev-order note were updated to match rather
+than left to diverge.
+
+### AI disposal now picks a teammate
+
+Before: a carrying `AIBrain` fired every disposal straight down its own run
+line at goal — a "handball under pressure" launched goal-ward, not at
+anyone. `request_handball_to()` (the human call-for-ball) was the only path
+that ever aimed a disposal at a specific player.
+
+Now `_think_carrying()`, when a runnable unpressured shot at goal isn't on,
+calls `_best_disposal_target()` — scores every teammate on the three things
+the brief named:
+
+- **forward** — `dot(dir-to-mate, dir-to-goal)`; a backward option is a
+  hard reject unless pressured leaves nothing else,
+- **open** — nearest opponent to *that teammate*, so of two mates level the
+  one without a man on him wins,
+- **dist** — shorter is safer,
+
+plus a cheap `_lane_blocked()` reject (perpendicular distance from each
+opponent to the pass segment). Nothing clearing `AI_DISPOSAL_SCORE_FLOOR`
+→ returns null and the old blind fallback runs unchanged. A pick inside
+`AI_HANDBALL_MAX` handballs; past it, kicks.
+
+Aiming reuses `request_handball_to`'s trick, now factored into `_pass_to()`
+and shared: point the body at the receiver for a few physics frames
+(`AI_AIM_TURN_FRAMES_HANDBALL` = 2, `_KICK` = 6 — a kick needs the longer
+wind-up because an AI kick's aim locks to body facing the instant stance
+begins and can't be nudged after) before releasing. `_commit_kick()` grew
+an `aim_point` + `hold_gait` so a pass-kick tracks the receiver at a low
+gait through the charge instead of sprinting through them the way a shot at
+a distant goal runs on.
+
+All new numbers are in `tuning.gd`'s AI block, commented as feel-tuned AI
+judgement (same standing as `AI_SUPPORT_PULL` / `AI_KICK_RANGE`), **not
+AFL rule numbers — they want a real playtest.**
+
+### 15m run rule enforced
+
+`docs/RULES_REFERENCE.md` §1 had it as "tracked but the free kick waits for
+match rules" — `PlayerController.carry_distance()` / `bounce_overdue()`
+existed with no consumer, and nothing made a player bounce.
+
+- `PlayerController._track_carry_distance()` now emits a new
+  `run_too_far_called(carrier)` the frame a carry passes
+  `Tuning.BOUNCE_INTERVAL` (15 m) with no bounce — gated out while
+  mid-disposal (`_action != NONE`) or stunned, latched (`_run_too_far_
+  latched`) so it fires once per overrun, latch cleared wherever
+  `_carry_distance` resets.
+- `FullGame._on_run_too_far()` (modelled on `_on_holding_the_ball`) →
+  whistle, `GameState.Phase.STOPPAGE`, scoreboard flash, then
+  `_award_possession_at(spot, nearest_opponent)` after `CENTRE_BOUNCE_
+  DELAY` — the same possession+protection restart every other free kick
+  uses. Free kick to the nearest opponent (user's call).
+- `AIBrain._think_carrying()` sets `wants_bounce()` (was inherited base
+  `false`) once `carry_distance()` passes `BOUNCE_INTERVAL *
+  AI_BOUNCE_AT_FRACTION` (0.75 → ~11.25 m), so an AI carrier bounces on
+  the run and never actually concedes the free kick. Verified: AI bounced
+  5× in a scripted straight-line sprint, max carry 12.8 m, never tripped
+  the ruling; a non-bouncing runner tripped it at 15.1 m.
+
+### CommandBrain contradicted its own docstring
+
+`command_brain.gd`'s class doc promised a commanded player "should still
+gather a loose ball at its feet, still contest a mark it's already running
+under" — but `update()` did `_move_toward(commanded_target); return` while
+an order was active, so `super.update()` (AIBrain's think) never ran and
+none of that happened until the point was reached or the order cleared.
+
+Fixed: `update()` now always runs `super.update()` first, then the order
+overrides movement **only** where AIBrain's decision was idle drift —
+tracked by a new `AIBrain._decision_committed` flag (set true in
+`_think_carrying` / the loose-ball chaser branch / the carrier-press
+branch, left false for drift-home and generic support). A live contest
+always outranks a lead order now. Verified: a commanded player ordered
+40 m forward still peeled off and gathered a ball dropped behind it.
+
+### Audit points 4 & 5 (minimal)
+
+- **Off-ball spacing** — `_spacing_push()` adds a light shove off the
+  nearest teammate inside `AI_SPACING_RADIUS`, folded into `_think_support`
+  and the two drift-home branches so support runners stop stacking.
+- **Tackle commit** — `_think_defend()` now gates `wants_tackle` on also
+  keeping up with the carrier (`speed() + AI_TACKLE_CLOSING_MARGIN >=
+  holder.speed()`) — no more committing a standing tackle to someone
+  outrunning you. Loose-ball chase eases to a contain gait (0.7) when an
+  opponent is clearly closer to the drop zone (`AI_LOOSE_BALL_CEDE_MARGIN`).
+
+### Verification
+
+Scratch scene (`_scratch_ai_test.tscn`/`.gd`, deleted) ran four scripted
+scenarios headless at `--fixed-fps 60`: disposal picks the open teammate
+over a shadowed one (dir·open 0.71 vs dir·shadow 0.39); 15 m ruling fires
+at 15.1 m; AI bounces and never concedes; CommandBrain gathers a loose
+ball against its order. Plus `full_game.tscn` headless for 20 000 frames
+(~330 s, multiple quarters + restarts) — clean, no errors. Editor class
+rescan clean. **Not playtested — every new AI number is a first guess.**
+
+### Files changed
+
+`scripts/mechanics/ai_brain.gd` (disposal targeting, bounce, spacing,
+tackle gate, `_decision_committed`), `scripts/mechanics/command_brain.gd`
+(run `super` first, override only idle drift), `scripts/player/player_
+controller.gd` (`run_too_far_called` signal + `_track_carry_distance`
+check + latch), `scripts/modes/full_game.gd` (`_on_run_too_far` handler +
+connect), `scripts/tuning.gd` (new `AI_*` constants),
+`docs/RULES_REFERENCE.md` / `docs/FEATURE_AUDIT.md` (15 m rule now
+enforced, AI section updated).

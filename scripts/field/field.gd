@@ -94,6 +94,7 @@ func _ready() -> void:
 	_size_ground()
 	_build_markings()
 	_build_goals()
+	_build_umpires()
 	_build_fence()
 	_build_trees()
 
@@ -376,6 +377,98 @@ func _score_zone(parent: Node3D, zone_name: String, centre_x: float, centre_z: f
 	area.body_entered.connect(func(body: Node3D) -> void:
 		if body is Ball:
 			scored.emit(team, is_goal))
+
+
+# ── Match officials ──────────────────────────────────────────────────
+# Core rulebook v1 §10: a boundary umpire either side and a goal umpire at
+# each end. Purely cosmetic actors with no collision — see umpire.gd's own
+# class doc for why that's deliberate. Built here with the rest of the
+# ground furniture because that is what they are from this file's point of
+# view: something that stands on the field, sized off Tuning like
+# everything else here.
+
+## How far behind the goal line the goal umpire stands. GOAL_LINE_INSET is
+## only 1.5m, so this puts them just off the playing surface — which is
+## exactly where the real one stands relative to a real goal line, and
+## keeps them clear of a ball still travelling after it has scored.
+const UMPIRE_GOAL_SETBACK := 2.5
+
+## Just outside the boundary line, off the playing surface for the same
+## reason.
+const UMPIRE_BOUNDARY_OFFSET := 0.6
+
+## How far to the side of a stoppage spot the field umpire stands — far
+## enough that he isn't inside the two ruckmen, close enough to read as
+## the one throwing it up. Also his idle spot beside the centre circle.
+##
+## 2.4m, not the 1.6m this started at: the ball is thrown from his hands
+## now (Ball.lock_to, see FullGame._begin_ruck_contest), and at 1.6m the
+## release point was inside a contestant's own gather reach
+## (GATHER_RADIUS + GATHER_LUNGE_MAX = 1.70m), so the throw-up was being
+## plucked out of the air on the frame it left his hands instead of going
+## up and being contested on the way down.
+const UMPIRE_CENTRE_OFFSET := 2.4
+
+## Which goal umpire signals which team's goals — the umpire at the end a
+## team attacks. HOME attacks +X (Tuning's axis convention).
+var _goal_umpires := {}
+
+## The one official who moves: he goes to wherever the next stoppage is and
+## throws the ball up. See FullGame._begin_ruck_contest, which is the only
+## caller — this file just builds him and hands him over.
+var _field_umpire: Umpire
+
+
+## The field umpire, for whoever is running a stoppage. Null-safe for any
+## caller that doesn't care (the field is used by Kick-to-Kick too, which
+## has no stoppages).
+func field_umpire() -> Umpire:
+	return _field_umpire
+
+
+func _build_umpires() -> void:
+	var officials := Node3D.new()
+	officials.name = "Umpires"
+	add_child(officials)
+
+	_field_umpire = Umpire.new()
+	_field_umpire.role = Umpire.Role.FIELD
+	officials.add_child(_field_umpire)
+	# Somewhere sensible until the first stoppage moves him: beside the
+	# centre circle, out of the way of the centre bounce itself.
+	_field_umpire.stand_at(centre() + Vector3(0.0, 0.0, UMPIRE_CENTRE_OFFSET), centre())
+
+	for direction: int in [-1, 1]:
+		var goal_umpire := Umpire.new()
+		goal_umpire.role = Umpire.Role.GOAL
+		goal_umpire.position = Vector3(
+			goal_line_x(direction) + float(direction) * UMPIRE_GOAL_SETBACK, 0.0, 0.0)
+		# A node's forward is -Z, so this yaw looks back down the ground.
+		goal_umpire.rotation.y = float(direction) * PI * 0.5
+		officials.add_child(goal_umpire)
+		_goal_umpires[Tuning.Team.HOME if direction > 0 else Tuning.Team.AWAY] = goal_umpire
+
+	for side: int in [-1, 1]:
+		var boundary_umpire := Umpire.new()
+		boundary_umpire.role = Umpire.Role.BOUNDARY
+		boundary_umpire.position = Vector3(
+			0.0, 0.0, float(side) * (Tuning.FIELD_HALF_WIDTH + UMPIRE_BOUNDARY_OFFSET))
+		boundary_umpire.rotation.y = 0.0 if side > 0 else PI
+		officials.add_child(boundary_umpire)
+
+	scored.connect(_raise_goal_flags)
+
+
+## The goal umpire's two flags going up (rulebook §10) is the only thing
+## any official here actually does. Driven off this file's own `scored`
+## signal rather than from FullGame, so it happens wherever the field is
+## used and can't be forgotten by a new mode.
+func _raise_goal_flags(team: Tuning.Team, is_goal: bool) -> void:
+	if not is_goal:
+		return
+	var umpire: Umpire = _goal_umpires.get(team)
+	if is_instance_valid(umpire):
+		umpire.signal_goal()
 
 
 # ── Boundary fence ───────────────────────────────────────────────────

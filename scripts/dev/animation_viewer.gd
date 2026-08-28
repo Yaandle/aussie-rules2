@@ -37,6 +37,16 @@ extends Node3D
 ## removed per direct feedback: this screen is a fixed preview you click and
 ## watch, the same shape as every other button here, not a second thing to
 ## learn how to drive.
+##
+## The SEQUENCES group (same column as CONTESTS) covers the motions that
+## aren't a single clip and aren't an opponent contest either: a bounce on
+## the run (carrier + real ball, driven into the turf and re-gathered), the
+## walk-back off a legal mark (Tuning.MARK_RETREAT_*, run_back blend while
+## facing stays downfield), and the field Umpire's ball-up throw-up (its own
+## rig and hand-posed crouch/wind/toss — see umpire.gd — with a real Ball
+## riding the grip then launched at Tuning.BALL_UP_TOSS_SPEED, the same
+## release FullGame._begin_ruck_contest performs). All run through the real
+## gameplay code, same as the contests.
 
 const STAND_ON := Vector3.ZERO
 
@@ -111,6 +121,27 @@ const CONTESTS := [
 	["SMOTHER", ContestKind.SMOTHER],
 ]
 
+## Scripted solo/prop sequences — no opposing player, but not a single
+## canned clip either: they need real bodies/props and gameplay code to
+## read right. See _launch_sequence / _step_sequence.
+enum SequenceKind { BOUNCE_RUN, MARK_RETREAT, UMPIRE_BALLUP }
+
+const SEQUENCES := [
+	["BOUNCE — ON THE RUN", SequenceKind.BOUNCE_RUN],
+	["MARK — RETREAT OFF MARK", SequenceKind.MARK_RETREAT],
+	["UMPIRE — BALL-UP", SequenceKind.UMPIRE_BALLUP],
+]
+
+## Seconds a BOUNCE_RUN / MARK_RETREAT carrier runs (or holds) before the
+## scripted trigger fires, so the action has real motion behind it rather
+## than firing from a standstill. UMPIRE_BALLUP uses its own release point
+## instead (Tuning.BALL_UP_THROW_DURATION * Umpire.THROW_RELEASE_END).
+const SEQUENCE_TRIGGER_DELAY := 0.9
+
+## How long a sequence runs before it stops being _step_sequence's problem
+## and the bodies are just left to settle (same intent as CONTEST_TIMEOUT).
+const SEQUENCE_TIMEOUT := 4.5
+
 ## Bump has no brain-mediated trigger (_update_bump reads InputManager.
 ## flick_vector() directly, a raw device gesture — see that function's own
 ## doc comment) — a scripted vignette has no device to generate one, so
@@ -183,6 +214,7 @@ class ContestBrain extends PlayerBrain:
 	var lunge_wanted := false
 	var smother_wanted := false
 	var kick_wanted := false
+	var bounce_wanted := false
 
 	func wish_direction(_controller: PlayerController) -> Vector3:
 		return wish_dir
@@ -202,6 +234,9 @@ class ContestBrain extends PlayerBrain:
 	func wants_kick() -> bool:
 		return kick_wanted
 
+	func wants_bounce() -> bool:
+		return bounce_wanted
+
 
 ## Lazily built on the first CONTESTS button press — most sessions only
 ## ever look at a handful of plain clips, no reason to pay for two extra
@@ -220,6 +255,15 @@ var _contest_kind := ContestKind.TACKLE_SLIDE
 var _contest_stage := ContestStage.NONE
 var _contest_timer := 0.0
 var _contest_bump_triggered := false
+
+## SEQUENCES state — its own stage/timer so _step_contest's resolved-
+## detection never trips on a sequence. The Umpire rig is built lazily on
+## the first UMPIRE_BALL-UP press, same reasoning as _contest_built.
+var _umpire: Umpire
+var _sequence_kind := SequenceKind.BOUNCE_RUN
+var _sequence_stage := ContestStage.NONE
+var _sequence_timer := 0.0
+var _sequence_triggered := false
 
 
 func _ready() -> void:
@@ -272,6 +316,7 @@ func _process(delta: float) -> void:
 		var b := _player_animation.blend_position()
 		_blend_label.text = "BLEND: %.2f, %.2f" % [b.x, b.y]
 	_step_contest(delta)
+	_step_sequence(delta)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -418,6 +463,16 @@ func _build_contest_group() -> VBoxContainer:
 		button.pressed.connect(func() -> void: _launch_contest(kind))
 		group.add_child(button)
 
+	group.add_child(UIStyle.label("SEQUENCES — CARRIER / BALL / UMPIRE", UIStyle.SIZE_LABEL,
+		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
+
+	for entry: Array in SEQUENCES:
+		var label: String = entry[0]
+		var kind: SequenceKind = entry[1]
+		var button := _make_button(label)
+		button.pressed.connect(func() -> void: _launch_sequence(kind))
+		group.add_child(button)
+
 	_contest_status_label = UIStyle.label("", UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
 	group.add_child(_contest_status_label)
 	return group
@@ -529,7 +584,10 @@ func _show_single_subject() -> void:
 		_contest_a.visible = false
 		_contest_b.visible = false
 		_contest_ball.visible = false
+	if _umpire != null:
+		_umpire.visible = false
 	_contest_stage = ContestStage.NONE
+	_sequence_stage = ContestStage.NONE
 
 
 func _show_contest() -> void:
@@ -537,6 +595,8 @@ func _show_contest() -> void:
 	_contest_a.visible = true
 	_contest_b.visible = true
 	_contest_ball.visible = true
+	if _umpire != null:
+		_umpire.visible = false
 	_move_camera_to(STAND_ON \
 		+ Vector3(-CONTEST_CAMERA_SIDESTEP, CONTEST_CAMERA_HEIGHT, CONTEST_CAMERA_DISTANCE))
 
@@ -622,14 +682,25 @@ func _build_contest_floor() -> StaticBody3D:
 	return body
 
 
-## Resets both contest bodies' timers/possession/brain wants, then sets up
-## whichever scenario `kind` is — see ContestKind. Re-callable: pressing
-## the same CONTESTS button again just tears down and re-runs the same
-## scenario from scratch, the "generate another character and run the
-## simulation" behaviour applying every time, not just the first.
-func _launch_contest(kind: ContestKind) -> void:
-	_ensure_contest_built()
-	_show_contest()
+## Field Umpire rig, built on the first UMPIRE_BALL-UP press — its own
+## HumanoidRig (via kit_* overrides) and hand-posed throw-up, nothing to do
+## with the two contest PlayerControllers. See umpire.gd.
+func _ensure_umpire() -> void:
+	if _umpire != null:
+		return
+	_umpire = Umpire.new()
+	_umpire.role = Umpire.Role.FIELD
+	add_child(_umpire)
+	_umpire.visible = false
+
+
+## Clears both contest bodies + both brains back to a clean slate. Shared
+## by _launch_contest and _launch_sequence so neither leaves the other's
+## last run bleeding into the next (a live tackle hold, a pending dash, a
+## still-running stage timer).
+func _reset_contest_state() -> void:
+	_contest_stage = ContestStage.NONE
+	_sequence_stage = ContestStage.NONE
 
 	_contest_a.velocity = Vector3.ZERO
 	_contest_b.velocity = Vector3.ZERO
@@ -645,23 +716,45 @@ func _launch_contest(kind: ContestKind) -> void:
 	_contest_a._smother_dive_cooldown = 0.0
 	_contest_a._knockdown_hop_timer = 0.0
 	_contest_b._knockdown_hop_timer = 0.0
+	# A Slide connect locks the two bodies together for the length of the
+	# grab (PlayerController._begin_tackle_hold) — re-running a scenario
+	# while one is still live would have the new setup's teleported
+	# positions immediately dragged back toward the old contest.
+	_contest_a._end_tackle_hold()
+	_contest_b._end_tackle_hold()
+	_contest_a._end_mark_retreat()
 	_contest_a.drop_ball()
 	_contest_b.drop_ball()
+	_contest_ball.unlock()
 
-	_brain_a.wish_dir = Vector3.ZERO
-	_brain_a.gait_value = 0.0
-	_brain_a.tackle_wanted = false
-	_brain_a.lunge_wanted = false
-	_brain_a.smother_wanted = false
-	_brain_a.kick_wanted = false
-	_brain_b.wish_dir = Vector3.ZERO
-	_brain_b.gait_value = 0.0
-	_brain_b.tackle_wanted = false
-	_brain_b.lunge_wanted = false
-	_brain_b.smother_wanted = false
-	_brain_b.kick_wanted = false
+	for brain in [_brain_a, _brain_b]:
+		brain.wish_dir = Vector3.ZERO
+		brain.gait_value = 0.0
+		brain.tackle_wanted = false
+		brain.lunge_wanted = false
+		brain.smother_wanted = false
+		brain.kick_wanted = false
+		brain.bounce_wanted = false
+
+
+## Resets both contest bodies' timers/possession/brain wants, then sets up
+## whichever scenario `kind` is — see ContestKind. Re-callable: pressing
+## the same CONTESTS button again just tears down and re-runs the same
+## scenario from scratch, the "generate another character and run the
+## simulation" behaviour applying every time, not just the first.
+func _launch_contest(kind: ContestKind) -> void:
+	_ensure_contest_built()
+	_show_contest()
+	_reset_contest_state()
 
 	match kind:
+		# TACKLE — SLIDE is the one to watch for the hold: once it
+		# connects, the two bodies are pinned together at Tuning.TACKLE_
+		# HOLD_DISTANCE and turned to face each other for the full 1.0s
+		# grab, so the tackler is visibly wrapped around the carrier
+		# rather than the two clips playing side by side. Nothing here
+		# arranges that — it comes from the real _try_tackle path this
+		# vignette already runs through.
 		ContestKind.TACKLE_SLIDE:
 			_contest_a.global_position = Vector3(0.0, 0.0, -3.0)
 			_contest_a.rotation.y = deg_to_rad(180.0)
@@ -782,6 +875,109 @@ func _step_contest(delta: float) -> void:
 	_contest_status_label.text = "A: %s   B: %s" % [
 		Tuning.Action.keys()[_contest_a._action], Tuning.Action.keys()[_contest_b._action],
 	]
+
+
+# ── Sequences: one carrier / a ball / the umpire, no opponent. Same real
+# gameplay code as the contests, just a solo or prop motion that isn't a
+# single clip. See SequenceKind / SEQUENCES. ────────────────────────────
+
+## Sets up whichever SequenceKind `kind` is and starts it running. Re-
+## callable exactly like _launch_contest — press again, it tears down and
+## replays from scratch.
+func _launch_sequence(kind: SequenceKind) -> void:
+	_ensure_contest_built()
+	_reset_contest_state()
+	_show_contest()          # wide framing (also hides the umpire); overridden below
+	_contest_b.visible = false
+
+	match kind:
+		SequenceKind.BOUNCE_RUN:
+			# Carrier jogs downfield (+X, camera-right) and, once it has real
+			# speed under it, bounces — the ball is driven into the contest
+			# floor and re-gathered through the identical _dispose()/_try_
+			# gather path a match uses (nothing here fakes the rebound).
+			_contest_a.visible = true
+			_contest_ball.visible = true
+			_contest_a.global_position = Vector3(-3.5, 0.0, 0.0)
+			_contest_a.rotation.y = deg_to_rad(-90.0)   # face +X
+			_contest_a.give_possession(_contest_ball)
+			_brain_a.wish_dir = Vector3(1.0, 0.0, 0.0)
+			_brain_a.gait_value = 0.75
+		SequenceKind.MARK_RETREAT:
+			# Plays the Safe-mark catch clip, then walks the 5m back off the
+			# mark (Tuning.MARK_RETREAT_*) — run_back blend while facing stays
+			# downfield, exactly as _finish_mark_catch chains the two.
+			_contest_a.visible = true
+			_contest_ball.visible = true
+			_contest_a.global_position = Vector3(2.5, 0.0, 0.0)
+			_contest_a.rotation.y = deg_to_rad(-90.0)   # face +X; feet carry -X
+			_contest_a.give_possession(_contest_ball)
+			_contest_a._animation.play_action(Tuning.Action.MARK_SAFE)
+			_contest_a._begin_mark_retreat()
+		SequenceKind.UMPIRE_BALLUP:
+			# The field umpire's own rig performs the crouch/wind/toss
+			# (umpire.gd), a real Ball riding the grip until the release point
+			# FullGame._begin_ruck_contest fires at, then lobbed straight up
+			# at Tuning.BALL_UP_TOSS_SPEED.
+			_ensure_umpire()
+			_contest_a.visible = false
+			_umpire.visible = true
+			_umpire.stand_at(Vector3(0.0, 0.0, 0.4), Vector3(6.0, 0.0, 0.4))   # profile to camera
+			_contest_ball.visible = true
+			_contest_ball.lock_to(_umpire.ball_hold_point())
+			_umpire.throw_up(Tuning.BALL_UP_THROW_DURATION)
+
+	_sequence_kind = kind
+	_sequence_stage = ContestStage.APPROACH
+	_sequence_timer = 0.0
+	_sequence_triggered = false
+
+
+## Per-frame driver for the running sequence — the SEQUENCES equivalent of
+## _step_contest. Each kind's trigger is the one thing a scripted run can't
+## get from a brain want: BOUNCE_RUN pulses wants_bounce() once the carrier
+## has speed, UMPIRE_BALLUP launches the toss at the throw's release point,
+## MARK_RETREAT needs nothing (the retreat drives itself once begun).
+func _step_sequence(delta: float) -> void:
+	if _sequence_stage == ContestStage.NONE:
+		return
+	_sequence_timer += delta
+
+	if _sequence_stage == ContestStage.APPROACH:
+		match _sequence_kind:
+			SequenceKind.BOUNCE_RUN:
+				if not _sequence_triggered and _sequence_timer >= SEQUENCE_TRIGGER_DELAY:
+					_sequence_triggered = true
+					_brain_a.bounce_wanted = true     # one-frame edge, like a real tap
+				elif _sequence_triggered:
+					_brain_a.bounce_wanted = false
+			SequenceKind.UMPIRE_BALLUP:
+				var release := Tuning.BALL_UP_THROW_DURATION * Umpire.THROW_RELEASE_END
+				if not _sequence_triggered and _sequence_timer >= release:
+					_sequence_triggered = true
+					var from := _contest_ball.global_position
+					_contest_ball.reset_at(from)
+					_contest_ball.launch(Vector3.UP, Tuning.BALL_UP_TOSS_SPEED, Vector3.ZERO)
+			SequenceKind.MARK_RETREAT:
+				pass
+
+		if _sequence_timer > SEQUENCE_TIMEOUT:
+			_sequence_stage = ContestStage.HOLD
+
+	_contest_status_label.text = _sequence_status_text()
+
+
+func _sequence_status_text() -> String:
+	match _sequence_kind:
+		SequenceKind.BOUNCE_RUN:
+			return "BOUNCE ON THE RUN — %s" % \
+				("gathered" if _sequence_triggered and _contest_a.is_carrying() else "running")
+		SequenceKind.MARK_RETREAT:
+			return "MARK RETREAT — %s" % \
+				("walking back" if _contest_a.is_retreating_from_mark() else "on the mark")
+		SequenceKind.UMPIRE_BALLUP:
+			return "UMPIRE BALL-UP — %s" % ("thrown" if _sequence_triggered else "winding up")
+	return ""
 
 
 # ── Studio floor (single-subject preview only) ────────────────────────
