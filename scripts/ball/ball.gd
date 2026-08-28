@@ -31,9 +31,23 @@ const HULL_SEGMENTS := 14
 @onready var _collision: CollisionShape3D = $CollisionShape3D
 @onready var _mesh: MeshInstance3D = $MeshInstance3D
 
+## "Not available to be played" rather than literally "in a player's
+## hands" — a carrier is holding it, and so is the umpire before a
+## throw-up (see lock_at()). Every reader of this wants the same answer in
+## both cases: no gathering it, not airborne, not settled out of bounds,
+## not markable.
 var is_held: bool:
 	get:
-		return _carry_point != null
+		return _carry_point != null or _locked
+
+## True between the umpire picking the ball up for a stoppage and actually
+## throwing it. See lock_at()/lock_to()/unlock(). `_lock_point` is set only
+## by lock_to(): the ball then rides that node every frame, which is what
+## puts it in the umpire's hands through the whole throw-up rather than
+## hovering at the spot in front of him.
+var _locked := false
+var _lock_point: Node3D = null
+var _lock_position := Vector3.ZERO
 
 var _carry_point: Node3D = null
 var _carrier: Node3D = null
@@ -47,6 +61,15 @@ var _was_airborne := false
 ## same as real AFL.
 var _is_kick_flight := false
 var _flight_origin := Vector3.ZERO
+
+## Set true only by a launch() from a manual BOUNCE disposal (see
+## PlayerController._dispose). While true, _physics_process scripts one
+## clean rebound off the turf instead of trusting the prolate hull, which
+## scrubs a steep nose-first strike to near-nothing at random — fine for a
+## loose ball, wrong for a bounce the carrier is meant to run onto.
+## Cleared the instant that rebound is applied (or on gather/reset).
+var _is_bounce_flight := false
+var _bounce_rebounded := false
 
 ## Who launched the current flight — separate from `_carrier` above, which
 ## exists for a different purpose (the collision-exception the launcher
@@ -101,6 +124,43 @@ func _physics_process(delta: float) -> void:
 			return
 		global_transform = _carry_point.global_transform
 		return
+
+	# Held by an official rather than carried by a player — see lock_at()/
+	# lock_to(). Pinned by hand every frame rather than by freezing the
+	# body: freezing works, but coming *out* of it in the same frame the
+	# launch velocity is assigned loses that velocity (the body is still
+	# kinematic when the assignment lands), which is exactly what a
+	# throw-up does. Re-pinning position and zeroing velocity has the same
+	# effect — nothing can nudge it, since any nudge is undone the same
+	# frame — with no freeze transition to get wrong.
+	if _locked:
+		if is_instance_valid(_lock_point):
+			_lock_position = _lock_point.global_position
+		global_position = _lock_position
+		linear_velocity = Vector3.ZERO
+		angular_velocity = Vector3.ZERO
+		return
+
+	# Manual bounce: script one clean rebound off the turf rather than let
+	# the prolate hull scrub it flat (see _is_bounce_flight). The first
+	# frame this flight is back down near the ground and still falling, set
+	# a deterministic upward speed and keep whatever horizontal it earned,
+	# so the carrier runs onto a hands-high rebound every time instead of a
+	# random dribbler. Same "scripted assist layered on the real sim" shape
+	# as _apply_catch_gravity below.
+	if _is_bounce_flight and not _bounce_rebounded and linear_velocity.y < 0.0 \
+			and global_position.y <= Tuning.BOUNCE_REBOUND_HEIGHT:
+		_bounce_rebounded = true
+		_is_bounce_flight = false
+		# Keep a cut of the forward speed, then cap it outright — momentum
+		# transfer from a sprint (DISPOSAL_MOMENTUM_TRANSFER) otherwise sent
+		# the rebound further ahead the faster you were going, which
+		# overran the carrier. The cap makes "how far in front it lands"
+		# roughly the same whether you're jogging or flat out.
+		var horizontal := Vector3(linear_velocity.x, 0.0, linear_velocity.z) \
+			* Tuning.BOUNCE_REBOUND_KEEP
+		horizontal = horizontal.limit_length(Tuning.BOUNCE_REBOUND_MAX_AHEAD)
+		linear_velocity = Vector3(horizontal.x, Tuning.BOUNCE_REBOUND_UP_SPEED, horizontal.z)
 
 	# One-shot "it came down" notice, for camera framing and audio later.
 	var airborne := is_airborne()
@@ -185,7 +245,8 @@ func _nearest_uncontested_catcher() -> PlayerController:
 ## other caller (handball, bounce, hit-out, the centre bounce) leaves it
 ## false, since none of those can ever be marked.
 func launch(direction: Vector3, speed: float, spin: Vector3, from: Node3D = null,
-		is_kick_disposal: bool = false) -> void:
+		is_kick_disposal: bool = false, is_bounce: bool = false) -> void:
+	unlock()
 	detach()
 	if from != null:
 		# Usually already excluded from carrying it; only swap if the ball
@@ -203,6 +264,8 @@ func launch(direction: Vector3, speed: float, spin: Vector3, from: Node3D = null
 	angular_velocity = spin
 	_was_airborne = is_airborne()
 	_is_kick_flight = is_kick_disposal
+	_is_bounce_flight = is_bounce
+	_bounce_rebounded = false
 	_flight_origin = global_position
 	_kick_team = (from as PlayerController).team \
 		if is_kick_disposal and from is PlayerController else Tuning.Team.NONE
@@ -221,6 +284,7 @@ func attach_to(point: Node3D, holder: Node3D) -> void:
 	linear_velocity = Vector3.ZERO
 	angular_velocity = Vector3.ZERO
 	_is_kick_flight = false
+	_is_bounce_flight = false
 	_kick_team = Tuning.Team.NONE
 	if is_instance_valid(_carrier) and _carrier != holder:
 		remove_collision_exception_with(_carrier)
@@ -342,13 +406,61 @@ func knock(impulse: Vector3) -> void:
 	apply_central_impulse(impulse)
 
 
-func reset_at(position: Vector3) -> void:
+## Held out of play at `position` until unlock() — the umpire has it. The
+## ball is pinned there every physics frame (see _physics_process) rather
+## than left as a settled rigid body, because a rigid body sitting on the
+## turf can still be nudged by a player running over it, and is_held above
+## keeps anyone from gathering, marking or hit-outing it in the meantime.
+## Playtest report: players were grabbing the ball off the ground before
+## the umpire had thrown it up.
+func lock_at(position: Vector3) -> void:
 	detach()
 	if is_instance_valid(_carrier):
 		remove_collision_exception_with(_carrier)
 	_carrier = null
 	_release_grace = 0.0
 	_is_kick_flight = false
+	_is_bounce_flight = false
+	_kick_team = Tuning.Team.NONE
+	freeze = false
+	sleeping = false
+	linear_velocity = Vector3.ZERO
+	angular_velocity = Vector3.ZERO
+	global_transform = Transform3D(Basis.IDENTITY, position)
+	_locked = true
+	_lock_point = null
+	_lock_position = position
+
+
+## Held out of play in `point`'s hands, riding it every frame — the
+## umpire's grip through a throw-up. Same "not available to be played"
+## state lock_at() gives, just following something instead of sitting
+## still. Deliberately not attach_to(): that one is for a PLAYER carrying
+## the ball and adds a collision exception with the carrier's own body,
+## which an umpire hasn't got (see Umpire's class doc — officials have no
+## collision at all).
+func lock_to(point: Node3D) -> void:
+	lock_at(point.global_position)
+	_lock_point = point
+
+
+## Back into play. Both reset_at() and launch() call this themselves, so a
+## lock can never outlive the next thing that puts the ball anywhere —
+## there is no call site that has to remember to unlock.
+func unlock() -> void:
+	_locked = false
+	_lock_point = null
+
+
+func reset_at(position: Vector3) -> void:
+	unlock()
+	detach()
+	if is_instance_valid(_carrier):
+		remove_collision_exception_with(_carrier)
+	_carrier = null
+	_release_grace = 0.0
+	_is_kick_flight = false
+	_is_bounce_flight = false
 	_kick_team = Tuning.Team.NONE
 	freeze = false
 	sleeping = false

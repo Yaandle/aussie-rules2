@@ -295,24 +295,30 @@ static func _build_handball(hip_height: float) -> Animation:
 static func _build_bounce(hip_height: float) -> Animation:
 	var length := Tuning.action_duration(Tuning.Action.BOUNCE)
 	var contact := Tuning.action_contact_time(Tuning.Action.BOUNCE)
+	# User brief: a bounce on the run should read as reaching the ball down
+	# and back up in one motion — not the carrier ducking into a deep crouch
+	# and popping back up. The dip is now shallow (hip_y bottoms at -0.03,
+	# was -0.07; torso folds -0.22, was -0.40) and the recovery keyframe
+	# sits at 0.35 of the post-contact time rather than 0.5, so the figure
+	# is back upright and running quickly instead of unfolding slowly.
 	return _assemble(length, false, [
 		[0.0, _base_pose()],
 		[contact * 0.55, _pose({
-			"hip_y": -0.05, "torso": Vector3(-0.30, 0.0, 0.0), "neck": Vector3(0.18, 0.0, 0.0),
-			"shoulder_l": Vector3(0.75, 0.0, -0.22), "shoulder_r": Vector3(0.75, 0.0, 0.22),
-			"elbow_l": Vector3(-0.50, 0.0, 0.0), "elbow_r": Vector3(-0.50, 0.0, 0.0),
-			"knee_l": Vector3(-0.35, 0.0, 0.0), "knee_r": Vector3(-0.35, 0.0, 0.0),
+			"hip_y": -0.02, "torso": Vector3(-0.16, 0.0, 0.0), "neck": Vector3(0.12, 0.0, 0.0),
+			"shoulder_l": Vector3(0.70, 0.0, -0.20), "shoulder_r": Vector3(0.70, 0.0, 0.20),
+			"elbow_l": Vector3(-0.45, 0.0, 0.0), "elbow_r": Vector3(-0.45, 0.0, 0.0),
+			"knee_l": Vector3(-0.18, 0.0, 0.0), "knee_r": Vector3(-0.18, 0.0, 0.0),
 		})],
 		[contact, _pose({
-			"hip_y": -0.07, "torso": Vector3(-0.40, 0.0, 0.0), "neck": Vector3(0.24, 0.0, 0.0),
-			"shoulder_l": Vector3(1.00, 0.0, -0.20), "shoulder_r": Vector3(1.00, 0.0, 0.20),
-			"elbow_l": Vector3(-0.15, 0.0, 0.0), "elbow_r": Vector3(-0.15, 0.0, 0.0),
-			"knee_l": Vector3(-0.42, 0.0, 0.0), "knee_r": Vector3(-0.42, 0.0, 0.0),
+			"hip_y": -0.03, "torso": Vector3(-0.22, 0.0, 0.0), "neck": Vector3(0.16, 0.0, 0.0),
+			"shoulder_l": Vector3(0.95, 0.0, -0.18), "shoulder_r": Vector3(0.95, 0.0, 0.18),
+			"elbow_l": Vector3(-0.18, 0.0, 0.0), "elbow_r": Vector3(-0.18, 0.0, 0.0),
+			"knee_l": Vector3(-0.24, 0.0, 0.0), "knee_r": Vector3(-0.24, 0.0, 0.0),
 		})],
-		[lerpf(contact, length, 0.5), _pose({
-			"hip_y": -0.02, "torso": Vector3(-0.18, 0.0, 0.0), "neck": Vector3(0.10, 0.0, 0.0),
-			"shoulder_l": Vector3(0.50, 0.0, -0.16), "shoulder_r": Vector3(0.50, 0.0, 0.16),
-			"knee_l": Vector3(-0.20, 0.0, 0.0), "knee_r": Vector3(-0.20, 0.0, 0.0),
+		[lerpf(contact, length, 0.35), _pose({
+			"hip_y": -0.005, "torso": Vector3(-0.06, 0.0, 0.0), "neck": Vector3(0.04, 0.0, 0.0),
+			"shoulder_l": Vector3(0.32, 0.0, -0.12), "shoulder_r": Vector3(0.32, 0.0, 0.12),
+			"knee_l": Vector3(-0.08, 0.0, 0.0), "knee_r": Vector3(-0.08, 0.0, 0.0),
 		})],
 		[length, _base_pose()],
 	], hip_height)
@@ -665,23 +671,64 @@ static func _build_tackle_grab(hip_height: float) -> Animation:
 	var contact := Tuning.action_contact_time(Tuning.Action.TACKLE_GRAB)
 	return _assemble(length, false, [
 		[0.0, _base_pose()],
-		[contact * 0.6, _pose({
-			"hip_y": -0.04, "torso": Vector3(-0.12, 0.0, 0.0),
-			"shoulder_l": Vector3(0.70, 0.0, -0.20), "elbow_l": Vector3(-0.60, 0.0, 0.0),
-			"shoulder_r": Vector3(0.65, 0.0, 0.16), "elbow_r": Vector3(-0.55, 0.0, 0.0),
-			"hip_l": Vector3(0.10, 0.0, 0.0), "knee_l": Vector3(-0.15, 0.0, 0.0),
+		# Arms come up and out to gather the target in — shoulders already
+		# near horizontal (PI/2 is straight out in front) with the elbows
+		# opening, the shape of reaching around someone rather than at them.
+		[contact * 0.55, _pose({
+			"hip_y": -0.08, "torso": Vector3(-0.20, 0.0, 0.0),
+			"neck": Vector3(-0.10, 0.0, 0.0),
+			"shoulder_l": Vector3(1.10, 0.0, -0.18), "elbow_l": Vector3(-0.30, 0.0, 0.0),
+			"shoulder_r": Vector3(1.06, 0.0, 0.16), "elbow_r": Vector3(-0.26, 0.0, 0.0),
+			"hip_l": Vector3(0.24, 0.0, 0.0), "knee_l": Vector3(-0.34, 0.0, 0.0),
+			"hip_r": Vector3(0.10, 0.0, 0.0), "knee_r": Vector3(-0.22, 0.0, 0.0),
 		})],
+		# The clamp. Shoulders sit just under horizontal and swing past
+		# each other (the Z sign flips relative to _base_pose's own
+		# outward rest spread), so both arms come around the front of the
+		# body being held and meet on its far side.
+		#
+		# The elbows are only lightly bent on purpose. An earlier version
+		# folded them ~1.95 rad, which reads as the forearms pointing back
+		# *behind* the tackler — the upper arms were forward but the hands
+		# ended up back at his own chest. Playtest report: "the arms point
+		# the opposite direction, behind the player." A shallow bend keeps
+		# the forearms continuing forward around the target, which is what
+		# a wrap actually looks like.
 		[contact, _pose({
-			"hip_y": -0.06, "torso": Vector3(-0.10, 0.0, 0.0),
-			"shoulder_l": Vector3(0.75, 0.0, -0.05), "elbow_l": Vector3(-1.10, 0.0, 0.0),
-			"shoulder_r": Vector3(0.70, 0.0, 0.05), "elbow_r": Vector3(-1.05, 0.0, 0.0),
-			"hip_l": Vector3(0.15, 0.0, 0.0), "knee_l": Vector3(-0.20, 0.0, 0.0),
-			"hip_r": Vector3(-0.08, 0.0, 0.0), "knee_r": Vector3(-0.10, 0.0, 0.0),
+			"hip_y": -0.16, "torso": Vector3(-0.34, 0.0, 0.0),
+			"neck": Vector3(-0.16, 0.0, 0.0),
+			"shoulder_l": Vector3(1.30, 0.0, 0.34), "elbow_l": Vector3(-0.70, 0.0, 0.0),
+			"shoulder_r": Vector3(1.26, 0.0, -0.32), "elbow_r": Vector3(-0.66, 0.0, 0.0),
+			"hip_l": Vector3(0.34, 0.0, 0.0), "knee_l": Vector3(-0.52, 0.0, 0.0),
+			"hip_r": Vector3(0.18, 0.0, 0.0), "knee_r": Vector3(-0.40, 0.0, 0.0),
 		})],
-		[lerpf(contact, length, 0.55), _pose({
-			"hip_y": -0.05, "torso": Vector3(-0.08, 0.0, 0.0),
-			"shoulder_l": Vector3(0.60, 0.0, -0.08), "elbow_l": Vector3(-0.95, 0.0, 0.0),
-			"shoulder_r": Vector3(0.55, 0.0, 0.06), "elbow_r": Vector3(-0.90, 0.0, 0.0),
+		# Held, with a wrestle in it: the clamp stays shut the whole time
+		# (this is a 1.0s hold, not a beat to pass through) and only the
+		# torso twists, so the pair looks like it is straining rather than
+		# frozen mid-pose.
+		[lerpf(contact, length, 0.35), _pose({
+			"hip_y": -0.15, "torso": Vector3(-0.32, 0.0, 0.09),
+			"neck": Vector3(-0.14, 0.0, 0.05),
+			"shoulder_l": Vector3(1.32, 0.0, 0.36), "elbow_l": Vector3(-0.74, 0.0, 0.0),
+			"shoulder_r": Vector3(1.24, 0.0, -0.30), "elbow_r": Vector3(-0.62, 0.0, 0.0),
+			"hip_l": Vector3(0.34, 0.0, 0.0), "knee_l": Vector3(-0.50, 0.0, 0.0),
+			"hip_r": Vector3(0.18, 0.0, 0.0), "knee_r": Vector3(-0.42, 0.0, 0.0),
+		})],
+		[lerpf(contact, length, 0.72), _pose({
+			"hip_y": -0.15, "torso": Vector3(-0.30, 0.0, -0.07),
+			"neck": Vector3(-0.14, 0.0, -0.04),
+			"shoulder_l": Vector3(1.26, 0.0, 0.30), "elbow_l": Vector3(-0.64, 0.0, 0.0),
+			"shoulder_r": Vector3(1.30, 0.0, -0.34), "elbow_r": Vector3(-0.72, 0.0, 0.0),
+			"hip_l": Vector3(0.32, 0.0, 0.0), "knee_l": Vector3(-0.48, 0.0, 0.0),
+			"hip_r": Vector3(0.20, 0.0, 0.0), "knee_r": Vector3(-0.44, 0.0, 0.0),
+		})],
+		# Let go and stand up. Only the last fraction of the clip, so the
+		# release reads as a release rather than the hold quietly fading.
+		[lerpf(contact, length, 0.90), _pose({
+			"hip_y": -0.08, "torso": Vector3(-0.16, 0.0, 0.0),
+			"shoulder_l": Vector3(0.70, 0.0, -0.10), "elbow_l": Vector3(-0.80, 0.0, 0.0),
+			"shoulder_r": Vector3(0.66, 0.0, 0.10), "elbow_r": Vector3(-0.76, 0.0, 0.0),
+			"hip_l": Vector3(0.14, 0.0, 0.0), "knee_l": Vector3(-0.20, 0.0, 0.0),
 		})],
 		[length, _base_pose()],
 	], hip_height)
@@ -698,25 +745,50 @@ static func _build_tackle_grab(hip_height: float) -> Animation:
 ## much smaller stagger, not a topple), arms pinned close against the body
 ## (reduced shoulder spread, deep elbow bend — can't swing them, held
 ## still), a brief struggle wobble, then released back to base as the ball
-## goes. No facing change — PlayerController._get_tackled() doesn't call
-## _fall_toward() for a Slide connect, the target keeps whatever way they
-## were already facing.
+## goes. No fall, so PlayerController._get_tackled() never calls
+## _fall_toward() for a Slide connect — but the target does now turn to
+## face the tackler for the length of the hold (_begin_tackle_hold pins
+## the pair together at Tuning.TACKLE_HOLD_DISTANCE and points both at
+## each other), which is what makes this read as being wrapped up by
+## someone rather than staggering on the spot.
 static func _build_tackle_held(hip_height: float) -> Animation:
 	var length := Tuning.action_duration(Tuning.Action.TACKLE_HELD)
 	var contact := Tuning.action_contact_time(Tuning.Action.TACKLE_HELD)
 	return _assemble(length, false, [
 		[0.0, _base_pose()],
+		# Caught: arched back, arms clamped in against the ribs and folded
+		# shut — held, not swinging. Deeper than the first version of this
+		# clip, which barely moved and read as a shrug next to the
+		# tackler's own wrap.
 		[contact, _pose({
-			"hip_y": -0.03, "torso": Vector3(0.12, 0.0, 0.0), "neck": Vector3(-0.03, 0.0, 0.0),
-			"shoulder_l": Vector3(0.25, 0.0, -0.05), "elbow_l": Vector3(-0.85, 0.0, 0.0),
-			"shoulder_r": Vector3(0.22, 0.0, 0.05), "elbow_r": Vector3(-0.80, 0.0, 0.0),
-			"hip_l": Vector3(-0.10, 0.0, 0.0), "knee_l": Vector3(-0.12, 0.0, 0.0),
-			"hip_r": Vector3(-0.08, 0.0, 0.0), "knee_r": Vector3(-0.10, 0.0, 0.0),
+			"hip_y": -0.09, "torso": Vector3(0.26, 0.0, 0.0), "neck": Vector3(-0.10, 0.0, 0.0),
+			"shoulder_l": Vector3(0.34, 0.0, 0.06), "elbow_l": Vector3(-1.15, 0.0, 0.0),
+			"shoulder_r": Vector3(0.32, 0.0, -0.06), "elbow_r": Vector3(-1.12, 0.0, 0.0),
+			"hip_l": Vector3(-0.20, 0.0, 0.0), "knee_l": Vector3(-0.30, 0.0, 0.0),
+			"hip_r": Vector3(-0.16, 0.0, 0.0), "knee_r": Vector3(-0.26, 0.0, 0.0),
 		})],
-		[lerpf(contact, length, 0.5), _pose({
-			"hip_y": -0.02, "torso": Vector3(0.06, 0.0, 0.03), "neck": Vector3(-0.02, 0.0, 0.0),
-			"shoulder_l": Vector3(0.20, 0.0, -0.04), "elbow_l": Vector3(-0.70, 0.0, 0.0),
-			"shoulder_r": Vector3(0.18, 0.0, 0.04), "elbow_r": Vector3(-0.68, 0.0, 0.0),
+		# Two struggle beats against the hold, opposite ways, mirroring the
+		# tackler's own wrestle so the pair strains together rather than
+		# each drifting on its own schedule.
+		[lerpf(contact, length, 0.35), _pose({
+			"hip_y": -0.08, "torso": Vector3(0.22, 0.0, -0.13), "neck": Vector3(-0.09, 0.0, -0.06),
+			"shoulder_l": Vector3(0.38, 0.0, 0.08), "elbow_l": Vector3(-1.20, 0.0, 0.0),
+			"shoulder_r": Vector3(0.28, 0.0, -0.04), "elbow_r": Vector3(-1.05, 0.0, 0.0),
+			"hip_l": Vector3(-0.22, 0.0, 0.0), "knee_l": Vector3(-0.32, 0.0, 0.0),
+			"hip_r": Vector3(-0.14, 0.0, 0.0), "knee_r": Vector3(-0.24, 0.0, 0.0),
+		})],
+		[lerpf(contact, length, 0.72), _pose({
+			"hip_y": -0.08, "torso": Vector3(0.20, 0.0, 0.11), "neck": Vector3(-0.08, 0.0, 0.05),
+			"shoulder_l": Vector3(0.30, 0.0, 0.04), "elbow_l": Vector3(-1.06, 0.0, 0.0),
+			"shoulder_r": Vector3(0.36, 0.0, -0.08), "elbow_r": Vector3(-1.18, 0.0, 0.0),
+			"hip_l": Vector3(-0.16, 0.0, 0.0), "knee_l": Vector3(-0.26, 0.0, 0.0),
+			"hip_r": Vector3(-0.20, 0.0, 0.0), "knee_r": Vector3(-0.30, 0.0, 0.0),
+		})],
+		# Released on the same beat the tackler lets go.
+		[lerpf(contact, length, 0.90), _pose({
+			"hip_y": -0.04, "torso": Vector3(0.10, 0.0, 0.0),
+			"shoulder_l": Vector3(0.16, 0.0, 0.0), "elbow_l": Vector3(-0.90, 0.0, 0.0),
+			"shoulder_r": Vector3(0.15, 0.0, 0.0), "elbow_r": Vector3(-0.88, 0.0, 0.0),
 		})],
 		[length, _base_pose()],
 	], hip_height)

@@ -202,6 +202,18 @@ const BACKPEDAL_EXIT_DOT := 0.15       # facing . wish_dir at/above this exits +
 const BACKPEDAL_ENTRY_SPEED_MARGIN := 0.5   # m/s above JOG_SPEED still allowed to enter
 const BACKPEDAL_SPEED := 3.0           # m/s, capped backward shuffle
 const BACKPEDAL_ACCELERATION := 7.0    # m/s^2 — deliberate, a shade under ACCELERATION
+# How long a single backpedal can run before the body gives up on holding
+# its facing, turns, and just runs that way. Not a rule number — this is
+# the fix for a playtest report ("sometimes I look the other way and it
+# gets stuck in the backpedal and I have to do a small turn forwards and
+# around"): facing is frozen while backpedalling, so holding the stick
+# behind you can never turn the body, and BACKPEDAL_EXIT_DOT could only be
+# reached by swinging the stick back around to where the body already
+# looked. This is the "-to-turn" half of the design brief's own
+# "backpedal-to-turn transitions" — a shuffle is a transition, not a mode
+# you can be parked in. 1s is ~3m of ground covered at BACKPEDAL_SPEED,
+# well past reading the play and into "you meant to run".
+const BACKPEDAL_MAX_DURATION := 1.0    # s of continuous shuffle before turning out of it
 
 # The moment a backpedal resolves into a real direction (design brief:
 # "acceleration bursts when starting a lead or chase") — heading is
@@ -242,7 +254,11 @@ const BALL_SEMI_MINOR := 0.0875        # m
 const BALL_FRICTION := 0.65            # on grass
 # Restitution off turf. P1 faked this with a cosmetic two-hop height
 # offset that never touched the ball's real position; here it is real.
-const BALL_BOUNCE := 0.45
+# Rulebook §8: a ball landing from a kick should sit up livelier than it
+# did — raised from 0.45. Not a rule number, a feel target, and it is the
+# one value both halves of §8 run through: the manual bounce below rebounds
+# off this same restitution, so the two were raised together.
+const BALL_BOUNCE := 0.55
 const BALL_ANGULAR_DAMP := 0.35        # spin bleeds off
 const BALL_LINEAR_DAMP := 0.0          # air resistance is modelled properly below
 
@@ -283,9 +299,44 @@ const HANDBALL_SPEED := 15.0           # m/s (P1: HANDBALL_RANGE = 34 units)
 const HANDBALL_ANGLE := 9.0            # deg elevation — flat and fast
 const HANDBALL_SPIN := 4.0             # rad/s
 
-const BOUNCE_SPEED := 8.0              # m/s driving the ball into the turf
+# Rulebook §8: the manual bounce should come back up higher than it did.
+# Cranking this 8 -> 17 across playtests never fixed the ball coming up
+# into the body, because the spheroid hull striking the turf nose-first
+# scrubbed the rebound to near-dead at random (headless _scratch_bounce:
+# apex ~0.5-0.9 m, sometimes basically zero, regardless of speed). The
+# rebound is now scripted for a bounce flight only (BOUNCE_REBOUND_* below,
+# Ball._physics_process), so this just carries the ball down and forward;
+# the height comes from that.
+const BOUNCE_SPEED := 11.0             # m/s driving the ball into the turf
 # Down, but far enough ahead that a running player runs onto the rebound.
-const BOUNCE_ANGLE := -52.0            # deg
+# Eased -52 -> -40: a glancing strike keeps more speed through the contact
+# so the ball skips forward rather than stalling; the scripted rebound
+# supplies the height regardless of what the hull does.
+const BOUNCE_ANGLE := -40.0            # deg
+
+# The manual bounce's rebound off the turf is scripted (Ball._physics_
+# process), not left to the erratic hull: the first time a bounce flight
+# comes back down through BOUNCE_REBOUND_HEIGHT still falling, its vertical
+# speed is set to BOUNCE_REBOUND_UP_SPEED and its horizontal is scaled by
+# BOUNCE_REBOUND_KEEP (the turf takes a cut of the forward speed, the way
+# a real bounce does -- without it the ball sailed ~10 m downfield and
+# outran the bouncer). ~1.2 m apex before drag: hands height on the run,
+# not the shins, and slow enough forward that a sprinting carrier runs
+# onto it. The trigger sits just above the ~0.22 m airborne threshold
+# (BALL_SEMI_MINOR * 2.5) so a ball that has effectively landed can't set
+# off a phantom hop. Only a BOUNCE disposal arms it (Ball.launch's
+# is_bounce arg); a kick / handball / hit-out bounces off the hull as
+# before.
+const BOUNCE_REBOUND_HEIGHT := 0.30    # m, on the way down
+const BOUNCE_REBOUND_UP_SPEED := 4.2   # m/s clean vertical rebound
+const BOUNCE_REBOUND_KEEP := 0.55      # fraction of horizontal speed kept
+# Hard ceiling on the rebound's forward speed after KEEP, applied on top:
+# without it a sprint's momentum transfer put the ball far enough ahead to
+# overrun the bouncer. Trimmed 4.5 -> 3.8 across two rounds of playtest
+# feedback ("a little too far in front when sprinting", then "decrease it a
+# little more") — lands the ball a short, consistent step in front at any
+# run speed.
+const BOUNCE_REBOUND_MAX_AHEAD := 3.8  # m/s
 
 # A kick on the run goes further than the same kick standing still.
 # Fraction of the player's horizontal velocity added to the ball.
@@ -366,9 +417,16 @@ const KICK_MOUSE_REACH_SENSITIVITY := 0.0035
 ## bookkeeping the same way MARK_SAFE_MISS/MARK_RUNNING_MISS do.
 ##
 ## TACKLE_GRAB (index 11): a wrap-and-hold beat, synced with TACKLE_HELD
-## (index 14) — both share this same 0.55s length so tackler and target
+## (index 14) — both share this same 1.0s length so tackler and target
 ## settle together, not one finishing well before the other. No stun of
-## its own; the tackler is free to move again the moment it ends.
+## its own; the tackler is free to move again the moment it ends, but they
+## are physically pinned to the target for its duration (see
+## TACKLE_HOLD_DISTANCE and PlayerController._begin_tackle_hold).
+## Lengthened from 0.55s: rulebook §6 asks for the two players to be held
+## together for 1-2s, and 0.55s was short enough that the wrap read as a
+## flinch. Still clearly shorter than Lunge's own 1.3s takedown, so the
+## playtest decision that the two tackle types should *feel* different
+## survives — it's the gap that carried that read, not the absolute value.
 ##
 ## SMOTHERED (index 12): shorter than TACKLED — a recoil, not a fall — and
 ## unstunned like MARK_SAFE_MISS/MARK_RUNNING_MISS, just gated off other
@@ -381,7 +439,7 @@ const KICK_MOUSE_REACH_SENSITIVITY := 0.0035
 ## time is what gives the dive somewhere to actually go before snapping
 ## back to base.
 ##
-## TACKLE_HELD (index 14): see TACKLE_GRAB above — same 0.55s length,
+## TACKLE_HELD (index 14): see TACKLE_GRAB above — same 1.0s length,
 ## deliberately shorter than TACKLED's own 1.3s since nobody goes to
 ## ground here; TACKLE_HELD_STUN_DURATION matches it the same way
 ## TACKLE_STUN_DURATION matches TACKLED.
@@ -394,13 +452,19 @@ const KICK_MOUSE_REACH_SENSITIVITY := 0.0035
 ## KNOCKED_BACK (index 16): matches TACKLED's own 1.3s/0.30 contact split
 ## exactly — see that clip's own comment; this is a sign-mirrored variant
 ## of the same fall, not a differently-paced one.
-const ACTION_DURATION := [0.0, 0.78, 0.45, 0.50, 0.55, 0.40, 0.95, 0.95, 0.35, 0.30, 1.3, 0.55, 0.45, 0.55, 0.55, 1.3, 1.3]
-const ACTION_CONTACT := [0.0, 0.42, 0.20, 0.22, 0.08, 0.06, 0.40, 0.40, 0.10, 0.10, 0.30, 0.22, 0.12, 0.38, 0.15, 0.30, 0.30]
+const ACTION_DURATION := [0.0, 0.78, 0.45, 0.50, 0.55, 0.40, 0.95, 0.95, 0.35, 0.30, 1.3, 1.0, 0.45, 0.55, 1.0, 1.3, 1.3]
+const ACTION_CONTACT := [0.0, 0.42, 0.20, 0.22, 0.08, 0.06, 0.40, 0.40, 0.10, 0.10, 0.30, 0.40, 0.12, 0.38, 0.27, 0.30, 0.30]
 
 # AFL rule: a player running with the ball must bounce or touch it to
-# ground every 15 metres. Carried over unchanged from Prototype 1's
-# BOUNCE_INTERVAL = 15.0, which was already the real rule.
-const BOUNCE_INTERVAL := 15.0          # metres of carry between bounces
+# ground every 15 metres (Prototype 1's BOUNCE_INTERVAL, which matched the
+# real rule). Raised to 20 here on playtest feel — the call was landing
+# early. Two reasons it reads short at 15: _carry_distance accumulates
+# path length, not downfield displacement, so any curve in the run counts
+# against you faster than the eye expects; and a real umpire is lenient
+# about the exact metre. 20 m of path ≈ 15 m of ground made good on a
+# gently curving run. Deliberate deviation from the rule number, not an
+# oversight.
+const BOUNCE_INTERVAL := 20.0          # metres of carry between bounces
 
 # An actual arm's reach. P1's LOOSE_BALL_GATHER_RADIUS was 4.0 units — a
 # positional abstraction for "close enough", not a reach. Nudged up from
@@ -505,16 +569,16 @@ const CAM_DIALOGUE_FOV := 42.0         # deg, tighter for an intimate two-shot
 # full-ground rig: mounted outside the boundary and elevated, not hovering
 # over the ball. Unlike the old top-down version this replaces, the rig's
 # pivot sits at a genuinely fixed position outside the field on the Z axis
-# (SIDE_OFFSET, well past Field.SURROUND_MARGIN's fence at ~76.5m) rather
+# (SIDE_OFFSET, just past Field.SURROUND_MARGIN's fence at ~76.5m) rather
 # than reaching "outside" only as a side effect of enough arm-length/pitch
 # tuning — "positioned outside the field" is where the rig actually lives.
 # ARM stays short on purpose: HEIGHT does the elevation directly now
 # (global_position.y), so the spring arm isn't being asked to carry both
 # jobs the way the old fixed-pitch version needed it to.
-const CAM_FULL_SIDE_SIDE_OFFSET := 100.0   # m outside the boundary (Z) — where the rig is mounted
-const CAM_FULL_SIDE_HEIGHT := 34.0         # m elevation
+const CAM_FULL_SIDE_SIDE_OFFSET := 60.0    # m outside the boundary (Z) — where the rig is mounted
+const CAM_FULL_SIDE_HEIGHT := 18.0         # m elevation
 const CAM_FULL_SIDE_ARM := 6.0             # m — short; position/height already do the work
-const CAM_FULL_SIDE_FOV := 50.0
+const CAM_FULL_SIDE_FOV := 68.0
 const CAM_FULL_SIDE_FOLLOW_RATE := 2.2     # slower than CAM_FOLLOW_RATE — a deliberate pan, not a chase
 
 # Player-switch pan. recenter()'s instant snap (position + yaw + pitch all
@@ -567,8 +631,44 @@ const QUARTERS_PER_MATCH := 4
 const QUARTER_BREAK_DURATION := 4.0    # s, paused between quarters
 const SCORE_PAUSE_DURATION := 3.0      # s, paused after a goal/behind
 const MATCH_END_FLASH_DURATION := 3.0  # s the "FULL TIME" scoreboard flash holds before MatchEndScreen
-const CENTRE_BOUNCE_DELAY := 1.0       # s from formation-set to the bounce
+# Doubled from 1.0 on playtest feedback — every stoppage was snapping back
+# into play too fast to read. Shared by the centre bounce, a field ball-up
+# and the holding-the-ball free kick (and it is the scoreboard flash length
+# for the latter two), so all of them get the same extra beat.
+const CENTRE_BOUNCE_DELAY := 2.0       # s from formation-set to the bounce
+# Rulebook §3: the restart after a goal specifically was reported as too
+# rushed — "wait roughly 2 seconds longer than current before triggering
+# the ball-up animation". That's this beat, not SCORE_PAUSE_DURATION above,
+# which is the celebration/flash *before* the teams reset and is shared
+# with the behind kick-in. Its own constant because CENTRE_BOUNCE_DELAY is
+# also a field ball-up's delay, and a ball-up mid-play wants to stay snappy.
+const GOAL_RESTART_BOUNCE_DELAY := CENTRE_BOUNCE_DELAY + 2.0   # s
 const OUT_OF_BOUNDS_PAUSE_DURATION := 2.0   # s, paused for a boundary throw-in
+
+# The field umpire's throw-up itself: the beat between the players being
+# set and the ball actually leaving their hands, during which the umpire
+# crouches, winds up and tosses (see Umpire.throw_up). Every stoppage that
+# resolves through a ruck contest waits this out on top of its own delay
+# above, so a ball-up reads as being *thrown up by someone* rather than
+# the ball simply appearing in the air. Playtest feedback: ball-ups ran
+# too fast to see what had happened.
+const BALL_UP_THROW_DURATION := 1.4     # s
+
+# Vertical speed the umpire's toss actually leaves his hands at (see
+# FullGame._release_ruck_contest). This used to borrow BOUNCE_SPEED (10 m/s
+# — a figure tuned for driving a *player's* manual bounce hard into the
+# turf), which threw the ball ~6.8 m into the air: a ruckman's contest jump
+# is MARK_AGGRESSIVE_JUMP_SPEED (4 m/s, ~0.8 m of lift), so the ball was
+# physically unreachable and had not fallen back to a contestable height
+# before RUCK_CONTEST_WINDOW expired — the hit-out was unwinnable on a
+# centre bounce. A gentle lob between the two ruckmen, peaking ~1 m above
+# his hands, keeps the ball inside RUCK_HIT_OUT_REACH through the 0.4 s of
+# jump. Verified with a scripted centre-bounce contest.
+const BALL_UP_TOSS_SPEED := 5.0         # m/s of lift on the umpire's throw-up
+
+# The ruck contestants are only nominated when the ball is released, not
+# when the throw-up starts — otherwise RUCK_CONTEST_WINDOW would be
+# burning down through the whole wind-up. See FullGame._begin_ruck_contest.
 
 
 # ── Contests ─────────────────────────────────────────────────────────
@@ -594,8 +694,21 @@ const TACKLE_RADIUS := 1.4             # m, more generous than GATHER_RADIUS
 const TACKLE_STUN_DURATION := 1.3      # s the tackled player can't act
 # Slide's target: standing, wrapped up, not knocked down — matches ACTION_
 # DURATION[TACKLE_HELD] the same way TACKLE_STUN_DURATION matches TACKLED,
-# just a much shorter window since nobody's getting up off the ground here.
-const TACKLE_HELD_STUN_DURATION := 0.55   # s
+# just a shorter window since nobody's getting up off the ground here.
+const TACKLE_HELD_STUN_DURATION := 1.0    # s
+
+# Rulebook §6: "hold both players physically together" for the length of a
+# Slide connect. How far apart they're pinned while the grab plays.
+#
+# Two 0.35m-radius capsules touch at 0.70m, and an earlier pass sat just
+# outside that to avoid fighting move_and_slide. Playtest feedback was that
+# at that range the two just collide and the arms wave near each other —
+# the wrap never reads. An arm reaches 0.57m from the shoulder, so the
+# hands have to get inside the other body's own radius for a wrap to look
+# like a wrap. _begin_tackle_hold now adds a mutual collision exception for
+# the duration instead, which is what lets this be closer than the capsules
+# would otherwise allow, with no jitter from the two shoving each other.
+const TACKLE_HOLD_DISTANCE := 0.55     # m between the two bodies' centres
 const TACKLE_SPILL_SPEED := 3.0        # m/s the loose ball scatters at
 
 # Slide tackle resolution (_resolve_tackle_contact(..., is_slide=true)):
@@ -790,6 +903,13 @@ const BUMP_KNOCKDOWN_HOP_DURATION := 0.3   # s the floor-snap bite is suspended 
 # independent — TACKLE_STUN_DURATION changing for tackle-specific reasons
 # shouldn't silently retune Bump too.
 const BUMP_KNOCKDOWN_STUN_DURATION := 1.3
+# A clean bump on a ball-carrier now jolts the ball loose on the instant of
+# the hit (playtest request: "they should drop the ball at the same time
+# the animation plays"), spilling forward in the hit direction. A shade
+# harder than TACKLE_SPILL_SPEED (3.0) — a hit-stick is a bigger collision
+# than a wrap tackle. Same "invented physics parameter, not a rule number"
+# category as TACKLE_SPILL_SPEED / SPOIL_IMPULSE_SPEED.
+const BUMP_SPILL_SPEED := 4.0          # m/s the ball scatters at off a clean bump
 # The whiff: the dash's own timer runs out with nobody ever found. Unlike
 # Slide's dive-in (which just fizzles for free if it never reaches anyone
 # — see _update_slide_dive), overcommitting a hit-stick swing at nobody
@@ -840,6 +960,32 @@ const MARK_STAND_MIN_DISTANCE := 15.0   # m
 # in PlayerController._protected_timer and cleared early the instant they
 # dispose. RULES_REFERENCE.md's MARK_HOLD_DURATION.
 const MARK_HOLD_DURATION := 5.0         # s
+
+# Walking back from the mark. A player who takes a legal mark retreats
+# before they can kick it or play on, the way a real one backs away from
+# the contest to give themselves a run-up. Playtest request: "the player
+# catching the ball pushes back on the mark, so they basically have to
+# move backwards about 5m then they can do the rest of the kicking
+# animation or play on."
+#
+# Not an AFL rule with a number attached — the real rule is that the mark
+# is *taken* where it was caught and the kicker may retreat as far as they
+# like; 5m is the requested feel value for how far that retreat carries.
+# Retreat is along the team's own defensive direction (away from the goal
+# being attacked), which is what "backwards" means from a kicker's point
+# of view. Comfortably inside MARK_HOLD_DURATION above, so the protection
+# outlasts the walk-back with time left to actually use it.
+const MARK_RETREAT_DISTANCE := 5.0      # m
+const MARK_RETREAT_SPEED := 3.4         # m/s — a deliberate walk back, ~1.5s for the 5m
+
+# The man on the mark is placed on the mark itself
+# (PlayerController._apply_stand_the_mark), a metre goal-side of the
+# mark-taker so their capsules don't overlap, and slid onto it at
+# MARK_STAND_SNAP_SPEED rather than teleported (a normal few-metre gap
+# closes in ~0.1s). Neither is a rule number — feel/readability values, in
+# the same category as the retreat walk-back above.
+const MARK_STAND_GOAL_SIDE_OFFSET := 1.0   # m goal-side of the mark-taker
+const MARK_STAND_SNAP_SPEED := 24.0        # m/s slide onto the mark
 
 # Base reach from the catch point (CarryPoint doubles as the hands here) to
 # the ball's actual position, scaled per tier below. A real arm's-reach
@@ -1111,15 +1257,19 @@ const RUCK_CONTEST_JUMP_RANGE := 3.0    # m
 ## The palm itself — a physical velocity given to the ball on a successful
 ## hit-out, same "invented physics parameter, not an invented rule number"
 ## category as SPOIL_IMPULSE_SPEED/TACKLE_SPILL_SPEED elsewhere in this
-## file. Facing-directed (see _resolve_hit_out): no separate aim source for
-## a tap the way a kick has one.
+## file. Directed by _hit_out_aim_dir in _resolve_hit_out — where Left
+## stick was held on the RB press ("tap direction = pass direction", user
+## brief) — falling back to body-forward on a neutral stick.
 const RUCK_HIT_OUT_SPEED := 6.0         # m/s, horizontal
 const RUCK_HIT_OUT_UP_SPEED := 1.5      # m/s of lift, so it reads as a palm, not a grounder
 ## How long a nominated contestant reads RB as a hit-out at all (see
 ## PlayerController.set_ruck_contestant) — self-expiring like
 ## _protected_timer, so the flag can't linger past the one contest it was
-## armed for.
-const RUCK_CONTEST_WINDOW := 1.5        # s
+## armed for. 2.0 s (up from 1.5): with the gentler BALL_UP_TOSS_SPEED the
+## ball is contestable both on the way up and as it drops back to head
+## height, and a human reacting to the visible throw-up rather than a
+## frame-perfect input still gets a genuine shot at it.
+const RUCK_CONTEST_WINDOW := 2.0        # s
 
 # The same A press that attempts a Safe Mark becomes this once the ball
 # isn't in the air (design brief: the action comes from "ball state +
@@ -1231,6 +1381,34 @@ const AI_BOUNDARY_LEAN_FRACTION := 0.85
 const AI_LOOSE_BALL_REACTION_MIN := 0.15   # s
 const AI_LOOSE_BALL_REACTION_MAX := 0.40   # s
 
+# ── AI disposal target selection (ai_brain.gd _best_disposal_target / _think_carrying) ──
+# Feel-tuned AI judgement, the same standing as AI_KICK_RANGE / AI_SUPPORT_
+# PULL above — NOT AFL rule numbers. They decide which teammate a carrying
+# AI gives it to when a shot at goal isn't on; before this pass there was
+# nothing here at all (the AI fired every disposal down its own run line).
+const AI_DISPOSAL_MIN := 6.0            # m — nearer than this isn't a real disposal option
+const AI_HANDBALL_MAX := 18.0          # m — inside this the AI handballs the pass; past it, kicks
+const AI_KICK_MAX := 50.0              # m — no target further than this is weighed
+const AI_DISPOSAL_MIN_FORWARD := -0.15 # dot(dir-to-mate, dir-to-goal); below = backwards, rejected unless pressured
+const AI_LANE_BLOCK_RADIUS := 1.6      # m — an opponent within this of the pass line kills that option
+const AI_DISPOSAL_SCORE_FLOOR := 0.35  # 0..1 — no teammate above this: keep running / blind fallback
+const AI_DISPOSAL_W_FORWARD := 0.50    # weight: how far toward goal the pass advances it
+const AI_DISPOSAL_W_OPEN := 0.35       # weight: how much room the receiver has (nearest opponent to them)
+const AI_DISPOSAL_W_DIST := 0.15       # weight: shorter is safer
+const AI_PASS_KICK_CHARGE := 0.55      # kick charge fraction for a pass to a teammate (vs 0.75 for a goal shot)
+const AI_AIM_TURN_FRAMES_HANDBALL := 2 # physics frames the body pre-turns onto a handball target before release
+const AI_AIM_TURN_FRAMES_KICK := 6     # ditto for a kick — longer, an AI kick's aim locks to body facing at stance start
+
+# A carrying AI bounces at this fraction of BOUNCE_INTERVAL, so it disposes
+# or bounces before ever conceding the 15 m free kick
+# (PlayerController.run_too_far_called). Judgement value, not a rule.
+const AI_BOUNCE_AT_FRACTION := 0.75
+
+# ── AI off-ball spacing & contest commit (ai_brain.gd, "close the audit points" pass) ──
+const AI_SPACING_RADIUS := 4.0          # m — off-ball teammates inside this push apart so they don't stack
+const AI_TACKLE_CLOSING_MARGIN := 0.6   # m/s — carrier may be this much faster than us and we still commit the tackle
+const AI_LOOSE_BALL_CEDE_MARGIN := 2.0  # m — an opponent this much nearer the drop zone: ease off rather than overrun
+
 # ControlMode.Scheme.TEAM_COMMAND (control-mode pass): how far ahead of the
 # selected player an issued "lead here" order's target point sits. Not an
 # AFL number — there's nothing to cite — just a placeholder distance long
@@ -1238,6 +1416,51 @@ const AI_LOOSE_BALL_REACTION_MAX := 0.40   # s
 # from the follow cam. Expect this to move once someone actually plays the
 # mode; see docs/HANDOVER.md's control-mode entry.
 const COMMAND_LEAD_DISTANCE := 12.0     # m
+
+# Call for the ball (Settings.PlayerControlMode.SINGLE_PLAYER — see
+# FullGame._call_for_ball). Not an AFL rule: there is no "calling" mechanic
+# in the laws of the game, so nothing here has a rule number to cite. It
+# exists because SINGLE_PLAYER locks the human to one body for the whole
+# match, which removes switch_player's escape hatch and leaves them with no
+# way at all to influence a teammate's disposal. Every number below is
+# either derived from an existing constant in this file or explained where
+# it sits.
+#
+# Range is the one number that IS derived rather than felt out: the flat
+# ballistic range of this project's own handball (HANDBALL_SPEED 15 m/s at
+# HANDBALL_ANGLE 9 deg) is v^2 * sin(2*theta) / g = 225 * 0.309 / 9.80665
+# ~= 7.1 m, doubled because a handball is a lead pass onto a running
+# receiver, not a pass to the chest — the receiver covers the back half.
+# Past that a handball simply cannot reach, so the call is refused outright
+# rather than rolled for and then thrown short.
+const CALL_FOR_BALL_RANGE := 14.0       # m, ~2x a handball's own flat range
+
+# A player can shout for it, not machine-gun it. Without a cooldown the
+# probability below is meaningless — mashing the key converts any non-zero
+# chance into a certainty within a second. Roughly the length of one called
+# lead; short enough that a genuine second effort is still allowed.
+const CALL_FOR_BALL_COOLDOWN := 1.2     # s
+
+# Chance = BASE + PRESSURE_BONUS*p + OPENNESS_BONUS*o - RANGE_PENALTY*r,
+# clamped to MIN..MAX. See FullGame._call_for_ball_success_chance() for what
+# p/o/r actually measure and why pressure on the carrier RAISES the chance.
+# BASE sits below even money: a called handball is a request, and the
+# carrier's own AI is entitled to back its own judgement most of the time.
+# The three weights are sized so pressure is the dominant term (it's the
+# factor the human can actually create, by drawing a defender), openness
+# second (it rewards leading into space rather than standing still), and
+# range a modest tax rather than a cliff (the hard cliff is
+# CALL_FOR_BALL_RANGE above).
+const CALL_FOR_BALL_BASE_CHANCE := 0.35
+const CALL_FOR_BALL_PRESSURE_BONUS := 0.30
+const CALL_FOR_BALL_OPENNESS_BONUS := 0.25
+const CALL_FOR_BALL_RANGE_PENALTY := 0.20
+# Never a certainty and never impossible — the same reason this project
+# resolves contests physically rather than on a die roll applies to the
+# edges of a die roll it does keep: a guaranteed outcome stops being a
+# decision.
+const CALL_FOR_BALL_MIN_CHANCE := 0.05
+const CALL_FOR_BALL_MAX_CHANCE := 0.95
 
 
 # ── Training coaches ────────────────────────────────────────────────

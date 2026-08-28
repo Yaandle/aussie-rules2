@@ -65,6 +65,24 @@ const FORMATION_PRESETS := [
 	{"name": "DEFENSIVE", "slots": [0, 3, 7, 15]},    # FB, CHB, C, RK
 ]
 
+## Full Game pregame setting (Player Control Mode card): whether the human
+## drives exactly one on-field player for the whole match (SINGLE_PLAYER —
+## full_game.gd wires a "call for the ball" action instead of switch_player
+## in this mode) or can freely switch which HOME player they're directly
+## driving while AIBrain runs everyone else (FULL_TEAM — this project's
+## original, already-built switch_player/ControlMode.next_in_roster
+## behaviour). Defaults to FULL_TEAM so an existing save/session's behaviour
+## doesn't silently change underneath a returning player. Not to be confused
+## with ControlMode.Scheme, which is a different, already-shipped axis
+## (direct single-focus control vs. direct-drive-plus-command-orders) that
+## this new setting doesn't touch.
+enum PlayerControlMode { SINGLE_PLAYER, FULL_TEAM }
+
+var player_control_mode: PlayerControlMode = PlayerControlMode.FULL_TEAM:
+	set(value):
+		player_control_mode = value as PlayerControlMode
+
+
 var home_formation_index := 0:
 	set(value):
 		home_formation_index = clampi(value, 0, FORMATION_PRESETS.size() - 1)
@@ -173,6 +191,8 @@ func _load() -> void:
 		full_game_camera_mode) as FullGameCameraMode
 	mouse_kick_swapped = config.get_value(SECTION, "mouse_kick_swapped",
 		mouse_kick_swapped) as bool
+	player_control_mode = config.get_value(SECTION, "player_control_mode",
+		player_control_mode) as PlayerControlMode
 	home_formation_index = config.get_value(SECTION, "home_formation_index",
 		home_formation_index) as int
 	home_ball_movement = config.get_value(SECTION, "home_ball_movement",
@@ -192,6 +212,7 @@ func save() -> void:
 	var config := ConfigFile.new()
 	config.set_value(SECTION, "full_game_camera_mode", full_game_camera_mode)
 	config.set_value(SECTION, "mouse_kick_swapped", mouse_kick_swapped)
+	config.set_value(SECTION, "player_control_mode", player_control_mode)
 	config.set_value(SECTION, "home_formation_index", home_formation_index)
 	config.set_value(SECTION, "home_ball_movement", home_ball_movement)
 	config.set_value(SECTION, "home_defensive_pressure", home_defensive_pressure)

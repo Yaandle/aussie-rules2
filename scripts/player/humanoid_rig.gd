@@ -49,6 +49,22 @@ const COLOUR_TREAD := Color("#141513")
 
 @export var away_kit := false
 
+## Uniform overrides, for bodies on the ground that aren't players — the
+## match officials (see Umpire). Alpha 0 means "unset": a player never
+## sets these and gets COLOUR_GUERNSEY/COLOUR_SHORTS exactly as before, so
+## this is additive and the on-field kit is untouched. Kept here rather
+## than having Umpire reach in and re-material the meshes afterwards,
+## because building the body is this file's job.
+@export var kit_torso := Color(0.0, 0.0, 0.0, 0.0)
+@export var kit_shorts := Color(0.0, 0.0, 0.0, 0.0)
+
+## Vertical stripes across the torso, for the boundary umpire's black and
+## white uniform (rulebook §10). 0 = none, which is every player. Each is
+## one thin box slightly deeper than the chest itself, so a single mesh
+## reads on the front and the back at once rather than needing two.
+@export var kit_stripes := 0
+@export var kit_stripe_colour := Color("#1b1c20")
+
 ## Viewer-only high-fidelity switch (scripts/dev/animation_viewer.gd sets it
 ## before _ready). A dev screen renders one to three bodies, not 16-a-side,
 ## so it can afford much rounder primitives and slightly richer materials
@@ -109,6 +125,9 @@ func skeleton() -> Skeleton3D:
 
 func _build() -> void:
 	var guernsey := COLOUR_GUERNSEY_AWAY if away_kit else COLOUR_GUERNSEY
+	if kit_torso.a > 0.0:
+		guernsey = kit_torso
+	var shorts := kit_shorts if kit_shorts.a > 0.0 else COLOUR_SHORTS
 
 	_skeleton = Skeleton3D.new()
 	_skeleton.name = "Skeleton3D"
@@ -131,8 +150,17 @@ func _build() -> void:
 	# (Vector3.ZERO), and one that used to hang some distance off its
 	# joint only needs that same distance minus however far the bone
 	# itself moved from the old joint to get there.
-	_box_on("Hips", "Pelvis", Vector3(0.23, 0.18, 0.20), Vector3.ZERO, COLOUR_SHORTS)
+	_box_on("Hips", "Pelvis", Vector3(0.23, 0.18, 0.20), Vector3.ZERO, shorts)
 	_box_on("Chest", "Chest_Mesh", Vector3(0.32, 0.44, 0.22), Vector3.ZERO, guernsey)
+	# Shares the Chest attachment with everything else on the torso, same
+	# as the Yoke/SidePanels/Collar below — no extra BoneAttachment3D.
+	# Spread across the chest's own 0.32 width, inset far enough that the
+	# outermost stripe doesn't hang off the side.
+	for stripe: int in kit_stripes:
+		var span := 0.24
+		var offset_x := -span * 0.5 + span * (float(stripe) / maxf(kit_stripes - 1, 1))
+		_box_on("Chest", "Stripe%d" % stripe, Vector3(0.035, 0.445, 0.225),
+			Vector3(offset_x, 0.0, 0.0), kit_stripe_colour, 0.7)
 	_box_on("Chest", "Yoke", Vector3(0.42, 0.09, 0.235), Vector3(0.0, 0.165, 0.0), COLOUR_TRIM, 0.55)
 	for panel_side: int in [-1, 1]:
 		_box_on("Chest", "SidePanel" + ("L" if panel_side < 0 else "R"),
