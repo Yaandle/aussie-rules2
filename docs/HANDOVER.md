@@ -5575,3 +5575,162 @@ possession`, proximity switch, `_manual_switch_grace`),
 `scripts/camera/broadcast_camera.gd` (`switch_target` position snap),
 `scripts/tuning.gd` (`AUTO_CARRIER_SWITCH_GRACE`, camera zoom + switch
 constants), `docs/FEATURE_AUDIT.md`.
+
+
+## Handover — Full Game goes 18-a-side + SINGLE_PLAYER pregame position pick
+
+Two changes to Full Game. Both verified headless with scripted physics
+scenarios (scratch scenes, deleted).
+
+### 1. Real 18-a-side
+
+`Tuning.TEAM_SIZE` 4 → 18. Everything in `full_game.gd` already keyed off
+that constant or `_home_players.size()`; three spots needed real work.
+
+**Roster → formation slot.** New `TeamFormation.ROSTER_ORDER` (+ a
+`roster_slot(i)` accessor): the 18 `SLOTS` reindexed so the on-ball unit
+— **RUCK, CENTRE, RUCK_ROVER, ROVER** — is roster indices 0-3, then the
+other 14 in `SLOTS` order (back line first). This makes roster index 0 the
+actual ruckman (the one `_bounce_off` has always nominated) and roster
+indices 0-3 exactly the four players AFL's centre-square law allows inside
+the 50 m square at a bounce — so no separate "clamp the 5th player out of
+the square" logic is needed. A sub-18 roster is still a strict prefix.
+`_kickoff_slot`'s full-roster branch maps both teams straight through
+`roster_slot` (`world_position` folds in `attack_direction`, so AWAY
+mirrors HOME — AWAY was a flat 30 m even-spread before). The 4-slot
+`Settings.FORMATION_PRESETS` path is kept only for `TEAM_SIZE < 18`
+testing; at the real 18 it would collide two HOME players on shared slots.
+
+**Team stagger.** `TeamFormation` is one mirrored layout, so HOME's back
+line resolves to the *exact* world points of AWAY's forward line
+(full-back on full-forward, CHB on CHF, both wings on the centre line) —
+two coincident capsules blow the Jolt solver up on the first tick
+(`|pos|` hit 2800 m in the first failing run). `_kickoff_slot` now shifts
+each side ±`FORMATION_TEAM_STAGGER` (2 m) along the ground line, so paired
+opponents spawn ~4 m apart (defender goal-side of their opponent). Not an
+AFL number — just enough clearance that nothing spawns on one point.
+
+**Centre bounce.** `_centre_bounce_slot` gains a `team` param: indices 0-3
+keep the ruck + on-baller ring (unchanged math), indices 4+ return their
+`_kickoff_slot` (formation, staggered, outside the square). `_reposition_
+kickoff` passes `team` through. `_spawn_team` now positions each fresh
+instance at its `_centre_bounce_slot` (not the raw formation slot) before
+`add_child` — at 18-a-side roster index 1 is the Centre, which resolves to
+world origin, and origin is where the ball sits: the exact overlap the
+existing block comment warns about. `_bounce_off`'s `_home_players[0]` /
+`_away_players[0]` ruck wire is untouched (comment expanded).
+
+**Perf.** `ai_brain.gd` does ~5 `get_nodes_in_group("players")` scans per
+carrying brain per frame; the concern was O(n²) at 36 bodies. Measured
+wall/sim ratio over a 150-200 s headless match: **0.38-0.44** (headless
+runs 2.3× faster than real time). No cache needed — the sketched `_players`
+per-frame snapshot was not applied.
+
+### 2. SINGLE_PLAYER position pick
+
+`_spawn_teams` hardwired the `HumanBrain` to `_home_players[0]`. Now:
+
+- `Settings.home_human_slot` — persisted `int`, default **1** (= Centre
+  under `ROSTER_ORDER`, so a fresh single-player match doesn't hand the
+  human the ruck, which `HumanBrain` can't actively palm), clamped
+  `0..TEAM_SIZE-1`. Same `_load`/`save` wiring as `home_formation_index`.
+- `full_game_pregame_screen.gd` — a real (non-locked) **YOUR POSITION**
+  card, 6th functional card, built on the existing `SettingsScreen.Row` /
+  `_formation_options` / `_set_formation` pattern. Static options, one per
+  roster slot: `"<n> <label>"` (1-based index + `TeamFormation` short
+  label, so the repeated FB/BP/W/HFF/FP labels stay distinct). All 18
+  offered (slot 0 = the ruck is a legal if odd pick). A 4th readout row,
+  `POSITION`, echoes it; `READOUT_HEIGHT` 52 → 66, `READOUT_BOTTOM` 8 → 6.
+  Card row is now 10 wide: `10*90 + 9*18 = 1062 < 1200` usable.
+- `_spawn_teams` puts the `HumanBrain` + `ControlMode.set_controlled_
+  player` on `_home_players[clampi(Settings.home_human_slot, 0, size-1)]`.
+  `_bounce_off` still rucks `_home_players[0]`: pick a non-ruck slot and
+  index 0 keeps its `AIBrain` and rucks; pick slot 0 and the human rucks
+  in person. Nothing else in the file assumes index 0 is the human
+  (`_switch_human_player` / `_assign_human_to` / `_on_home_gained_
+  possession` route through `ControlMode.controlled_player`; `AIBrain`'s
+  hold-the-line branch keys off `is_ruck_contestant()` /
+  `ruck_contest_locked()`, no index).
+
+### How it was verified
+
+Headless boots clean (exit 0, no errors): default, `main_menu.tscn`,
+`full_game_pregame_screen.tscn`, `full_game.tscn`.
+
+Scratch scene (deleted) instantiating `full_game.tscn` under real project
+boot, `--fixed-fps 60`:
+
+- **Geometry** (sampled off a forced `_reposition_kickoff` at every centre
+  bounce): 18 per side; **exactly 4 per team** within the ring; the other
+  14 match an independent `roster_slot` recompute and sit outside the 50 m
+  square; closest HOME↔AWAY pair **2.60 m** (the two rucks) — no coincident
+  spawn; no player `|pos|` over ~80 m (the corner forward on its spot); one
+  quarter rollover exercised (`_end_quarter → _next_quarter →
+  _prepare_centre_bounce`); 9 000 frames, zero errors.
+- **Position pick** (`home_human_slot = 7`): `ControlMode.controlled_
+  player(HOME)` is `_home_players[7]`, that body has a `HumanBrain`, every
+  other HOME body an `AIBrain`; `_home_players[0]` *is* nominated the ruck
+  contestant at the opening bounce and slot 7 is *not*; a non-ruck AI (a
+  wing) holds its spot to **0.008 m** through the whole pre-bounce hold.
+- Sub-case `home_human_slot = 0`: human is on slot 0, has the `HumanBrain`,
+  and is itself the nominated ruck contestant — no error.
+
+Not verified: the pregame screen is GUI and there is no screenshot tool —
+the 10-card row width, the 4-row readout vertical fit, and the two-level
+cursor over the new card are parse/boot-verified only plus a code read.
+
+### Follow-up fixes (playtest, same session)
+
+Three small fixes off the first play of the 18-a-side build:
+
+1. **Ball froze on the goal line at a score.** `_on_scored` hard-locked the
+   ball (`lock_at(global_position)` — zeroes velocity, pins the transform)
+   the instant the score trigger fired, so a goal/behind snapped to a dead
+   stop mid-flight on the line. Added `Ball.set_unplayable(bool)` — a soft
+   dead-ball state that makes `is_held` true (no gather/mark; `_check_out_
+   of_bounds` already ignores a held ball) *without* pinning the transform.
+   `_on_scored` uses it instead, so the ball flies on through the posts
+   under its own physics. Cleared by `unlock()` / `lock_at()` / `attach_
+   to()`, so the restart (`_rest_ball_at` or a kick-in's `reset_at`) resets
+   it like before. Verified: forced a goal in a scripted match — post-score
+   the ball travelled **5.7 m** in 40 frames and kept its speed, vs frozen.
+
+2. **On-baller walked into the ruck contest.** The followers-first roster
+   order puts the CENTRE (and the two rovers) at roster indices 1-3, and
+   their *formation* slots sit on/beside the exact centre spot — so
+   `AIBrain`'s hold-the-line step (`_move_toward(home_position, …)`) during
+   a contest walked them straight into the middle / centre circle. New
+   `FullGame._kickoff_home_position()`: for roster indices 1-3 the AI drift
+   anchor set by `_reposition_kickoff` is their **ring** position
+   (`_centre_bounce_slot`), not the formation slot. Everyone else is
+   unchanged. Verified: through the whole opening contest the closest any
+   roster-1-3 player got to the centre was **7.00 m** (the ring radius) —
+   they hold, they don't drift in.
+
+3. **Man-on-the-mark dragged across the ground.** `PlayerController`'s
+   frozen block slid the player onto `_frozen_anchor` via a direct
+   `global_position` write at `MARK_STAND_SNAP_SPEED` (24 m/s) — fine for a
+   2 m nudge, but at 18-a-side the "nearest opponent" is often 15-20 m away
+   and got hauled there. Now: while still short of the mark the player
+   *jogs* to it under real movement (`velocity` + `move_and_slide`, so it
+   collides and the run clip plays), capped at `MARK_STAND_JOG_SPEED`
+   (= `JOG_SPEED`, 4.8 m/s); within `MARK_STAND_ARRIVE_RADIUS` it snaps the
+   last few cm and holds exactly. Verified: a player told to stand a mark
+   15 m away peaked at **4.80 m/s**, arrived in ~3 s, held on the spot.
+
+### Files changed
+
+`scripts/tuning.gd` (`TEAM_SIZE` 4 → 18; `MARK_STAND_SNAP_SPEED` →
+`MARK_STAND_JOG_SPEED` + `MARK_STAND_ARRIVE_RADIUS`),
+`scripts/ai/team_formation.gd` (`ROSTER_ORDER`, `roster_slot`),
+`scripts/modes/full_game.gd` (`FORMATION_TEAM_STAGGER`, `_kickoff_slot`
+full-roster branch + stagger, `_centre_bounce_slot` `team` param,
+`_reposition_kickoff` + `_kickoff_home_position`, `_spawn_team` spawn
+position, `_spawn_teams` human-slot wiring, `_bounce_off` comment,
+`_on_scored` soft dead-ball), `scripts/ball/ball.gd` (`set_unplayable` /
+`_unplayable`), `scripts/player/player_controller.gd` (frozen-block jog),
+`scripts/autoload/settings.gd` (`home_human_slot` + load/save),
+`scripts/ui/full_game_pregame_screen.gd` (YOUR POSITION card,
+`_your_position_options`, `_set_your_position`, 4th readout row, layout
+comments, subtitle), `scripts/ui/main_menu.gd` (FULL GAME subtitle 4 →
+18), `docs/FEATURE_AUDIT.md`, `docs/RULES_REFERENCE.md`.

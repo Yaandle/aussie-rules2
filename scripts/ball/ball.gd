@@ -38,7 +38,7 @@ const HULL_SEGMENTS := 14
 ## not markable.
 var is_held: bool:
 	get:
-		return _carry_point != null or _locked
+		return _carry_point != null or _locked or _unplayable
 
 ## True between the umpire picking the ball up for a stoppage and actually
 ## throwing it. See lock_at()/lock_to()/unlock(). `_lock_point` is set only
@@ -48,6 +48,15 @@ var is_held: bool:
 var _locked := false
 var _lock_point: Node3D = null
 var _lock_position := Vector3.ZERO
+
+## "Dead, but let it finish travelling" — set after a goal/behind so the
+## ball flies through the posts under its own physics (real, not frozen
+## on the line) while still counting as is_held: nobody gathers or marks
+## it, and FullGame's out-of-bounds watch ignores it, during the
+## celebration. Unlike _locked it does NOT pin the transform. Cleared by
+## the next thing that puts the ball anywhere — unlock()/lock_at()/
+## attach_to() all reset it.
+var _unplayable := false
 
 var _carry_point: Node3D = null
 var _carrier: Node3D = null
@@ -290,6 +299,7 @@ func attach_to(point: Node3D, holder: Node3D) -> void:
 		remove_collision_exception_with(_carrier)
 	_carrier = holder
 	_release_grace = 0.0
+	_unplayable = false
 	add_collision_exception_with(holder)
 	global_transform = point.global_transform
 	gathered.emit(holder)
@@ -428,6 +438,7 @@ func lock_at(position: Vector3) -> void:
 	angular_velocity = Vector3.ZERO
 	global_transform = Transform3D(Basis.IDENTITY, position)
 	_locked = true
+	_unplayable = false
 	_lock_point = null
 	_lock_position = position
 
@@ -449,7 +460,15 @@ func lock_to(point: Node3D) -> void:
 ## there is no call site that has to remember to unlock.
 func unlock() -> void:
 	_locked = false
+	_unplayable = false
 	_lock_point = null
+
+
+## See _unplayable. After a goal/behind FullGame calls this instead of
+## lock_at() so the ball keeps its trajectory through the posts while
+## still being un-gatherable for the celebration.
+func set_unplayable(on: bool) -> void:
+	_unplayable = on
 
 
 func reset_at(position: Vector3) -> void:

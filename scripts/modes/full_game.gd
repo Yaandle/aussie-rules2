@@ -22,6 +22,16 @@ const MATCH_END_SCREEN_PATH := "res://scenes/ui/match_end_screen.tscn"
 
 const KICKOFF_DEPTH := 30.0     ## m from centre each team lines up at
 
+## Per-team lateral stagger for the full-18 formation spawn. TeamFormation
+## is a single mirrored layout, so without this HOME's back line resolves
+## to the exact same world points as AWAY's forward line (full-back on
+## full-forward, CHB on CHF, …) and the two coincident capsules blow the
+## solver up on the first physics tick. Shifting each side ±this along the
+## ground line puts paired opponents ~2x this apart — a defender goal-side
+## of their opponent, not standing in them. Not an AFL number; just enough
+## clearance that no two bodies ever spawn on one point.
+const FORMATION_TEAM_STAGGER := 2.0
+
 @onready var _field: Field = $Field
 @onready var _ball: Ball = $Ball
 @onready var _camera: BroadcastCamera = $BroadcastCamera
@@ -216,8 +226,13 @@ func _spawn_teams() -> void:
 	ControlMode.focus_changed.connect(_on_focus_changed)
 
 	_camera.ball = _ball
-	_home_players[0].set_brain(HumanBrain.new())
-	ControlMode.set_controlled_player(Tuning.Team.HOME, _home_players[0])
+	# SINGLE_PLAYER position pick (Settings.home_human_slot, chosen on the
+	# pregame screen; default 1 = centre). Re-clamped to the live roster so
+	# a stale save can't index past the spawned team. _bounce_off() still
+	# rucks _home_players[0] regardless — see its comment.
+	var human_idx := clampi(Settings.home_human_slot, 0, _home_players.size() - 1)
+	_home_players[human_idx].set_brain(HumanBrain.new())
+	ControlMode.set_controlled_player(Tuning.Team.HOME, _home_players[human_idx])
 
 	for player in _home_players + _away_players:
 		player.field_ball_up_called.connect(_on_field_ball_up)
@@ -264,12 +279,17 @@ func _spawn_team(team: Tuning.Team, attack_direction: float) -> Array[PlayerCont
 		# yet, so there's no parent transform to resolve a global position
 		# against. FullGame itself sits at identity, so the two are the
 		# same value once this becomes its child.
-		var slot := _kickoff_slot(i, attack_direction, team)
-		instance.position = slot
+		# Spawn on the imminent _reposition_kickoff target (the centre-
+		# bounce slot), not the raw formation slot: at 18-a-side roster
+		# index 1 (Centre) resolves to world origin, and two capsules plus
+		# the ball coincident there for even one physics tick is exactly
+		# the solver blow-up described above.
+		var formation_slot := _kickoff_slot(i, attack_direction, team)
+		instance.position = _centre_bounce_slot(i, attack_direction, team)
 		add_child(instance)
 		AudioManager.register_player(instance)
 
-		instance.set_brain(_configure_ai_brain(AIBrain.new(), team, attack_direction, slot))
+		instance.set_brain(_configure_ai_brain(AIBrain.new(), team, attack_direction, formation_slot))
 
 		players.append(instance)
 	return players
@@ -293,15 +313,24 @@ func _configure_ai_brain(brain: AIBrain, team: Tuning.Team, attack_direction: fl
 	return brain
 
 
-## HOME (Team Edit expansion, polish-pass brief) lines up in whichever of
-## Settings.FORMATION_PRESETS the Team List screen last left selected —
-## TeamFormation.SLOTS' own depth/lateral fractions, the same data the
-## whiteboard preview draws from, so choosing a formation there now
-## actually changes where the human side kicks off from here. AWAY keeps
-## the old even spread — a simple "not stacked on the centre circle"
-## baseline, not a real formation, and not worth letting the human edit
-## since it's an opponent, not their own side.
+## At the full 18-a-side roster BOTH teams line up in the real
+## TeamFormation layout, roster index mapped through
+## TeamFormation.ROSTER_ORDER (on-ball unit first). world_position() folds
+## in attack_direction, so AWAY's -1.0 mirrors HOME across the centre line
+## — which lands HOME's back line on top of AWAY's forward line (see
+## FORMATION_TEAM_STAGGER), so each team is also shifted ±that along the
+## ground line to keep paired opponents from spawning on one point.
+## Below a full roster (reduced-size testing) HOME instead uses whichever
+## of Settings.FORMATION_PRESETS the Team List screen last left selected —
+## a curated "pick 4 of 18" shape that would collide two HOME players onto
+## shared slots at the full 18 — and AWAY/overflow fall back to a plain
+## even spread 30 m back, a "not stacked on the centre circle" baseline
+## rather than a real formation.
 func _kickoff_slot(index: int, attack_direction: float, team: Tuning.Team) -> Vector3:
+	if Tuning.TEAM_SIZE >= TeamFormation.SLOTS.size():
+		var slot := TeamFormation.world_position(TeamFormation.roster_slot(index), attack_direction)
+		slot.z += attack_direction * FORMATION_TEAM_STAGGER
+		return slot
 	if team == Tuning.Team.HOME:
 		var slots := Settings.home_formation_slots()
 		if index < slots.size():
@@ -313,29 +342,37 @@ func _kickoff_slot(index: int, attack_direction: float, team: Tuning.Team) -> Ve
 	return Vector3(x, 0.0, z)
 
 
-## Real AFL only allows one ruck plus three on-ballers per team inside the
-## centre square for a bounce — everyone else has to be outside it. This
-## project's TEAM_SIZE (4) happens to equal exactly that "1 ruck + 3
-## on-ballers" allowance, so at this roster size a centre-bounce formation
-## and "the whole team gathers at the circle" are the same thing; the
-## generic KICKOFF_DEPTH spread above is deliberately not reused here — a
-## bounce needs two rucks planted either side of the exact centre spot
-## the umpire bounces the ball, not a line 30m back.
+## Real AFL centre-square law: at a centre bounce a maximum of four players
+## per team — the ruck plus three midfielders ("on-ballers") — may be
+## inside the 50 m centre square until the ball is bounced; everyone else
+## must start outside it. So roster indices 0-3 go on the ruck-contest
+## ring at the centre and indices 4+ hold their normal matchday formation
+## slot (_kickoff_slot). TeamFormation.ROSTER_ORDER front-loads the four
+## slots that sit inside the square (ruck, centre, the two rovers), so
+## indices 4+ are outside it by construction.
+## The generic KICKOFF_DEPTH spread is still not reused for the ring: a
+## bounce needs two rucks planted either side of the exact spot the umpire
+## bounces the ball, not a line 30 m back. At TEAM_SIZE 4 the ring is the
+## whole team and indices 4+ never occur.
 const RUCK_CONTEST_OFFSET := 1.3   ## m either side of centre, ruck vs ruck
 const ON_BALLER_RING_RADIUS := 7.0 ## m from centre — outside CENTRE_CIRCLE_OUTER (5m),
                                     ## inside CENTRE_SQUARE_SIZE (50m)
 const ON_BALLER_ANGLES_DEG: Array[float] = [-55.0, 0.0, 55.0]
 
 ## `index` 0 is the ruck; 1..3 are the three on-ballers ringed around the
-## circle. `attack_direction` biases each team to its own half of the
-## circle so the two teams' arcs don't overlap — sign-symmetric the same
-## way _kickoff_slot's own attack_direction split already is.
-func _centre_bounce_slot(index: int, attack_direction: float) -> Vector3:
+## circle; 4+ hold their matchday formation slot (see the comment above).
+## `attack_direction` biases each team to its own half so the two teams
+## never overlap — sign-symmetric the same way _kickoff_slot's own
+## attack_direction split already is.
+func _centre_bounce_slot(index: int, attack_direction: float, team: Tuning.Team) -> Vector3:
 	if index == 0:
 		return Vector3(-attack_direction * RUCK_CONTEST_OFFSET, 0.0, 0.0)
-	var angle := deg_to_rad(ON_BALLER_ANGLES_DEG[(index - 1) % ON_BALLER_ANGLES_DEG.size()])
-	return Vector3(-attack_direction * ON_BALLER_RING_RADIUS * cos(angle), 0.0,
-		ON_BALLER_RING_RADIUS * sin(angle))
+	if index < 4:
+		# (index - 1) % size() is defensive — index is always 1..3 here.
+		var angle := deg_to_rad(ON_BALLER_ANGLES_DEG[(index - 1) % ON_BALLER_ANGLES_DEG.size()])
+		return Vector3(-attack_direction * ON_BALLER_RING_RADIUS * cos(angle), 0.0,
+			ON_BALLER_RING_RADIUS * sin(angle))
+	return _kickoff_slot(index, attack_direction, team)
 
 
 ## Every centre-bounce moment (kickoff, after a goal, each quarter start)
@@ -352,16 +389,30 @@ func _centre_bounce_slot(index: int, attack_direction: float) -> Vector3:
 func _reposition_kickoff() -> void:
 	for i in _home_players.size():
 		var player := _home_players[i]
-		player.global_position = _centre_bounce_slot(i, 1.0)
+		player.global_position = _centre_bounce_slot(i, 1.0, Tuning.Team.HOME)
 		var ai := player.brain() as AIBrain
 		if ai != null:
-			ai.home_position = _kickoff_slot(i, 1.0, Tuning.Team.HOME)
+			ai.home_position = _kickoff_home_position(i, 1.0, Tuning.Team.HOME)
 	for i in _away_players.size():
 		var player := _away_players[i]
-		player.global_position = _centre_bounce_slot(i, -1.0)
+		player.global_position = _centre_bounce_slot(i, -1.0, Tuning.Team.AWAY)
 		var ai := player.brain() as AIBrain
 		if ai != null:
-			ai.home_position = _kickoff_slot(i, -1.0, Tuning.Team.AWAY)
+			ai.home_position = _kickoff_home_position(i, -1.0, Tuning.Team.AWAY)
+
+
+## The off-ball drift anchor an AI holds at during (and after) a centre
+## bounce. For the three non-ruck on-ballers (roster indices 1-3) it's
+## their spot on the ruck-contest ring, NOT their matchday formation slot:
+## the on-ball unit's formation slots sit on/beside the exact centre spot,
+## so anchoring there walked AIBrain's "hold the line" step straight into
+## the middle of the contest (a rover ending up inside the centre circle
+## while the ruckmen were still going up). Everyone else keeps their real
+## formation slot so a chosen preset still shapes the team all match.
+func _kickoff_home_position(index: int, attack_direction: float, team: Tuning.Team) -> Vector3:
+	if index >= 1 and index < 4:
+		return _centre_bounce_slot(index, attack_direction, team)
+	return _kickoff_slot(index, attack_direction, team)
 
 
 # ── Match flow ───────────────────────────────────────────────────────
@@ -402,9 +453,15 @@ func _prepare_centre_bounce(delay := Tuning.CENTRE_BOUNCE_DELAY) -> void:
 
 
 func _bounce_off() -> void:
-	# Index 0 of each team is the designated ruck for a centre bounce (see
-	# _centre_bounce_slot) — the same shared contest every stoppage in this
-	# file now goes through, see _begin_ruck_contest.
+	# Roster index 0 of each team is the designated ruck for a centre bounce
+	# (TeamFormation.ROSTER_ORDER front-loads the ruck slot, and
+	# _centre_bounce_slot plants index 0 on the contest spot) — the same
+	# shared contest every stoppage in this file goes through, see
+	# _begin_ruck_contest. This stays index 0 regardless of
+	# Settings.home_human_slot: pick a non-ruck position and index 0 keeps
+	# its AIBrain and rucks; pick slot 0 and the human rucks in person
+	# (HumanBrain can't actively palm a hit-out — a pre-existing AI-scope
+	# limit, not addressed here).
 	_begin_ruck_contest(_field.centre(), _home_players[0], _away_players[0])
 
 
@@ -635,9 +692,15 @@ func _on_scored(team: Tuning.Team, is_goal: bool) -> void:
 	MatchState.clock_running = false
 	MatchState.score(team, is_goal)
 	GameState.phase = GameState.Phase.SCORE
-	# Dead from the moment it's a score — otherwise anyone standing behind
-	# the goals can pick it up and run during the celebration.
-	_ball.lock_at(_ball.global_position)
+	# Dead from the moment it's a score — nobody may gather it during the
+	# celebration — but NOT frozen where it is: a hard lock_at() here
+	# snapped the ball to a dead stop on the goal line mid-flight. set_
+	# unplayable() keeps is_held true (no gather/mark, and _check_out_of_
+	# bounds ignores it) while letting it fly on through the posts under
+	# its own physics, the way a real one does. The restart repositions it
+	# (a centre bounce's _rest_ball_at, a kick-in's reset_at), both of
+	# which clear the flag.
+	_ball.set_unplayable(true)
 	var label := "GOAL" if is_goal else "BEHIND"
 	_scoreboard.flash("%s! %s" % [label, _team_name(team)], Tuning.SCORE_PAUSE_DURATION)
 	_camera.punch(Tuning.CAM_PUNCH_KICK)

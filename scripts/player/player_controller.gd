@@ -555,17 +555,26 @@ func _update_locomotion(delta: float) -> void:
 	# ignored for movement purposes — facing/actions are untouched, only
 	# repositioning is blocked, same as the real rule.
 	if _frozen_timer > 0.0:
+		# The man on the mark stands *on the mark*, not wherever they were
+		# when it was taken. While still short of it, jog there under real
+		# movement — a capped velocity, so the body collides and the run
+		# clip plays — rather than being slid across the ground. Once within
+		# MARK_STAND_ARRIVE_RADIUS, snap the last few centimetres and hold
+		# exactly. The 10m retreat crowd has no anchor and just stops where
+		# they are, so all of this is skipped for them.
+		if _frozen_anchor.is_finite():
+			var to_mark := Vector3(_frozen_anchor.x - global_position.x, 0.0,
+				_frozen_anchor.z - global_position.z)
+			if to_mark.length() > Tuning.MARK_STAND_ARRIVE_RADIUS:
+				_heading = to_mark.normalized()
+				_speed = Tuning.MARK_STAND_JOG_SPEED
+				velocity.x = _heading.x * _speed
+				velocity.z = _heading.z * _speed
+				return
+			global_position = Vector3(_frozen_anchor.x, global_position.y, _frozen_anchor.z)
 		_speed = 0.0
 		velocity.x = 0.0
 		velocity.z = 0.0
-		# The man on the mark stands *on the mark*, not wherever they were
-		# when it was taken: slide onto the anchor fast (~a tenth of a
-		# second across a normal few-metre gap) rather than teleport-popping,
-		# then hold it exactly. The 10m retreat crowd has no anchor and just
-		# stops where they are, so this is skipped for them.
-		if _frozen_anchor.is_finite():
-			var target := Vector3(_frozen_anchor.x, global_position.y, _frozen_anchor.z)
-			global_position = global_position.move_toward(target, Tuning.MARK_STAND_SNAP_SPEED * delta)
 		return
 
 	var wish := _brain.wish_direction(self)

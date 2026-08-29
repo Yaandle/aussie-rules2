@@ -626,10 +626,14 @@ const RUMBLE_GATHER := Vector3(0.12, 0.0, 0.08)
 
 
 # ── Match structure ──────────────────────────────────────────────────
-# Full Game mode (design doc §7 priority 1). Small-sided rather than the
-# real 18-a-side — enough bodies to make contests and support play mean
-# something without turning the pitch into a crowd.
-const TEAM_SIZE := 4                   # players per side
+# Full Game mode (design doc §7 priority 1). Real AFL 18-a-side. Each
+# roster index maps 1:1 onto a TeamFormation slot via
+# TeamFormation.ROSTER_ORDER (on-ball unit first, then back-to-forward),
+# so a smaller value here still spawns a valid formation that is a strict
+# prefix of the full 18 — shrinking the roster never reshuffles who
+# remains. Values above 18 are unsupported: ROSTER_ORDER wraps and two
+# players would double up on one slot.
+const TEAM_SIZE := 18                  # players per side (real AFL)
 
 # A real AFL quarter is 20 minutes plus time-on. 120s is a deliberately
 # short default so a full 4-quarter match is playable in one sitting while
@@ -986,14 +990,18 @@ const MARK_HOLD_DURATION := 5.0         # s
 const MARK_RETREAT_DISTANCE := 5.0      # m
 const MARK_RETREAT_SPEED := 3.4         # m/s — a deliberate walk back, ~1.5s for the 5m
 
-# The man on the mark is placed on the mark itself
-# (PlayerController._apply_stand_the_mark), a metre goal-side of the
-# mark-taker so their capsules don't overlap, and slid onto it at
-# MARK_STAND_SNAP_SPEED rather than teleported (a normal few-metre gap
-# closes in ~0.1s). Neither is a rule number — feel/readability values, in
-# the same category as the retreat walk-back above.
+# The man on the mark (PlayerController._apply_stand_the_mark) is the
+# nearest opponent when the mark is taken, placed a metre goal-side of the
+# mark-taker so their capsules don't overlap. They JOG onto that spot
+# under real movement (velocity + move_and_slide, so it collides and the
+# run clip plays) rather than being slid onto it — at 18-a-side the
+# "nearest" opponent can be 15-20 m away, and the old fast position-slide
+# hauled them across the ground. MARK_STAND_ARRIVE_RADIUS is where the jog
+# stops and the exact hold takes over. Neither is a rule number —
+# feel/readability values, same category as the retreat walk-back above.
 const MARK_STAND_GOAL_SIDE_OFFSET := 1.0   # m goal-side of the mark-taker
-const MARK_STAND_SNAP_SPEED := 24.0        # m/s slide onto the mark
+const MARK_STAND_JOG_SPEED := JOG_SPEED    # m/s onto the mark — a jog, not a drag
+const MARK_STAND_ARRIVE_RADIUS := 0.3      # m — close enough, snap and hold
 
 # Base reach from the catch point (CarryPoint doubles as the hands here) to
 # the ball's actual position, scaled per tier below. A real arm's-reach

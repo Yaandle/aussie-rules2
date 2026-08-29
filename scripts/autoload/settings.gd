@@ -88,6 +88,20 @@ var home_formation_index := 0:
 		home_formation_index = clampi(value, 0, FORMATION_PRESETS.size() - 1)
 
 
+## Full Game pregame setting (YOUR POSITION card): which HOME roster slot
+## the human drives for the whole match in Settings.PlayerControlMode.
+## SINGLE_PLAYER (and the body they start on in FULL_TEAM). Index into the
+## spawned HOME roster, which maps onto TeamFormation.ROSTER_ORDER — 0 is
+## the ruck (also the AI centre-bounce ruck contestant, full_game.gd
+## _bounce_off), 1 the centre, and so on. Defaults to 1 (centre — an
+## on-baller always near the ball) rather than 0 so a fresh single-player
+## match doesn't hand the human the ruck, which HumanBrain can't actively
+## palm. Clamped to the roster size so a stale save can't over-index.
+var home_human_slot := 1:
+	set(value):
+		home_human_slot = clampi(value, 0, Tuning.TEAM_SIZE - 1)
+
+
 ## The currently-selected preset's slot indices into TeamFormation.SLOTS —
 ## the one thing FullGame._kickoff_slot() and TeamListScreen's whiteboard
 ## highlight both actually need, so neither has to know the preset table's
@@ -195,6 +209,8 @@ func _load() -> void:
 		player_control_mode) as PlayerControlMode
 	home_formation_index = config.get_value(SECTION, "home_formation_index",
 		home_formation_index) as int
+	home_human_slot = config.get_value(SECTION, "home_human_slot",
+		home_human_slot) as int
 	home_ball_movement = config.get_value(SECTION, "home_ball_movement",
 		home_ball_movement) as BallMovementPreference
 	home_defensive_pressure = config.get_value(SECTION, "home_defensive_pressure",
@@ -214,6 +230,7 @@ func save() -> void:
 	config.set_value(SECTION, "mouse_kick_swapped", mouse_kick_swapped)
 	config.set_value(SECTION, "player_control_mode", player_control_mode)
 	config.set_value(SECTION, "home_formation_index", home_formation_index)
+	config.set_value(SECTION, "home_human_slot", home_human_slot)
 	config.set_value(SECTION, "home_ball_movement", home_ball_movement)
 	config.set_value(SECTION, "home_defensive_pressure", home_defensive_pressure)
 	config.set_value(SECTION, "master_volume", master_volume)

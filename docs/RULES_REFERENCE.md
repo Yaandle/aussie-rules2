@@ -158,8 +158,19 @@ themselves.
 - 4 quarters, quarter length configurable — `Tuning.QUARTERS_PER_MATCH`
   (4, real) and `Tuning.QUARTER_LENGTH` (120s, a deliberately short
   testing default; see §2 of the translation record above).
+- 18 players per team (`Tuning.TEAM_SIZE`, the real number) — was 4 while
+  the mode was proven out.
 - Centre bounce / throw-up starts each quarter —
   `FullGame._prepare_centre_bounce` → `_begin_ruck_contest`.
+- **Centre square (4-player rule).** Real AFL: at a centre bounce only 4
+  players per team (the ruck plus 3 on-ballers) may start inside the 50 m
+  centre square; the rest start outside it. `FullGame._centre_bounce_slot`
+  — roster indices 0-3 take the ruck-contest ring, indices 4+ hold their
+  matchday formation slot, which `TeamFormation.ROSTER_ORDER` keeps
+  outside the square by construction. **Not policed as a live free kick**
+  (there is no umpire adjudication apparatus — same scope note as
+  deliberate out-of-bounds); it is only enforced as where players are
+  placed for the bounce.
 - **After a goal**: ball and teams reset to the middle. Once the reset
   completes, wait roughly **2 seconds longer than current** before
   triggering the ball-up animation — the current gap is too short and
@@ -191,12 +202,19 @@ gathering, marking and hit-outs all refuse until `unlock()`. Playtest
 report — players were picking it up off the ground before the umpire had
 thrown it. `reset_at()` and `launch()` both unlock, so no call site has to
 remember to. Every dead-ball path now locks: the centre bounce and the
-restart after a goal, a field ball-up, a boundary throw-in, out on the
-full, and a score (otherwise anyone behind the goals can collect it during
-the celebration). Measured end to end: 3.4s dead for a throw-in (2.0s
-pause + 1.4s throw), 8.4s from a goal to the next ball-up (3.0s
-celebration + 4.0s walk-back + 1.4s throw), and zero frames in which any
-player held a locked ball.
+restart after a goal, a field ball-up, a boundary throw-in, and out on the
+full. Measured end to end: 3.4s dead for a throw-in (2.0s pause + 1.4s
+throw), 8.4s from a goal to the next ball-up (3.0s celebration + 4.0s
+walk-back + 1.4s throw), and zero frames in which any player held a locked
+ball.
+
+**A score is the exception** — `_on_scored` calls `Ball.set_unplayable(true)`
+instead of `lock_at()`. That keeps `is_held` true (nobody gathers/marks it,
+`_check_out_of_bounds` ignores it) but does *not* pin the transform, so the
+ball flies on through the posts under its own physics the way a real one
+does rather than freezing on the goal line mid-flight. The restart
+(`_rest_ball_at` for a centre bounce, `reset_at` for a kick-in) clears the
+flag.
 
 ## 4. Ball movement
 
