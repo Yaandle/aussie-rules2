@@ -64,6 +64,14 @@ signal run_too_far_called(carrier: PlayerController)
 ## `connected` is false on a clean miss (nothing about the ball changes).
 signal hit_out_resolved(player: PlayerController, connected: bool)
 
+## Fired on the TACKLER the frame a tackle connects — `is_slide` true for a
+## standing/dive-in Slide (_try_tackle), false for a Lunge (_try_lunge_tackle).
+## The tackled-side outcome is already covered by holding_the_ball_called /
+## field_ball_up_called; this exists so something watching the tackler can tell
+## *which* commitment landed (the tackling tutorial keys its per-step success on
+## it). Inert outside that — nothing else consumes it.
+signal tackle_committed(is_slide: bool)
+
 ## Fired on the bumper when a Bump connects (design brief priority 7).
 ## `clean` reflects timing (Tuning.BUMP_APPROACH_DOT_MIN), not legality —
 ## whether contact was *dangerous* enough to warrant a free kick is a real
@@ -84,6 +92,13 @@ var speed_scale := 1.0
 ## Multiplier on KICK_MIN/MAX_SPEED — see _kick_parameters(). 1.0 leaves
 ## Full Game/the sandbox exactly as tuned, same as speed_scale above.
 var kick_power_scale := 1.0
+
+## Unitless nimbleness multiplier (1.0 == tuned baseline). Shortens the
+## backpedal turn-out (Tuning.backpedal_turnout_duration) and nudges the
+## plant-and-pivot / facing turn rates (Tuning.agility_turn_rate_mult).
+## CharacterProfile.agility_scale() is the only thing that sets this to
+## anything other than 1.0, on whichever player(s) it's applied to.
+var agility_scale := 1.0
 
 ## 0..1, where 1.0 is pinpoint and 0.0 is KICK_ACCURACY_MAX_SPREAD_DEG of
 ## random aim error — see _dispose()'s KICK branch, the only place this
@@ -613,7 +628,7 @@ func _update_locomotion(delta: float) -> void:
 		var facing_alignment := _yaw_direction(_facing_yaw).dot(_wish_dir)
 		if _backpedaling:
 			_backpedal_seconds += delta
-			if _backpedal_seconds >= Tuning.BACKPEDAL_MAX_DURATION:
+			if _backpedal_seconds >= Tuning.backpedal_turnout_duration(agility_scale):
 				# Held it long enough that this stopped being a defender
 				# reading the play and became a request to go that way.
 				# Dropping out here hands this frame to the normal branch
@@ -679,7 +694,8 @@ func _update_locomotion(delta: float) -> void:
 
 			var speed_ratio := clampf(_speed / Tuning.SPRINT_SPEED, 0.0, 1.0)
 			var turn_rate := deg_to_rad(
-				lerpf(Tuning.TURN_RATE_STANDING, Tuning.TURN_RATE_SPRINT, speed_ratio))
+				lerpf(Tuning.TURN_RATE_STANDING, Tuning.TURN_RATE_SPRINT, speed_ratio)) \
+				* Tuning.agility_turn_rate_mult(agility_scale)
 			var to_turn := _heading.signed_angle_to(_wish_dir, Vector3.UP)
 			var step := clampf(to_turn, -turn_rate * delta, turn_rate * delta)
 			_heading = _heading.rotated(Vector3.UP, step).normalized()
@@ -726,8 +742,8 @@ func _update_facing(delta: float) -> void:
 		desired = _wish_dir
 	# A node's forward is -Z, so the yaw that points -Z along `desired`.
 	var target_yaw := atan2(-desired.x, -desired.z)
-	_facing_yaw = rotate_toward(
-		_facing_yaw, target_yaw, deg_to_rad(Tuning.FACING_TURN_RATE) * delta)
+	_facing_yaw = rotate_toward(_facing_yaw, target_yaw,
+		deg_to_rad(Tuning.FACING_TURN_RATE) * Tuning.agility_turn_rate_mult(agility_scale) * delta)
 	rotation.y = _facing_yaw
 
 
@@ -1132,6 +1148,7 @@ func _try_tackle() -> void:
 		# Both sides of the same wrestle, started on the same frame.
 		_begin_tackle_hold(target, true)
 		target._begin_tackle_hold(self, false)
+		tackle_committed.emit(true)
 	else:
 		# A whiffed Slide used to be the single costliest miss in the kit;
 		# the hit-stick bump rework gave that title to a whiffed bump instead
@@ -1171,6 +1188,7 @@ func _try_lunge_tackle() -> void:
 	if _resolve_tackle_contact(self, target, false):
 		target._get_tackled(self, false)
 		_begin(Tuning.Action.TACKLE_TAKEDOWN)
+		tackle_committed.emit(false)
 	else:
 		_lunge_tap_cooldown = Tuning.TACKLE_LUNGE_TAP_COOLDOWN
 

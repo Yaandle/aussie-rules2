@@ -204,16 +204,26 @@ const BACKPEDAL_SPEED := 3.0           # m/s, capped backward shuffle
 const BACKPEDAL_ACCELERATION := 7.0    # m/s^2 — deliberate, a shade under ACCELERATION
 # How long a single backpedal can run before the body gives up on holding
 # its facing, turns, and just runs that way. Not a rule number — this is
-# the fix for a playtest report ("sometimes I look the other way and it
-# gets stuck in the backpedal and I have to do a small turn forwards and
-# around"): facing is frozen while backpedalling, so holding the stick
+# the fix for two playtest reports. First ("sometimes I look the other way
+# and it gets stuck in the backpedal and I have to do a small turn forwards
+# and around"): facing is frozen while backpedalling, so holding the stick
 # behind you can never turn the body, and BACKPEDAL_EXIT_DOT could only be
 # reached by swinging the stick back around to where the body already
-# looked. This is the "-to-turn" half of the design brief's own
-# "backpedal-to-turn transitions" — a shuffle is a transition, not a mode
-# you can be parked in. 1s is ~3m of ground covered at BACKPEDAL_SPEED,
-# well past reading the play and into "you meant to run".
-const BACKPEDAL_MAX_DURATION := 1.0    # s of continuous shuffle before turning out of it
+# looked. Second ("still get stuck backpedalling 2-3 too many steps before
+# it turns the player around"): the original 1s was too long a grace — cut
+# to 0.55s (~1.6m at BACKPEDAL_SPEED). This is the "-to-turn" half of the
+# design brief's own "backpedal-to-turn transitions" — a shuffle is a
+# transition, not a mode you can be parked in. This constant is the
+# baseline (agility 1.0); Tuning.backpedal_turnout_duration() scales it per
+# player from PlayerController.agility_scale — a nimbler player turns out
+# sooner, down to BACKPEDAL_TURNOUT_MIN_DURATION.
+const BACKPEDAL_MAX_DURATION := 0.55   # s of continuous shuffle before turning out of it (agility 1.0)
+const BACKPEDAL_TURNOUT_MIN_DURATION := 0.28   # s floor so max agility still shuffles, not snaps
+# Modest turn-rate swing from agility, applied to both the plant-and-pivot
+# sweep and the rig's facing rotation. Bracketed so DEFAULT agility (1.0)
+# lands exactly on the tuned turn rates — only off-default stats move it.
+const AGILITY_TURN_RATE_MIN_MULT := 0.85
+const AGILITY_TURN_RATE_MAX_MULT := 1.25
 
 # The moment a backpedal resolves into a real direction (design brief:
 # "acceleration bursts when starting a lead or chase") — heading is
@@ -1367,6 +1377,16 @@ const CHARACTER_KICK_ACCURACY_MAX := 1.0
 const CHARACTER_KICK_ACCURACY_STEP := 0.05
 const CHARACTER_KICK_ACCURACY_DEFAULT := 0.8
 
+# Agility is a unitless multiplier (1.0 == baseline tuning), not an SI
+# quantity like Speed/Height. It drives how fast a player turns out of a
+# backpedal (Tuning.backpedal_turnout_duration) and, more gently, the
+# plant-and-pivot / rig-facing turn rates (Tuning.agility_turn_rate_mult).
+# PlayerController.agility_scale is CharacterProfile.agility / DEFAULT.
+const CHARACTER_AGILITY_MIN := 0.6
+const CHARACTER_AGILITY_MAX := 1.5
+const CHARACTER_AGILITY_STEP := 0.05
+const CHARACTER_AGILITY_DEFAULT := 1.0
+
 const KICK_ACCURACY_MAX_SPREAD_DEG := 12.0  # deg of random error at zero accuracy
 
 const CHARACTER_TRANSITION_TIME := 0.3  # s, pixel-wipe cover/reveal duration
@@ -1432,13 +1452,6 @@ const AI_LOOSE_BALL_CEDE_MARGIN := 2.0  # m — an opponent this much nearer the
 # from the follow cam. Expect this to move once someone actually plays the
 # mode; see docs/HANDOVER.md's control-mode entry.
 const COMMAND_LEAD_DISTANCE := 12.0     # m
-
-# Settings.PlayerControlMode.FULL_TEAM auto-carrier control (FullGame.
-# _on_home_gained_possession): the human is jumped onto whoever HOME wins
-# the ball. For this long after a *manual* switch_player press, that jump
-# is held off, so a deliberate switch to a defender isn't undone the moment
-# a teammate marks it. Feel value, not a rule.
-const AUTO_CARRIER_SWITCH_GRACE := 1.5  # s
 
 # Call for the ball (Settings.PlayerControlMode.SINGLE_PLAYER — see
 # FullGame._call_for_ball). Not an AFL rule: there is no "calling" mechanic
@@ -1553,40 +1566,43 @@ const MARK_CHALLENGE_RUNNING_LEAD_DISTANCE := 5.0   # m
 const MARK_CHALLENGE_AGGRESSIVE_OFFSET := 1.9       # m
 const MARK_CHALLENGE_AGGRESSIVE_ELEVATION_DEG := 60.0   # deg
 
-# Tackling coach (design brief's third and final planned coach): unlike the
-# other two, the "delivery" is the kick-to-kick rival itself, given the
-# ball and left to run on its own already-proven AIBrain — see
-# TackleChallenge's own header for why a live opponent rather than a
-# target/lobbed-ball drill.
-const TACKLE_CHALLENGE_ATTEMPTS := 5
-# How far ahead of the player (along the rival's own attack direction,
-# i.e. the direction it will actually run) each attempt starts it — close
-# enough that a committed chase can realistically close the gap, far
-# enough that ambling over there does not.
-const TACKLE_CHALLENGE_LEAD_DISTANCE := 9.0    # m
-const TACKLE_CHALLENGE_LATERAL_SPREAD := 3.0   # m random offset per attempt, same idea as MARK_CHALLENGE_TARGET_SPREAD
-# The safety valve every other challenge here gets for free from Ball.
-# is_settled() — a live AI carrier never "settles", so a hard time limit is
-# what actually ends an attempt nobody resolves in time.
-const TACKLE_CHALLENGE_TIME_LIMIT := 5.0       # s
-const TACKLE_CHALLENGE_NEXT_DELAY := 1.6       # s after an attempt resolves before the next one, matches MARK_CHALLENGE_NEXT_DELAY's pacing
-# Diagnosed bug fix: the rival is a stock AIBrain PlayerController with the
-# same ACCELERATION (10.5 m/s^2) and SPRINT_SPEED (8.4 m/s) the human
-# player gets by default (CharacterProfile.speed_scale() is 1.0 unless the
-# character screen's SPEED stat was changed) — two bodies with identical
-# accel/top speed hold whatever gap they started at constant forever, so
-# TACKLE_CHALLENGE_LEAD_DISTANCE was a literally uncatchable head start,
-# not a hard-but-fair one. AIBrain.carry_gait_scale (drill-only, see its
-# own comment) is set to this for the rival's whole TackleChallenge
-# appearance, reproducing a coach easing a training partner back to a
-# beatable pace — a real closing-speed differential a committed, well-
-# angled chase can close inside TACKLE_CHALLENGE_TIME_LIMIT (verified with
-# a scripted chase-bot brain under real headless physics). The
-# actual tackle still has to pass _resolve_tackle_contact's real closing-
-# speed/approach-angle gate same as any other Slide/Lunge attempt — this
-# only fixes the geometry that made getting there impossible in the first
-# place.
-const TACKLE_CHALLENGE_RIVAL_GAIT_SCALE := 0.75
+# Tackling tutorial (design brief's third coach, reworked): a guided,
+# step-by-step walk through the tackle kit rather than the old chase-from-
+# behind drill. Each step freezes the game to show the binding (keyboard +
+# controller, both at once), then sends the kick-to-kick rival — driven by
+# TutorialDummyBrain, not its usual AIBrain — jogging straight at the player
+# to apply that one control. See TackleTutorial's own header for the step
+# list. Steps: close the gap / slide dive-in / standing slide / lunge / hit
+# stick.
+const TACKLE_TUTORIAL_APPROACH_DISTANCE := 16.0   # m, where the "close the gap" step spawns the dummy
+const TACKLE_TUTORIAL_CONTACT_LEAD := 9.0         # m in front of the player a contact-range rep spawns the dummy
+# The dummy holds here for the dive-in step: past TACKLE_RADIUS (1.4m) so a
+# standing tackle can't reach, inside TACKLE_SLIDE_DIVE_RANGE (2.4m) so the
+# dive can — the one gap only the dive-in closes.
+const TACKLE_TUTORIAL_DIVE_HOLD_DISTANCE := 2.2   # m
+const TACKLE_TUTORIAL_SPRINT_CLEAR_RANGE := 3.0   # m from the dummy that counts as "you closed the gap"
+const TACKLE_TUTORIAL_STALE_REP_TIME := 4.0       # s a no-result rep runs before it silently restarts (a tutorial retries, it doesn't fail)
+const TACKLE_TUTORIAL_STEP_GAP := 1.2             # s beat between a cleared step and the next card
+const TACKLE_TUTORIAL_DUMMY_GAIT := 0.85          # 0..1 — a jog, not a sprint, so there's time to read the approach
+
+# Padded tackle bags — training-ground dressing beside the tackling coach.
+# Player-sized flat-topped red cylinders, no branding (see TackleBag).
+# Offsets are from the tackling coach's own stand point; index 0 is the
+# prominent upright bag right by the coach, indices 1+ are spares tipped
+# over on the ground a couple of metres to the side (TACKLE_BAG_LIE_YAWS
+# spins each so they don't line up).
+const TACKLE_BAG_HEIGHT := 1.8                    # m, player height
+const TACKLE_BAG_RADIUS := 0.33                   # m
+const TACKLE_BAG_COLOUR := Color(0.78, 0.11, 0.11)
+const TACKLE_BAG_BASE_COLOUR := Color(0.09, 0.09, 0.1)
+const TACKLE_BAG_OFFSETS: Array[Vector3] = [
+	Vector3(2.0, 0.0, 0.5),
+	Vector3(4.4, 0.0, 2.4),
+	Vector3(2.6, 0.0, 3.6),
+]
+## Yaw (radians) for each lying bag, i.e. TACKLE_BAG_OFFSETS[1..]. One shorter
+## than the offsets list — the upright bag at index 0 doesn't use it.
+const TACKLE_BAG_LIE_YAWS: Array[float] = [0.35, -0.95]
 
 
 ## Maps a 0..1 gait scalar onto the three named speeds, so WALK_SPEED,
@@ -1601,6 +1617,23 @@ static func speed_for_gait(gait: float) -> float:
 	if g < GAIT_JOG:
 		return remap(g, GAIT_WALK, GAIT_JOG, WALK_SPEED, JOG_SPEED)
 	return remap(g, GAIT_JOG, 1.0, JOG_SPEED, SPRINT_SPEED)
+
+
+## How long a backpedal shuffle may run before the body turns out of it,
+## for a player of the given agility_scale (CharacterProfile.agility_scale,
+## 1.0 == baseline). Higher agility turns out sooner, clamped so it never
+## drops below a readable shuffle (BACKPEDAL_TURNOUT_MIN_DURATION) and a
+## sluggish player (agility CHARACTER_AGILITY_MIN) never exceeds the old
+## ~1s feel.
+static func backpedal_turnout_duration(agility_scale: float) -> float:
+	return clampf(BACKPEDAL_MAX_DURATION / maxf(agility_scale, 0.01),
+		BACKPEDAL_TURNOUT_MIN_DURATION, BACKPEDAL_MAX_DURATION / CHARACTER_AGILITY_MIN)
+
+
+## Multiplier on turn rates (plant-and-pivot sweep + rig facing) for the
+## given agility_scale. clampf keeps agility 1.0 at exactly 1.0x.
+static func agility_turn_rate_mult(agility_scale: float) -> float:
+	return clampf(agility_scale, AGILITY_TURN_RATE_MIN_MULT, AGILITY_TURN_RATE_MAX_MULT)
 
 
 static func action_duration(action: Action) -> float:

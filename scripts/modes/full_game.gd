@@ -42,6 +42,7 @@ var _home_players: Array[PlayerController] = []
 var _away_players: Array[PlayerController] = []
 var _crosshair: KickCrosshair
 var _mark_prompt: MarkPrompt
+var _controlled_ring: ControlledPlayerRing
 
 ## The two ruckmen in the current live ruck contest (set in _release_ruck_
 ## contest). Cleared the instant a hit-out connects so the on-ballers are
@@ -64,13 +65,6 @@ var _prev_ball_pos_valid := false
 ## Settings.PlayerControlMode.SINGLE_PLAYER, since that's the only mode the
 ## action is routed in at all.
 var _call_for_ball_cooldown := 0.0
-
-## Seconds left in which auto-carrier control (FULL_TEAM: HumanBrain jumps
-## onto whoever HOME wins the ball) stays suppressed after a manual
-## switch_player press, so it can't immediately yank the human off the body
-## they just deliberately chose. See _on_home_gained_possession /
-## Tuning.AUTO_CARRIER_SWITCH_GRACE.
-var _manual_switch_grace := 0.0
 
 
 func _ready() -> void:
@@ -100,6 +94,13 @@ func _ready() -> void:
 	_mark_prompt.ball = _ball
 	add_child(_mark_prompt)
 
+	_controlled_ring = ControlledPlayerRing.new()
+	# _apply_camera_mode() ran above, before this existed — seed the state
+	# it would have set, then it keeps it live on any mid-match change.
+	_controlled_ring.active = Settings.full_game_camera_mode \
+		== Settings.FullGameCameraMode.FULL_SIDE
+	add_child(_controlled_ring)
+
 	_spawn_teams()
 	_start_match()
 
@@ -110,7 +111,6 @@ func _physics_process(delta: float) -> void:
 	# a call made just before a goal/ball-up shouldn't stay on cooldown for
 	# the whole stoppage as well.
 	_call_for_ball_cooldown = maxf(0.0, _call_for_ball_cooldown - delta)
-	_manual_switch_grace = maxf(0.0, _manual_switch_grace - delta)
 
 	if _pause_timer > 0.0:
 		_pause_timer = maxf(0.0, _pause_timer - delta)
@@ -125,8 +125,12 @@ func _physics_process(delta: float) -> void:
 
 
 func _apply_camera_mode(setting: Settings.FullGameCameraMode) -> void:
-	_camera.set_mode(BroadcastCamera.Mode.FULL_SIDE \
-		if setting == Settings.FullGameCameraMode.FULL_SIDE else BroadcastCamera.Mode.CHASE)
+	var full_side := setting == Settings.FullGameCameraMode.FULL_SIDE
+	_camera.set_mode(BroadcastCamera.Mode.FULL_SIDE if full_side else BroadcastCamera.Mode.CHASE)
+	# The foot ring only earns its keep in the wide view — in CHASE the
+	# camera is already sitting behind the controlled player.
+	if is_instance_valid(_controlled_ring):
+		_controlled_ring.active = full_side
 
 
 ## The two player-control modes (Settings.PlayerControlMode, chosen on the
@@ -187,6 +191,7 @@ func _on_focus_changed(team: Tuning.Team, previous: PlayerController, next: Play
 	_hud.player = next
 	_crosshair.player = next
 	_mark_prompt.player = next
+	_controlled_ring.player = next
 
 
 ## Esc used to hard-cut straight to the main menu, discarding a match in
@@ -233,6 +238,7 @@ func _spawn_teams() -> void:
 	var human_idx := clampi(Settings.home_human_slot, 0, _home_players.size() - 1)
 	_home_players[human_idx].set_brain(HumanBrain.new())
 	ControlMode.set_controlled_player(Tuning.Team.HOME, _home_players[human_idx])
+	_apply_character_profile(human_idx)
 
 	for player in _home_players + _away_players:
 		player.field_ball_up_called.connect(_on_field_ball_up)
@@ -249,6 +255,23 @@ func _spawn_teams() -> void:
 		# marked, only what happened.
 		player.ball_disposed.connect(_on_player_disposed.bind(player))
 		player.mark_caught.connect(_on_player_marked.bind(player))
+
+
+## Push the CharacterProfile stats onto HOME. CharacterProfile.apply_all
+## picks the scope: every HOME player, or (false) only the pregame
+## start-position slot — deliberately fixed to that slot, it does NOT
+## follow the controlled player across FULL_TEAM carrier switches (see
+## _assign_human_to). AWAY is never touched. Mirrors kick_to_kick.gd's
+## per-field assignment.
+func _apply_character_profile(start_idx: int) -> void:
+	var targets: Array[PlayerController] = _home_players if CharacterProfile.apply_all \
+		else [_home_players[start_idx]]
+	for p in targets:
+		p.speed_scale = CharacterProfile.speed_scale()
+		p.agility_scale = CharacterProfile.agility_scale()
+		p.kick_power_scale = CharacterProfile.kick_power
+		p.kick_accuracy = CharacterProfile.kick_accuracy
+		(p.get_node("Rig") as Node3D).scale = Vector3.ONE * CharacterProfile.height_scale()
 
 
 func _spawn_team(team: Tuning.Team, attack_direction: float) -> Array[PlayerController]:
@@ -986,27 +1009,25 @@ func _reset_ball() -> void:
 ## human on whichever body _spawn_teams() started them on for the whole
 ## match and gets _call_for_ball() instead.
 ##
-## Two changes for FULL_TEAM play: the switch now picks by proximity to the
-## ball (ControlMode.next_in_roster with a reference point) rather than
-## spawn-array order, and it arms _manual_switch_grace so auto-carrier
-## control (_on_home_gained_possession) can't immediately override the pick.
+## FULL_TEAM: the switch goes straight to the HOME player nearest the ball
+## (ControlMode.next_in_roster with a reference point) rather than spawn-
+## array order. It no longer suppresses auto-carrier control afterwards —
+## a switch is now itself just "get me to the ball", the same intent
+## _on_home_gained_possession serves, so there is nothing to protect from
+## it.
 func _switch_human_player() -> void:
 	if ControlMode.scheme_for(Tuning.Team.HOME) == ControlMode.Scheme.TEAM_COMMAND:
 		_cycle_team_command_selection()
 		return
 
 	var previous := ControlMode.controlled_player(Tuning.Team.HOME)
-	# Proximity-cycled, not index-cycled: pass the ball as the reference so
-	# one press reaches the player who matters (the defender under it, the
-	# next option up the ground) instead of whoever sits next in the spawn
-	# array. See ControlMode.next_in_roster.
+	# Straight to the HOME player nearest the ball — pass the ball as the
+	# reference (see ControlMode.next_in_roster). One press puts you on
+	# whoever's on the ball; if you're already there this returns the same
+	# body and the guard below no-ops.
 	var next := ControlMode.next_in_roster(Tuning.Team.HOME, previous, _ball.global_position)
 	if next == previous:
 		return
-
-	# A deliberate hand-pick — hold auto-carrier control off briefly so it
-	# can't immediately drag the human back off this choice.
-	_manual_switch_grace = Tuning.AUTO_CARRIER_SWITCH_GRACE
 	_assign_human_to(next)
 
 
@@ -1023,21 +1044,23 @@ func _assign_human_to(next: PlayerController) -> void:
 			AIBrain.new(), Tuning.Team.HOME, 1.0, previous.global_position))
 	next.set_brain(HumanBrain.new())
 	ControlMode.set_controlled_player(Tuning.Team.HOME, next)
+	# CharacterProfile stats are NOT moved here — _apply_character_profile
+	# bound them to the pregame start slot (or all of HOME) at spawn, and
+	# that binding is deliberately fixed regardless of who you're driving.
 
 
-## FULL_TEAM: when HOME wins the ball in open play, put the human straight
-## onto the carrier — you control whoever has it without hunting for the
-## switch key. Suppressed for AUTO_CARRIER_SWITCH_GRACE seconds after a
-## manual switch (so it can't undo a deliberate pick), and only in
-## SINGLE_PLAYER scheme — TEAM_COMMAND has its own selection model.
+## FULL_TEAM: every time HOME wins the ball in open play, put the human
+## straight onto the carrier — you control whoever has it without hunting
+## for the switch key. Fires on every gather/mark (ball_gathered), with no
+## post-switch suppression window: a manual switch is itself just "get me
+## to the ball" now, so there is no deliberate off-ball pick to protect.
+## Only in SINGLE_PLAYER scheme — TEAM_COMMAND has its own selection model.
 func _on_home_gained_possession(_ball_ref: Ball, carrier: PlayerController) -> void:
 	if Settings.player_control_mode != Settings.PlayerControlMode.FULL_TEAM:
 		return
 	if ControlMode.scheme_for(Tuning.Team.HOME) != ControlMode.Scheme.SINGLE_PLAYER:
 		return
 	if carrier.team != Tuning.Team.HOME or GameState.phase != GameState.Phase.PLAY:
-		return
-	if _manual_switch_grace > 0.0:
 		return
 	_assign_human_to(carrier)
 

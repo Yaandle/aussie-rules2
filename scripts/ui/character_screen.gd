@@ -4,17 +4,18 @@ extends Node
 ## Attribute screen ported from Prototype 1's character_state.py /
 ## character_render.py (hotkey "C" from the main menu there too). P1 also
 ## had a named-player roster with disk persistence layered on the same
-## screen; this port keeps the part that actually changes gameplay right
-## now — the live SPEED/HEIGHT/KICKING POWER/KICKING ACCURACY draft
-## (design doc's "APPLY TO ALL PLAYERS" default, see CharacterProfile) —
-## and drops the roster, since there's nowhere yet that more than one
-## saved profile would matter.
+## screen; this port keeps the live SPEED/AGILITY/KICKING POWER/KICKING
+## ACCURACY/HEIGHT draft plus P1's APPLY TO ALL / one specific player
+## toggle, and drops the roster list / naming screen / disk-vs-session
+## prompt (the lean form — see CharacterProfile).
 ##
-## Four adjustable stats, four locked flavour rows kept for the same
+## Five adjustable stats, three locked flavour rows kept for the same
 ## reason P1 kept them: a stat screen that only ever shows a couple of
-## live numbers doesn't read as a stat screen. A PLAY action row replaces
-## P1's SAVE — confirming here launches kick_to_kick.tscn instead of
-## writing to disk.
+## live numbers doesn't read as a stat screen. Then an APPLY TO toggle row
+## (ALL PLAYERS / START PLAYER — which HOME players Full Game applies the
+## profile to) and a PLAY action row that replaces P1's SAVE: confirming
+## commits the draft to CharacterProfile, persists it, and launches
+## kick_to_kick.tscn.
 ##
 ## The whole left column is built here from ATTRIBUTE_ROWS rather than
 ## laid out in `character_screen.tscn`: eight instances of one row is
@@ -32,11 +33,15 @@ const ATTRIBUTE_ROWS := [
 	{"key": null, "icon": &"jump", "name": "JUMPING"},
 	{"key": "kick_power", "icon": &"kick", "name": "KICKING POWER"},
 	{"key": "kick_accuracy", "icon": &"accuracy", "name": "KICKING ACCURACY"},
-	{"key": null, "icon": &"strength", "name": "STRENGTH"},
+	{"key": "agility", "icon": &"agility", "name": "AGILITY"},
 	{"key": "height", "icon": &"height", "name": "HEIGHT"},
 	{"key": null, "icon": &"weight", "name": "WEIGHT"},
 	{"key": null, "icon": &"foot", "name": "KICKING FOOT", "bar": false},
 ]
+
+## Trailing interactive rows after the stat list, in order. The APPLY TO
+## row cycles CharacterProfile.apply_all; PLAY commits + persists + launches.
+const APPLY_MODE_TEXT := {true: "ALL PLAYERS", false: "START PLAYER"}
 
 const TITLE := "PLAYER PROFILE"
 const SUBTITLE := "CUSTOMISE YOUR CHARACTER"
@@ -45,8 +50,8 @@ const ACTION_TEXT := "PLAY — OPEN FIELD"
 # ── Left column geometry, in design-resolution px (1280x720) ─────────
 const LEFT_MARGIN := 58.0
 const HEADER_TOP := 62.0
-const STAT_TOP := 184.0
-const ROW_SEPARATION := 13
+const STAT_TOP := 160.0
+const ROW_SEPARATION := 8
 const BUTTON_TOP := 613.0
 const HINTS_TOP := 678.0
 
@@ -70,6 +75,7 @@ var _hint_sets := {}
 
 var _draft := {}
 var _rows: Array[StatRow] = []
+var _apply_row: StatRow          ## APPLY TO toggle, at index _apply_index()
 var _play: ActionButton
 var _hints: KeyHintBar
 var _selected := 0
@@ -87,12 +93,16 @@ func _ready() -> void:
 		"kick_accuracy": {"min": Tuning.CHARACTER_KICK_ACCURACY_MIN,
 			"max": Tuning.CHARACTER_KICK_ACCURACY_MAX,
 			"step": Tuning.CHARACTER_KICK_ACCURACY_STEP, "format": "%.0f%%"},
+		"agility": {"min": Tuning.CHARACTER_AGILITY_MIN, "max": Tuning.CHARACTER_AGILITY_MAX,
+			"step": Tuning.CHARACTER_AGILITY_STEP, "format": "%.2fx"},
 	}
 	_draft = {
 		"speed": CharacterProfile.speed,
 		"height": CharacterProfile.height,
 		"kick_power": CharacterProfile.kick_power,
 		"kick_accuracy": CharacterProfile.kick_accuracy,
+		"agility": CharacterProfile.agility,
+		"apply_all": CharacterProfile.apply_all,
 	}
 	_hint_sets = {
 		InputManager.Device.KEYBOARD: [
@@ -126,8 +136,18 @@ func _unhandled_input(event: InputEvent) -> void:
 		_exit_to_menu()
 
 
+## Index of the APPLY TO toggle row, then the PLAY row, in the up/down list
+## that runs past the stat rows.
+func _apply_index() -> int:
+	return ATTRIBUTE_ROWS.size()
+
+
+func _play_index() -> int:
+	return ATTRIBUTE_ROWS.size() + 1
+
+
 func _row_count() -> int:
-	return ATTRIBUTE_ROWS.size() + 1   # + the PLAY action row
+	return ATTRIBUTE_ROWS.size() + 2   # + the APPLY TO toggle and the PLAY action row
 
 
 func _move(step: int) -> void:
@@ -136,6 +156,11 @@ func _move(step: int) -> void:
 
 
 func _nudge(direction: int) -> void:
+	if _selected == _apply_index():
+		# Two-value toggle — either direction just flips it.
+		_draft["apply_all"] = not _draft["apply_all"]
+		_refresh()
+		return
 	if _selected >= ATTRIBUTE_ROWS.size():
 		return
 	var row: Dictionary = ATTRIBUTE_ROWS[_selected]
@@ -151,18 +176,31 @@ func _nudge(direction: int) -> void:
 
 
 func _activate() -> void:
-	if _selected == ATTRIBUTE_ROWS.size():
+	if _selected == _apply_index():
+		_draft["apply_all"] = not _draft["apply_all"]
+		_refresh()
+	elif _selected == _play_index():
 		_confirm_and_play()
+
+
+## Copy the whole draft onto CharacterProfile and persist it. Shared by
+## PLAY and by backing out (the lean screen has no separate SAVE row, so
+## an edit shouldn't be lost just because you left via Esc).
+func _commit_draft() -> void:
+	CharacterProfile.speed = _draft["speed"]
+	CharacterProfile.height = _draft["height"]
+	CharacterProfile.kick_power = _draft["kick_power"]
+	CharacterProfile.kick_accuracy = _draft["kick_accuracy"]
+	CharacterProfile.agility = _draft["agility"]
+	CharacterProfile.apply_all = _draft["apply_all"]
+	CharacterProfile.save()
 
 
 func _confirm_and_play() -> void:
 	if _busy:
 		return
 	_busy = true
-	CharacterProfile.speed = _draft["speed"]
-	CharacterProfile.height = _draft["height"]
-	CharacterProfile.kick_power = _draft["kick_power"]
-	CharacterProfile.kick_accuracy = _draft["kick_accuracy"]
+	_commit_draft()
 	SceneWipe.change_scene("res://scenes/modes/kick_to_kick.tscn")
 
 
@@ -170,6 +208,7 @@ func _exit_to_menu() -> void:
 	if _busy:
 		return
 	_busy = true
+	_commit_draft()
 	SceneWipe.change_scene("res://scenes/ui/main_menu.tscn")
 
 
@@ -198,6 +237,13 @@ func _build() -> void:
 			entry.get("bar", true))
 		_rows.append(row)
 
+	# APPLY TO toggle — a StatRow with no bar, its value column carrying the
+	# mode text. Selectable and adjustable like a stat row, but flips a bool
+	# instead of nudging a number (see _nudge/_activate).
+	_apply_row = StatRow.new()
+	list.add_child(_apply_row)
+	_apply_row.configure(&"gear", "APPLY TO", false, false)
+
 	_play = ActionButton.new(ACTION_TEXT)
 	_play.position = Vector2(LEFT_MARGIN, BUTTON_TOP)
 	_ui.add_child(_play)
@@ -224,7 +270,9 @@ func _refresh() -> void:
 		var entry: Dictionary = ATTRIBUTE_ROWS[i]
 		_rows[i].set_state(i == _selected, _filled_segments(entry["key"]),
 			_value_text(entry["key"]))
-	_play.set_selected(_selected == ATTRIBUTE_ROWS.size())
+	_apply_row.set_state(_selected == _apply_index(), 0,
+		APPLY_MODE_TEXT[_draft["apply_all"]])
+	_play.set_selected(_selected == _play_index())
 
 
 ## Where the stat sits between its own min and max, quantised to the

@@ -5718,6 +5718,37 @@ Three small fixes off the first play of the 18-a-side build:
    last few cm and holds exactly. Verified: a player told to stand a mark
    15 m away peaked at **4.80 m/s**, arrived in ~3 s, held on the spot.
 
+4. **`switch_player` (FULL_TEAM) walked the roster instead of going to the
+   ball.** `ControlMode.next_in_roster` with a reference returned the
+   nearest body *that isn't `current`*, so once you were on the nearest a
+   press stepped you to the second-nearest — away from the ball. It now
+   returns the nearest, period; `_switch_human_player`'s `next == previous`
+   guard makes "already there" a no-op. TEAM_COMMAND's reference-less
+   round-robin is untouched. Verified: from the farthest HOME player one
+   press lands on the one nearest the ball, and a second press stays.
+
+5. **Auto-carrier stopped firing after a manual switch.** `_switch_human_
+   player` armed `_manual_switch_grace` (`AUTO_CARRIER_SWITCH_GRACE`, 1.5 s)
+   and `_on_home_gained_possession` bailed while it was up — so for 1.5 s
+   after every switch, HOME winning the ball did *not* move the human onto
+   the winner. With the switch now meaning "get me to the ball" (fix 4),
+   that grace only fought the identical intent. Removed entirely
+   (`_manual_switch_grace`, the tick, the guard, `Tuning.AUTO_CARRIER_
+   SWITCH_GRACE`). Verified: a manual switch immediately followed by a
+   different HOME player gathering jumps the human onto the gatherer.
+
+6. **No indicator for which player you're driving in the wide view.** New
+   `ControlledPlayerRing` (`scripts/ui/controlled_player_ring.gd`) — a
+   CanvasLayer overlay in the same instantiate-and-assign-fields family as
+   `KickCrosshair` / `MarkPrompt`. It projects a 0.62 m world circle at the
+   controlled HOME player's feet (each vertex unprojected individually, so
+   it foreshortens into a proper ground ellipse) and draws it with the
+   kick-aim accent. `FullGame` binds `.player` in `_on_focus_changed` and
+   toggles `.active` from `_apply_camera_mode` — **FULL_SIDE camera only**
+   (in CHASE the camera already sits behind your player). Verified: wired,
+   active in FULL_SIDE, bound to the controlled player. Not visually
+   confirmed — no screenshot tool.
+
 ### Files changed
 
 `scripts/tuning.gd` (`TEAM_SIZE` 4 → 18; `MARK_STAND_SNAP_SPEED` →
@@ -5727,10 +5758,186 @@ Three small fixes off the first play of the 18-a-side build:
 full-roster branch + stagger, `_centre_bounce_slot` `team` param,
 `_reposition_kickoff` + `_kickoff_home_position`, `_spawn_team` spawn
 position, `_spawn_teams` human-slot wiring, `_bounce_off` comment,
-`_on_scored` soft dead-ball), `scripts/ball/ball.gd` (`set_unplayable` /
-`_unplayable`), `scripts/player/player_controller.gd` (frozen-block jog),
+`_on_scored` soft dead-ball, `_switch_human_player` comment),
+`scripts/ball/ball.gd` (`set_unplayable` / `_unplayable`),
+`scripts/player/player_controller.gd` (frozen-block jog),
+`scripts/autoload/control_mode.gd` (`next_in_roster` → nearest, not
+nearest-non-current), `scripts/modes/full_game.gd` also (drop
+`_manual_switch_grace`; `_controlled_ring` wiring),
+`scripts/tuning.gd` also (drop `AUTO_CARRIER_SWITCH_GRACE`),
+`scripts/ui/controlled_player_ring.gd` (new — foot ring overlay),
 `scripts/autoload/settings.gd` (`home_human_slot` + load/save),
 `scripts/ui/full_game_pregame_screen.gd` (YOUR POSITION card,
 `_your_position_options`, `_set_your_position`, 4th readout row, layout
 comments, subtitle), `scripts/ui/main_menu.gd` (FULL GAME subtitle 4 →
 18), `docs/FEATURE_AUDIT.md`, `docs/RULES_REFERENCE.md`.
+
+
+## Handover — Tackling coach reworked into a guided tutorial + tackle-bag scenery
+
+The kick-to-kick tackling coach ran `TackleChallenge`: 5 timed attempts,
+rival handed the ball and running *away*, player chasing from behind. It
+taught nothing about *which* tackle to use. Replaced entirely (user brief)
+with `TackleTutorial` — a guided, freeze-and-teach walk through the tackle
+kit — and dressed that corner of the field with padded tackle bags.
+
+### `TackleTutorial` (`scripts/mechanics/tackle_tutorial.gd`, was `tackle_challenge.gd`)
+
+Still a `CoachChallenge` subclass (reuses `challenge_started` /
+`challenge_ended` / `hint_changed` and the `_schedule`/`_tick_schedule`
+timer). 5 steps in a `const STEPS` table, each carrying its card text plus
+both control schemes as `KeyHintBar`-shaped `{keys,label}` dicts:
+
+1. **Close the gap** — sprint (Shift / RT). Dummy stands still 16 m ahead;
+   cleared when the player closes within
+   `TACKLE_TUTORIAL_SPRINT_CLEAR_RANGE` (3 m).
+2. **Slide dive-in** — hold E / B from just outside reach. Dummy jogs in
+   and holds at `TACKLE_TUTORIAL_DIVE_HOLD_DISTANCE` (2.2 m — past
+   `TACKLE_RADIUS`, inside `TACKLE_SLIDE_DIVE_RANGE`).
+3. **Standing slide** — hold E / B at point-blank. Dummy runs into contact.
+4. **Lunge** — tap Q / X at point-blank.
+5. **Hit stick** — hold L / LB + flick toward them.
+
+Per-step flow: `step_changed` → mode shows the card + freezes input;
+player `confirm` → `begin_rep()` positions the dummy and hands it the ball;
+player applies the control → an outcome signal clears the step →
+`TACKLE_TUTORIAL_STEP_GAP` beat → next card. `decline` skips a step. No
+score, no fail — a rep that produces nothing within
+`TACKLE_TUTORIAL_STALE_REP_TIME` (4 s) silently repositions and re-runs.
+Success detection: the **player's** new `PlayerController.tackle_committed(is_slide)`
+tells a slide rep from a lunge rep (steps 2/3 want `is_slide`, step 4 wants
+not), and the existing `bump_landed` covers step 5. `challenge_ended` fires
+once at the end as the "tutorial complete" event.
+
+### `TutorialDummyBrain` (`scripts/mechanics/tutorial_dummy_brain.gd`)
+
+The rival needs to run *at* the player and never dispose — the opposite of
+`AIBrain`. `TackleTutorial.begin()` stashes `rival.brain()`, swaps in a
+`TutorialDummyBrain`, and restores the real brain in `_finish()`/`force_miss()`.
+Extends `PlayerBrain` directly (all `wants_*` stay the base false), overrides
+only `wish_direction()` (flat vector toward `target`, zero inside
+`stop_distance`) and `gait()` (flat `run_gait`; 0 for the sprint step so the
+player does the running). PlayerController's own
+`wish.length_squared() > 0` locomotion gate is what parks it at
+`stop_distance` — no need to also zero the gait.
+
+### Freeze-and-teach card (`kick_to_kick.gd`)
+
+Built in code from `UIStyle` + `KeyHintBar` (`_build_tutorial_card`), on a
+CanvasLayer above the placeholder hint. Dim + centered panel: title,
+wrapped instruction, a "Keyboard / Mouse" `KeyHintBar` row and a
+"Controller" row (both schemes shown at once, per the brief), footer. While
+visible, `InputManager.gameplay_input_enabled = false` and
+`_unhandled_input` routes `confirm`/`decline` to the tutorial. The
+`_physics_process` rival-freeze gate now also requires
+`_tackle_tutorial.rep_active()`, so the dummy holds still until the card is
+dismissed.
+
+### `TackleBag` scenery (`scripts/props/tackle_bag.gd` + `scenes/props/tackle_bag.tscn`)
+
+Procedural like everything else (mirrors `field.gd`'s goal-post idiom):
+red `CylinderMesh` body + squashed hemisphere cap + dark foot collar,
+player-sized (`TACKLE_BAG_HEIGHT` 1.8 m), origin at the feet. A
+`StaticBody3D` + `CylinderShape3D` on the **world** layer only — solid to
+run into, but no `PlayerController` and not on the "players" layer, so every
+contest proximity query is blind to it. Three of them, spawned in
+`_setup_tackle_ground()` at `TACKLE_BAG_OFFSETS` from the tackling coach.
+
+### How it was verified
+
+Class-cache rescan (new `class_name`s `TackleTutorial` / `TutorialDummyBrain`
+/ `TackleBag`), then headless boot of `res://scenes/modes/kick_to_kick.tscn`
+(`--fixed-fps 60 --quit-after 240`) — clean exit, bags spawn without physics
+warnings. Scripted-brain physics scenario: TODO fill in after running.
+
+### Files changed
+
+`scripts/mechanics/tackle_challenge.gd` → `tackle_tutorial.gd` (rewritten),
+`scenes/mechanics/tackle_challenge.tscn` → `tackle_tutorial.tscn`,
+`scripts/mechanics/tutorial_dummy_brain.gd` (new),
+`scripts/props/tackle_bag.gd` + `scenes/props/tackle_bag.tscn` (new),
+`scripts/player/player_controller.gd` (`tackle_committed` signal + 2 emits),
+`scripts/modes/kick_to_kick.gd` (tutorial wiring, step card, bag spawn,
+rival-freeze gate), `scripts/tuning.gd` (`TACKLE_CHALLENGE_*` block →
+`TACKLE_TUTORIAL_*` + `TACKLE_BAG_*`), `scripts/mechanics/ai_brain.gd`
+(`carry_gait_scale` doc comment), `docs/FEATURE_AUDIT.md`.
+
+
+## Handover — Backpedal turn-out sped up + Agility stat + lean apply-all/start-player profile (2026-08-30)
+
+Playtest: "still get stuck backpedalling 2-3 too many steps before it turns
+the player around". The only turn-out path was the fixed
+`Tuning.BACKPEDAL_MAX_DURATION = 1.0 s` timeout in
+`player_controller.gd:_update_locomotion` — too long, and identical for every
+player.
+
+### Backpedal timing
+
+- `BACKPEDAL_MAX_DURATION` 1.0 → **0.55 s** (baseline, agility 1.0).
+- New `BACKPEDAL_TURNOUT_MIN_DURATION` (0.28 s) floor, and
+  `AGILITY_TURN_RATE_MIN/MAX_MULT` (0.85 / 1.25) bracket.
+- New static helpers in `tuning.gd`:
+  `backpedal_turnout_duration(agility_scale)` =
+  `clampf(BACKPEDAL_MAX_DURATION / agility_scale, MIN, MAX/CHARACTER_AGILITY_MIN)`,
+  and `agility_turn_rate_mult(agility_scale)` = `clampf(agility_scale, 0.85, 1.25)`
+  (so agility 1.0 leaves turn rates exactly as tuned).
+- `PlayerController` gains `var agility_scale := 1.0`. It feeds three spots:
+  the backpedal turn-out check (line ~628), the plant-and-pivot `turn_rate`
+  (line ~696), and `_update_facing`'s `FACING_TURN_RATE` — so a nimble player
+  both drops the shuffle sooner and physically rotates out of it faster.
+
+### Agility stat + lean apply-mode
+
+- `Tuning.CHARACTER_AGILITY_MIN/MAX/STEP/DEFAULT` (0.6 / 1.5 / 0.05 / 1.0) —
+  a unitless multiplier, not an SI quantity.
+- `CharacterProfile` (`autoload/character_profile.gd`) rewritten: adds
+  `agility` + `agility_scale()`, an `apply_all` bool, and — new — its own
+  persistence to `user://character_profile.cfg` (`save()` / `_load()`, every
+  numeric field re-clamped on load). Its own ConfigFile rather than through
+  `Settings` because `Settings` loads *after* this autoload.
+- `character_screen.gd`: STRENGTH flavour row replaced by a live **AGILITY**
+  row (new `&"agility"` lightning-bolt glyph in `ui_icon.gd`); a new **APPLY
+  TO** toggle row (ALL PLAYERS / START PLAYER) between the stats and PLAY.
+  `_row_count()` now `ATTRIBUTE_ROWS.size() + 2`; `_apply_index()` /
+  `_play_index()` name the two trailing rows. PLAY *and* backing out via Esc
+  now both `_commit_draft()` → `CharacterProfile.save()` (lean screen has no
+  separate SAVE row). Layout: `STAT_TOP` 184→160, `ROW_SEPARATION` 13→8 to
+  fit the extra row.
+- This is the **lean** port of P1's `character_state.py` roster: keeps the
+  apply-all-vs-one toggle + persistence, drops the named-player list, the
+  create/name sub-screen, and the disk-vs-session prompt.
+
+### Full Game wiring
+
+- `full_game.gd._apply_character_profile(start_idx)` (called from
+  `_spawn_teams` right after the HumanBrain is assigned): pushes
+  speed/agility/kick_power/kick_accuracy/height-scale onto HOME. Scope from
+  `CharacterProfile.apply_all` — every HOME player, or (false) only
+  `_home_players[start_idx]` (the pregame `Settings.home_human_slot`).
+  AWAY untouched. Mirrors `kick_to_kick.gd`'s per-field assignment, which
+  also gained the `agility_scale` line.
+- Deliberately fixed to the start slot: `_assign_human_to()` does **not**
+  move the stats onto the controlled player across FULL_TEAM carrier
+  switches (comment added there). Matches the answer given during planning.
+
+### How it was verified
+
+- Class-cache rescan + headless boot of main menu — clean exit 0.
+- Headless boot of `full_game.tscn`, `kick_to_kick.tscn`,
+  `character_screen.tscn` (`--fixed-fps 60`) — all clean exit 0.
+- Scripted-brain physics scratch scene (deleted): two players holding the
+  stick straight back, `agility_scale` 0.6 vs 1.5. Turn-out measured 0.900 s
+  vs 0.367 s, each within a frame of `Tuning.backpedal_turnout_duration()`
+  (0.917 / 0.367); higher agility turns out sooner, as intended.
+- Not yet felt in a real playtest with a controller.
+
+### Files changed
+
+`scripts/tuning.gd` (backpedal + agility constants, 2 static helpers),
+`scripts/autoload/character_profile.gd` (rewritten: agility, apply_all,
+ConfigFile persistence), `scripts/player/player_controller.gd`
+(`agility_scale` var + 3 consumption points), `scripts/ui/ui_icon.gd`
+(`&"agility"` glyph), `scripts/ui/character_screen.gd` (AGILITY row, APPLY
+TO toggle, commit-on-exit, layout nudge), `scripts/modes/kick_to_kick.gd`
+(agility_scale line), `scripts/modes/full_game.gd`
+(`_apply_character_profile` + `_assign_human_to` note), `docs/FEATURE_AUDIT.md`.

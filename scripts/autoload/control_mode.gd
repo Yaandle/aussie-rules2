@@ -102,12 +102,11 @@ func set_controlled_player(team: Tuning.Team, player: PlayerController) -> void:
 ## next" ordering so it isn't duplicated at each call site.
 ##
 ## With `reference` given (a world point — the ball, normally), returns the
-## roster member nearest to it that isn't already `current`, so one press
-## lands on the player who actually matters (the defender under the ball,
-## the next option up the ground) instead of whoever sits next in the spawn
-## array. Pressing again while already on the nearest steps to the
-## second-nearest, so it still cycles, just anchored on "who matters" rather
-## than on array index. Without a reference it falls back to plain
+## roster member NEAREST to it, full stop — a FULL_TEAM switch is "give me
+## whoever's on the ball", not a walk through the roster. If that's already
+## `current` the caller (FullGame._switch_human_player) sees next == previous
+## and no-ops, so pressing switch never drags the human off the ball onto a
+## second-nearest body. Without a reference it falls back to plain
 ## roster-index round-robin (TEAM_COMMAND's selection cycle, which has no
 ## single "player who matters" to sort toward).
 func next_in_roster(team: Tuning.Team, current: PlayerController,
@@ -120,14 +119,14 @@ func next_in_roster(team: Tuning.Team, current: PlayerController,
 		var idx := roster.find(current)
 		return roster[(idx + 1) % roster.size()] if idx >= 0 else roster[0]
 
-	var ordered := roster.duplicate()
-	ordered.sort_custom(func(a: PlayerController, b: PlayerController) -> bool:
-		return a.global_position.distance_squared_to(reference) \
-			< b.global_position.distance_squared_to(reference))
-	for player: PlayerController in ordered:
-		if player != current:
-			return player
-	return current
+	var nearest := current
+	var nearest_d := INF
+	for player: PlayerController in roster:
+		var d := player.global_position.distance_squared_to(reference)
+		if d < nearest_d:
+			nearest_d = d
+			nearest = player
+	return nearest
 
 
 func selected_player(team: Tuning.Team) -> PlayerController:

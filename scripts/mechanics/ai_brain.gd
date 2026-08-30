@@ -43,16 +43,15 @@ var lateral_bias := 0.0
 var press_intensity := 1.0
 
 ## Drill-only dial: multiplies the gait a carrying brain runs for goal at
-## in _think_carrying (1.0 is this file's original un-tuned behaviour —
-## nobody but TackleChallenge ever sets this to anything else). Exists
-## because a live ball-carrier here shares the human player's own
-## acceleration/top speed 1:1 (see Tuning.TACKLE_CHALLENGE_RIVAL_GAIT_SCALE's
-## own comment for the math) — a straight foot race between two bodies
-## with identical accel/top speed keeps whatever gap they started at
-## constant forever, which is what made kick_to_kick.tscn's tackling coach
-## drill an unwinnable chase rather than a real contest. Full Game's AI
-## never touches this field, so this is purely additive: every carrying
-## AIBrain that doesn't opt in runs exactly as it always has.
+## in _think_carrying (1.0 is this file's original un-tuned behaviour).
+## Added for the old chase-from-behind tackling drill — a straight foot
+## race between two bodies with identical accel/top speed keeps whatever
+## gap they started at constant forever, so the rival needed easing to a
+## beatable pace. That drill is now a guided tutorial (TackleTutorial)
+## driving the rival with TutorialDummyBrain instead, so nothing currently
+## sets this — it stays at 1.0 and every carrying AIBrain runs exactly as
+## it always has. Kept (rather than removed) as the ready hook if a paced-
+## carrier drill comes back.
 var carry_gait_scale := 1.0
 
 var _move_dir := Vector3.ZERO
