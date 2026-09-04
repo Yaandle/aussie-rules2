@@ -5485,3 +5485,547 @@ check + latch), `scripts/modes/full_game.gd` (`_on_run_too_far` handler +
 connect), `scripts/tuning.gd` (new `AI_*` constants),
 `docs/RULES_REFERENCE.md` / `docs/FEATURE_AUDIT.md` (15 m rule now
 enforced, AI section updated).
+
+## Handover — ruck no-crowd, FULL_TEAM proximity switch + auto-carrier + camera snap (Agent: AI brain)
+
+Two areas, both verified headless (scratch `_scratch_ruck_cam_test.*`,
+deleted): a standalone ruck setup for Area 1, a real `full_game.tscn`
+instance driven for Area 2.
+
+### 1. Non-ruck AI no longer crowds a ball-up / centre bounce
+
+Symptom: at a stoppage, the whole side sprinted in and stood over the ball
+the instant the umpire threw it up. Root cause: `AIBrain.update()` only
+held non-involved players while `ball.is_held` (umpire still holding it);
+the frame `FullGame._release_ruck_contest` launches the toss, `is_held`
+goes false and every nearby AI ran `_think_loose_ball` / `_think_support`.
+`PlayerController._ruck_contest_locked()` only blocked *gathering*, not
+movement.
+
+Fix: `_ruck_contest_locked()` -> public `ruck_contest_locked()` (two
+internal callers updated), and `AIBrain.update()`'s hold-the-line branch
+widened:
+```
+if (holder == null and ball.is_held) \n        or (not controller.is_ruck_contestant() and controller.ruck_contest_locked()):
+    _move_toward(home_position, pos, 0.5); return
+```
+Control-mode agnostic, so it also fixes SINGLE_PLAYER: with the human on a
+non-ruck position, only the AI ruck contests and the rest stay spread. The
+lock self-clears on a connected hit-out (`_on_hit_out_resolved`) or when
+`RUCK_CONTEST_WINDOW` lapses, so normal chasing resumes after the tap.
+Verified: outfield AI drift 0.06 m over the throw-up (was a 16 m sprint).
+
+### 2. FULL_TEAM control + camera
+
+**Proximity switch.** `ControlMode.next_in_roster()` took an optional
+`reference` world point; given one it returns the nearest roster member to
+it that is not `current` (press again while on the nearest -> second
+nearest). `FullGame._switch_human_player()` passes `_ball.global_position`,
+so one press reaches the defender under the ball instead of spawn-array
+order. No-reference calls (TEAM_COMMAND's selection cycle) keep the old
+index round-robin. Verified: switch landed on the player 1.5 m from the
+ball, not the index-next one 12 m away.
+
+**Auto-carrier.** New `FullGame._on_home_gained_possession()` off
+`ball_gathered` (covers marks — `_finish_mark_catch` routes through
+`_complete_gather`): in FULL_TEAM + SINGLE_PLAYER scheme + open play, the
+HumanBrain is moved straight onto whoever HOME wins the ball. Suppressed
+for `Tuning.AUTO_CARRIER_SWITCH_GRACE` (1.5 s) after a manual switch so it
+cannot undo a deliberate pick. Brain hand-off factored into
+`_assign_human_to()`, shared with the manual switch. Verified both:
+takeover fires, and the grace blocks it.
+
+*Headless note:* in an unmanned AI-vs-AI `full_game.tscn` run, HOME's
+ball-winner now freezes under the input-less HumanBrain each time it gains
+the ball. Harmless for "boots clean / completes" checks (ran 16k frames,
+zero errors); a balance-sensitive headless test should set
+`Settings.player_control_mode = SINGLE_PLAYER`.
+
+**Camera snap on switch.** `BroadcastCamera.switch_target()` now snaps
+`_focus`/`global_position` onto the new player outright (was left to
+`_update_focus()`'s lerp, which barely read as a switch) and the
+yaw/pitch reorient window was shortened/quickened (`CAM_SWITCH_PAN_DURATION`
+0.6->0.35, `CAM_SWITCH_YAW_RATE` 5->14). `_on_focus_changed` /
+`_update_full_side` already key off `target`, so FULL_SIDE follows the
+switch with no extra wiring (verified). Verified CHASE: rig jumped 3.2 m
+onto the new player, ending 0.1 m from them in XZ.
+
+**Zoom.** Per the task's starting values, tune-by-eye: `CAM_DISTANCE`
+6->4.5, `CAM_FOV_BASE` 72->64; `CAM_FULL_SIDE_SIDE_OFFSET` 60->35,
+`CAM_FULL_SIDE_HEIGHT` 18->11, `CAM_FULL_SIDE_FOV` 68->55. At SIDE_OFFSET 35
+(vs `FIELD_HALF_WIDTH` 67.5) the full-side rig now sits *inside* the
+boundary — an elevated infield vantage rather than an outside-the-fence
+mount; push back toward ~50 if it should clear the line. All feel numbers,
+unplayed.
+
+### Not done
+
+The optional SINGLE_PLAYER pregame position pick (let the human choose a
+non-index-0 roster slot, index 0 stays the AI ruck) — needs a new pregame
+card + `Settings` field + `_spawn_teams` wiring, which is UI-agent scope.
+Flagged, not built.
+
+### Files changed
+
+`scripts/mechanics/ai_brain.gd` (ruck hold-the-line branch),
+`scripts/player/player_controller.gd` (`ruck_contest_locked()` public),
+`scripts/autoload/control_mode.gd` (`next_in_roster` reference arg),
+`scripts/modes/full_game.gd` (`_assign_human_to`, `_on_home_gained_
+possession`, proximity switch, `_manual_switch_grace`),
+`scripts/camera/broadcast_camera.gd` (`switch_target` position snap),
+`scripts/tuning.gd` (`AUTO_CARRIER_SWITCH_GRACE`, camera zoom + switch
+constants), `docs/FEATURE_AUDIT.md`.
+
+
+## Handover — Full Game goes 18-a-side + SINGLE_PLAYER pregame position pick
+
+Two changes to Full Game. Both verified headless with scripted physics
+scenarios (scratch scenes, deleted).
+
+### 1. Real 18-a-side
+
+`Tuning.TEAM_SIZE` 4 → 18. Everything in `full_game.gd` already keyed off
+that constant or `_home_players.size()`; three spots needed real work.
+
+**Roster → formation slot.** New `TeamFormation.ROSTER_ORDER` (+ a
+`roster_slot(i)` accessor): the 18 `SLOTS` reindexed so the on-ball unit
+— **RUCK, CENTRE, RUCK_ROVER, ROVER** — is roster indices 0-3, then the
+other 14 in `SLOTS` order (back line first). This makes roster index 0 the
+actual ruckman (the one `_bounce_off` has always nominated) and roster
+indices 0-3 exactly the four players AFL's centre-square law allows inside
+the 50 m square at a bounce — so no separate "clamp the 5th player out of
+the square" logic is needed. A sub-18 roster is still a strict prefix.
+`_kickoff_slot`'s full-roster branch maps both teams straight through
+`roster_slot` (`world_position` folds in `attack_direction`, so AWAY
+mirrors HOME — AWAY was a flat 30 m even-spread before). The 4-slot
+`Settings.FORMATION_PRESETS` path is kept only for `TEAM_SIZE < 18`
+testing; at the real 18 it would collide two HOME players on shared slots.
+
+**Team stagger.** `TeamFormation` is one mirrored layout, so HOME's back
+line resolves to the *exact* world points of AWAY's forward line
+(full-back on full-forward, CHB on CHF, both wings on the centre line) —
+two coincident capsules blow the Jolt solver up on the first tick
+(`|pos|` hit 2800 m in the first failing run). `_kickoff_slot` now shifts
+each side ±`FORMATION_TEAM_STAGGER` (2 m) along the ground line, so paired
+opponents spawn ~4 m apart (defender goal-side of their opponent). Not an
+AFL number — just enough clearance that nothing spawns on one point.
+
+**Centre bounce.** `_centre_bounce_slot` gains a `team` param: indices 0-3
+keep the ruck + on-baller ring (unchanged math), indices 4+ return their
+`_kickoff_slot` (formation, staggered, outside the square). `_reposition_
+kickoff` passes `team` through. `_spawn_team` now positions each fresh
+instance at its `_centre_bounce_slot` (not the raw formation slot) before
+`add_child` — at 18-a-side roster index 1 is the Centre, which resolves to
+world origin, and origin is where the ball sits: the exact overlap the
+existing block comment warns about. `_bounce_off`'s `_home_players[0]` /
+`_away_players[0]` ruck wire is untouched (comment expanded).
+
+**Perf.** `ai_brain.gd` does ~5 `get_nodes_in_group("players")` scans per
+carrying brain per frame; the concern was O(n²) at 36 bodies. Measured
+wall/sim ratio over a 150-200 s headless match: **0.38-0.44** (headless
+runs 2.3× faster than real time). No cache needed — the sketched `_players`
+per-frame snapshot was not applied.
+
+### 2. SINGLE_PLAYER position pick
+
+`_spawn_teams` hardwired the `HumanBrain` to `_home_players[0]`. Now:
+
+- `Settings.home_human_slot` — persisted `int`, default **1** (= Centre
+  under `ROSTER_ORDER`, so a fresh single-player match doesn't hand the
+  human the ruck, which `HumanBrain` can't actively palm), clamped
+  `0..TEAM_SIZE-1`. Same `_load`/`save` wiring as `home_formation_index`.
+- `full_game_pregame_screen.gd` — a real (non-locked) **YOUR POSITION**
+  card, 6th functional card, built on the existing `SettingsScreen.Row` /
+  `_formation_options` / `_set_formation` pattern. Static options, one per
+  roster slot: `"<n> <label>"` (1-based index + `TeamFormation` short
+  label, so the repeated FB/BP/W/HFF/FP labels stay distinct). All 18
+  offered (slot 0 = the ruck is a legal if odd pick). A 4th readout row,
+  `POSITION`, echoes it; `READOUT_HEIGHT` 52 → 66, `READOUT_BOTTOM` 8 → 6.
+  Card row is now 10 wide: `10*90 + 9*18 = 1062 < 1200` usable.
+- `_spawn_teams` puts the `HumanBrain` + `ControlMode.set_controlled_
+  player` on `_home_players[clampi(Settings.home_human_slot, 0, size-1)]`.
+  `_bounce_off` still rucks `_home_players[0]`: pick a non-ruck slot and
+  index 0 keeps its `AIBrain` and rucks; pick slot 0 and the human rucks
+  in person. Nothing else in the file assumes index 0 is the human
+  (`_switch_human_player` / `_assign_human_to` / `_on_home_gained_
+  possession` route through `ControlMode.controlled_player`; `AIBrain`'s
+  hold-the-line branch keys off `is_ruck_contestant()` /
+  `ruck_contest_locked()`, no index).
+
+### How it was verified
+
+Headless boots clean (exit 0, no errors): default, `main_menu.tscn`,
+`full_game_pregame_screen.tscn`, `full_game.tscn`.
+
+Scratch scene (deleted) instantiating `full_game.tscn` under real project
+boot, `--fixed-fps 60`:
+
+- **Geometry** (sampled off a forced `_reposition_kickoff` at every centre
+  bounce): 18 per side; **exactly 4 per team** within the ring; the other
+  14 match an independent `roster_slot` recompute and sit outside the 50 m
+  square; closest HOME↔AWAY pair **2.60 m** (the two rucks) — no coincident
+  spawn; no player `|pos|` over ~80 m (the corner forward on its spot); one
+  quarter rollover exercised (`_end_quarter → _next_quarter →
+  _prepare_centre_bounce`); 9 000 frames, zero errors.
+- **Position pick** (`home_human_slot = 7`): `ControlMode.controlled_
+  player(HOME)` is `_home_players[7]`, that body has a `HumanBrain`, every
+  other HOME body an `AIBrain`; `_home_players[0]` *is* nominated the ruck
+  contestant at the opening bounce and slot 7 is *not*; a non-ruck AI (a
+  wing) holds its spot to **0.008 m** through the whole pre-bounce hold.
+- Sub-case `home_human_slot = 0`: human is on slot 0, has the `HumanBrain`,
+  and is itself the nominated ruck contestant — no error.
+
+Not verified: the pregame screen is GUI and there is no screenshot tool —
+the 10-card row width, the 4-row readout vertical fit, and the two-level
+cursor over the new card are parse/boot-verified only plus a code read.
+
+### Follow-up fixes (playtest, same session)
+
+Three small fixes off the first play of the 18-a-side build:
+
+1. **Ball froze on the goal line at a score.** `_on_scored` hard-locked the
+   ball (`lock_at(global_position)` — zeroes velocity, pins the transform)
+   the instant the score trigger fired, so a goal/behind snapped to a dead
+   stop mid-flight on the line. Added `Ball.set_unplayable(bool)` — a soft
+   dead-ball state that makes `is_held` true (no gather/mark; `_check_out_
+   of_bounds` already ignores a held ball) *without* pinning the transform.
+   `_on_scored` uses it instead, so the ball flies on through the posts
+   under its own physics. Cleared by `unlock()` / `lock_at()` / `attach_
+   to()`, so the restart (`_rest_ball_at` or a kick-in's `reset_at`) resets
+   it like before. Verified: forced a goal in a scripted match — post-score
+   the ball travelled **5.7 m** in 40 frames and kept its speed, vs frozen.
+
+2. **On-baller walked into the ruck contest.** The followers-first roster
+   order puts the CENTRE (and the two rovers) at roster indices 1-3, and
+   their *formation* slots sit on/beside the exact centre spot — so
+   `AIBrain`'s hold-the-line step (`_move_toward(home_position, …)`) during
+   a contest walked them straight into the middle / centre circle. New
+   `FullGame._kickoff_home_position()`: for roster indices 1-3 the AI drift
+   anchor set by `_reposition_kickoff` is their **ring** position
+   (`_centre_bounce_slot`), not the formation slot. Everyone else is
+   unchanged. Verified: through the whole opening contest the closest any
+   roster-1-3 player got to the centre was **7.00 m** (the ring radius) —
+   they hold, they don't drift in.
+
+3. **Man-on-the-mark dragged across the ground.** `PlayerController`'s
+   frozen block slid the player onto `_frozen_anchor` via a direct
+   `global_position` write at `MARK_STAND_SNAP_SPEED` (24 m/s) — fine for a
+   2 m nudge, but at 18-a-side the "nearest opponent" is often 15-20 m away
+   and got hauled there. Now: while still short of the mark the player
+   *jogs* to it under real movement (`velocity` + `move_and_slide`, so it
+   collides and the run clip plays), capped at `MARK_STAND_JOG_SPEED`
+   (= `JOG_SPEED`, 4.8 m/s); within `MARK_STAND_ARRIVE_RADIUS` it snaps the
+   last few cm and holds exactly. Verified: a player told to stand a mark
+   15 m away peaked at **4.80 m/s**, arrived in ~3 s, held on the spot.
+
+4. **`switch_player` (FULL_TEAM) walked the roster instead of going to the
+   ball.** `ControlMode.next_in_roster` with a reference returned the
+   nearest body *that isn't `current`*, so once you were on the nearest a
+   press stepped you to the second-nearest — away from the ball. It now
+   returns the nearest, period; `_switch_human_player`'s `next == previous`
+   guard makes "already there" a no-op. TEAM_COMMAND's reference-less
+   round-robin is untouched. Verified: from the farthest HOME player one
+   press lands on the one nearest the ball, and a second press stays.
+
+5. **Auto-carrier stopped firing after a manual switch.** `_switch_human_
+   player` armed `_manual_switch_grace` (`AUTO_CARRIER_SWITCH_GRACE`, 1.5 s)
+   and `_on_home_gained_possession` bailed while it was up — so for 1.5 s
+   after every switch, HOME winning the ball did *not* move the human onto
+   the winner. With the switch now meaning "get me to the ball" (fix 4),
+   that grace only fought the identical intent. Removed entirely
+   (`_manual_switch_grace`, the tick, the guard, `Tuning.AUTO_CARRIER_
+   SWITCH_GRACE`). Verified: a manual switch immediately followed by a
+   different HOME player gathering jumps the human onto the gatherer.
+
+6. **No indicator for which player you're driving in the wide view.** New
+   `ControlledPlayerRing` (`scripts/ui/controlled_player_ring.gd`) — a
+   CanvasLayer overlay in the same instantiate-and-assign-fields family as
+   `KickCrosshair` / `MarkPrompt`. It projects a 0.62 m world circle at the
+   controlled HOME player's feet (each vertex unprojected individually, so
+   it foreshortens into a proper ground ellipse) and draws it with the
+   kick-aim accent. `FullGame` binds `.player` in `_on_focus_changed` and
+   toggles `.active` from `_apply_camera_mode` — **FULL_SIDE camera only**
+   (in CHASE the camera already sits behind your player). Verified: wired,
+   active in FULL_SIDE, bound to the controlled player. Not visually
+   confirmed — no screenshot tool.
+
+### Files changed
+
+`scripts/tuning.gd` (`TEAM_SIZE` 4 → 18; `MARK_STAND_SNAP_SPEED` →
+`MARK_STAND_JOG_SPEED` + `MARK_STAND_ARRIVE_RADIUS`),
+`scripts/ai/team_formation.gd` (`ROSTER_ORDER`, `roster_slot`),
+`scripts/modes/full_game.gd` (`FORMATION_TEAM_STAGGER`, `_kickoff_slot`
+full-roster branch + stagger, `_centre_bounce_slot` `team` param,
+`_reposition_kickoff` + `_kickoff_home_position`, `_spawn_team` spawn
+position, `_spawn_teams` human-slot wiring, `_bounce_off` comment,
+`_on_scored` soft dead-ball, `_switch_human_player` comment),
+`scripts/ball/ball.gd` (`set_unplayable` / `_unplayable`),
+`scripts/player/player_controller.gd` (frozen-block jog),
+`scripts/autoload/control_mode.gd` (`next_in_roster` → nearest, not
+nearest-non-current), `scripts/modes/full_game.gd` also (drop
+`_manual_switch_grace`; `_controlled_ring` wiring),
+`scripts/tuning.gd` also (drop `AUTO_CARRIER_SWITCH_GRACE`),
+`scripts/ui/controlled_player_ring.gd` (new — foot ring overlay),
+`scripts/autoload/settings.gd` (`home_human_slot` + load/save),
+`scripts/ui/full_game_pregame_screen.gd` (YOUR POSITION card,
+`_your_position_options`, `_set_your_position`, 4th readout row, layout
+comments, subtitle), `scripts/ui/main_menu.gd` (FULL GAME subtitle 4 →
+18), `docs/FEATURE_AUDIT.md`, `docs/RULES_REFERENCE.md`.
+
+
+## Handover — Tackling coach reworked into a guided tutorial + tackle-bag scenery
+
+The kick-to-kick tackling coach ran `TackleChallenge`: 5 timed attempts,
+rival handed the ball and running *away*, player chasing from behind. It
+taught nothing about *which* tackle to use. Replaced entirely (user brief)
+with `TackleTutorial` — a guided, freeze-and-teach walk through the tackle
+kit — and dressed that corner of the field with padded tackle bags.
+
+### `TackleTutorial` (`scripts/mechanics/tackle_tutorial.gd`, was `tackle_challenge.gd`)
+
+Still a `CoachChallenge` subclass (reuses `challenge_started` /
+`challenge_ended` / `hint_changed` and the `_schedule`/`_tick_schedule`
+timer). 5 steps in a `const STEPS` table, each carrying its card text plus
+both control schemes as `KeyHintBar`-shaped `{keys,label}` dicts:
+
+1. **Close the gap** — sprint (Shift / RT). Dummy stands still 16 m ahead;
+   cleared when the player closes within
+   `TACKLE_TUTORIAL_SPRINT_CLEAR_RANGE` (3 m).
+2. **Slide dive-in** — hold E / B from just outside reach. Dummy jogs in
+   and holds at `TACKLE_TUTORIAL_DIVE_HOLD_DISTANCE` (2.2 m — past
+   `TACKLE_RADIUS`, inside `TACKLE_SLIDE_DIVE_RANGE`).
+3. **Standing slide** — hold E / B at point-blank. Dummy runs into contact.
+4. **Lunge** — tap Q / X at point-blank.
+5. **Hit stick** — hold L / LB + flick toward them.
+
+Per-step flow: `step_changed` → mode shows the card + freezes input;
+player `confirm` → `begin_rep()` positions the dummy and hands it the ball;
+player applies the control → an outcome signal clears the step →
+`TACKLE_TUTORIAL_STEP_GAP` beat → next card. `decline` skips a step. No
+score, no fail — a rep that produces nothing within
+`TACKLE_TUTORIAL_STALE_REP_TIME` (4 s) silently repositions and re-runs.
+Success detection: the **player's** new `PlayerController.tackle_committed(is_slide)`
+tells a slide rep from a lunge rep (steps 2/3 want `is_slide`, step 4 wants
+not), and the existing `bump_landed` covers step 5. `challenge_ended` fires
+once at the end as the "tutorial complete" event.
+
+### `TutorialDummyBrain` (`scripts/mechanics/tutorial_dummy_brain.gd`)
+
+The rival needs to run *at* the player and never dispose — the opposite of
+`AIBrain`. `TackleTutorial.begin()` stashes `rival.brain()`, swaps in a
+`TutorialDummyBrain`, and restores the real brain in `_finish()`/`force_miss()`.
+Extends `PlayerBrain` directly (all `wants_*` stay the base false), overrides
+only `wish_direction()` (flat vector toward `target`, zero inside
+`stop_distance`) and `gait()` (flat `run_gait`; 0 for the sprint step so the
+player does the running). PlayerController's own
+`wish.length_squared() > 0` locomotion gate is what parks it at
+`stop_distance` — no need to also zero the gait.
+
+### Freeze-and-teach card (`kick_to_kick.gd`)
+
+Built in code from `UIStyle` + `KeyHintBar` (`_build_tutorial_card`), on a
+CanvasLayer above the placeholder hint. Dim + centered panel: title,
+wrapped instruction, a "Keyboard / Mouse" `KeyHintBar` row and a
+"Controller" row (both schemes shown at once, per the brief), footer. While
+visible, `InputManager.gameplay_input_enabled = false` and
+`_unhandled_input` routes `confirm`/`decline` to the tutorial. The
+`_physics_process` rival-freeze gate now also requires
+`_tackle_tutorial.rep_active()`, so the dummy holds still until the card is
+dismissed.
+
+### `TackleBag` scenery (`scripts/props/tackle_bag.gd` + `scenes/props/tackle_bag.tscn`)
+
+Procedural like everything else (mirrors `field.gd`'s goal-post idiom):
+red `CylinderMesh` body + squashed hemisphere cap + dark foot collar,
+player-sized (`TACKLE_BAG_HEIGHT` 1.8 m), origin at the feet. A
+`StaticBody3D` + `CylinderShape3D` on the **world** layer only — solid to
+run into, but no `PlayerController` and not on the "players" layer, so every
+contest proximity query is blind to it. Three of them, spawned in
+`_setup_tackle_ground()` at `TACKLE_BAG_OFFSETS` from the tackling coach.
+
+### How it was verified
+
+Class-cache rescan (new `class_name`s `TackleTutorial` / `TutorialDummyBrain`
+/ `TackleBag`), then headless boot of `res://scenes/modes/kick_to_kick.tscn`
+(`--fixed-fps 60 --quit-after 240`) — clean exit, bags spawn without physics
+warnings. Scripted-brain physics scenario: TODO fill in after running.
+
+### Files changed
+
+`scripts/mechanics/tackle_challenge.gd` → `tackle_tutorial.gd` (rewritten),
+`scenes/mechanics/tackle_challenge.tscn` → `tackle_tutorial.tscn`,
+`scripts/mechanics/tutorial_dummy_brain.gd` (new),
+`scripts/props/tackle_bag.gd` + `scenes/props/tackle_bag.tscn` (new),
+`scripts/player/player_controller.gd` (`tackle_committed` signal + 2 emits),
+`scripts/modes/kick_to_kick.gd` (tutorial wiring, step card, bag spawn,
+rival-freeze gate), `scripts/tuning.gd` (`TACKLE_CHALLENGE_*` block →
+`TACKLE_TUTORIAL_*` + `TACKLE_BAG_*`), `scripts/mechanics/ai_brain.gd`
+(`carry_gait_scale` doc comment), `docs/FEATURE_AUDIT.md`.
+
+
+## Handover — Backpedal turn-out sped up + Agility stat + lean apply-all/start-player profile (2026-08-30)
+
+Playtest: "still get stuck backpedalling 2-3 too many steps before it turns
+the player around". The only turn-out path was the fixed
+`Tuning.BACKPEDAL_MAX_DURATION = 1.0 s` timeout in
+`player_controller.gd:_update_locomotion` — too long, and identical for every
+player.
+
+### Backpedal timing
+
+- `BACKPEDAL_MAX_DURATION` 1.0 → **0.55 s** (baseline, agility 1.0).
+- New `BACKPEDAL_TURNOUT_MIN_DURATION` (0.28 s) floor, and
+  `AGILITY_TURN_RATE_MIN/MAX_MULT` (0.85 / 1.25) bracket.
+- New static helpers in `tuning.gd`:
+  `backpedal_turnout_duration(agility_scale)` =
+  `clampf(BACKPEDAL_MAX_DURATION / agility_scale, MIN, MAX/CHARACTER_AGILITY_MIN)`,
+  and `agility_turn_rate_mult(agility_scale)` = `clampf(agility_scale, 0.85, 1.25)`
+  (so agility 1.0 leaves turn rates exactly as tuned).
+- `PlayerController` gains `var agility_scale := 1.0`. It feeds three spots:
+  the backpedal turn-out check (line ~628), the plant-and-pivot `turn_rate`
+  (line ~696), and `_update_facing`'s `FACING_TURN_RATE` — so a nimble player
+  both drops the shuffle sooner and physically rotates out of it faster.
+
+### Agility stat + lean apply-mode
+
+- `Tuning.CHARACTER_AGILITY_MIN/MAX/STEP/DEFAULT` (0.6 / 1.5 / 0.05 / 1.0) —
+  a unitless multiplier, not an SI quantity.
+- `CharacterProfile` (`autoload/character_profile.gd`) rewritten: adds
+  `agility` + `agility_scale()`, an `apply_all` bool, and — new — its own
+  persistence to `user://character_profile.cfg` (`save()` / `_load()`, every
+  numeric field re-clamped on load). Its own ConfigFile rather than through
+  `Settings` because `Settings` loads *after* this autoload.
+- `character_screen.gd`: STRENGTH flavour row replaced by a live **AGILITY**
+  row (new `&"agility"` lightning-bolt glyph in `ui_icon.gd`); a new **APPLY
+  TO** toggle row (ALL PLAYERS / START PLAYER) between the stats and PLAY.
+  `_row_count()` now `ATTRIBUTE_ROWS.size() + 2`; `_apply_index()` /
+  `_play_index()` name the two trailing rows. PLAY *and* backing out via Esc
+  now both `_commit_draft()` → `CharacterProfile.save()` (lean screen has no
+  separate SAVE row). Layout: `STAT_TOP` 184→160, `ROW_SEPARATION` 13→8 to
+  fit the extra row.
+- This is the **lean** port of P1's `character_state.py` roster: keeps the
+  apply-all-vs-one toggle + persistence, drops the named-player list, the
+  create/name sub-screen, and the disk-vs-session prompt.
+
+### Full Game wiring
+
+- `full_game.gd._apply_character_profile(start_idx)` (called from
+  `_spawn_teams` right after the HumanBrain is assigned): pushes
+  speed/agility/kick_power/kick_accuracy/height-scale onto HOME. Scope from
+  `CharacterProfile.apply_all` — every HOME player, or (false) only
+  `_home_players[start_idx]` (the pregame `Settings.home_human_slot`).
+  AWAY untouched. Mirrors `kick_to_kick.gd`'s per-field assignment, which
+  also gained the `agility_scale` line.
+- Deliberately fixed to the start slot: `_assign_human_to()` does **not**
+  move the stats onto the controlled player across FULL_TEAM carrier
+  switches (comment added there). Matches the answer given during planning.
+
+### How it was verified
+
+- Class-cache rescan + headless boot of main menu — clean exit 0.
+- Headless boot of `full_game.tscn`, `kick_to_kick.tscn`,
+  `character_screen.tscn` (`--fixed-fps 60`) — all clean exit 0.
+- Scripted-brain physics scratch scene (deleted): two players holding the
+  stick straight back, `agility_scale` 0.6 vs 1.5. Turn-out measured 0.900 s
+  vs 0.367 s, each within a frame of `Tuning.backpedal_turnout_duration()`
+  (0.917 / 0.367); higher agility turns out sooner, as intended.
+- Not yet felt in a real playtest with a controller.
+
+### Files changed
+
+`scripts/tuning.gd` (backpedal + agility constants, 2 static helpers),
+`scripts/autoload/character_profile.gd` (rewritten: agility, apply_all,
+ConfigFile persistence), `scripts/player/player_controller.gd`
+(`agility_scale` var + 3 consumption points), `scripts/ui/ui_icon.gd`
+(`&"agility"` glyph), `scripts/ui/character_screen.gd` (AGILITY row, APPLY
+TO toggle, commit-on-exit, layout nudge), `scripts/modes/kick_to_kick.gd`
+(agility_scale line), `scripts/modes/full_game.gd`
+(`_apply_character_profile` + `_assign_human_to` note), `docs/FEATURE_AUDIT.md`.
+
+
+## Handover — Mechanics audit A1/A2/A6: PlayerRegistry + SpatialQuery, Action dicts (2026-08-30)
+
+First pass through `docs/MECHANICS_AUDIT.md` Part A. No behaviour change
+intended — pure structure/perf.
+
+### A1 — PlayerRegistry (`scripts/ai/player_registry.gd`, new)
+
+Flat `static var _all: Array[PlayerController]`. `PlayerController._ready()`
+calls `PlayerRegistry.add(self)` (was `add_to_group(&"players")`),
+`_exit_tree()` calls `remove(self)`. `add()` prunes any stale invalid entry
+on the spawn path so reads stay branchless. Mode-agnostic (node lifecycle,
+not `ControlMode.register_team`, which kick_to_kick never calls).
+
+The `&"players"` group is now unused and no longer joined — every consumer
+moved to the registry / SpatialQuery.
+
+### A2 — SpatialQuery (`scripts/ai/spatial_query.gd`, new)
+
+One home for the ~10 hand-rolled "iterate players, filter by team/carrying/
+self, keep nearest" loops that were spread across player_controller.gd,
+ai_brain.gd and ball.gd — each of which called
+`get_tree().get_nodes_in_group(&"players")` (fresh Array alloc + fill every
+call), several per physics frame per AI brain at 18-a-side
+(`ai_brain._best_disposal_target` nested one inside its own loop).
+
+API: `nearest_opponent` / `nearest_opposing_carrier` / `nearest_teammate` /
+`nearest_where(predicate)` / `nearest_opponent_distance` /
+`is_closest_on_team` / `lane_blocked` / `opponents_within` /
+`any_other_ruck_contestant`. All XZ-plane (documented) — the one caller that
+needs true 3D distance, `ball.gd._nearest_uncontested_catcher` (ball
+airborne, spherical reach), keeps its own math and just iterates
+`PlayerRegistry.all()` directly.
+
+Migrated call sites:
+- `player_controller.gd`: `_nearest_player` (now a thin wrapper),
+  `_nearest_opponent`, `_nearest_opposing_carrier`, `_apply_retreat_freeze`,
+  `ruck_contest_locked`, `_nearest_teammate_for_assist`.
+- `ai_brain.gd`: `_best_disposal_target`, `_lane_blocked`,
+  `_nearest_opponent_distance_to`, `_nearest_teammate`,
+  `_is_closest_teammate_to` (all five group scans gone).
+- `ball.gd`: `_nearest_uncontested_catcher`.
+
+Note: the AI `_nearest_opponent_distance_to` / `_is_closest_teammate_to`
+switched from 3D `distance_to` to plane distance. Sub-cm for grounded
+players; ~2-3% shorter read for a teammate mid-jump when scoring pass
+openness. Judged the more correct metric for a ground game; flagged here in
+case a feel pass ever disagrees.
+
+### A6 — Action timing as Dictionaries (`tuning.gd`)
+
+`ACTION_DURATION` / `ACTION_CONTACT` were flat arrays indexed positionally
+by the `Action` enum with a "never reorder" warning. Now `Dictionary`
+keyed by `Action`; `action_duration()` / `action_contact_time()` use
+`.get(action, 0.0)`. Every other reference already went through those two
+accessors (only comments used `ARRAY[NAME]` prose). Scripted parity check:
+all 17 actions return identical duration + contact values to the old
+arrays.
+
+### Verification
+
+- Class-cache rescan clean.
+- Headless `full_game` (3000 frames earlier, 1500 here), `kick_to_kick`,
+  `animation_viewer`, `main.tscn`, `character_screen` — all exit 0, no
+  script errors.
+- Scratch scene (deleted): spawned HOME/AWAY players at known positions,
+  asserted `PlayerRegistry` size + add/remove-on-free and all SpatialQuery
+  helpers (nearest opponent/teammate, range cutoff, is_closest, lane
+  blocked/clear, opponents_within, distance) — 12/12.
+- Scratch `SceneTree` script (deleted): action-timing parity 0/17
+  mismatches.
+
+### Also fixed
+
+A latent bug in `full_game._apply_character_profile` (from the 2026-08-30
+agility change): `var targets: Array[PlayerController] = a if c else [b]` —
+the ternary types as plain `Array`, so the typed-var assignment threw at
+runtime. Rewritten as an index loop, no intermediate array.
+
+### Files changed
+
+`scripts/ai/player_registry.gd` (new), `scripts/ai/spatial_query.gd` (new),
+`scripts/player/player_controller.gd` (registry reg/dereg, 6 helpers via
+SpatialQuery), `scripts/mechanics/ai_brain.gd` (5 helpers via SpatialQuery),
+`scripts/ball/ball.gd` (catcher scan), `scripts/tuning.gd` (Action dicts +
+accessors + header comments), `scripts/modes/full_game.gd`
+(`_apply_character_profile` ternary fix), `docs/MECHANICS_AUDIT.md`.

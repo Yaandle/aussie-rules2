@@ -43,16 +43,15 @@ var lateral_bias := 0.0
 var press_intensity := 1.0
 
 ## Drill-only dial: multiplies the gait a carrying brain runs for goal at
-## in _think_carrying (1.0 is this file's original un-tuned behaviour —
-## nobody but TackleChallenge ever sets this to anything else). Exists
-## because a live ball-carrier here shares the human player's own
-## acceleration/top speed 1:1 (see Tuning.TACKLE_CHALLENGE_RIVAL_GAIT_SCALE's
-## own comment for the math) — a straight foot race between two bodies
-## with identical accel/top speed keeps whatever gap they started at
-## constant forever, which is what made kick_to_kick.tscn's tackling coach
-## drill an unwinnable chase rather than a real contest. Full Game's AI
-## never touches this field, so this is purely additive: every carrying
-## AIBrain that doesn't opt in runs exactly as it always has.
+## in _think_carrying (1.0 is this file's original un-tuned behaviour).
+## Added for the old chase-from-behind tackling drill — a straight foot
+## race between two bodies with identical accel/top speed keeps whatever
+## gap they started at constant forever, so the rival needed easing to a
+## beatable pace. That drill is now a guided tutorial (TackleTutorial)
+## driving the rival with TutorialDummyBrain instead, so nothing currently
+## sets this — it stays at 1.0 and every carrying AIBrain runs exactly as
+## it always has. Kept (rather than removed) as the ready hook if a paced-
+## carrier drill comes back.
 var carry_gait_scale := 1.0
 
 var _move_dir := Vector3.ZERO
@@ -147,14 +146,24 @@ func update(controller: PlayerController, delta: float) -> void:
 			Tuning.AI_LOOSE_BALL_REACTION_MIN, Tuning.AI_LOOSE_BALL_REACTION_MAX)
 	_ball_was_held = is_held
 
-	# The umpire has it (Ball.lock_at/lock_to — a stoppage in progress).
-	# is_held is true but holder() is null, since no *player* has it, and
-	# without this that combination reads as a loose ball and the whole
-	# side sprints at the umpire's hands and stands on top of him. Nobody
-	# can play a ball the umpire is holding: hold the line and wait for it
-	# to be thrown, which is also what stops the throw-up being plucked out
-	# of the air on the frame it is released.
-	if holder == null and ball.is_held:
+	# Hold the line — don't chase or support the ball — in either of two
+	# stoppage situations:
+	#  1. The umpire has it (Ball.lock_at/lock_to). is_held is true but
+	#     holder() is null since no *player* has it; without this guard that
+	#     combination reads as a loose ball and the whole side sprints at
+	#     the umpire's hands and stands on top of him.
+	#  2. A ruck contest is live and this player is NOT one of the two
+	#     nominated ruckmen. ball.is_held goes false the instant the
+	#     throw-up is released (FullGame._release_ruck_contest), so without
+	#     this every nearby AI would immediately crash the pack — only the
+	#     two ruckmen should contest. PlayerController.ruck_contest_locked()
+	#     already self-clears on a connected hit-out
+	#     (FullGame._on_hit_out_resolved) or when RUCK_CONTEST_WINDOW
+	#     lapses, so normal chasing resumes after the tap on its own.
+	# Control-mode agnostic: this also keeps SINGLE_PLAYER's non-ruck AI
+	# spread when the human is playing a non-ruck position.
+	if (holder == null and ball.is_held) \
+			or (not controller.is_ruck_contestant() and controller.ruck_contest_locked()):
 		_move_toward(home_position, pos, 0.5)
 		return
 
@@ -442,9 +451,8 @@ func _best_disposal_target(controller: PlayerController, pos: Vector3,
 	var to_goal := Vector3(attack_direction, 0.0, 0.0)
 	var best: PlayerController = null
 	var best_score := Tuning.AI_DISPOSAL_SCORE_FLOOR
-	for node in controller.get_tree().get_nodes_in_group(&"players"):
-		var mate := node as PlayerController
-		if mate == null or mate == controller or mate.team != controller.team:
+	for mate in PlayerRegistry.all():
+		if mate == controller or mate.team != controller.team:
 			continue
 		var to_mate := mate.global_position - pos
 		to_mate.y = 0.0
@@ -476,24 +484,7 @@ func _best_disposal_target(controller: PlayerController, pos: Vector3,
 ## endpoints. Not a physics ray; just enough to stop the AI drilling a
 ## disposal into someone.
 func _lane_blocked(controller: PlayerController, from: Vector3, to: Vector3) -> bool:
-	var seg := to - from
-	seg.y = 0.0
-	var seg_len := seg.length()
-	if seg_len < 0.01:
-		return false
-	var dir := seg / seg_len
-	for node in controller.get_tree().get_nodes_in_group(&"players"):
-		var opp := node as PlayerController
-		if opp == null or opp.team == controller.team:
-			continue
-		var rel := opp.global_position - from
-		rel.y = 0.0
-		var along := rel.dot(dir)
-		if along <= 0.0 or along >= seg_len:
-			continue
-		if (rel - dir * along).length() < Tuning.AI_LANE_BLOCK_RADIUS:
-			return true
-	return false
+	return SpatialQuery.lane_blocked(from, to, Tuning.AI_LANE_BLOCK_RADIUS, controller.team)
 
 
 # ── Spatial helpers ──────────────────────────────────────────────────
@@ -517,29 +508,13 @@ func _nearest_opponent_distance(controller: PlayerController, pos: Vector3) -> f
 ## position) to the nearest opponent — used to score how open a prospective
 ## pass target is. _nearest_opponent_distance defers to this.
 func _nearest_opponent_distance_to(controller: PlayerController, point: Vector3) -> float:
-	var best := INF
-	for node in controller.get_tree().get_nodes_in_group(&"players"):
-		var other := node as PlayerController
-		if other == null or other == controller or other.team == controller.team:
-			continue
-		best = minf(best, point.distance_to(other.global_position))
-	return best
+	return SpatialQuery.nearest_opponent_distance(controller, point)
 
 
 ## Nearest same-team player to `pos`, excluding the controller itself, or
 ## null if somehow alone. Feeds the off-ball spacing push.
 func _nearest_teammate(controller: PlayerController, pos: Vector3) -> PlayerController:
-	var best: PlayerController = null
-	var best_dist := INF
-	for node in controller.get_tree().get_nodes_in_group(&"players"):
-		var other := node as PlayerController
-		if other == null or other == controller or other.team != controller.team:
-			continue
-		var d := pos.distance_to(other.global_position)
-		if d < best_dist:
-			best_dist = d
-			best = other
-	return best
+	return SpatialQuery.nearest_teammate(controller, pos)
 
 
 ## Audit point 4: a light shove away from the nearest teammate when they're
@@ -563,11 +538,4 @@ func _spacing_push(controller: PlayerController, pos: Vector3) -> Vector3:
 ## a whole team doesn't converge on the same spot at once.
 func _is_closest_teammate_to(controller: PlayerController, team: Tuning.Team,
 		point: Vector3) -> bool:
-	var mine := controller.global_position.distance_to(point)
-	for node in controller.get_tree().get_nodes_in_group(&"players"):
-		var other := node as PlayerController
-		if other == null or other == controller or other.team != team:
-			continue
-		if other.global_position.distance_to(point) < mine:
-			return false
-	return true
+	return SpatialQuery.is_closest_on_team(controller, team, point)

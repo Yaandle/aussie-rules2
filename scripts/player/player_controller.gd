@@ -64,6 +64,14 @@ signal run_too_far_called(carrier: PlayerController)
 ## `connected` is false on a clean miss (nothing about the ball changes).
 signal hit_out_resolved(player: PlayerController, connected: bool)
 
+## Fired on the TACKLER the frame a tackle connects — `is_slide` true for a
+## standing/dive-in Slide (_try_tackle), false for a Lunge (_try_lunge_tackle).
+## The tackled-side outcome is already covered by holding_the_ball_called /
+## field_ball_up_called; this exists so something watching the tackler can tell
+## *which* commitment landed (the tackling tutorial keys its per-step success on
+## it). Inert outside that — nothing else consumes it.
+signal tackle_committed(is_slide: bool)
+
 ## Fired on the bumper when a Bump connects (design brief priority 7).
 ## `clean` reflects timing (Tuning.BUMP_APPROACH_DOT_MIN), not legality —
 ## whether contact was *dangerous* enough to warrant a free kick is a real
@@ -84,6 +92,13 @@ var speed_scale := 1.0
 ## Multiplier on KICK_MIN/MAX_SPEED — see _kick_parameters(). 1.0 leaves
 ## Full Game/the sandbox exactly as tuned, same as speed_scale above.
 var kick_power_scale := 1.0
+
+## Unitless nimbleness multiplier (1.0 == tuned baseline). Shortens the
+## backpedal turn-out (Tuning.backpedal_turnout_duration) and nudges the
+## plant-and-pivot / facing turn rates (Tuning.agility_turn_rate_mult).
+## CharacterProfile.agility_scale() is the only thing that sets this to
+## anything other than 1.0, on whichever player(s) it's applied to.
+var agility_scale := 1.0
 
 ## 0..1, where 1.0 is pinpoint and 0.0 is KICK_ACCURACY_MAX_SPREAD_DEG of
 ## random aim error — see _dispose()'s KICK branch, the only place this
@@ -345,7 +360,10 @@ var _hip_fire_kick := false
 
 
 func _ready() -> void:
-	add_to_group(&"players")
+	# PlayerRegistry replaces the old &"players" group as the source for
+	# every proximity/contest query (see SpatialQuery, docs/MECHANICS_AUDIT.md
+	# A1). Nothing reads the group any more.
+	PlayerRegistry.add(self)
 
 	_facing_yaw = rotation.y
 	_heading = -global_transform.basis.z
@@ -364,6 +382,10 @@ func _ready() -> void:
 	var reach := SphereShape3D.new()
 	reach.radius = Tuning.GATHER_RADIUS + Tuning.GATHER_LUNGE_MAX
 	($GatherZone/CollisionShape3D as CollisionShape3D).shape = reach
+
+
+func _exit_tree() -> void:
+	PlayerRegistry.remove(self)
 
 
 func set_brain(brain: PlayerBrain) -> void:
@@ -555,17 +577,26 @@ func _update_locomotion(delta: float) -> void:
 	# ignored for movement purposes — facing/actions are untouched, only
 	# repositioning is blocked, same as the real rule.
 	if _frozen_timer > 0.0:
+		# The man on the mark stands *on the mark*, not wherever they were
+		# when it was taken. While still short of it, jog there under real
+		# movement — a capped velocity, so the body collides and the run
+		# clip plays — rather than being slid across the ground. Once within
+		# MARK_STAND_ARRIVE_RADIUS, snap the last few centimetres and hold
+		# exactly. The 10m retreat crowd has no anchor and just stops where
+		# they are, so all of this is skipped for them.
+		if _frozen_anchor.is_finite():
+			var to_mark := Vector3(_frozen_anchor.x - global_position.x, 0.0,
+				_frozen_anchor.z - global_position.z)
+			if to_mark.length() > Tuning.MARK_STAND_ARRIVE_RADIUS:
+				_heading = to_mark.normalized()
+				_speed = Tuning.MARK_STAND_JOG_SPEED
+				velocity.x = _heading.x * _speed
+				velocity.z = _heading.z * _speed
+				return
+			global_position = Vector3(_frozen_anchor.x, global_position.y, _frozen_anchor.z)
 		_speed = 0.0
 		velocity.x = 0.0
 		velocity.z = 0.0
-		# The man on the mark stands *on the mark*, not wherever they were
-		# when it was taken: slide onto the anchor fast (~a tenth of a
-		# second across a normal few-metre gap) rather than teleport-popping,
-		# then hold it exactly. The 10m retreat crowd has no anchor and just
-		# stops where they are, so this is skipped for them.
-		if _frozen_anchor.is_finite():
-			var target := Vector3(_frozen_anchor.x, global_position.y, _frozen_anchor.z)
-			global_position = global_position.move_toward(target, Tuning.MARK_STAND_SNAP_SPEED * delta)
 		return
 
 	var wish := _brain.wish_direction(self)
@@ -604,7 +635,7 @@ func _update_locomotion(delta: float) -> void:
 		var facing_alignment := _yaw_direction(_facing_yaw).dot(_wish_dir)
 		if _backpedaling:
 			_backpedal_seconds += delta
-			if _backpedal_seconds >= Tuning.BACKPEDAL_MAX_DURATION:
+			if _backpedal_seconds >= Tuning.backpedal_turnout_duration(agility_scale):
 				# Held it long enough that this stopped being a defender
 				# reading the play and became a request to go that way.
 				# Dropping out here hands this frame to the normal branch
@@ -670,7 +701,8 @@ func _update_locomotion(delta: float) -> void:
 
 			var speed_ratio := clampf(_speed / Tuning.SPRINT_SPEED, 0.0, 1.0)
 			var turn_rate := deg_to_rad(
-				lerpf(Tuning.TURN_RATE_STANDING, Tuning.TURN_RATE_SPRINT, speed_ratio))
+				lerpf(Tuning.TURN_RATE_STANDING, Tuning.TURN_RATE_SPRINT, speed_ratio)) \
+				* Tuning.agility_turn_rate_mult(agility_scale)
 			var to_turn := _heading.signed_angle_to(_wish_dir, Vector3.UP)
 			var step := clampf(to_turn, -turn_rate * delta, turn_rate * delta)
 			_heading = _heading.rotated(Vector3.UP, step).normalized()
@@ -717,8 +749,8 @@ func _update_facing(delta: float) -> void:
 		desired = _wish_dir
 	# A node's forward is -Z, so the yaw that points -Z along `desired`.
 	var target_yaw := atan2(-desired.x, -desired.z)
-	_facing_yaw = rotate_toward(
-		_facing_yaw, target_yaw, deg_to_rad(Tuning.FACING_TURN_RATE) * delta)
+	_facing_yaw = rotate_toward(_facing_yaw, target_yaw,
+		deg_to_rad(Tuning.FACING_TURN_RATE) * Tuning.agility_turn_rate_mult(agility_scale) * delta)
 	rotation.y = _facing_yaw
 
 
@@ -954,7 +986,7 @@ func _try_gather() -> void:
 	if is_carrying() or _gather_cooldown > 0.0 or _action != Tuning.Action.NONE \
 			or _stun_timer > 0.0:
 		return
-	if _ruck_contest_locked():
+	if ruck_contest_locked():
 		return
 	var reach := Tuning.GATHER_RADIUS \
 		+ minf(_speed * Tuning.GATHER_LUNGE_PER_SPEED, Tuning.GATHER_LUNGE_MAX)
@@ -1123,6 +1155,7 @@ func _try_tackle() -> void:
 		# Both sides of the same wrestle, started on the same frame.
 		_begin_tackle_hold(target, true)
 		target._begin_tackle_hold(self, false)
+		tackle_committed.emit(true)
 	else:
 		# A whiffed Slide used to be the single costliest miss in the kit;
 		# the hit-stick bump rework gave that title to a whiffed bump instead
@@ -1162,6 +1195,7 @@ func _try_lunge_tackle() -> void:
 	if _resolve_tackle_contact(self, target, false):
 		target._get_tackled(self, false)
 		_begin(Tuning.Action.TACKLE_TAKEDOWN)
+		tackle_committed.emit(false)
 	else:
 		_lunge_tap_cooldown = Tuning.TACKLE_LUNGE_TAP_COOLDOWN
 
@@ -1618,12 +1652,7 @@ func _apply_stand_the_mark() -> void:
 ## full free kick) get the same retreat for free, with nothing extra
 ## needed at any of those call sites.
 func _apply_retreat_freeze(duration: float) -> void:
-	for node in get_tree().get_nodes_in_group(&"players"):
-		var other := node as PlayerController
-		if other == null or other == self or other.team == team:
-			continue
-		if global_position.distance_to(other.global_position) > Tuning.FREE_KICK_RETREAT_DISTANCE:
-			continue
+	for other in SpatialQuery.opponents_within(self, Tuning.FREE_KICK_RETREAT_DISTANCE):
 		other.stand_the_mark(duration)
 		if other not in _frozen_opponents:
 			_frozen_opponents.append(other)
@@ -1639,31 +1668,21 @@ func _release_frozen_opponents() -> void:
 ## Shared "closest player matching a filter" search behind every tackle/
 ## smother/bump/stand-the-mark lookup — one place to change if the filter
 ## itself ever needs to (e.g. excluding stunned players), instead of six
-## separately-maintained copies of the same get_nodes_in_group loop.
+## separately-maintained copies of the same loop.
 ## `max_dist` is INF for callers that want the nearest regardless of range
 ## and apply their own distance test afterward (e.g. tackle lunge's wider
-## commit range vs. the standing tackle radius).
+## commit range vs. the standing tackle radius). Thin wrapper over
+## SpatialQuery (which iterates PlayerRegistry, not a group scan).
 func _nearest_player(max_dist: float, predicate: Callable) -> PlayerController:
-	var best: PlayerController = null
-	var best_dist := max_dist
-	for node in get_tree().get_nodes_in_group(&"players"):
-		var other := node as PlayerController
-		if other == null or other == self or not predicate.call(other):
-			continue
-		var dist := global_position.distance_to(other.global_position)
-		if dist < best_dist:
-			best_dist = dist
-			best = other
-	return best
+	return SpatialQuery.nearest_where(global_position, self, max_dist, predicate)
 
 
 func _nearest_opponent() -> PlayerController:
-	return _nearest_player(INF, func(other: PlayerController) -> bool: return other.team != team)
+	return SpatialQuery.nearest_opponent(self)
 
 
 func _nearest_opposing_carrier() -> PlayerController:
-	return _nearest_player(INF, func(other: PlayerController) -> bool:
-		return other.team != team and other.is_carrying())
+	return SpatialQuery.nearest_opposing_carrier(self)
 
 
 ## Called on the bumped player, by the bumper, on every connect (clean or
@@ -1862,7 +1881,7 @@ func _update_ground_pickup(ball: Ball, _delta: float) -> void:
 		return
 	if ball.linear_velocity.length() > Tuning.GATHER_MAX_BALL_SPEED:
 		return
-	if _ruck_contest_locked():
+	if ruck_contest_locked():
 		return
 	var reach := Tuning.GROUND_PICKUP_RADIUS + _speed * Tuning.GROUND_PICKUP_LUNGE_PER_SPEED
 	var to_ball := ball.global_position - _carry_point.global_position
@@ -2183,19 +2202,17 @@ func is_ruck_contestant() -> bool:
 
 ## True while a ruck contest is live (a centre bounce / field ball-up /
 ## boundary throw-in) and this player is NOT one of the two nominated
-## ruckmen — used by _try_gather / _update_ground_pickup to keep the
+## ruckmen. Used by _try_gather / _update_ground_pickup to keep the
 ## on-ballers ringed around the contest from just scooping the ball
-## straight off the umpire's throw-up. The two contestants get first use of
+## straight off the umpire's throw-up, and by AIBrain.update() to hold
+## those same non-ruckmen on their positions instead of crashing the pack
+## the frame the throw-up is released. The two contestants get first use of
 ## it; everyone else waits for the tap (FullGame clears the flags early on
 ## a connected hit-out — see _on_hit_out_resolved) or for the contest
 ## window to lapse (RUCK_CONTEST_WINDOW, self-expiring). No-op in modes
 ## with no ruck contests, since nobody is ever a contestant there.
-func _ruck_contest_locked() -> bool:
-	for node in get_tree().get_nodes_in_group(&"players"):
-		var other := node as PlayerController
-		if other != null and other != self and other.is_ruck_contestant():
-			return true
-	return false
+func ruck_contest_locked() -> bool:
+	return SpatialQuery.any_other_ruck_contestant(self)
 
 
 func _update_ruck_contest(_delta: float) -> void:
@@ -2413,9 +2430,8 @@ func _nearest_teammate_for_assist() -> PlayerController:
 	var cone := deg_to_rad(Tuning.KICK_AIM_ASSIST_CONE_DEG)
 	var best: PlayerController = null
 	var best_dist := Tuning.KICK_AIM_ASSIST_RANGE
-	for node in get_tree().get_nodes_in_group(&"players"):
-		var other := node as PlayerController
-		if other == null or other == self or other.team != team:
+	for other in PlayerRegistry.all():
+		if other == self or other.team != team:
 			continue
 		var to_other := other.global_position - global_position
 		to_other.y = 0.0

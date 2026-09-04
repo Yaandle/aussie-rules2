@@ -33,6 +33,11 @@ const SHAPES := {
 		["poly", 12.0, 15.5, 16.8, 10.2],
 		["dot", 12.0, 15.5, 1.1],
 	],
+	# Lightning bolt — quickness/nimbleness, the AGILITY row.
+	&"agility": [
+		["loop", 13.0, 2.5, 6.5, 13.0, 10.5, 13.0, 10.5, 21.5,
+			17.5, 9.5, 13.5, 9.5],
+	],
 	# Two stacked chevrons over a baseline — "up", without reusing the
 	# HEIGHT row's arrow.
 	&"jump": [

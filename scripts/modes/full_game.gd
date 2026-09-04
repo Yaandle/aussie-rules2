@@ -22,6 +22,16 @@ const MATCH_END_SCREEN_PATH := "res://scenes/ui/match_end_screen.tscn"
 
 const KICKOFF_DEPTH := 30.0     ## m from centre each team lines up at
 
+## Per-team lateral stagger for the full-18 formation spawn. TeamFormation
+## is a single mirrored layout, so without this HOME's back line resolves
+## to the exact same world points as AWAY's forward line (full-back on
+## full-forward, CHB on CHF, …) and the two coincident capsules blow the
+## solver up on the first physics tick. Shifting each side ±this along the
+## ground line puts paired opponents ~2x this apart — a defender goal-side
+## of their opponent, not standing in them. Not an AFL number; just enough
+## clearance that no two bodies ever spawn on one point.
+const FORMATION_TEAM_STAGGER := 2.0
+
 @onready var _field: Field = $Field
 @onready var _ball: Ball = $Ball
 @onready var _camera: BroadcastCamera = $BroadcastCamera
@@ -32,11 +42,12 @@ var _home_players: Array[PlayerController] = []
 var _away_players: Array[PlayerController] = []
 var _crosshair: KickCrosshair
 var _mark_prompt: MarkPrompt
+var _controlled_ring: ControlledPlayerRing
 
 ## The two ruckmen in the current live ruck contest (set in _release_ruck_
 ## contest). Cleared the instant a hit-out connects so the on-ballers are
 ## freed to gather the tap — see _on_hit_out_resolved and
-## PlayerController._ruck_contest_locked.
+## PlayerController.ruck_contest_locked.
 var _ruck_contestants: Array[PlayerController] = []
 
 var _pause_timer := 0.0
@@ -83,6 +94,13 @@ func _ready() -> void:
 	_mark_prompt.ball = _ball
 	add_child(_mark_prompt)
 
+	_controlled_ring = ControlledPlayerRing.new()
+	# _apply_camera_mode() ran above, before this existed — seed the state
+	# it would have set, then it keeps it live on any mid-match change.
+	_controlled_ring.active = Settings.full_game_camera_mode \
+		== Settings.FullGameCameraMode.FULL_SIDE
+	add_child(_controlled_ring)
+
 	_spawn_teams()
 	_start_match()
 
@@ -107,8 +125,12 @@ func _physics_process(delta: float) -> void:
 
 
 func _apply_camera_mode(setting: Settings.FullGameCameraMode) -> void:
-	_camera.set_mode(BroadcastCamera.Mode.FULL_SIDE \
-		if setting == Settings.FullGameCameraMode.FULL_SIDE else BroadcastCamera.Mode.CHASE)
+	var full_side := setting == Settings.FullGameCameraMode.FULL_SIDE
+	_camera.set_mode(BroadcastCamera.Mode.FULL_SIDE if full_side else BroadcastCamera.Mode.CHASE)
+	# The foot ring only earns its keep in the wide view — in CHASE the
+	# camera is already sitting behind the controlled player.
+	if is_instance_valid(_controlled_ring):
+		_controlled_ring.active = full_side
 
 
 ## The two player-control modes (Settings.PlayerControlMode, chosen on the
@@ -146,11 +168,11 @@ func _unhandled_input(event: InputEvent) -> void:
 ##
 ## Camera decision (documented per TASK's request not to silently pick
 ## one): `previous == null` means this is the very first focus this match
-## has ever had — nothing meaningful to pan away from — so the camera
-## snaps via recenter(). Every subsequent change, whether a SINGLE_PLAYER
-## switch or a TEAM_COMMAND selection change, pans via switch_target(),
-## matching the pan behaviour _switch_human_player already had before this
-## pass and extending it to the new scheme rather than special-casing it.
+## has ever had — nothing meaningful to move away from — so the camera
+## snaps via recenter(). Every subsequent change, whether a switch or a
+## TEAM_COMMAND selection change, goes through switch_target(), which snaps
+## the focus onto the new player and does a brisk reorient behind them
+## (soft-pan feedback: the old easing barely read as a switch at all).
 func _on_focus_changed(team: Tuning.Team, previous: PlayerController, next: PlayerController) -> void:
 	if team != Tuning.Team.HOME:
 		return
@@ -169,6 +191,7 @@ func _on_focus_changed(team: Tuning.Team, previous: PlayerController, next: Play
 	_hud.player = next
 	_crosshair.player = next
 	_mark_prompt.player = next
+	_controlled_ring.player = next
 
 
 ## Esc used to hard-cut straight to the main menu, discarding a match in
@@ -208,19 +231,48 @@ func _spawn_teams() -> void:
 	ControlMode.focus_changed.connect(_on_focus_changed)
 
 	_camera.ball = _ball
-	_home_players[0].set_brain(HumanBrain.new())
-	ControlMode.set_controlled_player(Tuning.Team.HOME, _home_players[0])
+	# SINGLE_PLAYER position pick (Settings.home_human_slot, chosen on the
+	# pregame screen; default 1 = centre). Re-clamped to the live roster so
+	# a stale save can't index past the spawned team. _bounce_off() still
+	# rucks _home_players[0] regardless — see its comment.
+	var human_idx := clampi(Settings.home_human_slot, 0, _home_players.size() - 1)
+	_home_players[human_idx].set_brain(HumanBrain.new())
+	ControlMode.set_controlled_player(Tuning.Team.HOME, _home_players[human_idx])
+	_apply_character_profile(human_idx)
 
 	for player in _home_players + _away_players:
 		player.field_ball_up_called.connect(_on_field_ball_up)
 		player.holding_the_ball_called.connect(_on_holding_the_ball)
 		player.run_too_far_called.connect(_on_run_too_far)
 		player.hit_out_resolved.connect(_on_hit_out_resolved)
+		# FULL_TEAM auto-carrier control — jump the human onto whoever HOME
+		# wins the ball. ball_gathered covers marks too (_finish_mark_catch
+		# routes through _complete_gather), so it's the one "now has it"
+		# hook. Bound with the player since the signal only carries the ball.
+		player.ball_gathered.connect(_on_home_gained_possession.bind(player))
 		# Box-score stats (docs/FEATURE_AUDIT.md) — bound with the player
 		# itself since neither signal carries a reference to who disposed/
 		# marked, only what happened.
 		player.ball_disposed.connect(_on_player_disposed.bind(player))
 		player.mark_caught.connect(_on_player_marked.bind(player))
+
+
+## Push the CharacterProfile stats onto HOME. CharacterProfile.apply_all
+## picks the scope: every HOME player, or (false) only the pregame
+## start-position slot — deliberately fixed to that slot, it does NOT
+## follow the controlled player across FULL_TEAM carrier switches (see
+## _assign_human_to). AWAY is never touched. Mirrors kick_to_kick.gd's
+## per-field assignment.
+func _apply_character_profile(start_idx: int) -> void:
+	for i in _home_players.size():
+		if not CharacterProfile.apply_all and i != start_idx:
+			continue
+		var p := _home_players[i]
+		p.speed_scale = CharacterProfile.speed_scale()
+		p.agility_scale = CharacterProfile.agility_scale()
+		p.kick_power_scale = CharacterProfile.kick_power
+		p.kick_accuracy = CharacterProfile.kick_accuracy
+		(p.get_node("Rig") as Node3D).scale = Vector3.ONE * CharacterProfile.height_scale()
 
 
 func _spawn_team(team: Tuning.Team, attack_direction: float) -> Array[PlayerController]:
@@ -251,12 +303,17 @@ func _spawn_team(team: Tuning.Team, attack_direction: float) -> Array[PlayerCont
 		# yet, so there's no parent transform to resolve a global position
 		# against. FullGame itself sits at identity, so the two are the
 		# same value once this becomes its child.
-		var slot := _kickoff_slot(i, attack_direction, team)
-		instance.position = slot
+		# Spawn on the imminent _reposition_kickoff target (the centre-
+		# bounce slot), not the raw formation slot: at 18-a-side roster
+		# index 1 (Centre) resolves to world origin, and two capsules plus
+		# the ball coincident there for even one physics tick is exactly
+		# the solver blow-up described above.
+		var formation_slot := _kickoff_slot(i, attack_direction, team)
+		instance.position = _centre_bounce_slot(i, attack_direction, team)
 		add_child(instance)
 		AudioManager.register_player(instance)
 
-		instance.set_brain(_configure_ai_brain(AIBrain.new(), team, attack_direction, slot))
+		instance.set_brain(_configure_ai_brain(AIBrain.new(), team, attack_direction, formation_slot))
 
 		players.append(instance)
 	return players
@@ -280,15 +337,24 @@ func _configure_ai_brain(brain: AIBrain, team: Tuning.Team, attack_direction: fl
 	return brain
 
 
-## HOME (Team Edit expansion, polish-pass brief) lines up in whichever of
-## Settings.FORMATION_PRESETS the Team List screen last left selected —
-## TeamFormation.SLOTS' own depth/lateral fractions, the same data the
-## whiteboard preview draws from, so choosing a formation there now
-## actually changes where the human side kicks off from here. AWAY keeps
-## the old even spread — a simple "not stacked on the centre circle"
-## baseline, not a real formation, and not worth letting the human edit
-## since it's an opponent, not their own side.
+## At the full 18-a-side roster BOTH teams line up in the real
+## TeamFormation layout, roster index mapped through
+## TeamFormation.ROSTER_ORDER (on-ball unit first). world_position() folds
+## in attack_direction, so AWAY's -1.0 mirrors HOME across the centre line
+## — which lands HOME's back line on top of AWAY's forward line (see
+## FORMATION_TEAM_STAGGER), so each team is also shifted ±that along the
+## ground line to keep paired opponents from spawning on one point.
+## Below a full roster (reduced-size testing) HOME instead uses whichever
+## of Settings.FORMATION_PRESETS the Team List screen last left selected —
+## a curated "pick 4 of 18" shape that would collide two HOME players onto
+## shared slots at the full 18 — and AWAY/overflow fall back to a plain
+## even spread 30 m back, a "not stacked on the centre circle" baseline
+## rather than a real formation.
 func _kickoff_slot(index: int, attack_direction: float, team: Tuning.Team) -> Vector3:
+	if Tuning.TEAM_SIZE >= TeamFormation.SLOTS.size():
+		var slot := TeamFormation.world_position(TeamFormation.roster_slot(index), attack_direction)
+		slot.z += attack_direction * FORMATION_TEAM_STAGGER
+		return slot
 	if team == Tuning.Team.HOME:
 		var slots := Settings.home_formation_slots()
 		if index < slots.size():
@@ -300,29 +366,37 @@ func _kickoff_slot(index: int, attack_direction: float, team: Tuning.Team) -> Ve
 	return Vector3(x, 0.0, z)
 
 
-## Real AFL only allows one ruck plus three on-ballers per team inside the
-## centre square for a bounce — everyone else has to be outside it. This
-## project's TEAM_SIZE (4) happens to equal exactly that "1 ruck + 3
-## on-ballers" allowance, so at this roster size a centre-bounce formation
-## and "the whole team gathers at the circle" are the same thing; the
-## generic KICKOFF_DEPTH spread above is deliberately not reused here — a
-## bounce needs two rucks planted either side of the exact centre spot
-## the umpire bounces the ball, not a line 30m back.
+## Real AFL centre-square law: at a centre bounce a maximum of four players
+## per team — the ruck plus three midfielders ("on-ballers") — may be
+## inside the 50 m centre square until the ball is bounced; everyone else
+## must start outside it. So roster indices 0-3 go on the ruck-contest
+## ring at the centre and indices 4+ hold their normal matchday formation
+## slot (_kickoff_slot). TeamFormation.ROSTER_ORDER front-loads the four
+## slots that sit inside the square (ruck, centre, the two rovers), so
+## indices 4+ are outside it by construction.
+## The generic KICKOFF_DEPTH spread is still not reused for the ring: a
+## bounce needs two rucks planted either side of the exact spot the umpire
+## bounces the ball, not a line 30 m back. At TEAM_SIZE 4 the ring is the
+## whole team and indices 4+ never occur.
 const RUCK_CONTEST_OFFSET := 1.3   ## m either side of centre, ruck vs ruck
 const ON_BALLER_RING_RADIUS := 7.0 ## m from centre — outside CENTRE_CIRCLE_OUTER (5m),
                                     ## inside CENTRE_SQUARE_SIZE (50m)
 const ON_BALLER_ANGLES_DEG: Array[float] = [-55.0, 0.0, 55.0]
 
 ## `index` 0 is the ruck; 1..3 are the three on-ballers ringed around the
-## circle. `attack_direction` biases each team to its own half of the
-## circle so the two teams' arcs don't overlap — sign-symmetric the same
-## way _kickoff_slot's own attack_direction split already is.
-func _centre_bounce_slot(index: int, attack_direction: float) -> Vector3:
+## circle; 4+ hold their matchday formation slot (see the comment above).
+## `attack_direction` biases each team to its own half so the two teams
+## never overlap — sign-symmetric the same way _kickoff_slot's own
+## attack_direction split already is.
+func _centre_bounce_slot(index: int, attack_direction: float, team: Tuning.Team) -> Vector3:
 	if index == 0:
 		return Vector3(-attack_direction * RUCK_CONTEST_OFFSET, 0.0, 0.0)
-	var angle := deg_to_rad(ON_BALLER_ANGLES_DEG[(index - 1) % ON_BALLER_ANGLES_DEG.size()])
-	return Vector3(-attack_direction * ON_BALLER_RING_RADIUS * cos(angle), 0.0,
-		ON_BALLER_RING_RADIUS * sin(angle))
+	if index < 4:
+		# (index - 1) % size() is defensive — index is always 1..3 here.
+		var angle := deg_to_rad(ON_BALLER_ANGLES_DEG[(index - 1) % ON_BALLER_ANGLES_DEG.size()])
+		return Vector3(-attack_direction * ON_BALLER_RING_RADIUS * cos(angle), 0.0,
+			ON_BALLER_RING_RADIUS * sin(angle))
+	return _kickoff_slot(index, attack_direction, team)
 
 
 ## Every centre-bounce moment (kickoff, after a goal, each quarter start)
@@ -339,16 +413,30 @@ func _centre_bounce_slot(index: int, attack_direction: float) -> Vector3:
 func _reposition_kickoff() -> void:
 	for i in _home_players.size():
 		var player := _home_players[i]
-		player.global_position = _centre_bounce_slot(i, 1.0)
+		player.global_position = _centre_bounce_slot(i, 1.0, Tuning.Team.HOME)
 		var ai := player.brain() as AIBrain
 		if ai != null:
-			ai.home_position = _kickoff_slot(i, 1.0, Tuning.Team.HOME)
+			ai.home_position = _kickoff_home_position(i, 1.0, Tuning.Team.HOME)
 	for i in _away_players.size():
 		var player := _away_players[i]
-		player.global_position = _centre_bounce_slot(i, -1.0)
+		player.global_position = _centre_bounce_slot(i, -1.0, Tuning.Team.AWAY)
 		var ai := player.brain() as AIBrain
 		if ai != null:
-			ai.home_position = _kickoff_slot(i, -1.0, Tuning.Team.AWAY)
+			ai.home_position = _kickoff_home_position(i, -1.0, Tuning.Team.AWAY)
+
+
+## The off-ball drift anchor an AI holds at during (and after) a centre
+## bounce. For the three non-ruck on-ballers (roster indices 1-3) it's
+## their spot on the ruck-contest ring, NOT their matchday formation slot:
+## the on-ball unit's formation slots sit on/beside the exact centre spot,
+## so anchoring there walked AIBrain's "hold the line" step straight into
+## the middle of the contest (a rover ending up inside the centre circle
+## while the ruckmen were still going up). Everyone else keeps their real
+## formation slot so a chosen preset still shapes the team all match.
+func _kickoff_home_position(index: int, attack_direction: float, team: Tuning.Team) -> Vector3:
+	if index >= 1 and index < 4:
+		return _centre_bounce_slot(index, attack_direction, team)
+	return _kickoff_slot(index, attack_direction, team)
 
 
 # ── Match flow ───────────────────────────────────────────────────────
@@ -389,9 +477,15 @@ func _prepare_centre_bounce(delay := Tuning.CENTRE_BOUNCE_DELAY) -> void:
 
 
 func _bounce_off() -> void:
-	# Index 0 of each team is the designated ruck for a centre bounce (see
-	# _centre_bounce_slot) — the same shared contest every stoppage in this
-	# file now goes through, see _begin_ruck_contest.
+	# Roster index 0 of each team is the designated ruck for a centre bounce
+	# (TeamFormation.ROSTER_ORDER front-loads the ruck slot, and
+	# _centre_bounce_slot plants index 0 on the contest spot) — the same
+	# shared contest every stoppage in this file goes through, see
+	# _begin_ruck_contest. This stays index 0 regardless of
+	# Settings.home_human_slot: pick a non-ruck position and index 0 keeps
+	# its AIBrain and rucks; pick slot 0 and the human rucks in person
+	# (HumanBrain can't actively palm a hit-out — a pre-existing AI-scope
+	# limit, not addressed here).
 	_begin_ruck_contest(_field.centre(), _home_players[0], _away_players[0])
 
 
@@ -622,9 +716,15 @@ func _on_scored(team: Tuning.Team, is_goal: bool) -> void:
 	MatchState.clock_running = false
 	MatchState.score(team, is_goal)
 	GameState.phase = GameState.Phase.SCORE
-	# Dead from the moment it's a score — otherwise anyone standing behind
-	# the goals can pick it up and run during the celebration.
-	_ball.lock_at(_ball.global_position)
+	# Dead from the moment it's a score — nobody may gather it during the
+	# celebration — but NOT frozen where it is: a hard lock_at() here
+	# snapped the ball to a dead stop on the goal line mid-flight. set_
+	# unplayable() keeps is_held true (no gather/mark, and _check_out_of_
+	# bounds ignores it) while letting it fly on through the posts under
+	# its own physics, the way a real one does. The restart repositions it
+	# (a centre bounce's _rest_ball_at, a kick-in's reset_at), both of
+	# which clear the flag.
+	_ball.set_unplayable(true)
 	var label := "GOAL" if is_goal else "BEHIND"
 	_scoreboard.flash("%s! %s" % [label, _team_name(team)], Tuning.SCORE_PAUSE_DURATION)
 	_camera.punch(Tuning.CAM_PUNCH_KICK)
@@ -906,26 +1006,64 @@ func _reset_ball() -> void:
 ## next body" meaning, just within the other scheme's own bookkeeping.
 ##
 ## Only reached at all in Settings.PlayerControlMode.FULL_TEAM (see
-## _unhandled_input) — SINGLE_PLAYER leaves the human on whichever body
-## _spawn_teams() started them on for the whole match and gets
-## _call_for_ball() instead. Nothing inside this function changed for that:
-## the mode gate is at the input site, so FULL_TEAM's behaviour is byte-for-
-## byte what it always was.
+## _unhandled_input) — Settings.PlayerControlMode.SINGLE_PLAYER leaves the
+## human on whichever body _spawn_teams() started them on for the whole
+## match and gets _call_for_ball() instead.
+##
+## FULL_TEAM: the switch goes straight to the HOME player nearest the ball
+## (ControlMode.next_in_roster with a reference point) rather than spawn-
+## array order. It no longer suppresses auto-carrier control afterwards —
+## a switch is now itself just "get me to the ball", the same intent
+## _on_home_gained_possession serves, so there is nothing to protect from
+## it.
 func _switch_human_player() -> void:
 	if ControlMode.scheme_for(Tuning.Team.HOME) == ControlMode.Scheme.TEAM_COMMAND:
 		_cycle_team_command_selection()
 		return
 
 	var previous := ControlMode.controlled_player(Tuning.Team.HOME)
-	var next := ControlMode.next_in_roster(Tuning.Team.HOME, previous)
+	# Straight to the HOME player nearest the ball — pass the ball as the
+	# reference (see ControlMode.next_in_roster). One press puts you on
+	# whoever's on the ball; if you're already there this returns the same
+	# body and the guard below no-ops.
+	var next := ControlMode.next_in_roster(Tuning.Team.HOME, previous, _ball.global_position)
 	if next == previous:
 		return
+	_assign_human_to(next)
 
-	var ai := _configure_ai_brain(AIBrain.new(), Tuning.Team.HOME, 1.0, previous.global_position)
-	previous.set_brain(ai)
 
+## Move the one HumanBrain onto `next`, hand the old body a fresh AI brain,
+## and tell ControlMode. Shared by _switch_human_player (manual) and
+## _on_home_gained_possession (auto-carrier) so the two can't drift on how
+## a hand-off is actually done.
+func _assign_human_to(next: PlayerController) -> void:
+	var previous := ControlMode.controlled_player(Tuning.Team.HOME)
+	if next == previous or not is_instance_valid(next):
+		return
+	if is_instance_valid(previous):
+		previous.set_brain(_configure_ai_brain(
+			AIBrain.new(), Tuning.Team.HOME, 1.0, previous.global_position))
 	next.set_brain(HumanBrain.new())
 	ControlMode.set_controlled_player(Tuning.Team.HOME, next)
+	# CharacterProfile stats are NOT moved here — _apply_character_profile
+	# bound them to the pregame start slot (or all of HOME) at spawn, and
+	# that binding is deliberately fixed regardless of who you're driving.
+
+
+## FULL_TEAM: every time HOME wins the ball in open play, put the human
+## straight onto the carrier — you control whoever has it without hunting
+## for the switch key. Fires on every gather/mark (ball_gathered), with no
+## post-switch suppression window: a manual switch is itself just "get me
+## to the ball" now, so there is no deliberate off-ball pick to protect.
+## Only in SINGLE_PLAYER scheme — TEAM_COMMAND has its own selection model.
+func _on_home_gained_possession(_ball_ref: Ball, carrier: PlayerController) -> void:
+	if Settings.player_control_mode != Settings.PlayerControlMode.FULL_TEAM:
+		return
+	if ControlMode.scheme_for(Tuning.Team.HOME) != ControlMode.Scheme.SINGLE_PLAYER:
+		return
+	if carrier.team != Tuning.Team.HOME or GameState.phase != GameState.Phase.PLAY:
+		return
+	_assign_human_to(carrier)
 
 
 # ── Call for the ball (SINGLE_PLAYER player-control mode) ────────────

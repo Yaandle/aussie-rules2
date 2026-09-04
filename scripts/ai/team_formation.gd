@@ -67,6 +67,24 @@ const SLOTS := [
 ]
 
 
+## Roster spawn order as indices into SLOTS: the four players the AFL
+## centre-square law lets start inside the square at a centre bounce — the
+## ruck, the centre and the two rovers — are pulled to the front, so a
+## mode that rings roster indices 0-3 at a bounce and nominates index 0 as
+## its ruck (FullGame._centre_bounce_slot / _bounce_off) lines up with
+## real positions and no other slot ever lands inside the square. The
+## remaining 14 follow in SLOTS order (back line first). A roster shorter
+## than 18 stays a strict prefix — shrinking it never reshuffles who
+## remains.
+const ROSTER_ORDER: Array[int] = [15, 7, 16, 17, 0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14]
+
+## The SLOTS entry for the player at roster index `i` (0-based), resolved
+## through ROSTER_ORDER. Wraps above 18 (which doubles up — TEAM_SIZE
+## above 18 is unsupported, see Tuning.TEAM_SIZE).
+static func roster_slot(i: int) -> Dictionary:
+	return SLOTS[ROSTER_ORDER[i % SLOTS.size()]]
+
+
 ## World position (Y=0, ground plane) for `slot` (a SLOTS entry, or the
 ## first `count` of them — see world_positions) given a team's
 ## attack_direction (+1 attacks +X, -1 attacks -X — same convention as

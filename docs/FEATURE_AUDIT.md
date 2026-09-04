@@ -32,6 +32,26 @@
 > Scenario mode remain open. Everything below is left as originally
 > written — strike-through-by-note in the tables, not rewritten — so this
 > stays a record of the original audit as well as a live roadmap.
+>
+> **Update (2026-08-29):** Full Game is now real **18-a-side**
+> (`Tuning.TEAM_SIZE` 4 → 18). Both teams line up in the full
+> `TeamFormation` layout, roster index mapped through the new
+> `TeamFormation.ROSTER_ORDER` (on-ball unit — ruck, centre, the two
+> rovers — front-loaded so roster indices 0-3 are exactly the four the
+> centre-square law allows in the square, and index 0 is the ruck
+> `_bounce_off` nominates); AWAY was a flat 30 m even-spread before. At a
+> centre bounce indices 0-3 take the ruck-contest ring and the other 14
+> hold formation outside the 50 m square. Separately, `SINGLE_PLAYER`
+> control mode now picks *which* HOME position the human controls, from a
+> new **YOUR POSITION** pregame card (`Settings.home_human_slot`, default
+> 1 = centre); roster index 0 stays the AI centre-bounce ruck.
+
+> **See also (2026-08-30):** `docs/MECHANICS_AUDIT.md` — a code-quality pass
+> over the player mechanics (redundant proximity scans, the
+> `get_nodes_in_group` hot path, `player_controller.gd` size) plus a staged
+> brief for the next two features: graphics/compute-demand testing and
+> motion-capture/animation development, and a new B = evade / double-tap-spin
+> control.
 
 Point-in-time audit of the actual codebase (not `docs/HANDOVER.md`'s prose,
 though that was the single richest source and is cited throughout — this
@@ -60,7 +80,7 @@ numerically via scripted physics against the real Jolt simulation" — not
 
 | System | Where | Notes |
 |---|---|---|
-| Movement/weight model | `player_controller.gd` `_update_locomotion` | Accel/brake asymmetry, speed-coupled turn rate, plant-and-pivot, backpedal + turn-burst. Numerically verified, never felt. |
+| Movement/weight model | `player_controller.gd` `_update_locomotion` | Accel/brake asymmetry, speed-coupled turn rate, plant-and-pivot, backpedal + turn-burst. Backpedal turn-out grace cut to 0.55s baseline and now scaled per-player by `agility_scale` (`Tuning.backpedal_turnout_duration`); agility also nudges plant-and-pivot + rig-facing turn rates (`Tuning.agility_turn_rate_mult`). Numerically verified, backpedal timing felt once (2026-08-30). |
 | Kick (ADS stance + hip-fire) | `player_controller.gd` `_update_charge` | Two-stage LT-hold/RT-tap, aim decoupled from facing (starts from camera yaw), live reversible power off stick/mouse/keyboard, aim-assist toward teammates. |
 | Handball, Bounce | `player_controller.gd` `_dispose` | Handball aims at stick direction, bounce is body-forward. Bounce rebound is scripted for the bounce flight only (`Ball._physics_process`, `BOUNCE_REBOUND_*`) — the prolate hull scrubbed a steep strike to near-dead at random, so the first descent through `BOUNCE_REBOUND_HEIGHT` gets a deterministic hands-high pop with part of its forward speed kept, which a sprinting carrier runs onto. |
 | Gathering | `_try_gather`, `_update_ground_pickup` | Passive walk-over (speed-scaled lunge) + deliberate ground pickup (wider, faster reach). |
@@ -69,18 +89,18 @@ numerically via scripted physics against the real Jolt simulation" — not
 | Spoil | `_try_spoil` | Physical deflect, out-of-possession only, no clip (instantaneous, same as tackle/bump used to be before their own passes). |
 | Smother | `_update_smother`, `_try_smother_contact`, `_get_smothered` | Committed dive at the kicker (`_smother_dive_*`) — unlike Bump, locks its target at launch and re-aims at their live position every frame. Reworked twice from playtest feedback: first from an instant "already standing within `SMOTHER_RADIUS`" check into a dive at all, then the dive clip itself reworked again into a genuine ground dive reaching at the kicker's boot (`HumanoidAnimations._build_smother_dive`, uses the same "hips" root-bone technique `_build_tackled`'s own fix established) after the first version stayed standing rather than going to ground. Plays `Action.SMOTHER_DIVE` on the smotherer regardless of outcome; a connect within `SMOTHER_RADIUS` while the kick is still live cancels it and plays `Action.SMOTHERED` on the target (unchanged) — a reaction, not a knockdown. A dive that doesn't land in time costs nothing extra, same "stays on feet, minimal cost" precedent as a whiffed Lunge. |
 | Bump | `_update_bump`, `_apply_bump_assist`, `_try_bump_contact`, `_resolve_bump_contact`, `_resolve_bump_miss` | Committed hit-stick dash (`_bump_dash_*`, same "external velocity owns the body" shape as Slide's dive-in) — a flick launches the dash, a per-frame homing correction (`_apply_bump_assist`, same shape as kick's own `KICK_AIM_ASSIST_*`) nudges it toward a carrier already roughly in the swing's path, resolution happens after the body moves. Clean connect (timing-based, `InputManager.flick_vector`) plays `Action.KNOCKED_BACK` — falls straight backward with no facing spin (playtest feedback caught `Action.TACKLED`'s own "face the fall direction" convention spinning the target 180° first, wrong for a hit from the front) — plus a small vertical hop under real gravity (`_apply_knockdown_hop`); bumper stays standing. The clean connect now also spills the ball loose on the instant of the hit (`BUMP_SPILL_SPEED`, forward in the hit direction, synced with the `KNOCKED_BACK` fall — playtest request), so a clean bump is a genuine turnover. Mistimed/glancing connect stays a lighter physics-only knockback with no strip. A dash that finds nobody is a genuine whiff — the bumper goes down too (`Action.TACKLED`, falls forward — an overextension, not a backward hit — plus the same hop), stopped in place first (`velocity.x/z` zeroed at the moment of resolution, playtest feedback: it used to keep sliding at full dash speed for a while after the whiff was already decided) — with the single longest miss-recovery in the kit (`BUMP_MISS_STUN_DURATION`, ahead of a whiffed Slide). Retuned after playtesting (dash/knockback speed both cut) — see docs/HANDOVER.md. |
-| Ruck contests (unified) | `full_game.gd` `_begin_ruck_contest` + call sites | One mechanic for centre bounce, field ball-up, boundary throw-in. Correct 1-ruck+3-on-baller centre square formation. While a contest is live, only the two nominated ruckmen may bring the ball to hand (`PlayerController._ruck_contest_locked`, checked in `_try_gather`/`_update_ground_pickup`) — the on-ballers can't just scoop it off the umpire's throw-up; the lock lifts on a connected hit-out (`_on_hit_out_resolved`) or when `RUCK_CONTEST_WINDOW` lapses. |
+| Ruck contests (unified) | `full_game.gd` `_begin_ruck_contest` + call sites | One mechanic for centre bounce, field ball-up, boundary throw-in. Centre bounce puts roster indices 0-3 (ruck + 3 on-ballers, front-loaded by `TeamFormation.ROSTER_ORDER`) on the ruck-contest ring and every other player on their matchday formation slot outside the 50 m centre square — the real AFL "max 4 per team in the square" law; at `TEAM_SIZE 4` that ring is the whole team. While a contest is live, only the two nominated ruckmen may bring the ball to hand (`PlayerController.ruck_contest_locked()`, checked in `_try_gather`/`_update_ground_pickup`) — and `AIBrain.update()` now also holds every non-ruck AI on its position while the lock is up, so the side no longer crashes the pack the instant the throw-up is released (`ball.is_held` goes false there, which had read as a loose ball). The lock lifts on a connected hit-out (`_on_hit_out_resolved`) or when `RUCK_CONTEST_WINDOW` lapses. |
 | Scoring + correct restarts | `field.gd` scoring zones, `full_game.gd` `_on_scored` | Goal→centre bounce, behind→protected kick-in — the two are handled differently, correctly. |
 | Holding-the-ball ruling + consequence | `_get_tackled`, `full_game.gd` `_on_holding_the_ball` | Ruling and free-kick both fire; stops at "possession + protection at the spot" (no set-shot). |
 | 15m run rule | `_track_carry_distance` → `run_too_far_called`, `full_game.gd` `_on_run_too_far` | Carry past `BOUNCE_INTERVAL` (20m — raised from the real 15m on playtest feel, since `_carry_distance` is path length not displacement) with no bounce → free kick to the nearest opponent at the spot, reusing `_award_possession_at` (which now also walks the receiver back off the mark, like a mark — shared with the holding-the-ball and out-on-the-full frees; a goal-square kick-in opts out). `AIBrain` bounces on the run before it can trigger (`AI_BOUNCE_AT_FRACTION`); mostly a consequence for a human who didn't bounce. |
 | Out-of-bounds | `full_game.gd` `_check_out_of_bounds` | Real stoppage (not a silent nudge), resolved through the same ruck contest. |
 | Ball physics | `ball.gd` | RigidBody3D, prolate-spheroid hull, quadratic drag, Magnus spin, "catch gravity" marking assist. |
-| Full Game mode | `scripts/modes/full_game.gd` | 4-a-side (`Tuning.TEAM_SIZE`), real clock/quarters, AI on every non-human player, player-switch. |
-| Kick-to-Kick mode | `scripts/modes/kick_to_kick.gd` | Solo practice + an AI "rival" (stock `AIBrain`) + two training coaches (kicking, marking) with mini-games. |
+| Full Game mode | `scripts/modes/full_game.gd` | 18-a-side (`Tuning.TEAM_SIZE`), real clock/quarters, AI on every non-human player. Both teams spawn in the mirrored `TeamFormation` 18-slot layout (`_kickoff_slot` → `TeamFormation.roster_slot`, with a small per-team stagger so paired opponents don't spawn coincident). `SINGLE_PLAYER` control mode picks the human's on-field position from the pregame YOUR POSITION card (`Settings.home_human_slot`, default 1 = centre; roster index 0 stays the AI centre-bounce ruck). FULL_TEAM player-switch jumps straight to the HOME player nearest the ball (`ControlMode.next_in_roster` with a reference point — one press, no roster walk; a no-op if you're already on them), and the human is auto-moved onto whoever HOME wins the ball in open play every time (`_on_home_gained_possession`, off `ball_gathered` — no post-switch suppression window). In FULL_SIDE camera a ground ring marks the controlled player (`ControlledPlayerRing`). |
+| Kick-to-Kick mode | `scripts/modes/kick_to_kick.gd` | Solo practice + an AI "rival" (stock `AIBrain`) + three training coaches. Kicking/marking are scored mini-games (`KickChallenge`/`MarkChallenge`). Tackling is now a **guided tutorial** (`TackleTutorial`): 5 steps (close the gap / slide dive-in / standing slide / lunge / hit-stick bump), each freezing play to show the binding for both schemes at once on a code-built step card, then sending the rival — driven by `TutorialDummyBrain`, not its `AIBrain` — jogging straight at the player to apply it. No score/fail; a stale rep just resets. Per-step success reads `PlayerController.tackle_committed(is_slide)` / `bump_landed`. That corner of the field is dressed with three code-built padded tackle bags (`TackleBag`, `scripts/props/tackle_bag.gd`) — red player-sized cylinders, scenery only (solid on the "world" layer, invisible to every contest query). |
 | AI (baseline+) | `mechanics/ai_brain.gd` | Chase/support/press/dispose state machine. Now also: disposal *target selection* (`_best_disposal_target` scores teammates on distance / forwardness / openness / a cheap pass-lane check, then `_pass_to` aims by pre-turning the body), bounces on the run to stay inside the 15m rule, light off-ball teammate spacing (`_spacing_push`), and a closing-speed gate on committing a tackle. Still not team tactics / zone coverage. Two Team Edit dials (lateral bias, press intensity) reach it. |
-| Camera | `camera/broadcast_camera.gd` | Chase rig (lookahead, ball-focus pull, FOV punch), Full-Side broadcast rig, dialogue two-shot, player-switch pan. |
+| Camera | `camera/broadcast_camera.gd` | Chase rig (lookahead, ball-focus pull, FOV punch), Full-Side broadcast rig, dialogue two-shot. Player-switch now snaps the focus onto the new player + brisk reorient (the old soft pan didn't read); both rigs pulled in closer (`CAM_DISTANCE`, `CAM_FULL_SIDE_*`) — all feel numbers, unplayed. |
 | Input | `autoload/input_manager.gd` | Full keyboard+mouse+gamepad parity, per-action deadzone/curve, rumble, flick-gesture primitive, device auto-detect. |
-| Character screen | `ui/character_screen.gd` | 4 live stats (Speed/Height/Kick Power/Kick Accuracy) against one global `CharacterProfile` — no roster. |
+| Character screen | `ui/character_screen.gd` | 5 live stats (Speed/Agility/Kick Power/Kick Accuracy/Height) against one global `CharacterProfile`, persisted to `user://character_profile.cfg`. APPLY TO toggle (ALL PLAYERS / START PLAYER) sets whether Full Game applies the profile to every HOME player or only the pregame start-position slot. Lean port of P1's roster — no named-player list / disk-vs-session prompt. |
 | Team Edit | `ui/team_list_screen.gd` | 3 curated formation presets + Ball Movement + Defensive Pressure, all persisted (`Settings` autoload → `user://settings.cfg`), all actually change HOME's AI/spawn. |
 | Scoreboard, DebugHud | `ui/scoreboard.gd`, `ui/debug_hud.gd` | Always-on readout; F3 diagnostic overlay. |
 | Main menu, scene transitions | `ui/main_menu.gd`, `autoload/scene_wipe.gd` | Card-based mode select, pixel-wipe transitions. |
@@ -117,12 +137,14 @@ numerically via scripted physics against the real Jolt simulation" — not
   simply walking up and repositioning. `PlayerController` now freezes the
   nearest opponent's movement (not their actions) for the same
   `MARK_HOLD_DURATION` window on any legal mark, releasing them early the
-  instant the mark-taker disposes. The nearest opponent is also slid *onto
+  instant the mark-taker disposes. The nearest opponent also moves *onto
   the mark* (`_frozen_anchor`, a metre goal-side of the taker via
-  `MARK_STAND_GOAL_SIDE_OFFSET`) rather than frozen wherever they happened
-  to be standing; the wider retreat crowd still just stops in place. Scoped
-  to marks only — see `docs/HANDOVER.md` for why free kicks/kick-ins
-  weren't folded in too.
+  `MARK_STAND_GOAL_SIDE_OFFSET`) rather than freezing wherever they
+  happened to be standing — jogging there under real capped-speed movement
+  (`MARK_STAND_JOG_SPEED`), not the old fast position-slide that hauled a
+  15-20 m-away "nearest" opponent across the ground at 18-a-side. The wider
+  retreat crowd still just stops in place. Scoped to marks only — see
+  `docs/HANDOVER.md` for why free kicks/kick-ins weren't folded in too.
 - ~~**"Out on the full"**~~ — **fixed.** A kick crossing the boundary in the
   air was indistinguishable from a rolled-out ball. `Ball` now tracks which
   team's kick is in flight; `full_game.gd` bisects the boundary-crossing
@@ -140,7 +162,9 @@ numerically via scripted physics against the real Jolt simulation" — not
   aggressively or bump anyone, and a centre-bounce ruck contest is only ever
   actively *palmed* by whichever side has the human in it — the AI ruck
   nominee just falls back to ordinary loose-ball chasing once the ball
-  starts coming down.
+  starts coming down. (The non-ruck AI no longer *crowds* the contest,
+  though — `ruck_contest_locked()` now holds it on position; see the Ruck
+  contests row above.)
 
 ### Present in code but not exposed to the player
 
@@ -172,12 +196,14 @@ numerically via scripted physics against the real Jolt simulation" — not
 - **Scenario mode, Goal Kicking mode** — both are locked entries on the main
   menu (`ui/main_menu.gd`'s `_entries`, `unlocked=false`, `scene_path=""`),
   with zero backing implementation. `data/scenarios/` is empty.
-- **Multi-player roster / save-load.** `CharacterProfile` is a single
-  session-only global (`autoload/character_profile.gd`) applied to whichever
-  human player exists — there is no way to have more than one named,
-  persisted player. Team Edit is 3 curated 4-a-side presets, not free
-  assignment of named players to any of the 18 real AFL slots
-  `TeamFormation` already models.
+- **Multi-player roster / save-load.** `CharacterProfile` is a single global
+  (`autoload/character_profile.gd`), now persisted to
+  `user://character_profile.cfg` with an APPLY TO ALL / START PLAYER scope
+  toggle, but still just one profile — there is no way to have more than one
+  named, persisted player, no roster list, and no per-position assignment. Team Edit's 3 curated 4-slot `FORMATION_PRESETS` now
+  only shape a reduced-roster (`TEAM_SIZE < 18`) HOME side — at the real 18
+  both teams use the full `TeamFormation` layout directly — and there is
+  still no free assignment of named players to the 18 real AFL slots.
 - **Real character art.** `HumanoidRig` is a real `Skeleton3D` now (a good
   drop-in target — see Technical Opportunities) but every mesh is still a
   primitive box/capsule/sphere; `assets/models/` and `assets/animations/`
@@ -262,10 +288,11 @@ Ordered by leverage (cost vs. what it reuses):
 - **Post-match stats.** Once `MatchEndScreen` is wired, tally disposals/
   marks/tackles per team by counting the same signals above and display them
   there — the data source already exists, it's just never counted.
-- **A tackling coach.** The third of the three coaches the design brief
-  named from the start. `kick_to_kick.gd`'s `CoachKind` enum and shared
-  prompt/dialogue/challenge state machine were explicitly built to take a
-  third kind with no restructuring.
+- ~~**A tackling coach.**~~ Done — built as the tracked third `CoachKind`,
+  then reworked from a chase-from-behind scored drill into a guided
+  step-by-step `TackleTutorial` (see the Kick-to-Kick row above): freeze-
+  and-teach cards for both control schemes, a `TutorialDummyBrain` rival
+  that comes straight at the player, and code-built `TackleBag` scenery.
 - **Free-kick/set-shot apparatus.** Reuse `_protected_timer`/`is_protected()`
   (already the shared primitive for marks, kick-ins, and holding-the-ball) —
   add a shot-clock UI and a "kick for goal vs. play on" input read the same

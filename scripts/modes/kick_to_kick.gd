@@ -24,7 +24,8 @@ const PLAYER_SCENE := preload("res://scenes/player/player.tscn")
 const COACH_SCENE := preload("res://scenes/mechanics/coach_npc.tscn")
 const KICK_CHALLENGE_SCENE := preload("res://scenes/mechanics/kick_challenge.tscn")
 const MARK_CHALLENGE_SCENE := preload("res://scenes/mechanics/mark_challenge.tscn")
-const TACKLE_CHALLENGE_SCENE := preload("res://scenes/mechanics/tackle_challenge.tscn")
+const TACKLE_TUTORIAL_SCENE := preload("res://scenes/mechanics/tackle_tutorial.tscn")
+const TACKLE_BAG_SCENE := preload("res://scenes/props/tackle_bag.tscn")
 const PAUSE_SCREEN_SCENE := preload("res://scenes/ui/pause_screen.tscn")
 
 enum CoachState { NONE, PROMPT, DIALOGUE, CHALLENGE }
@@ -47,12 +48,21 @@ var _marking_coach: CoachNPC
 var _tackling_coach: CoachNPC
 var _challenge: KickChallenge
 var _mark_challenge: MarkChallenge
-var _tackle_challenge: TackleChallenge
+var _tackle_tutorial: TackleTutorial
 var _coach_state := CoachState.NONE
 var _active_coach: CoachKind = CoachKind.KICKING
 var _crosshair: KickCrosshair
 var _mark_prompt: MarkPrompt
 var _rival: PlayerController
+
+## The tackling tutorial's step card (built in _build_tutorial_card). While
+## visible, play is frozen (InputManager.gameplay_input_enabled = false) and
+## `confirm` starts the rep / `decline` skips the step — see _unhandled_input.
+var _tutorial_card: Control
+var _tutorial_card_title: Label
+var _tutorial_card_body: Label
+var _tutorial_card_kb: KeyHintBar
+var _tutorial_card_pad: KeyHintBar
 
 ## PLACEHOLDER: a bare Label standing in for the real coach dialogue
 ## bubble / hint UI (design brief describes a proper chat bubble; UI is
@@ -67,6 +77,7 @@ func _ready() -> void:
 	GameState.phase = GameState.Phase.PLAY
 
 	_player.speed_scale = CharacterProfile.speed_scale()
+	_player.agility_scale = CharacterProfile.agility_scale()
 	_player.kick_power_scale = CharacterProfile.kick_power
 	_player.kick_accuracy = CharacterProfile.kick_accuracy
 	(_player.get_node("Rig") as Node3D).scale = Vector3.ONE * CharacterProfile.height_scale()
@@ -97,7 +108,9 @@ func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 
 	_setup_coach()
+	_setup_tackle_ground()
 	_build_placeholder_prompt()
+	_build_tutorial_card()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -106,6 +119,17 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed(&"debug_reset"):
 		_reset_ball()
+		return
+
+	# The tackling tutorial's step card owns input while it's up: play is
+	# frozen behind it, confirm starts the rep, decline skips the step.
+	if is_instance_valid(_tutorial_card) and _tutorial_card.visible:
+		if event.is_action_pressed(&"confirm"):
+			_dismiss_tutorial_card()
+			_tackle_tutorial.begin_rep()
+		elif event.is_action_pressed(&"decline"):
+			_dismiss_tutorial_card()
+			_tackle_tutorial.skip_step()
 		return
 
 	match _coach_state:
@@ -152,16 +176,17 @@ func _physics_process(_delta: float) -> void:
 		if not _check_coach_in_range(CoachKind.KICKING) and not _check_coach_in_range(CoachKind.MARKING):
 			_check_coach_in_range(CoachKind.TACKLING)
 
-	# Frozen for the duration of any coach dialogue/challenge (see Tuning's
-	# own "Kick-to-kick rival" comment) so a drill stays a clean 1-on-0 loop
-	# — resumes chasing/marking/tackling the instant the coach state clears.
-	# One deliberate exception: the tackling challenge IS the rival running
-	# around with the ball, so it stays live through exactly that one
-	# CHALLENGE state, frozen everywhere else (including its own PROMPT/
-	# DIALOGUE, same as the other two coaches).
+	# Frozen for the duration of any coach dialogue/challenge so a drill stays
+	# a clean 1-on-0 loop — resumes the instant the coach state clears. One
+	# deliberate exception: the tackling tutorial's rival is the dummy that
+	# jogs at the player during a rep, so it stays live for exactly that —
+	# TackleTutorial.rep_active() is false while a step card is up or during
+	# the between-steps beat, so the dummy holds still until the player
+	# dismisses the card.
 	if is_instance_valid(_rival):
 		var rival_active := _coach_state == CoachState.NONE \
-			or (_coach_state == CoachState.CHALLENGE and _active_coach == CoachKind.TACKLING)
+			or (_coach_state == CoachState.CHALLENGE and _active_coach == CoachKind.TACKLING \
+				and is_instance_valid(_tackle_tutorial) and _tackle_tutorial.rep_active())
 		_rival.set_physics_process(rival_active)
 
 
@@ -170,8 +195,8 @@ func _reset_ball() -> void:
 		_challenge.force_miss()
 	if is_instance_valid(_mark_challenge):
 		_mark_challenge.force_miss()
-	if is_instance_valid(_tackle_challenge):
-		_tackle_challenge.force_miss()
+	if is_instance_valid(_tackle_tutorial):
+		_tackle_tutorial.force_miss()
 	_player.drop_ball()
 	if is_instance_valid(_rival):
 		_rival.drop_ball()
@@ -239,10 +264,30 @@ func _setup_coach() -> void:
 	_mark_challenge.hint_changed.connect(_set_hint_text)
 
 	_tackling_coach = _spawn_coach(Tuning.TACKLE_COACH_STAND_OFFSET, CoachKind.TACKLING)
-	_tackle_challenge = TACKLE_CHALLENGE_SCENE.instantiate()
-	add_child(_tackle_challenge)
-	_tackle_challenge.challenge_ended.connect(_on_tackle_challenge_ended)
-	_tackle_challenge.hint_changed.connect(_set_hint_text)
+	_tackle_tutorial = TACKLE_TUTORIAL_SCENE.instantiate()
+	add_child(_tackle_tutorial)
+	_tackle_tutorial.challenge_ended.connect(_on_tackle_tutorial_ended)
+	_tackle_tutorial.hint_changed.connect(_set_hint_text)
+	_tackle_tutorial.step_changed.connect(_show_tutorial_card)
+
+
+## Training-ground dressing: a few padded tackle bags standing by the
+## tackling coach so that corner of the field reads as a drills area rather
+## than bare turf. Pure scenery — TackleBag carries no PlayerController and
+## sits on the "world" layer, so it's solid to run into but invisible to
+## every contest query. Same "position before add_child(), Y from a feet-at-
+## origin rig" convention as _spawn_coach.
+func _setup_tackle_ground() -> void:
+	var base := _field.centre() + Tuning.TACKLE_COACH_STAND_OFFSET
+	base.y = 0.0
+	for i in Tuning.TACKLE_BAG_OFFSETS.size():
+		var bag := TACKLE_BAG_SCENE.instantiate() as TackleBag
+		bag.position = base + Tuning.TACKLE_BAG_OFFSETS[i]
+		# Index 0 stands by the coach; the rest lie on the ground.
+		if i > 0:
+			bag.lying = true
+			bag.lie_yaw = Tuning.TACKLE_BAG_LIE_YAWS[i - 1]
+		add_child(bag)
 
 
 ## Position before add_child(), same reasoning full_game.gd documents for
@@ -338,7 +383,7 @@ func _accept_challenge() -> void:
 		CoachKind.MARKING:
 			_mark_challenge.begin(_ball, _player, _coach_node(CoachKind.MARKING).global_position)
 		CoachKind.TACKLING:
-			_tackle_challenge.begin(_ball, _player, _rival)
+			_tackle_tutorial.begin(_ball, _player, _rival)
 		_:
 			_challenge.begin(_ball, _pick_target_position())
 
@@ -364,10 +409,12 @@ func _on_mark_challenge_ended(hits: int, attempts_total: int) -> void:
 		% [hits, attempts_total])
 
 
-func _on_tackle_challenge_ended(hits: int, attempts_total: int) -> void:
+func _on_tackle_tutorial_ended(cleared: int, steps_total: int) -> void:
 	_coach_state = CoachState.NONE
-	_set_hint_text("Practice done — %d/%d tackled. Walk back to the coach to go again."
-		% [hits, attempts_total])
+	_dismiss_tutorial_card()
+	InputManager.gameplay_input_enabled = true
+	_set_hint_text("Tackling tutorial done — %d/%d steps. Walk back to the coach to run it again."
+		% [cleared, steps_total])
 
 
 # ── Placeholder prompt/hint UI ──────────────────────────────────────
@@ -403,3 +450,99 @@ func _build_placeholder_prompt() -> void:
 func _set_hint_text(text: String) -> void:
 	if is_instance_valid(_prompt_label):
 		_prompt_label.text = text
+
+
+# ── Tackling tutorial step card ─────────────────────────────────────
+# Freeze-and-teach overlay: one control per step, shown for both schemes at
+# once (keyboard/mouse AND controller), play frozen behind it. Built in code
+# from the shared UIStyle/KeyHintBar helpers — same disposable, no-scene
+# approach as _build_placeholder_prompt above, just a real styled panel
+# rather than a bare Label since this one is the centre of attention.
+
+func _build_tutorial_card() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 6
+	add_child(layer)
+
+	# One root Control so a single .visible toggle hides dim + panel together.
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(root)
+
+	var dim := ColorRect.new()
+	dim.color = Color(0.0, 0.0, 0.0, 0.55)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.add_child(dim)
+
+	var centre := CenterContainer.new()
+	centre.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.add_child(centre)
+
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override(&"panel",
+		UIStyle.rounded(Color(UIStyle.PANEL_FILL, 0.98), UIStyle.CHIP_BORDER, 1))
+	centre.add_child(panel)
+
+	var margin := MarginContainer.new()
+	for side in [&"margin_left", &"margin_right", &"margin_top", &"margin_bottom"]:
+		margin.add_theme_constant_override(side, 28)
+	panel.add_child(margin)
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override(&"separation", 14)
+	margin.add_child(column)
+
+	_tutorial_card_title = UIStyle.label("", UIStyle.SIZE_TITLE, UIStyle.TEXT_PRIMARY,
+		UIStyle.WEIGHT_HEAVY, UIStyle.TRACK_TITLE)
+	column.add_child(_tutorial_card_title)
+
+	_tutorial_card_body = UIStyle.label("", UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
+	_tutorial_card_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_tutorial_card_body.custom_minimum_size = Vector2(560.0, 0.0)
+	column.add_child(_tutorial_card_body)
+
+	_tutorial_card_kb = _card_control_row(column, "Keyboard / Mouse")
+	_tutorial_card_pad = _card_control_row(column, "Controller")
+
+	var footer := UIStyle.label("Y  Start       N  Skip step", UIStyle.SIZE_HINT,
+		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_REGULAR, UIStyle.TRACK_HINT)
+	column.add_child(footer)
+
+	_tutorial_card = root
+	_tutorial_card.visible = false
+
+
+## One labelled row of the card: a fixed-width caption ("Controller") next to
+## a KeyHintBar the step fills with that scheme's chips.
+func _card_control_row(parent: VBoxContainer, caption: String) -> KeyHintBar:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override(&"separation", 14)
+	parent.add_child(row)
+
+	var caption_label := UIStyle.label(caption, UIStyle.SIZE_HINT, UIStyle.TEXT_MUTED,
+		UIStyle.WEIGHT_BOLD, UIStyle.TRACK_HINT)
+	caption_label.custom_minimum_size = Vector2(150.0, 0.0)
+	caption_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(caption_label)
+
+	var bar := KeyHintBar.new()
+	row.add_child(bar)
+	return bar
+
+
+func _show_tutorial_card(step: Dictionary) -> void:
+	if not is_instance_valid(_tutorial_card):
+		return
+	_tutorial_card_title.text = String(step.get("title", ""))
+	_tutorial_card_body.text = String(step.get("instruction", ""))
+	_tutorial_card_kb.set_hints(step.get("kb", []))
+	_tutorial_card_pad.set_hints(step.get("pad", []))
+	_tutorial_card.visible = true
+	InputManager.gameplay_input_enabled = false
+
+
+func _dismiss_tutorial_card() -> void:
+	if is_instance_valid(_tutorial_card):
+		_tutorial_card.visible = false
+	InputManager.gameplay_input_enabled = true

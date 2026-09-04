@@ -25,8 +25,8 @@ extends CanvasLayer
 ## own value picker cannot also live on left/right at the same time —
 ## hence two modes, which is the whole interaction design of this screen:
 ##
-##   ROW MODE   left/right   move the cursor across the 9 cards and the
-##                           trailing START MATCH button (10 stops, wraps)
+##   ROW MODE   left/right   move the cursor across the 10 cards and the
+##                           trailing START MATCH button (11 stops, wraps)
 ##              accept       open the focused card's picker (no-op on a
 ##                           locked card, per main_menu.gd's locked-card
 ##                           _select(); on START MATCH, accept starts the
@@ -91,8 +91,8 @@ const BAND_GAP := int(SoftBrutalist.SPACE_2)        ## 16
 const HEADER_HEIGHT := 66.0
 const FOOTER_HEIGHT := 24.0
 
-## Nine cards plus eight gaps has to clear the screen's own side margins:
-## 9*90 + 8*18 = 954, against 1280 - 40*2 = 1200 usable. Card height is
+## Ten cards plus nine gaps has to clear the screen's own side margins:
+## 10*90 + 9*18 = 1062, against 1280 - 40*2 = 1200 usable. Card height is
 ## set by the tallest content a card can hold — a two-line wrapped title
 ## ("DEFENSIVE PRESSURE"), a two-line wrapped value, and the cursor glyph
 ## row under it.
@@ -123,17 +123,19 @@ const PREVIEW_WIDTH := (PREVIEW_HEIGHT - FormationWhiteboard.MARGIN * 2.0) * BOA
 ## after its own MARGIN, so the bottom MARGIN band of the window is empty
 ## parchment. The readout strip is overlaid into exactly that band — it
 ## costs the board no height, which is why the preview can carry a caption
-## at all at this size.
+## at all at this size. Four caption rows (FORMATION / CONTROL / CAMERA /
+## POSITION) run a little past that band into the board's own inset — a
+## harmless overlap of blank margin, not board content.
 const READOUT_INSET_X := 14.0
-const READOUT_HEIGHT := 52.0
-const READOUT_BOTTOM := 8.0
+const READOUT_HEIGHT := 66.0
+const READOUT_BOTTOM := 6.0
 const READOUT_ROW_GAP := 1
 
 
 const TITLE_TEXT := "FULL GAME"
 ## Lifted from main_menu.gd's own FULL GAME Entry subtitle, so the card
 ## you picked and the screen it opens say the same thing.
-const SUBTITLE_TEXT := "4-a-side, real clock, quarters, scoring"
+const SUBTITLE_TEXT := "18-a-side, real clock, quarters, scoring"
 const START_TEXT := "START MATCH"
 
 const MATCH_SCENE := "res://scenes/modes/full_game.tscn"
@@ -226,6 +228,8 @@ func _ready() -> void:
 		Card.new(SettingsScreen.Row.new("DEFENSIVE PRESSURE",
 			["LOOSE", "BALANCED", "TIGHT"], Settings.home_defensive_pressure,
 			_set_defensive_pressure)),
+		Card.new(SettingsScreen.Row.new("YOUR POSITION",
+			_your_position_options(), Settings.home_human_slot, _set_your_position)),
 		# Inert placeholders from here down — see this file's header.
 		Card.new(SettingsScreen.Row.new("DIFFICULTY", ["NORMAL"]), true),
 		Card.new(SettingsScreen.Row.new("QUARTER LENGTH", ["20 MIN"]), true),
@@ -246,6 +250,22 @@ func _formation_options() -> Array[String]:
 	var options: Array[String] = []
 	for preset: Dictionary in Settings.FORMATION_PRESETS:
 		options.append(String(preset["name"]))
+	return options
+
+
+## One entry per HOME roster slot: "<n> <label>" (1-based roster index +
+## the TeamFormation short label), so repeated labels (two BPs, two wings,
+## …) still read distinctly and the number doubles as the roster-index
+## cue. Static — every slot 0..TEAM_SIZE-1 is a real player at 18-a-side —
+## so unlike a formation-preset-derived list it never has to rebuild when
+## another card changes. Slot 0 is the AI centre-bounce ruck (full_game.gd
+## _bounce_off); it's offered anyway — human-as-ruck is allowed, it just
+## can't actively palm a hit-out. Only consumed in SINGLE_PLAYER mode; the
+## card always shows (FULL TEAM ignores home_human_slot).
+func _your_position_options() -> Array[String]:
+	var options: Array[String] = []
+	for i in Tuning.TEAM_SIZE:
+		options.append("%d %s" % [i + 1, String(TeamFormation.roster_slot(i)["label"])])
 	return options
 
 
@@ -412,6 +432,11 @@ func _set_formation(index: int) -> void:
 	Settings.save()
 
 
+func _set_your_position(index: int) -> void:
+	Settings.home_human_slot = index
+	Settings.save()
+
+
 func _set_ball_movement(index: int) -> void:
 	Settings.home_ball_movement = index as Settings.BallMovementPreference
 	Settings.save()
@@ -557,7 +582,7 @@ func _build_readout(panel: Control) -> void:
 	strip.add_theme_constant_override(&"separation", READOUT_ROW_GAP)
 	panel.add_child(strip)
 
-	for title: String in ["FORMATION", "CONTROL", "CAMERA"]:
+	for title: String in ["FORMATION", "CONTROL", "CAMERA", "POSITION"]:
 		_readout_values.append(_build_readout_row(strip, title))
 
 
@@ -889,7 +914,7 @@ func _sync_preview() -> void:
 		_whiteboard.ball_movement = Settings.home_ball_movement
 		_whiteboard.defensive_pressure = Settings.home_defensive_pressure
 
-	if _readout_values.size() < 3:
+	if _readout_values.size() < 4:
 		return
 	_readout_values[0].text = String(
 		Settings.FORMATION_PRESETS[Settings.home_formation_index]["name"])
@@ -902,3 +927,7 @@ func _sync_preview() -> void:
 	_readout_values[2].text = "3RD PERSON" \
 		if Settings.full_game_camera_mode == Settings.FullGameCameraMode.THIRD_PERSON \
 		else "FULL-SIDE"
+	# Same "<n> <label>" form the YOUR POSITION card uses. Only bites in
+	# ONE PLAYER mode, but shown regardless — the card is too.
+	_readout_values[3].text = "%d %s" % [Settings.home_human_slot + 1,
+		String(TeamFormation.roster_slot(Settings.home_human_slot)["label"])]

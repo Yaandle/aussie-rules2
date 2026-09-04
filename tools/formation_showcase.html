@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Team List — Formation Showcase</title>
+<style>
+  :root{
+    --bg:#2a2a2a;
+    --panel:#f4ecdb;
+    --panel-2:#efe6d0;
+    --ink:#1b1a16;
+    --muted:#6f6857;
+    --accent:#c24e3a;
+
+    /* six position-line tints, back -> forward (from FormationWhiteboard.LINE_COLOURS) */
+    --line-BACK:#2E5E37;
+    --line-HALFBACK:#3D7A47;
+    --line-CENTRE:#4E9F5B;
+    --line-FOLLOWERS:#8FCB6E;
+    --line-HALFFORWARD:#7CC46B;
+    --line-FORWARD:#B8E986;
+
+    --tilt:60deg;
+    --yaw:0deg;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#2a2a2a;
+      --panel:#211d14;
+      --panel-2:#1b1810;
+      --ink:#f1e8d2;
+      --muted:#a89d82;
+      --accent:#e0664c;
+    }
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:"Segoe UI",-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:28px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ---- retro-window card shell (matches TeamListScreen / RetroWindow) ---- */
+  .card{
+    width:min(880px,100%);
+    background:var(--panel);
+    border:3px solid var(--ink);
+    box-shadow:12px 12px 0 var(--ink);
+    padding:22px 22px 18px;
+  }
+
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  .title-block h1{
+    margin:0;
+    font-size:26px;
+    font-weight:800;
+    letter-spacing:.14em;
+  }
+  .rule{width:52px;height:4px;background:var(--accent);margin:7px 0 4px}
+  .title-block p{margin:0;font-size:11px;letter-spacing:.22em;color:var(--muted);text-transform:uppercase}
+
+  .controls{display:flex;gap:8px;align-items:center}
+  button{
+    font:inherit;
+    font-size:11px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    font-weight:700;
+    color:var(--ink);
+    background:var(--panel-2);
+    border:2px solid var(--ink);
+    box-shadow:3px 3px 0 var(--ink);
+    padding:7px 12px;
+    cursor:pointer;
+  }
+  button:active{transform:translate(3px,3px);box-shadow:0 0 0 var(--ink)}
+  button.primary{background:var(--accent);color:#fff}
+  .seg{display:flex}
+  .seg button{box-shadow:none;border-right-width:0}
+  .seg button:last-child{border-right-width:2px;box-shadow:3px 3px 0 var(--ink)}
+  .seg button.on{background:var(--ink);color:var(--panel)}
+
+  .body{
+    margin-top:16px;
+    display:grid;
+    grid-template-columns:212px 1fr;
+    gap:18px;
+    align-items:stretch;
+  }
+  @media (max-width:680px){ .body{grid-template-columns:1fr} }
+
+  /* ---- left column: POSITION LINES legend ---- */
+  .legend{
+    background:var(--panel-2);
+    border:2px solid var(--ink);
+    padding:16px 14px;
+  }
+  .legend h2{
+    margin:0 0 12px;
+    font-size:11px;
+    letter-spacing:.2em;
+    color:var(--muted);
+    font-weight:800;
+    text-transform:uppercase;
+  }
+  .lrow{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:7px 0;
+    /* start hidden + blurred; un-blurs when its line hits the oval */
+    opacity:.16;
+    filter:blur(9px);
+    transform:translateX(-16px);
+    transition:opacity .55s ease, filter .55s ease, transform .55s cubic-bezier(.2,.9,.2,1);
+  }
+  .lrow.in{opacity:1;filter:blur(0);transform:none}
+  .lrow .sw{
+    width:16px;height:16px;flex:0 0 auto;
+    border-radius:4px;
+    border:1.5px solid rgba(0,0,0,.35);
+    box-shadow:0 0 0 0 var(--sw);
+    transition:box-shadow .3s ease;
+  }
+  .lrow.pulse .sw{box-shadow:0 0 0 5px color-mix(in srgb, var(--sw) 40%, transparent)}
+  .lrow .nm{font-size:13px;letter-spacing:.02em}
+  .lrow .ct{margin-left:auto;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+
+  /* ---- right column: 3D field seen from above the backline goals ---- */
+  .scene{
+    position:relative;
+    min-height:520px;
+    perspective:1150px;
+    perspective-origin:50% 32%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    overflow:hidden;
+    border:2px solid var(--ink);
+    background:
+      radial-gradient(120% 90% at 50% 8%, #cfe6d9 0%, var(--panel-2) 55%, var(--panel-2) 100%);
+  }
+  @media (prefers-color-scheme:dark){
+    .scene{background:radial-gradient(120% 90% at 50% 8%, #26302b 0%, var(--panel-2) 55%, var(--panel-2) 100%)}
+  }
+
+  .pitch3d{
+    position:relative;
+    width:376px;
+    height:460px;              /* 135 : 165 ground aspect */
+    transform-style:preserve-3d;
+    transform:translateY(26px) rotateX(var(--tilt)) rotateY(var(--yaw));
+    transition:transform .18s ease-out;
+  }
+
+  /* keep the 3D chain alive from the tilted plane down to each marker so the
+     billboard counter-rotation below actually restores them to face-on */
+  .field{position:absolute;inset:0;transform-style:preserve-3d}
+
+  .pitch{
+    position:absolute;inset:0;
+    border-radius:50%;
+    overflow:hidden;
+    border:3px solid rgba(255,255,255,.9);
+    background:
+      repeating-linear-gradient(0deg, rgba(255,255,255,.045) 0 7.6%, rgba(0,0,0,.02) 7.6% 15.2%),
+      linear-gradient(#3f8149 0%, #367040 55%, #2c5c36 100%);
+    box-shadow:inset 0 0 60px rgba(0,0,0,.28);
+  }
+
+  /* pitch markings — schematic, on the tilted plane so they foreshorten */
+  .mark{position:absolute;border:2px solid rgba(255,255,255,.42);pointer-events:none}
+  .csquare{
+    left:31.48%;top:34.85%;width:37.04%;height:30.30%;
+  }
+  .ccircle{
+    left:46.30%;top:46.97%;width:7.41%;height:6.06%;border-radius:50%;
+  }
+  .arc{
+    left:50%;width:74.07%;height:60.61%;
+    border:2px dashed rgba(255,255,255,.4);
+    border-radius:50%;
+    transform:translateX(-50%);
+  }
+  .arc.far{top:-30.3%}
+  .arc.near{bottom:-30.3%}
+  .gsquare{left:47.63%;width:4.74%;height:5.45%}
+  .gsquare.far{top:0}
+  .gsquare.near{bottom:0}
+
+  .posts{position:absolute;inset:0;overflow:visible;pointer-events:none}
+  .post{position:absolute;background:rgba(255,255,255,.92);width:3px}
+  .post.behind{width:2px;background:rgba(255,255,255,.7)}
+  .post.far{top:-14px;height:14px}
+  .post.far.behind{top:-10px;height:10px}
+  .post.near{bottom:-18px;height:18px}          /* the goals we are standing behind */
+  .post.near.behind{bottom:-13px;height:13px}
+
+  .markers{position:absolute;inset:0;overflow:visible;transform-style:preserve-3d}
+
+  .marker{
+    position:absolute;
+    transform-style:preserve-3d;
+    /* billboard: cancel the plane's yaw + tilt so the dot and label face the
+       camera, then translateZ lifts the whole marker off the pitch surface so
+       the opaque field plane can't slice it in half where they intersect */
+    transform:translate(-50%,-50%)
+              rotateY(calc(-1 * var(--yaw)))
+              rotateX(calc(-1 * var(--tilt)))
+              translateZ(40px);
+    transition:transform .18s ease-out;
+  }
+  .marker-inner{
+    position:relative;
+    display:flex;align-items:center;justify-content:center;
+    transform:scale(.1);
+    opacity:0;
+  }
+  .marker.in .marker-inner{
+    animation:pop .5s cubic-bezier(.18,1.5,.35,1) forwards, float 4.4s ease-in-out .6s infinite;
+  }
+  @keyframes pop{
+    0%{transform:scale(.1) translateY(7px);opacity:0}
+    60%{transform:scale(1.18) translateY(0);opacity:1}
+    100%{transform:scale(1) translateY(0);opacity:1}
+  }
+  @keyframes float{
+    0%,100%{transform:scale(1) translateY(0)}
+    50%{transform:scale(1) translateY(-3px)}
+  }
+  .dot{
+    width:22px;height:22px;border-radius:50%;
+    background:var(--c);
+    border:2.5px solid #fff;
+    /* dark halo outside the white ring so the darker back-line tints still
+       read against the green pitch instead of vanishing into it */
+    box-shadow:0 0 0 1.5px rgba(0,0,0,.5), 0 4px 10px rgba(0,0,0,.55);
+  }
+  .ring{
+    position:absolute;width:22px;height:22px;border-radius:50%;
+    border:2.5px solid var(--c);
+    opacity:0;
+  }
+  .marker.in .ring{animation:ripple .72s ease-out forwards}
+  @keyframes ripple{
+    0%{transform:scale(.4);opacity:.85}
+    100%{transform:scale(2.6);opacity:0}
+  }
+  .label{
+    position:absolute;
+    bottom:calc(100% + 4px);
+    left:50%;
+    transform:translateX(-50%) translateY(4px);
+    font-size:11px;font-weight:800;letter-spacing:.08em;
+    color:#0f1a12;
+    background:rgba(255,255,255,.95);
+    padding:2px 5px;border-radius:3px;
+    box-shadow:0 2px 5px rgba(0,0,0,.35);
+    white-space:nowrap;
+    opacity:0;
+    transition:opacity .3s ease .12s, transform .3s ease .12s;
+  }
+  .marker.in .label{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  .atk{
+    position:absolute;left:50%;top:-34px;transform:translateX(-50%);
+    font-size:10px;letter-spacing:.28em;color:var(--muted);font-weight:800;
+  }
+
+  .shadow{
+    position:absolute;left:50%;bottom:46px;width:300px;height:60px;
+    background:rgba(0,0,0,.30);filter:blur(22px);border-radius:50%;
+    transform:translateX(-50%);
+  }
+
+  .foot{
+    margin-top:14px;
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    border-top:2px solid var(--ink);
+    padding-top:10px;
+  }
+  #caption{font-size:15px;font-weight:800;letter-spacing:.16em;text-transform:uppercase}
+  #caption .sub{color:var(--muted);font-weight:600;letter-spacing:.1em;font-size:11px;display:block;margin-top:2px}
+  .hint{font-size:10px;letter-spacing:.16em;color:var(--muted);text-transform:uppercase}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="head">
+    <div class="title-block">
+      <h1>TEAM LIST</h1>
+      <div class="rule"></div>
+      <p>Starting formation preview</p>
+    </div>
+    <div class="controls">
+      <div class="seg" id="speed">
+        <button data-s="0.5">0.5&times;</button>
+        <button data-s="1" class="on">1&times;</button>
+        <button data-s="2">2&times;</button>
+      </div>
+      <button class="primary" id="replay">&#8635; Replay</button>
+    </div>
+  </div>
+
+  <div class="body">
+    <div class="legend" id="legend">
+      <h2>Position Lines</h2>
+      <!-- rows injected in reveal order -->
+    </div>
+
+    <div class="scene" id="scene">
+      <div class="pitch3d" id="pitch3d">
+        <div class="atk">ATTACK &uarr;</div>
+        <div class="field">
+          <div class="pitch">
+            <div class="mark arc far"></div>
+            <div class="mark arc near"></div>
+            <div class="mark csquare"></div>
+            <div class="mark ccircle"></div>
+            <div class="mark gsquare far"></div>
+            <div class="mark gsquare near"></div>
+          </div>
+          <div class="posts" id="posts"></div>
+          <div class="markers" id="markers"></div>
+        </div>
+      </div>
+      <div class="shadow"></div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <div id="caption">Loading line-up&hellip;<span class="sub">back &rarr; midfield &rarr; forward</span></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // Reveal order: backs, then midfield (centre + followers), then forwards.
+  const LINES = [
+    {key:"BACK",         name:"BACK",          cssVar:"--line-BACK"},
+    {key:"HALF BACK",    name:"HALF BACK",     cssVar:"--line-HALFBACK"},
+    {key:"CENTRE",       name:"CENTRE",        cssVar:"--line-CENTRE"},
+    {key:"FOLLOWERS",    name:"FOLLOWERS",     cssVar:"--line-FOLLOWERS"},
+    {key:"HALF FORWARD", name:"HALF FORWARD",  cssVar:"--line-HALFFORWARD"},
+    {key:"FORWARD",      name:"FORWARD",       cssVar:"--line-FORWARD"},
+  ];
+
+  // 18 AFL slots (TeamFormation.SLOTS): line, label, depth (-1 own goal .. +1 attacking goal), lateral (-1..1).
+  const SLOTS = [
+    {l:"BACK",         t:"FB",  d:-0.80, x: 0.00},
+    {l:"BACK",         t:"BP",  d:-0.80, x:-0.55, pocket:true},
+    {l:"BACK",         t:"BP",  d:-0.80, x: 0.55, pocket:true},
+
+    {l:"HALF BACK",    t:"CHB", d:-0.42, x: 0.00},
+    {l:"HALF BACK",    t:"HBF", d:-0.42, x:-0.55},
+    {l:"HALF BACK",    t:"HBF", d:-0.42, x: 0.55},
+
+    {l:"CENTRE",       t:"W",   d: 0.00, x:-0.85},
+    {l:"CENTRE",       t:"C",   d: 0.00, x: 0.00},
+    {l:"CENTRE",       t:"W",   d: 0.00, x: 0.85},
+
+    {l:"FOLLOWERS",    t:"RK",  d:-0.03, x: 0.12},
+    {l:"FOLLOWERS",    t:"RR",  d: 0.05, x:-0.18},
+    {l:"FOLLOWERS",    t:"ROV", d: 0.05, x: 0.30},
+
+    {l:"HALF FORWARD", t:"CHF", d: 0.42, x: 0.00},
+    {l:"HALF FORWARD", t:"HFF", d: 0.42, x:-0.55},
+    {l:"HALF FORWARD", t:"HFF", d: 0.42, x: 0.55},
+
+    {l:"FORWARD",      t:"FF",  d: 0.80, x: 0.00},
+    {l:"FORWARD",      t:"FP",  d: 0.80, x:-0.55, pocket:true},
+    {l:"FORWARD",      t:"FP",  d: 0.80, x: 0.55, pocket:true},
+  ];
+
+  // Pocket nudge (FormationWhiteboard.POCKET_*): fan the pocket pair in toward
+  // their line's centre marker so back/forward lines don't draw as a flat edge.
+  function adjusted(s){
+    let d = s.d, x = s.x;
+    if(s.pocket){
+      x *= 0.82;
+      d += (d < 0 ? 0.08 : -0.08);
+    }
+    return {d, x};
+  }
+  // Plane placement: lateral -> X, depth -> Y (attack toward the top, inverted).
+  function place(s){
+    const a = adjusted(s);
+    return {
+      left: 50 + a.x * 42,
+      top:  50 - a.d * 45,
+    };
+  }
+
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const legendEl  = document.getElementById("legend");
+  const markersEl = document.getElementById("markers");
+  const postsEl   = document.getElementById("posts");
+  const pitch3d   = document.getElementById("pitch3d");
+  const scene     = document.getElementById("scene");
+  const caption   = document.getElementById("caption");
+
+  // ---- build legend rows (in reveal order) ----
+  const rowByLine = {};
+  LINES.forEach(function(line){
+    const count = SLOTS.filter(function(s){return s.l === line.key;}).length;
+    const row = document.createElement("div");
+    row.className = "lrow";
+    row.style.setProperty("--sw", "var(" + line.cssVar + ")");
+    row.innerHTML =
+      '<span class="sw" style="background:var(' + line.cssVar + ')"></span>' +
+      '<span class="nm">' + line.name + '</span>' +
+      '<span class="ct">' + count + '</span>';
+    legendEl.appendChild(row);
+    rowByLine[line.key] = row;
+  });
+
+  // ---- second legend block: off-field squad, its own heading ----
+  const BENCH = [
+    {name:"BENCH",     count:4},
+    {name:"EMERGENCY", count:2},
+  ];
+  const benchHead = document.createElement("h2");
+  benchHead.textContent = "Interchange";
+  benchHead.style.marginTop = "20px";
+  legendEl.appendChild(benchHead);
+  BENCH.forEach(function(b){
+    const row = document.createElement("div");
+    row.className = "lrow in";               // static — not tied to the oval reveal
+    row.innerHTML =
+      '<span class="sw" style="background:transparent;border:1.5px dashed var(--muted)"></span>' +
+      '<span class="nm">' + b.name + '</span>' +
+      '<span class="ct">' + b.count + '</span>';
+    legendEl.appendChild(row);
+  });
+
+  // ---- build goal + behind posts at each end ----
+  function addPost(cls, leftPct){
+    const p = document.createElement("div");
+    p.className = "post " + cls;
+    p.style.left = leftPct + "%";
+    postsEl.appendChild(p);
+  }
+  ["far","near"].forEach(function(end){
+    addPost(end,            50 - 2.37);   // goal posts (6.4m apart)
+    addPost(end,            50 + 2.37);
+    addPost(end + " behind",50 - 7.11);   // behind posts (6.4m further out)
+    addPost(end + " behind",50 + 7.11);
+  });
+
+  // ---- build player markers ----
+  const markersByLine = {};
+  LINES.forEach(function(l){ markersByLine[l.key] = []; });
+  SLOTS.forEach(function(s){
+    const pos = place(s);
+    const m = document.createElement("div");
+    m.className = "marker";
+    m.style.left = pos.left + "%";
+    m.style.top  = pos.top + "%";
+    const tint = "var(--line-" + s.l.replace(/ /g,"") + ")";
+    m.innerHTML =
+      '<div class="marker-inner" style="--c:' + tint + '">' +
+        '<span class="ring" style="--c:' + tint + '"></span>' +
+        '<span class="dot"></span>' +
+        '<span class="label">' + s.t + '</span>' +
+      '</div>';
+    markersEl.appendChild(m);
+    markersByLine[s.l].push(m);
+  });
+
+  // ---- look-around: pointer parallax + gentle idle drift ----
+  let px = 0, py = 0;
+  scene.addEventListener("pointermove", function(e){
+    const r = scene.getBoundingClientRect();
+    px = (e.clientX - r.left) / r.width  - 0.5;
+    py = (e.clientY - r.top)  / r.height - 0.5;
+  });
+  scene.addEventListener("pointerleave", function(){ px = 0; py = 0; });
+  function frame(t){
+    const drift = Math.sin(t / 2600) * 3.2;
+    const yaw  = px * 12 + drift;
+    const tilt = 60 - py * 7;
+    pitch3d.style.setProperty("--yaw",  yaw.toFixed(2) + "deg");
+    pitch3d.style.setProperty("--tilt", tilt.toFixed(2) + "deg");
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // ---- playback ----
+  let speed = 1;
+  let token = 0;
+  const sleep = function(ms){ return new Promise(function(r){ setTimeout(r, ms / speed); }); };
+
+  function reset(){
+    for(const k in rowByLine){ rowByLine[k].classList.remove("in","pulse"); }
+    markersEl.querySelectorAll(".marker").forEach(function(m){ m.classList.remove("in"); });
+    caption.innerHTML = 'Loading line-up&hellip;<span class="sub">back &rarr; midfield &rarr; forward</span>';
+  }
+
+  async function play(){
+    const mine = ++token;
+    reset();
+
+    if(reduce){
+      for(const k in rowByLine) rowByLine[k].classList.add("in");
+      markersEl.querySelectorAll(".marker").forEach(function(m){ m.classList.add("in"); });
+      caption.innerHTML = 'Full line-up<span class="sub">18 positions</span>';
+      return;
+    }
+
+    await sleep(420);
+    let placed = 0;
+    for(const line of LINES){
+      if(mine !== token) return;
+
+      const row = rowByLine[line.key];
+      row.classList.add("in","pulse");
+      setTimeout(function(){ row.classList.remove("pulse"); }, 420);
+
+      caption.innerHTML = line.name +
+        '<span class="sub">' + (placed) + ' of 18 placed</span>';
+
+      for(const m of markersByLine[line.key]){
+        if(mine !== token) return;
+        m.classList.add("in");
+        placed++;
+        caption.querySelector(".sub").textContent = placed + " of 18 placed";
+        await sleep(210);
+      }
+      await sleep(520);
+    }
+    caption.innerHTML = 'Full line-up<span class="sub">back &rarr; midfield &rarr; forward &nbsp;&bull;&nbsp; 18 positions</span>';
+  }
+
+  // ---- controls ----
+  document.getElementById("replay").addEventListener("click", play);
+  document.getElementById("speed").addEventListener("click", function(e){
+    const b = e.target.closest("button");
+    if(!b) return;
+    speed = parseFloat(b.dataset.s);
+    this.querySelectorAll("button").forEach(function(x){ x.classList.toggle("on", x === b); });
+  });
+
+  play();
+})();
+</script>
+</body>
+</html>

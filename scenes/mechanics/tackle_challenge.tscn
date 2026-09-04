@@ -1,6 +1,0 @@
-[gd_scene load_steps=2 format=3]
-
-[ext_resource type="Script" path="res://scripts/mechanics/tackle_challenge.gd" id="1_challenge"]
-
-[node name="TackleChallenge" type="Node3D"]
-script = ExtResource("1_challenge")

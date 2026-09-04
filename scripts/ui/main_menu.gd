@@ -60,7 +60,7 @@ class Entry:
 
 
 var _entries: Array[Entry] = [
-	Entry.new("FULL GAME", "4-a-side, real clock, quarters, scoring",
+	Entry.new("FULL GAME", "18-a-side, real clock, quarters, scoring",
 		"res://scenes/ui/full_game_pregame_screen.tscn", true, "menuscreen_field"),
 	Entry.new("SCENARIO", "Practice a set situation", "", false, "menuscreen_board"),
 	Entry.new("GOAL KICKING", "Shots on goal from the arc", "", false,
