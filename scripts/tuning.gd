@@ -25,9 +25,10 @@ extends RefCounted
 
 enum Team { HOME, AWAY, NONE }
 
-## Appended-only: ACTION_DURATION/ACTION_CONTACT below are indexed
-## positionally by this enum's int value, so KICK/HANDBALL/BOUNCE must keep
-## their existing slots. New actions always go on the end.
+## Append new actions on the end (keeps int values stable for save data /
+## AnimationTree state names). ACTION_DURATION/ACTION_CONTACT below are
+## Dictionaries keyed by this enum, so reordering no longer silently
+## shifts every timing — but the enum ints are still worth keeping stable.
 ##
 ## MARK_SAFE_MISS/MARK_RUNNING_MISS: the cosmetic reaction played when a
 ## timing-graded attempt on that tier fails outside the window (see
@@ -402,8 +403,9 @@ const KICK_AIM_ASSIST_RANGE := 60.0
 # 0..1 units instead of degrees since there's no angle involved here.
 const KICK_MOUSE_REACH_SENSITIVITY := 0.0035
 
-# Action timing, indexed by Action. CONTACT is when the ball actually
-# leaves — partway through the swing, not at either end of it.
+# Action timing, keyed by Action. CONTACT is when the ball actually
+# leaves — partway through the swing, not at either end of it. Read them
+# through action_duration() / action_contact_time(), never by raw key.
 #
 # These are constants only because the placeholder animations are
 # generated from them (see humanoid_animations.gd). When real mocap/Mixamo
@@ -462,8 +464,26 @@ const KICK_MOUSE_REACH_SENSITIVITY := 0.0035
 ## KNOCKED_BACK (index 16): matches TACKLED's own 1.3s/0.30 contact split
 ## exactly — see that clip's own comment; this is a sign-mirrored variant
 ## of the same fall, not a differently-paced one.
-const ACTION_DURATION := [0.0, 0.78, 0.45, 0.50, 0.55, 0.40, 0.95, 0.95, 0.35, 0.30, 1.3, 1.0, 0.45, 0.55, 1.0, 1.3, 1.3]
-const ACTION_CONTACT := [0.0, 0.42, 0.20, 0.22, 0.08, 0.06, 0.40, 0.40, 0.10, 0.10, 0.30, 0.40, 0.12, 0.38, 0.27, 0.30, 0.30]
+const ACTION_DURATION := {
+	Action.NONE: 0.0,
+	Action.KICK: 0.78, Action.HANDBALL: 0.45, Action.BOUNCE: 0.50,
+	Action.MARK_SAFE: 0.55, Action.MARK_RUNNING: 0.40, Action.MARK_AGGRESSIVE: 0.95,
+	Action.HIT_OUT: 0.95,
+	Action.MARK_SAFE_MISS: 0.35, Action.MARK_RUNNING_MISS: 0.30,
+	Action.TACKLED: 1.3, Action.TACKLE_GRAB: 1.0, Action.SMOTHERED: 0.45,
+	Action.SMOTHER_DIVE: 0.55, Action.TACKLE_HELD: 1.0, Action.TACKLE_TAKEDOWN: 1.3,
+	Action.KNOCKED_BACK: 1.3,
+}
+const ACTION_CONTACT := {
+	Action.NONE: 0.0,
+	Action.KICK: 0.42, Action.HANDBALL: 0.20, Action.BOUNCE: 0.22,
+	Action.MARK_SAFE: 0.08, Action.MARK_RUNNING: 0.06, Action.MARK_AGGRESSIVE: 0.40,
+	Action.HIT_OUT: 0.40,
+	Action.MARK_SAFE_MISS: 0.10, Action.MARK_RUNNING_MISS: 0.10,
+	Action.TACKLED: 0.30, Action.TACKLE_GRAB: 0.40, Action.SMOTHERED: 0.12,
+	Action.SMOTHER_DIVE: 0.38, Action.TACKLE_HELD: 0.27, Action.TACKLE_TAKEDOWN: 0.30,
+	Action.KNOCKED_BACK: 0.30,
+}
 
 # AFL rule: a player running with the ball must bounce or touch it to
 # ground every 15 metres (Prototype 1's BOUNCE_INTERVAL, which matched the
@@ -1637,11 +1657,11 @@ static func agility_turn_rate_mult(agility_scale: float) -> float:
 
 
 static func action_duration(action: Action) -> float:
-	return float(ACTION_DURATION[clampi(int(action), 0, ACTION_DURATION.size() - 1)])
+	return float(ACTION_DURATION.get(action, 0.0))
 
 
 static func action_contact_time(action: Action) -> float:
-	return float(ACTION_CONTACT[clampi(int(action), 0, ACTION_CONTACT.size() - 1)])
+	return float(ACTION_CONTACT.get(action, 0.0))
 
 
 ## Fraction of target speed available while `action` is active. KICK/

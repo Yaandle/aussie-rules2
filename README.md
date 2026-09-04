@@ -1,16 +1,16 @@
 # Aussie Rules 2
 
-A realistic 3D Aussie Rules football game built in **Godot 4.6** with real
-physics — marking, tackling, and every other contest play out physically
-rather than being decided by dice rolls. Full keyboard, mouse, and gamepad
-support.
+A realistic 3D Aussie Rules football game built in **Godot 4.6**.
 
-**Status:** a complete small-sided match — AI on every player you're not
-controlling, a real clock and quarters, and physically resolved kicking,
+Contests are physically simulated — kicking, marking, tackling, spoiling, smothering and ruck contests emerge from player movement, timing, positioning and physics.
+
+
+**Status:** a complete sided match — AI on every player you're not
+controlling, real clock and quarters, physically resolved kicking,
 handballing, bouncing, marking, tackling, spoiling, smothering, bumping,
 and ruck contests, plus correct goal/behind restarts and a full-time score
 screen. There's a menu system, a character screen, a team formation/tactics
-editor, a keyboard remapping screen, and a solo `Kick-to-Kick` practice mode
+editor, a settings/keyboard remapping screen, and a solo `Kick-to-Kick` practice mode
 with three training coaches (kicking, marking, tackling). Every model,
 animation, and sound effect is generated in code — there's no imported art
 or audio yet.
@@ -20,13 +20,15 @@ still missing, [docs/HANDOVER.md](docs/HANDOVER.md) for the build history,
 and [docs/RULES_REFERENCE.md](docs/RULES_REFERENCE.md) for how the real AFL
 rules are simplified at this stage.
 
-Milestone 1's original movement/kick-feel sandbox (no AI, scoring, or menus)
-still lives at `scenes/main.tscn` — open it directly in the editor.
 
 ## Run
 
-Open `project.godot` in Godot 4.6+ and press **F5**, then pick **FULL GAME**
-from the main menu to play a match. No build step, no asset import.
+Open `project.godot` in **Godot 4.6+** and press **F5**.
+
+Select **FULL GAME** from the main menu.
+
+No build step. No asset import.
+
 
 ## Project layout
 
@@ -100,12 +102,11 @@ docs/
 
 Slide and Lunge are two different tackle commitments, not two ways to do the
 same thing — both resolve from real closing speed, approach angle, and
-carrier speed at contact (never a dice roll), but Slide favours takedown
-odds over risk and Lunge favours staying on your feet over reliability.
-Team Command is a minimal whole-team-control mode: you keep direct control
-of one player and can send the nearest teammate to a lead point ahead of
-you; it's a debug-grade entry point today (`M` to toggle), not a designed
-menu flow yet.
+carrier speed at contact, but Slide favours takedown odds over risk and Lunge 
+favours staying on your feet over reliability. Team Command is a minimal 
+whole-team-control mode: you keep direct control of one player and can send 
+the nearest teammate to a lead point ahead of you; it's a debug-grade entry 
+point today (`M` to toggle), not a designed menu flow yet.
 
 Kick is one action with two triggers, aim and fire. Hold the kick-stance
 button to enter a slowed aiming pose — the mouse or right stick then swings
@@ -125,13 +126,10 @@ pickup once the ball isn't airborne.
 **Training coaches** (`kick_to_kick.tscn` only): walk up to a coach, `Q`/X
 to talk, `Y`/A to accept. The kicking coach runs a target-practice
 challenge, the marking coach lobs deliveries to mark, and the tackling
-coach hands the rival the ball and expects you to run it down.
+coach hands the rival the ball and runs you through each tackle option.
 
 **Keyboard remapping**: Settings → REMAP CONTROLS rebinds the keyboard key
 on any action button (not the WASD/arrow axes, mouse, or gamepad).
-
-**Not yet verified on real hardware** — gamepad bindings and rumble have
-shipped without testing on a physical controller.
 
 ## Placeholder art
 

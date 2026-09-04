@@ -264,9 +264,10 @@ func _spawn_teams() -> void:
 ## _assign_human_to). AWAY is never touched. Mirrors kick_to_kick.gd's
 ## per-field assignment.
 func _apply_character_profile(start_idx: int) -> void:
-	var targets: Array[PlayerController] = _home_players if CharacterProfile.apply_all \
-		else [_home_players[start_idx]]
-	for p in targets:
+	for i in _home_players.size():
+		if not CharacterProfile.apply_all and i != start_idx:
+			continue
+		var p := _home_players[i]
 		p.speed_scale = CharacterProfile.speed_scale()
 		p.agility_scale = CharacterProfile.agility_scale()
 		p.kick_power_scale = CharacterProfile.kick_power

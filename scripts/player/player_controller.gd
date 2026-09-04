@@ -360,7 +360,10 @@ var _hip_fire_kick := false
 
 
 func _ready() -> void:
-	add_to_group(&"players")
+	# PlayerRegistry replaces the old &"players" group as the source for
+	# every proximity/contest query (see SpatialQuery, docs/MECHANICS_AUDIT.md
+	# A1). Nothing reads the group any more.
+	PlayerRegistry.add(self)
 
 	_facing_yaw = rotation.y
 	_heading = -global_transform.basis.z
@@ -379,6 +382,10 @@ func _ready() -> void:
 	var reach := SphereShape3D.new()
 	reach.radius = Tuning.GATHER_RADIUS + Tuning.GATHER_LUNGE_MAX
 	($GatherZone/CollisionShape3D as CollisionShape3D).shape = reach
+
+
+func _exit_tree() -> void:
+	PlayerRegistry.remove(self)
 
 
 func set_brain(brain: PlayerBrain) -> void:
@@ -1645,12 +1652,7 @@ func _apply_stand_the_mark() -> void:
 ## full free kick) get the same retreat for free, with nothing extra
 ## needed at any of those call sites.
 func _apply_retreat_freeze(duration: float) -> void:
-	for node in get_tree().get_nodes_in_group(&"players"):
-		var other := node as PlayerController
-		if other == null or other == self or other.team == team:
-			continue
-		if global_position.distance_to(other.global_position) > Tuning.FREE_KICK_RETREAT_DISTANCE:
-			continue
+	for other in SpatialQuery.opponents_within(self, Tuning.FREE_KICK_RETREAT_DISTANCE):
 		other.stand_the_mark(duration)
 		if other not in _frozen_opponents:
 			_frozen_opponents.append(other)
@@ -1666,31 +1668,21 @@ func _release_frozen_opponents() -> void:
 ## Shared "closest player matching a filter" search behind every tackle/
 ## smother/bump/stand-the-mark lookup — one place to change if the filter
 ## itself ever needs to (e.g. excluding stunned players), instead of six
-## separately-maintained copies of the same get_nodes_in_group loop.
+## separately-maintained copies of the same loop.
 ## `max_dist` is INF for callers that want the nearest regardless of range
 ## and apply their own distance test afterward (e.g. tackle lunge's wider
-## commit range vs. the standing tackle radius).
+## commit range vs. the standing tackle radius). Thin wrapper over
+## SpatialQuery (which iterates PlayerRegistry, not a group scan).
 func _nearest_player(max_dist: float, predicate: Callable) -> PlayerController:
-	var best: PlayerController = null
-	var best_dist := max_dist
-	for node in get_tree().get_nodes_in_group(&"players"):
-		var other := node as PlayerController
-		if other == null or other == self or not predicate.call(other):
-			continue
-		var dist := global_position.distance_to(other.global_position)
-		if dist < best_dist:
-			best_dist = dist
-			best = other
-	return best
+	return SpatialQuery.nearest_where(global_position, self, max_dist, predicate)
 
 
 func _nearest_opponent() -> PlayerController:
-	return _nearest_player(INF, func(other: PlayerController) -> bool: return other.team != team)
+	return SpatialQuery.nearest_opponent(self)
 
 
 func _nearest_opposing_carrier() -> PlayerController:
-	return _nearest_player(INF, func(other: PlayerController) -> bool:
-		return other.team != team and other.is_carrying())
+	return SpatialQuery.nearest_opposing_carrier(self)
 
 
 ## Called on the bumped player, by the bumper, on every connect (clean or
@@ -2220,11 +2212,7 @@ func is_ruck_contestant() -> bool:
 ## window to lapse (RUCK_CONTEST_WINDOW, self-expiring). No-op in modes
 ## with no ruck contests, since nobody is ever a contestant there.
 func ruck_contest_locked() -> bool:
-	for node in get_tree().get_nodes_in_group(&"players"):
-		var other := node as PlayerController
-		if other != null and other != self and other.is_ruck_contestant():
-			return true
-	return false
+	return SpatialQuery.any_other_ruck_contestant(self)
 
 
 func _update_ruck_contest(_delta: float) -> void:
@@ -2442,9 +2430,8 @@ func _nearest_teammate_for_assist() -> PlayerController:
 	var cone := deg_to_rad(Tuning.KICK_AIM_ASSIST_CONE_DEG)
 	var best: PlayerController = null
 	var best_dist := Tuning.KICK_AIM_ASSIST_RANGE
-	for node in get_tree().get_nodes_in_group(&"players"):
-		var other := node as PlayerController
-		if other == null or other == self or other.team != team:
+	for other in PlayerRegistry.all():
+		if other == self or other.team != team:
 			continue
 		var to_other := other.global_position - global_position
 		to_other.y = 0.0

@@ -46,6 +46,13 @@
 > new **YOUR POSITION** pregame card (`Settings.home_human_slot`, default
 > 1 = centre); roster index 0 stays the AI centre-bounce ruck.
 
+> **See also (2026-08-30):** `docs/MECHANICS_AUDIT.md` — a code-quality pass
+> over the player mechanics (redundant proximity scans, the
+> `get_nodes_in_group` hot path, `player_controller.gd` size) plus a staged
+> brief for the next two features: graphics/compute-demand testing and
+> motion-capture/animation development, and a new B = evade / double-tap-spin
+> control.
+
 Point-in-time audit of the actual codebase (not `docs/HANDOVER.md`'s prose,
 though that was the single richest source and is cited throughout — this
 document cross-checked its claims against the current files rather than

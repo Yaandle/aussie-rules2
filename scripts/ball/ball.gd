@@ -235,9 +235,12 @@ func _apply_catch_gravity(state: PhysicsDirectBodyState3D) -> void:
 func _nearest_uncontested_catcher() -> PlayerController:
 	var best: PlayerController = null
 	var best_dist := Tuning.CATCH_GRAVITY_RADIUS
-	for node in get_tree().get_nodes_in_group(&"players"):
-		var player := node as PlayerController
-		if player == null or player.is_carrying():
+	# PlayerRegistry, not a per-frame get_nodes_in_group scan — this runs
+	# every physics tick the ball is airborne (docs/MECHANICS_AUDIT.md A1).
+	# Keeps its own 3D distance: the ball has real height here and catch
+	# reach is a sphere, unlike SpatialQuery's ground-plane queries.
+	for player in PlayerRegistry.all():
+		if player.is_carrying():
 			continue
 		if player == _last_disposer and distance_since_launch() < Tuning.MARK_SELF_CLEAR_DISTANCE:
 			continue

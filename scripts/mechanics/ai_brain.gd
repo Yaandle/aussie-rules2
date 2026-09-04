@@ -451,9 +451,8 @@ func _best_disposal_target(controller: PlayerController, pos: Vector3,
 	var to_goal := Vector3(attack_direction, 0.0, 0.0)
 	var best: PlayerController = null
 	var best_score := Tuning.AI_DISPOSAL_SCORE_FLOOR
-	for node in controller.get_tree().get_nodes_in_group(&"players"):
-		var mate := node as PlayerController
-		if mate == null or mate == controller or mate.team != controller.team:
+	for mate in PlayerRegistry.all():
+		if mate == controller or mate.team != controller.team:
 			continue
 		var to_mate := mate.global_position - pos
 		to_mate.y = 0.0
@@ -485,24 +484,7 @@ func _best_disposal_target(controller: PlayerController, pos: Vector3,
 ## endpoints. Not a physics ray; just enough to stop the AI drilling a
 ## disposal into someone.
 func _lane_blocked(controller: PlayerController, from: Vector3, to: Vector3) -> bool:
-	var seg := to - from
-	seg.y = 0.0
-	var seg_len := seg.length()
-	if seg_len < 0.01:
-		return false
-	var dir := seg / seg_len
-	for node in controller.get_tree().get_nodes_in_group(&"players"):
-		var opp := node as PlayerController
-		if opp == null or opp.team == controller.team:
-			continue
-		var rel := opp.global_position - from
-		rel.y = 0.0
-		var along := rel.dot(dir)
-		if along <= 0.0 or along >= seg_len:
-			continue
-		if (rel - dir * along).length() < Tuning.AI_LANE_BLOCK_RADIUS:
-			return true
-	return false
+	return SpatialQuery.lane_blocked(from, to, Tuning.AI_LANE_BLOCK_RADIUS, controller.team)
 
 
 # ── Spatial helpers ──────────────────────────────────────────────────
@@ -526,29 +508,13 @@ func _nearest_opponent_distance(controller: PlayerController, pos: Vector3) -> f
 ## position) to the nearest opponent — used to score how open a prospective
 ## pass target is. _nearest_opponent_distance defers to this.
 func _nearest_opponent_distance_to(controller: PlayerController, point: Vector3) -> float:
-	var best := INF
-	for node in controller.get_tree().get_nodes_in_group(&"players"):
-		var other := node as PlayerController
-		if other == null or other == controller or other.team == controller.team:
-			continue
-		best = minf(best, point.distance_to(other.global_position))
-	return best
+	return SpatialQuery.nearest_opponent_distance(controller, point)
 
 
 ## Nearest same-team player to `pos`, excluding the controller itself, or
 ## null if somehow alone. Feeds the off-ball spacing push.
 func _nearest_teammate(controller: PlayerController, pos: Vector3) -> PlayerController:
-	var best: PlayerController = null
-	var best_dist := INF
-	for node in controller.get_tree().get_nodes_in_group(&"players"):
-		var other := node as PlayerController
-		if other == null or other == controller or other.team != controller.team:
-			continue
-		var d := pos.distance_to(other.global_position)
-		if d < best_dist:
-			best_dist = d
-			best = other
-	return best
+	return SpatialQuery.nearest_teammate(controller, pos)
 
 
 ## Audit point 4: a light shove away from the nearest teammate when they're
@@ -572,11 +538,4 @@ func _spacing_push(controller: PlayerController, pos: Vector3) -> Vector3:
 ## a whole team doesn't converge on the same spot at once.
 func _is_closest_teammate_to(controller: PlayerController, team: Tuning.Team,
 		point: Vector3) -> bool:
-	var mine := controller.global_position.distance_to(point)
-	for node in controller.get_tree().get_nodes_in_group(&"players"):
-		var other := node as PlayerController
-		if other == null or other == controller or other.team != team:
-			continue
-		if other.global_position.distance_to(point) < mine:
-			return false
-	return true
+	return SpatialQuery.is_closest_on_team(controller, team, point)

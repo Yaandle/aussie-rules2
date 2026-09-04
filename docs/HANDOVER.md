@@ -5941,3 +5941,91 @@ ConfigFile persistence), `scripts/player/player_controller.gd`
 TO toggle, commit-on-exit, layout nudge), `scripts/modes/kick_to_kick.gd`
 (agility_scale line), `scripts/modes/full_game.gd`
 (`_apply_character_profile` + `_assign_human_to` note), `docs/FEATURE_AUDIT.md`.
+
+
+## Handover — Mechanics audit A1/A2/A6: PlayerRegistry + SpatialQuery, Action dicts (2026-08-30)
+
+First pass through `docs/MECHANICS_AUDIT.md` Part A. No behaviour change
+intended — pure structure/perf.
+
+### A1 — PlayerRegistry (`scripts/ai/player_registry.gd`, new)
+
+Flat `static var _all: Array[PlayerController]`. `PlayerController._ready()`
+calls `PlayerRegistry.add(self)` (was `add_to_group(&"players")`),
+`_exit_tree()` calls `remove(self)`. `add()` prunes any stale invalid entry
+on the spawn path so reads stay branchless. Mode-agnostic (node lifecycle,
+not `ControlMode.register_team`, which kick_to_kick never calls).
+
+The `&"players"` group is now unused and no longer joined — every consumer
+moved to the registry / SpatialQuery.
+
+### A2 — SpatialQuery (`scripts/ai/spatial_query.gd`, new)
+
+One home for the ~10 hand-rolled "iterate players, filter by team/carrying/
+self, keep nearest" loops that were spread across player_controller.gd,
+ai_brain.gd and ball.gd — each of which called
+`get_tree().get_nodes_in_group(&"players")` (fresh Array alloc + fill every
+call), several per physics frame per AI brain at 18-a-side
+(`ai_brain._best_disposal_target` nested one inside its own loop).
+
+API: `nearest_opponent` / `nearest_opposing_carrier` / `nearest_teammate` /
+`nearest_where(predicate)` / `nearest_opponent_distance` /
+`is_closest_on_team` / `lane_blocked` / `opponents_within` /
+`any_other_ruck_contestant`. All XZ-plane (documented) — the one caller that
+needs true 3D distance, `ball.gd._nearest_uncontested_catcher` (ball
+airborne, spherical reach), keeps its own math and just iterates
+`PlayerRegistry.all()` directly.
+
+Migrated call sites:
+- `player_controller.gd`: `_nearest_player` (now a thin wrapper),
+  `_nearest_opponent`, `_nearest_opposing_carrier`, `_apply_retreat_freeze`,
+  `ruck_contest_locked`, `_nearest_teammate_for_assist`.
+- `ai_brain.gd`: `_best_disposal_target`, `_lane_blocked`,
+  `_nearest_opponent_distance_to`, `_nearest_teammate`,
+  `_is_closest_teammate_to` (all five group scans gone).
+- `ball.gd`: `_nearest_uncontested_catcher`.
+
+Note: the AI `_nearest_opponent_distance_to` / `_is_closest_teammate_to`
+switched from 3D `distance_to` to plane distance. Sub-cm for grounded
+players; ~2-3% shorter read for a teammate mid-jump when scoring pass
+openness. Judged the more correct metric for a ground game; flagged here in
+case a feel pass ever disagrees.
+
+### A6 — Action timing as Dictionaries (`tuning.gd`)
+
+`ACTION_DURATION` / `ACTION_CONTACT` were flat arrays indexed positionally
+by the `Action` enum with a "never reorder" warning. Now `Dictionary`
+keyed by `Action`; `action_duration()` / `action_contact_time()` use
+`.get(action, 0.0)`. Every other reference already went through those two
+accessors (only comments used `ARRAY[NAME]` prose). Scripted parity check:
+all 17 actions return identical duration + contact values to the old
+arrays.
+
+### Verification
+
+- Class-cache rescan clean.
+- Headless `full_game` (3000 frames earlier, 1500 here), `kick_to_kick`,
+  `animation_viewer`, `main.tscn`, `character_screen` — all exit 0, no
+  script errors.
+- Scratch scene (deleted): spawned HOME/AWAY players at known positions,
+  asserted `PlayerRegistry` size + add/remove-on-free and all SpatialQuery
+  helpers (nearest opponent/teammate, range cutoff, is_closest, lane
+  blocked/clear, opponents_within, distance) — 12/12.
+- Scratch `SceneTree` script (deleted): action-timing parity 0/17
+  mismatches.
+
+### Also fixed
+
+A latent bug in `full_game._apply_character_profile` (from the 2026-08-30
+agility change): `var targets: Array[PlayerController] = a if c else [b]` —
+the ternary types as plain `Array`, so the typed-var assignment threw at
+runtime. Rewritten as an index loop, no intermediate array.
+
+### Files changed
+
+`scripts/ai/player_registry.gd` (new), `scripts/ai/spatial_query.gd` (new),
+`scripts/player/player_controller.gd` (registry reg/dereg, 6 helpers via
+SpatialQuery), `scripts/mechanics/ai_brain.gd` (5 helpers via SpatialQuery),
+`scripts/ball/ball.gd` (catcher scan), `scripts/tuning.gd` (Action dicts +
+accessors + header comments), `scripts/modes/full_game.gd`
+(`_apply_character_profile` ternary fix), `docs/MECHANICS_AUDIT.md`.
