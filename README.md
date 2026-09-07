@@ -23,11 +23,27 @@ rules are simplified at this stage.
 
 ## Run
 
+**Option 1 — Godot**
+
 Open `project.godot` in **Godot 4.6+** and press **F5**.
+
+**Option 2 — PowerShell**
+
+```powershell
+git clone https://github.com/Yaandle/aussie-rules2.git
+cd aussie-rules2
+pip install -r requirements.txt
+```
+
+Then run with **Godot 4.6+**:
+
+```powershell
+& "PATH_TO_GODOT\Godot_v4.6-stable_win64_console.exe" --path "PATH_TO_PROJECT"
+```
 
 Select **FULL GAME** from the main menu.
 
-No build step. No asset import.
+No build step or asset import required.
 
 
 ## Project layout
@@ -100,41 +116,24 @@ docs/
 | Pause | `Esc` | Start |
 | Reset ball · Debug HUD | `R` · `F3` | Back · D-pad up |
 
-Slide and Lunge are two different tackle commitments, not two ways to do the
-same thing — both resolve from real closing speed, approach angle, and
-carrier speed at contact, but Slide favours takedown odds over risk and Lunge 
-favours staying on your feet over reliability. Team Command is a minimal 
-whole-team-control mode: you keep direct control of one player and can send 
-the nearest teammate to a lead point ahead of you; it's a debug-grade entry 
-point today (`M` to toggle), not a designed menu flow yet.
+### Gameplay notes
 
-Kick is one action with two triggers, aim and fire. Hold the kick-stance
-button to enter a slowed aiming pose — the mouse or right stick then swings
-the aim from wherever the camera's already pointing, with a live trajectory
-preview. Releasing without ever firing cancels. Tapping the kick-execute
-button *without* holding stance first fires an instant, less accurate
-hip-fire kick from wherever the body's facing. Settings → MOUSE KICK BUTTONS
-swaps which mouse button aims and which fires.
+* **Slide / Lunge:** different tackle commitments; Slide is higher risk/reward, while Lunge is more conservative.
+* **Team Command:** press `M` to toggle; control one player and issue movement orders to teammates.
+* **Kick:** hold stance to aim and preview trajectory; tap execute for a quick hip-fire kick.
+* **Context actions:** controls change depending on possession and situation.
 
-Many action buttons are context-sensitive: on gamepad, Bounce (B) while
-carrying becomes Slide tackle once you're not; Handball (X) while carrying
-becomes Running Mark, Smother, or Lunge tackle depending on the situation
-once you're not (a nearby opponent mid-kick gets smothered, one just
-running with the ball gets lunge-tackled); Safe Mark becomes a ground
-pickup once the ball isn't airborne.
+### Training
 
-**Training coaches** (`kick_to_kick.tscn` only): walk up to a coach, `Q`/X
-to talk, `Y`/A to accept. The kicking coach runs a target-practice
-challenge, the marking coach lobs deliveries to mark, and the tackling
-coach hands the rival the ball and runs you through each tackle option.
+`Kick-to-Kick` includes kicking, marking, and tackling coaches. Approach a coach and press `Q`/X to interact.
 
-**Keyboard remapping**: Settings → REMAP CONTROLS rebinds the keyboard key
-on any action button (not the WASD/arrow axes, mouse, or gamepad).
+### Controls
+
+Keyboard controls can be remapped through **Settings → Remap Controls**.
 
 ## Placeholder art
 
-`HumanoidRig` is a real `Skeleton3D` built to Godot's humanoid bone profile,
-driven by procedurally-generated animation clips — every mesh on it is
-still a primitive box/capsule/sphere. The plan is to prove the game feels
-right first, then swap in a real Mixamo model later without touching the
-gameplay code.
+All characters, animations, and audio are currently procedurally generated. Character meshes use primitive geometry; imported art will be added later.
+
+![Screenshot](assets/textures/images/screenshot.png)
+
