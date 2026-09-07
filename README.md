@@ -134,3 +134,6 @@ Keyboard controls can be remapped through **Settings → Remap Controls**.
 ## Placeholder art
 
 All characters, animations, and audio are currently procedurally generated. Character meshes use primitive geometry; imported art will be added later.
+
+![Screenshot](assets/textures/images/screenshot.png)
+
