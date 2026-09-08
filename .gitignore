@@ -18,6 +18,7 @@ mono_crash.*.json
 # Build output
 /build/
 /export/
+builds/
 
 # System
 Thumbs.db
@@ -26,3 +27,5 @@ desktop.ini
 
 # Claude Code local state (worktrees, session config)
 /.claude/
+
+
