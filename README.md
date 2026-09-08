@@ -23,27 +23,57 @@ rules are simplified at this stage.
 
 ## Run
 
-**Option 1 — Godot**
+### Windows — Play the game
 
-Open `project.godot` in **Godot 4.6+** and press **F5**.
+1. Go to the [latest release](https://github.com/Yaandle/aussie-rules2/releases).
+2. Download **`Aussie-Rules-2-v0.1.0-Windows.zip`**.
+3. Extract the ZIP.
+4. Open the extracted folder.
+5. Run **`Aussie Rules 2.exe`**.
+6. Select **FULL GAME** from the main menu.
 
-**Option 2 — PowerShell**
+No Godot, Python, Git, or additional setup is required.
+
+### Development — Godot
+
+1. Install **Godot 4.6+**.
+2. Clone the repository:
 
 ```powershell
 git clone https://github.com/Yaandle/aussie-rules2.git
 cd aussie-rules2
-pip install -r requirements.txt
 ```
 
-Then run with **Godot 4.6+**:
+3. Open **Godot**.
+4. Select **Import** and open the project's `project.godot` file.
+5. In Godot, open the main game scene and use the **Play Project** button to run the game.
+6. Select **FULL GAME** from the main menu.
+
+### Development — PowerShell
+
+Clone the repository:
+
+```powershell
+git clone https://github.com/Yaandle/aussie-rules2.git
+cd aussie-rules2
+```
+
+Run the project using Godot:
 
 ```powershell
 & "PATH_TO_GODOT\Godot_v4.6-stable_win64_console.exe" --path "PATH_TO_PROJECT"
 ```
 
+For example:
+
+```powershell
+& "C:\Godot\Godot_v4.6-stable_win64_console.exe" --path "F:\dev\aussie-rules2"
+```
+
 Select **FULL GAME** from the main menu.
 
-No build step or asset import required.
+No Python installation or build step is required to run the Godot project.
+
 
 
 ## Project layout
@@ -137,3 +167,16 @@ All characters, animations, and audio are currently procedurally generated. Char
 
 ![Screenshot](assets/textures/images/screenshot.png)
 
+## Git Branch Guide
+
+| Branch               | Purpose                                         | Stability |
+| -------------------- | ----------------------------------------------- | --------- |
+| **`dev`**            | Active development                              | May break |
+| **`main`**           | Public / releasable game                        | Highest   |
+| **`feature/...`**    | Larger isolated features                        | Temporary |
+| **`fix/...`**        | Bug fixes                                       | Temporary |
+| **`experiment/...`** | AI / gameplay experiments that may be abandoned | Temporary |
+
+**Default branch:** `dev`
+
+Development work should normally happen on `dev` or a temporary `feature/...`, `fix/...`, or `experiment/...` branch. Releases are made from `main`.
