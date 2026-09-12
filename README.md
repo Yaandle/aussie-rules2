@@ -104,22 +104,22 @@ scripts/
   ai/                      TeamFormation (18-slot AFL formation data)
   ui/                      main menu, character screen, team list, settings,
                             remap screen, scoreboard, debug hud, pause/match-end screens
-  dev/                     animation_viewer.gd — dev-only clip preview + a Tackle
+  dev/                      animation_viewer.gd — dev-only clip preview + a Tackle
                             Sandbox mode (two real, controllable players for testing
                             tackle/contest physics in isolation)
 
-scenes/                   mirrors scripts/ — see each script's header comment
-  modes/full_game.tscn     the match scene FULL GAME launches
-  modes/kick_to_kick.tscn  solo practice, reached via the character screen
-  dev/animation_viewer.tscn  not reachable from the menu — open directly in the
-                              editor (see scripts/dev/ above)
-  main.tscn                milestone-1 sandbox
+scenes/                       mirrors scripts/ — see each script's header comment
+  modes/full_game.tscn        the match scene FULL GAME launches
+  modes/kick_to_kick.tscn     solo practice, reached via the character screen
+  dev/animation_viewer.tscn   not reachable from the menu — open directly in the
+                              editor (Launch with `--animation-viewer`).
+  main.tscn                   milestone-1 sandbox
 
-assets/shaders/           turf, boundary glow, backdrop scrims — no imported art yet
+assets/shaders/              turf, boundary glow, backdrop scrims — no imported art yet
 docs/
-  FEATURE_AUDIT.md         current-state inventory + development roadmap — start here
-  HANDOVER.md              full session-by-session build log
-  RULES_REFERENCE.md       Prototype 1's rule numbers translated to real metres
+  FEATURE_AUDIT.md           current-state inventory + development roadmap — start here
+  HANDOVER.md                full session-by-session build log
+  RULES_REFERENCE.md         Prototype 1's rule numbers translated to real metres
 ```
 
 ## Controls
