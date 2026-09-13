@@ -1,29 +1,9 @@
-[gd_resource type="Environment" load_steps=3 format=3]
-
-; Character-screen "studio" environment. Still deliberately NOT
-; broadcast_environment.tres — this one is a controlled portrait box
-; rather than a match, and the two are kept apart rather than
-; parameterised. The character backdrop is the only thing that loads it.
-;
-; It used to be a dark navy-to-green box, from an earlier dark-UI
-; reference. That reference is gone: the overlay chrome on this screen is
-; ink-on-cream like every other screen, and dark ink text over a near
-; black backdrop is unreadable wherever the side scrim has faded out —
-; which was most of the right-hand half of the stat column, including
-; every value readout and the whole key-hint legend. The wash could have
-; been driven harder to cover it, but a full-screen scrim heavy enough to
-; rescue ink over navy is just an opaque panel with extra steps, and it
-; would have hidden the 3D preview the screen exists to show.
-;
-; So this is now a bright overcast box: pale sky over pale turf, the same
-; soft daylight the match environment reads as, which puts the whole app
-; on one palette and lets the chrome sit on it with only a light wash.
+[gd_resource type="Environment" format=3 uid="uid://db6hrh5h4hsej"]
 
 [sub_resource type="ProceduralSkyMaterial" id="SkyMat_studio"]
 sky_top_color = Color(0.741, 0.831, 0.902, 1)
 sky_horizon_color = Color(0.937, 0.933, 0.906, 1)
 sky_curve = 0.16
-sky_energy_multiplier = 1.0
 ground_bottom_color = Color(0.741, 0.784, 0.714, 1)
 ground_horizon_color = Color(0.898, 0.902, 0.863, 1)
 ground_curve = 0.12
@@ -37,49 +17,13 @@ sky_material = SubResource("SkyMat_studio")
 background_mode = 2
 sky = SubResource("Sky_studio")
 ambient_light_source = 3
-ambient_light_energy = 1.0
 reflected_light_source = 2
 tonemap_mode = 3
 tonemap_white = 5.0
-; Glow off. On a dark box a strong bloom was the only thing giving the
-; image any light; on a bright one it has nothing to do but veil an
-; already-pale background, which is the "extreme bloom / soft focus" look
-; to avoid.
-;
-; It was also leaving a visible seam. Glow levels 5 and 7 are the 1/32 and
-; 1/128 mips — at 1280x720 the coarsest is about ten pixels across — and
-; the blur over a buffer that small quantises into blocks whose edges land
-; on multiples of 128 screen pixels. That showed here as a flat-shaded
-; rectangle in the lower left with dead straight edges at x=640 and y=691,
-; which reads as a rendering fault rather than as light.
-glow_enabled = false
-; SSAO off. This box holds one figure standing on an otherwise empty
-; plane, so the only occlusion it has to describe is the contact under
-; two feet — and it was paying for that by half-resolution sampling a
-; ground plane seen at a grazing angle, which is the case screen-space AO
-; is worst at. Nothing here needs it, and turning it off is both the
-; cleaner image and the cheaper frame.
-ssao_enabled = false
-; Depth fog, not exponential. This screen is a portrait box that happens
-; to be standing on a full 165x135m oval, and past ~50m that oval is all
-; clutter — the boundary line and the running-track apron flatten into a
-; hard bright streak right across the horizon (and across the KICKING
-; ACCURACY row) when seen edge-on from 1m off the ground. A depth ramp
-; erases everything past the far end of it while leaving the near turf
-; its colour, which exponential fog cannot do without fogging the
-; foreground green away too.
-;
-; fog_light_color is deliberately close to the sky's horizon colour, a
-; touch cooler: matching them makes the ground fade into the sky with no
-; seam, and the small remaining step is what reads as the horizon.
 fog_enabled = true
 fog_mode = 1
 fog_light_color = Color(0.906, 0.914, 0.898, 1)
-fog_light_energy = 1.0
-fog_sun_scatter = 0.0
 fog_density = 1.0
-fog_aerial_perspective = 0.0
 fog_sky_affect = 0.0
 fog_depth_begin = 6.0
 fog_depth_end = 48.0
-fog_depth_curve = 1.0
