@@ -87,17 +87,17 @@ func _ready() -> void:
 	var card := RetroWindow.shell(card_wrapper, card_size)
 
 	var title := SoftBrutalist.label("SETTINGS", SoftBrutalist.SIZE_TITLE, RetroWindow.BORDER,
-		SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_TITLE)
+	SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_TITLE)
 	title.position = Vector2(32.0, 28.0)
 	card.add_child(title)
 
-	var subtitle := SoftBrutalist.label("SCREEN SHAKE NOT YET WIRED · EVERYTHING ELSE SAVES",
+	var subtitle := SoftBrutalist.label("SCREEN SHAKE NOT YET WIRED ",
 		SoftBrutalist.SIZE_CAPTION, SoftBrutalist.MUTED,
 		SoftBrutalist.WEIGHT_REGULAR, SoftBrutalist.TRACK_LABEL)
-	subtitle.position = Vector2(32.0, 68.0)
+	subtitle.position = Vector2(32.0, 74.0)
 	card.add_child(subtitle)
 
-	var top := 110.0
+	var top := 112.0
 	for i in _rows.size():
 		var row := _rows[i]
 		var panel := Panel.new()
