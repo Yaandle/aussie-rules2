@@ -55,7 +55,7 @@ func _pair(keys: String, text: String) -> HBoxContainer:
 		UIStyle.WEIGHT_REGULAR, UIStyle.TRACK_HINT))
 	pair.add_child(chip)
 
-	var label := UIStyle.label(text, UIStyle.SIZE_HINT, UIStyle.TEXT_MUTED,
+	var label := UIStyle.label(text, UIStyle.SIZE_HINT, Color(0.35, 0.35, 0.35),
 		UIStyle.WEIGHT_REGULAR, UIStyle.TRACK_HINT)
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.size_flags_vertical = Control.SIZE_SHRINK_CENTER

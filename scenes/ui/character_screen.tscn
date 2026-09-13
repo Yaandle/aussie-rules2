@@ -1,30 +1,17 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene format=3 uid="uid://bhv63y8h7h5xg"]
 
-[ext_resource type="Script" path="res://scripts/ui/character_screen.gd" id="1_screen"]
+[ext_resource type="Script" uid="uid://85oos16j6ph8" path="res://scripts/ui/character_screen.gd" id="1_screen"]
 [ext_resource type="PackedScene" path="res://scenes/ui/character_backdrop.tscn" id="2_backdrop"]
 
-; Shell only. The left column — header, eight stat rows, play button and
-; key hints — is built by character_screen.gd from its ATTRIBUTE_ROWS
-; table, so `Overlay/UI` is intentionally empty here; see that script's
-; header for why eight copies of one row are data rather than scene nodes.
-;
-; The backdrop is a plain child of the scene root, NOT wrapped in a
-; SubViewport the way main_menu.tscn wraps its own. Under the project's
-; `canvas_items` stretch a SubViewportContainer sizes its viewport in
-; design units, so the 3D would render at a fixed 1280x720 and then be
-; scaled up by the canvas transform — visibly soft on any window bigger
-; than the design size, which is most of them. Rendering into the main
-; viewport instead keeps the preview native at every resolution. Nothing
-; was gained from the isolation here: this scene is the whole scene.
-
-[node name="CharacterScreen" type="Node"]
+[node name="CharacterScreen" type="Node" unique_id=1349097695]
 script = ExtResource("1_screen")
 
-[node name="CharacterBackdrop" parent="." instance=ExtResource("2_backdrop")]
+[node name="CharacterBackdrop" parent="." unique_id=1776994938 instance=ExtResource("2_backdrop")]
 
-[node name="Overlay" type="CanvasLayer" parent="."]
+[node name="Overlay" type="CanvasLayer" parent="." unique_id=997666690]
 
-[node name="UI" type="Control" parent="Overlay"]
+[node name="UI" type="Control" parent="Overlay" unique_id=168102510]
+layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
