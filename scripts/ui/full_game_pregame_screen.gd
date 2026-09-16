@@ -75,6 +75,22 @@ extends CanvasLayer
 ## Settings field — inventing persisted state for a value nothing
 ## consumes is exactly what settings_screen.gd's own header argues
 ## against.
+##
+## ── Camera preview ─────────────────────────────────────────────────
+## The CAMERA card borrows settings_screen.gd's camera-preview system
+## wholesale rather than reinventing it: the same PREVIEW_* sizing, the
+## same RetroWindow.shell() two-panel layout, the same _CameraPreviewField
+## draw logic, and the same slide/fade/scale Tween shape as
+## SettingsScreen._set_preview_active(). The one structural difference is
+## what moves — settings_screen.gd slides its single vertical card,
+## this screen slides the whole horizontal card row (see this file's own
+## header on why a card row exists at all) left as one unit so the
+## preview has room beside it, matching this task's brief that individual
+## cards must not move independently. The preview activates whenever the
+## cursor sits on the CAMERA card, selected or open, same trigger shape as
+## settings_screen.gd's `_index == 2` check, and always reflects
+## Settings.full_game_camera_mode live — the same source of truth the
+## CAMERA card itself reads and writes.
 
 # ── Layout ───────────────────────────────────────────────────────────
 # Design resolution is 1280x720 (project.godot [display], canvas_items
@@ -131,6 +147,16 @@ const READOUT_HEIGHT := 66.0
 const READOUT_BOTTOM := 6.0
 const READOUT_ROW_GAP := 1
 
+## ── Camera preview ───────────────────────────────────────────────────
+## The camera preview uses the existing middle preview window rather than
+## creating a second window beside the card row. When the CAMERA card is
+## selected, the formation whiteboard and its readout are hidden and the
+## camera preview occupies the same landscape RetroWindow shell. The card
+## row therefore remains completely stationary regardless of the selected
+## camera mode.
+const CAMERA_PREVIEW_WIDTH := 320.0
+const CAMERA_PREVIEW_HEIGHT := 270.0
+
 
 const TITLE_TEXT := "FULL GAME"
 ## Lifted from main_menu.gd's own FULL GAME Entry subtitle, so the card
@@ -156,6 +182,11 @@ const CARD_SELECTED_SCALE := 1.06
 const CARD_SHADOW_OFFSET_IDLE := Vector2(4.0, 4.0)
 const CARD_SHADOW_OFFSET_SELECTED := Vector2(9.0, 9.0)
 
+## Index of the CAMERA card within _cards — fixed by the literal array
+## built in _ready(), named here rather than left as a bare "1" everywhere
+## the camera preview needs to know which card triggers it.
+const CAMERA_CARD_INDEX := 1
+
 
 ## One setting tile. `row` is SettingsScreen.Row — the project's
 ## established cycling-value shape, reused rather than re-declared
@@ -179,6 +210,129 @@ class Card:
 	func _init(p_row: SettingsScreen.Row, p_locked := false) -> void:
 		row = p_row
 		locked = p_locked
+
+
+## Draws one camera field (3rd-person or full-side) exactly like
+## SettingsScreen's private _CameraPreviewField — copied rather than
+## shared since that class is private to settings_screen.gd and this file
+## must stay self-contained.
+class _CameraPreviewField extends Control:
+	var full_side := false
+
+	func _draw() -> void:
+		var bounds := Rect2(Vector2.ZERO, size)
+		var field_rect := bounds.grow(-4.0)
+
+		draw_rect(
+			field_rect,
+			RetroWindow.BORDER,
+			false,
+			1.0
+		)
+
+		var centre_x := (
+			field_rect.position.x +
+			field_rect.size.x * 0.5
+		)
+
+		draw_line(
+			Vector2(centre_x, field_rect.position.y),
+			Vector2(centre_x, field_rect.end.y),
+			SoftBrutalist.MUTED,
+			1.0
+		)
+
+		if full_side:
+			var player_positions := [
+				Vector2(0.16, 0.35),
+				Vector2(0.28, 0.65),
+				Vector2(0.40, 0.42),
+				Vector2(0.50, 0.62),
+				Vector2(0.62, 0.35),
+				Vector2(0.74, 0.58),
+				Vector2(0.86, 0.40),
+			]
+
+			for p in player_positions:
+				_draw_player(
+					Vector2(
+						field_rect.position.x +
+						field_rect.size.x * p.x,
+						field_rect.position.y +
+						field_rect.size.y * p.y
+					),
+					3.0
+				)
+
+			var frame := field_rect.grow(-8.0)
+
+			draw_rect(
+				frame,
+				RetroWindow.ACCENT,
+				false,
+				1.0
+			)
+		else:
+			var player := Vector2(
+				field_rect.position.x +
+				field_rect.size.x * 0.42,
+				field_rect.position.y +
+				field_rect.size.y * 0.58
+			)
+
+			_draw_player(player, 5.0)
+
+			_draw_player(
+				Vector2(
+					field_rect.position.x +
+					field_rect.size.x * 0.68,
+					field_rect.position.y +
+					field_rect.size.y * 0.38
+				),
+				4.0
+			)
+
+			var camera_frame := Rect2(
+				player - Vector2(32.0, 26.0),
+				Vector2(64.0, 52.0)
+			)
+
+			draw_rect(
+				camera_frame,
+				RetroWindow.ACCENT,
+				false,
+				1.0
+			)
+
+			draw_circle(
+				player + Vector2(10.0, -7.0),
+				2.0,
+				RetroWindow.ACCENT
+			)
+
+	func _draw_player(
+		player_position: Vector2,
+		radius: float
+	) -> void:
+		draw_circle(
+			player_position,
+			radius,
+			RetroWindow.ACCENT
+		)
+
+		draw_line(
+			player_position + Vector2(0.0, radius),
+			player_position + Vector2(0.0, radius + 6.0),
+			RetroWindow.BORDER,
+			1.0
+		)
+
+		draw_line(
+			player_position + Vector2(-3.0, radius + 3.0),
+			player_position + Vector2(3.0, radius + 3.0),
+			RetroWindow.BORDER,
+			1.0
+		)
 
 
 var _cards: Array[Card] = []
@@ -206,6 +360,17 @@ var _readout_values: Array[Label] = []
 var _start_button: ActionButton
 var _start_band: Control
 var _hints: KeyHintBar
+
+var _card_row: HBoxContainer
+
+## The two camera field panels live inside the existing middle preview
+## window. They are toggled as a single camera-preview state rather than
+## sliding a second window beside the card row.
+var _camera_preview_container: Control
+var _camera_field_third_person: _CameraPreviewField
+var _camera_field_full_side: _CameraPreviewField
+var _camera_panel_third_person: Panel
+var _camera_panel_full_side: Panel
 
 
 func _ready() -> void:
@@ -478,6 +643,7 @@ func _build() -> void:
 	_build_footer(bands)
 
 
+
 func _build_header(parent: Control) -> void:
 	var column := VBoxContainer.new()
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -514,6 +680,10 @@ func _build_header(parent: Control) -> void:
 ## panel IS the card, not a border over a portrait one). The formation
 ## whiteboard sits portrait-sized and centred inside it. The readout strip
 ## overlays the bottom of the portrait area within the wider card.
+##
+## This band is the formation whiteboard preview and is untouched by the
+## camera preview added below — the camera preview is a separate window
+## that slides in beside the card row instead.
 func _build_preview(parent: Control) -> void:
 	var band := HBoxContainer.new()
 	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -563,8 +733,50 @@ func _build_preview(parent: Control) -> void:
 	board_holder.add_child(_whiteboard)
 
 	_build_readout(board_holder)
+	_build_camera_preview_content(body)
 
+func _build_camera_preview_content(parent: Control) -> void:
+	_camera_preview_container = Control.new()
+	_camera_preview_container.set_anchors_preset(Control.PRESET_CENTER)
+	_camera_preview_container.offset_left = -CAMERA_PREVIEW_WIDTH * 0.5
+	_camera_preview_container.offset_right = CAMERA_PREVIEW_WIDTH * 0.5
+	_camera_preview_container.offset_top = -CAMERA_PREVIEW_HEIGHT * 0.5
+	_camera_preview_container.offset_bottom = CAMERA_PREVIEW_HEIGHT * 0.5
+	_camera_preview_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_camera_preview_container.visible = false
+	parent.add_child(_camera_preview_container)
 
+	var title := SoftBrutalist.label(
+		"CAMERA PREVIEW",
+		SoftBrutalist.SIZE_LABEL,
+		RetroWindow.BORDER,
+		SoftBrutalist.WEIGHT_HEAVY,
+		SoftBrutalist.TRACK_TITLE
+	)
+	title.position = Vector2(20.0, 18.0)
+	_camera_preview_container.add_child(title)
+
+	var divider := ColorRect.new()
+	divider.color = RetroWindow.BORDER
+	divider.position = Vector2(20.0, 48.0)
+	divider.size = Vector2(CAMERA_PREVIEW_WIDTH - 40.0, 1.0)
+	_camera_preview_container.add_child(divider)
+
+	_camera_panel_third_person = _build_camera_panel(
+		_camera_preview_container,
+		Vector2(16.0, 62.0),
+		Vector2(140.0, 184.0),
+		"3RD PERSON",
+		false
+	)
+
+	_camera_panel_full_side = _build_camera_panel(
+		_camera_preview_container,
+		Vector2(164.0, 62.0),
+		Vector2(140.0, 184.0),
+		"FULL-SIDE",
+		true
+	)
 ## Three label/value rows overlaid on the empty parchment band below the
 ## board (see READOUT_HEIGHT's comment). Parented to the window's front
 ## Panel rather than to the MarginContainer the board fills, so it draws
@@ -617,10 +829,15 @@ func _build_card_row(parent: Control) -> void:
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override(&"separation", CARD_SEPARATION)
 	parent.add_child(row)
+	# Kept so the camera preview can slide this exact container left as a
+	# unit (see this file's header) — individual cards never move for the
+	# camera preview, only for their own selection pop in _animate_card().
+	_card_row = row
 
 	for i in _cards.size():
 		_build_card(_cards[i], i)
 		row.add_child(_cards[i].frame)
+
 
 
 func _build_card(card: Card, index: int) -> void:
@@ -785,6 +1002,96 @@ func _build_footer(parent: Control) -> void:
 	row.add_child(_hints)
 
 
+func _build_camera_preview(body: Control) -> void:
+	_camera_preview_container = Control.new()
+	_camera_preview_container.custom_minimum_size = Vector2(
+		CAMERA_PREVIEW_WIDTH, CAMERA_PREVIEW_HEIGHT)
+	_camera_preview_container.size = Vector2(
+		CAMERA_PREVIEW_WIDTH, CAMERA_PREVIEW_HEIGHT)
+	_camera_preview_container.set_anchors_preset(Control.PRESET_CENTER)
+	_camera_preview_container.position = Vector2(
+		-CAMERA_PREVIEW_WIDTH * 0.5,
+		-CAMERA_PREVIEW_HEIGHT * 0.5)
+	_camera_preview_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_camera_preview_container.visible = false
+	body.add_child(_camera_preview_container)
+
+	var title := SoftBrutalist.label(
+		"CAMERA PREVIEW",
+		SoftBrutalist.SIZE_LABEL,
+		RetroWindow.BORDER,
+		SoftBrutalist.WEIGHT_HEAVY,
+		SoftBrutalist.TRACK_TITLE
+	)
+	title.position = Vector2(0.0, 0.0)
+	_camera_preview_container.add_child(title)
+
+	var divider := ColorRect.new()
+	divider.color = RetroWindow.BORDER
+	divider.position = Vector2(0.0, 30.0)
+	divider.size = Vector2(CAMERA_PREVIEW_WIDTH, 1.0)
+	_camera_preview_container.add_child(divider)
+
+	_camera_panel_third_person = _build_camera_panel(
+		_camera_preview_container,
+		Vector2(0.0, 44.0),
+		Vector2(140.0, 184.0),
+		"3RD PERSON",
+		false
+	)
+
+	_camera_panel_full_side = _build_camera_panel(
+		_camera_preview_container,
+		Vector2(148.0, 44.0),
+		Vector2(140.0, 184.0),
+		"FULL-SIDE",
+		true
+	)
+
+## Builds one of the two field panels inside the camera preview and
+## returns it so _refresh() can highlight whichever one is currently
+## selected — settings_screen.gd's own _create_camera_panel() has no
+## selection concept since neither of its panels ever needs highlighting,
+## but this screen already asks the same question its CAMERA card does
+## ("which mode is live right now") for the readout strip, so the
+## returned Panel lets the preview answer it the same way.
+func _build_camera_panel(
+	parent: Control,
+	panel_position: Vector2,
+	panel_size: Vector2,
+	label_text: String,
+	full_side: bool
+) -> Panel:
+	var panel := Panel.new()
+	panel.position = panel_position
+	panel.size = panel_size
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_theme_stylebox_override(
+		&"panel", RetroWindow.row_style(false))
+	parent.add_child(panel)
+
+	var title := SoftBrutalist.label(
+		label_text,
+		SoftBrutalist.TRACK_LABEL
+	)
+	title.position = Vector2(10.0, 8.0)
+	panel.add_child(title)
+
+	var field := _CameraPreviewField.new()
+	field.full_side = full_side
+	field.position = Vector2(10.0, 38.0)
+	field.size = Vector2(panel_size.x - 20.0, panel_size.y - 50.0)
+	field.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(field)
+
+	if full_side:
+		_camera_field_full_side = field
+	else:
+		_camera_field_third_person = field
+
+	return panel
+
+
 ## The legend reflects the mode the cursor is actually in — an open card,
 ## a locked card, a functional card, or the START MATCH stop all offer
 ## genuinely different things, and one combined run-on legend would be
@@ -851,6 +1158,11 @@ func _refresh() -> void:
 	_hints.set_hints(_hints_for_state())
 	_sync_preview()
 
+		# The middle preview switches between the formation board and the
+	# camera preview when the CAMERA card owns the cursor.
+	_set_camera_preview_active(_index == CAMERA_CARD_INDEX)
+	_sync_camera_preview()
+
 
 func _card_style(card: Card, selected: bool, open: bool) -> StyleBoxFlat:
 	if card.locked:
@@ -901,6 +1213,37 @@ func _set_shadow_offset(shadow: Panel, offset: Vector2) -> void:
 	shadow.offset_right = offset.x
 	shadow.offset_top = offset.y
 	shadow.offset_bottom = offset.y
+
+func _set_camera_preview_active(active: bool) -> void:
+	if not is_instance_valid(_camera_preview_container):
+		return
+
+	if _camera_preview_container.visible == active:
+		return
+
+	_camera_preview_container.visible = active
+
+	if is_instance_valid(_whiteboard):
+		_whiteboard.visible = not active
+
+	for readout: Label in _readout_values:
+		readout.visible = not active
+
+
+## Highlights whichever field panel matches Settings.full_game_camera_mode
+## right now, so the preview reflects the live value the instant CAMERA's
+## own cycle() writes it — no separate signal needed since _refresh()
+## already runs on every cycle.
+func _sync_camera_preview() -> void:
+	if not is_instance_valid(_camera_panel_third_person) \
+			or not is_instance_valid(_camera_panel_full_side):
+		return
+
+	var full_side := Settings.full_game_camera_mode == Settings.FullGameCameraMode.FULL_SIDE
+	_camera_panel_third_person.add_theme_stylebox_override(
+		&"panel", RetroWindow.row_style(not full_side))
+	_camera_panel_full_side.add_theme_stylebox_override(
+		&"panel", RetroWindow.row_style(full_side))
 
 
 ## Pushes the live settings into the preview window. All three board dials

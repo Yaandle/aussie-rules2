@@ -75,7 +75,7 @@ const LOCKED_SUBTITLE := "Not built yet"
 const ESTABLISHED_TEXT := "EST. 2025"
 ## Placeholder — the project has no build-version source yet; update this
 ## by hand until one exists.
-const VERSION_TEXT := "v0.1.0"
+const VERSION_TEXT := "v.1.0"
 
 ## Control legend, in the same chip form the character screen uses
 ## (KeyHintBar) rather than this screen's old single run-on sentence —
