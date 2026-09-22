@@ -26,7 +26,7 @@ extends Node
 enum Scheme {
 	SINGLE_PLAYER,  ## human drives exactly one on-field player at a time
 	TEAM_COMMAND,   ## human directly drives a selected player and can issue
-	                ## a move-here order to one teammate at a time
+					## a move-here order to one teammate at a time
 }
 
 ## Emitted whenever the body that should receive raw human input changes,

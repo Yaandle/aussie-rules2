@@ -1,34 +1,33 @@
-# Godot 4+ specific ignores
+# Godot 4 project-generated files
 .godot/
-/android/
-
-# Godot-specific ignores
-.godot/
+.import/
 *.import
-export.cfg
-
-# Imported translations (automatically generated from CSV files)
 *.translation
+*.tmp
 
-# Mono-specific ignores
-.mono/
-data_*/
-mono_crash.*.json
-
-# Build output
-/build/
-/export/
+# Export/build artifacts
+/android/
+.build/
+.export/
+.dist/
 builds/
-
-# Release packages
+*.pck
 *.zip
+*.apk
+*.exe
+*.dmg
 
-# System
+# Local-only prototype content
+assets/characters_import/
+scenes/dev/muscle_man_test.tscn
+
+# Local editor and OS files
+.claude/
+.DS_Store
 Thumbs.db
 desktop.ini
-.DS_Store
 
-# Claude Code local state (worktrees, session config)
-/.claude/
+# Keep project metadata tracked when intentionally committed
+# (do not ignore .uid files or export_presets.cfg)
 
 

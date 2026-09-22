@@ -185,6 +185,7 @@ const CAMERA_MOVE_TIME := 0.35
 
 const PlayerScene := preload("res://scenes/player/player.tscn")
 const BallScene := preload("res://scenes/ball/ball.tscn")
+const LabScript := preload("res://scripts/dev/tackle_lab.gd")
 
 @onready var _camera: Camera3D = $Camera3D
 @onready var _ui: Control = $Overlay/UI
@@ -197,6 +198,9 @@ var _current_blend := Vector2.ZERO
 var _state_label: Label
 var _blend_label: Label
 var _jump_tween: Tween
+
+var _lab: RefCounted
+var _lab_status_label: Label
 
 var _preview_columns: HBoxContainer
 var _studio_floor: MeshInstance3D
@@ -275,8 +279,67 @@ func _ready() -> void:
 	_camera.rotation = Vector3.ZERO
 	_camera.position = STAND_ON + Vector3(-CAMERA_SIDESTEP, CAMERA_HEIGHT, CAMERA_DISTANCE)
 	_build_ui()
+	_lab = LabScript.new()                                                          
+	_lab.status_changed.connect(func(t: String) -> void: _lab_status_label.text = t)  
+	_lab.sweep_done.connect(_on_sweep_done)   
+
+func _build_lab_group() -> VBoxContainer:
+	var group := VBoxContainer.new()
+	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	group.add_theme_constant_override(&"separation", 8)
+	group.add_child(UIStyle.label("TACKLE LAB", UIStyle.SIZE_LABEL,
+		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
+
+	var obs_btn := _make_button("OBSERVE — START")
+	obs_btn.pressed.connect(func() -> void:
+		_launch_contest(ContestKind.TACKLE_SLIDE)
+		_lab.start_observe(_contest_a, _contest_b))
+	group.add_child(obs_btn)
+
+	var stop_btn := _make_button("OBSERVE — STOP + FIT")
+	stop_btn.pressed.connect(func() -> void:
+		_lab.stop_observe()
+		_lab.save_and_fit("user://tackle_observe.csv"))
+	group.add_child(stop_btn)
+
+	var clear_btn := _make_button("CLEAR SAMPLES")
+	clear_btn.pressed.connect(func() -> void: _lab.clear_samples())
+	group.add_child(clear_btn)
+
+	group.add_child(UIStyle.label("SWEEP (uses fitted model if available)",
+		UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
+
+	var sw1 := _make_button("EXP 01 — ANGLE WEIGHT")
+	sw1.pressed.connect(func() -> void:
+		_lab.run_sweep("w_angle", [0.0, 0.2, 0.4, 0.6, 0.8],
+			{"dspeed": 0.0, "angle": 0.5, "stamina": 1.0},
+			1000, "user://exp01_angle.csv"))
+	group.add_child(sw1)
+
+	var sw2 := _make_button("EXP 02 — SPEED WEIGHT")
+	sw2.pressed.connect(func() -> void:
+		_lab.run_sweep("w_speed", [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+			{"dspeed": 0.5, "angle": 0.5, "stamina": 1.0},
+			1000, "user://exp02_speed.csv"))
+	group.add_child(sw2)
+
+	var sw3 := _make_button("EXP 03 — STAMINA WEIGHT")
+	sw3.pressed.connect(func() -> void:
+		_lab.run_sweep("w_stamina", [0.0, 0.2, 0.4, 0.6, 0.8],
+			{"dspeed": 0.0, "angle": 0.5, "stamina": 0.5},
+			1000, "user://exp03_stamina.csv"))
+	group.add_child(sw3)
+
+	_lab_status_label = UIStyle.label("—", UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
+	group.add_child(_lab_status_label)
+	return group
 
 
+func _on_sweep_done(rows: Array, param: String) -> void:
+	print("=== SWEEP %s ===" % param)
+	for r in rows:
+		print("  %.2f  success %.1f%% [%.1f-%.1f]  expected %.1f%%" % [
+			r.value, r.rate, r.lo, r.hi, r.expected])
 ## A large white ground the figure stands on, meeting the flat-white sky with
 ## no visible horizon — a seamless studio cove — so the key light's shadow
 ## has something to fall on and the model reads as grounded rather than
@@ -400,6 +463,7 @@ func _build_ui() -> void:
 	_preview_columns.add_child(_build_action_group())
 	_preview_columns.add_child(_build_contest_group())
 	_preview_columns.add_child(_build_misc_group())
+	_preview_columns.add_child(_build_lab_group())   
 
 	var hints := KeyHintBar.new()
 	hints.position = Vector2(24.0, 674.0)
@@ -407,6 +471,8 @@ func _build_ui() -> void:
 		{"keys": "Esc / C", "label": "Back to menu"},
 	])
 	_ui.add_child(hints)
+
+									 
 
 
 func _build_locomotion_group() -> VBoxContainer:

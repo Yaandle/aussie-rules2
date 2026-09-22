@@ -30,6 +30,8 @@ signal ball_gathered(ball: Ball)
 signal ball_disposed(action: Tuning.Action)
 signal mark_caught(tier: Tuning.Action, legal_mark: bool)
 signal mark_missed(tier: Tuning.Action)
+signal tackle_resolved(closing_speed: float, angle_deg: float,
+	carrier_speed: float, broke: bool)
 
 ## Fired from _get_tackled only when the tackled player had already had
 ## Tuning.PRIOR_OPPORTUNITY_GRACE seconds of personal possession — a real
@@ -1067,14 +1069,19 @@ func _resolve_tackle_contact(tackler: PlayerController, target: PlayerController
 	if carrier_speed > Tuning.PIVOT_SPEED_THRESHOLD:
 		approach_angle = rad_to_deg((-dir_t2c).angle_to(carrier_horizontal / carrier_speed))
 
+	var success := false
 	if is_slide:
 		var required := Tuning.TACKLE_SLIDE_MIN_CLOSING_SPEED \
 			+ Tuning.TACKLE_SLIDE_CLOSING_SPEED_SCALE * carrier_speed
-		return closing_speed >= required and approach_angle <= Tuning.TACKLE_SLIDE_MAX_ANGLE_DEG
-	var required := Tuning.TACKLE_LUNGE_TAP_MIN_CLOSING_SPEED \
-		+ Tuning.TACKLE_LUNGE_TAP_CLOSING_SPEED_SCALE * carrier_speed
-	return closing_speed >= required and approach_angle <= Tuning.TACKLE_LUNGE_TAP_MAX_ANGLE_DEG
-
+		success = closing_speed >= required \
+			and approach_angle <= Tuning.TACKLE_SLIDE_MAX_ANGLE_DEG
+	else:
+		var required := Tuning.TACKLE_LUNGE_TAP_MIN_CLOSING_SPEED \
+			+ Tuning.TACKLE_LUNGE_TAP_CLOSING_SPEED_SCALE * carrier_speed
+		success = closing_speed >= required \
+			and approach_angle <= Tuning.TACKLE_LUNGE_TAP_MAX_ANGLE_DEG
+	tackle_resolved.emit(closing_speed, approach_angle, carrier_speed, not success)
+	return success
 
 ## FIFA-style ball-steal assist (polish-pass brief: "it's a bit hard to get
 ## the ball off the AI"). See Tuning's own "Slide's dive-in" comment for the
