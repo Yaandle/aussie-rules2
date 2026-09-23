@@ -47,17 +47,26 @@ extends Node3D
 ## riding the grip then launched at Tuning.BALL_UP_TOSS_SPEED, the same
 ## release FullGame._begin_ruck_contest performs). All run through the real
 ## gameplay code, same as the contests.
+##
+## A CONTROL group sits above the three preview columns with a FREE MOVE
+## toggle: swaps the bare preview rig for a real, solo PlayerController
+## under real input (see _ensure_free_player_built), roaming a bigger
+## bounded grid built by the same code the pose-preview studio floor uses.
+## Solo only for now — no second body to kick to, no camera changes while
+## moving; both are natural follow-ups once this lands. Toggling off
+## routes back through the same _show_single_subject every other button
+## already uses.
 
 const STAND_ON := Vector3.ZERO
 
-const CAMERA_DISTANCE := 4.0
+const CAMERA_DISTANCE := 8.0
 const CAMERA_HEIGHT := 1.0
 
 ## How far left of the subject the camera sits — pushes the figure right of
 ## centre in frame (same trick character_backdrop.gd uses via its own
 ## CAMERA_SIDESTEP) so it clears the three button columns on the left
 ## rather than standing directly behind them.
-const CAMERA_SIDESTEP := 1.5
+const CAMERA_SIDESTEP := 2.5
 
 ## Pulled back and raised from the single-subject framing above — a contest
 ## needs room for two bodies and a few metres of approach, not a portrait
@@ -73,6 +82,14 @@ const CONTEST_CAMERA_SIDESTEP := 1.5
 const GRID_HALF_EXTENT := 1.6
 const GRID_STEP := 0.4
 const GRID_COLOUR := Color(0.72, 0.75, 0.79)
+
+## Free-move floor: same grid technique as the pose-preview one, just
+## bigger — enough room to actually walk/run rather than stand on the
+## spot. Kept inside the existing contest floor's physics bound (half-
+## extent 10, see _build_contest_floor) so the visible grid never outruns
+## what you can actually stand on.
+const FREE_MOVE_GRID_HALF_EXTENT := 9.0
+const FREE_MOVE_GRID_STEP := 1.0
 
 ## Locomotion buttons: label -> blend target. Must agree with
 ## PlayerAnimation.BLEND_POINTS.
@@ -175,8 +192,8 @@ const JUMP_FALL_TIME := 0.32
 
 ## Every clickable control on this screen is one width/height so the three
 ## columns line up as a grid rather than a ragged stack of 200/220px odds.
-const BUTTON_WIDTH := 224.0
-const BUTTON_HEIGHT := 34.0
+const BUTTON_WIDTH := 180.0
+const BUTTON_HEIGHT := 26.0
 
 ## Camera moves between the single-subject framing and the wider contest one
 ## are eased over this rather than cut — a hard jump between two quite
@@ -264,6 +281,19 @@ var _sequence_kind := SequenceKind.BOUNCE_RUN
 var _sequence_stage := ContestStage.NONE
 var _sequence_timer := 0.0
 var _sequence_triggered := false
+
+## Free move — solo real PlayerController under real input, roaming the
+## bigger grid above. Built lazily on the first FREE MOVE press, same
+## reasoning as _contest_built. See the "Free move" section near the
+## bottom for the functions that drive this.
+var _free_player: PlayerController
+var _free_brain: PlayerBrain
+var _free_player_built := false
+var _free_move_active := false
+var _free_move_floor: MeshInstance3D
+var _free_move_hints: KeyHintBar
+var _free_move_button: Button
+var _player_construction_warmed := false
 
 
 func _ready() -> void:
@@ -374,7 +404,7 @@ func _build_subject() -> void:
 
 func _build_ui() -> void:
 	var root := VBoxContainer.new()
-	root.position = Vector2(24.0, 20.0)
+	root.position = Vector2(10.0, 14.0)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_theme_constant_override(&"separation", 16)
 	_ui.add_child(root)
@@ -391,9 +421,14 @@ func _build_ui() -> void:
 	status.add_child(_state_label)
 	status.add_child(_blend_label)
 
+	# Sits above the three preview columns, never hidden by them — FREE
+	# MOVE has to stay reachable even while the columns are toggled away
+	# below (see _show_free_move), or there'd be no button-based way back.
+	root.add_child(_build_control_group())
+
 	_preview_columns = HBoxContainer.new()
 	_preview_columns.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_preview_columns.add_theme_constant_override(&"separation", 56)
+	_preview_columns.add_theme_constant_override(&"separation", 24)
 	root.add_child(_preview_columns)
 
 	_preview_columns.add_child(_build_locomotion_group())
@@ -407,6 +442,34 @@ func _build_ui() -> void:
 		{"keys": "Esc / C", "label": "Back to menu"},
 	])
 	_ui.add_child(hints)
+
+	# Swaps in for the preview columns while FREE MOVE is active — you're
+	# steering with WASD at that point, not clicking, so the button list
+	# is dead weight and the move/action keys are what's actually useful.
+	# Esc/C stays covered by `hints` above; not repeated here.
+	_free_move_hints = KeyHintBar.new()
+	_free_move_hints.position = Vector2(24.0, 140.0)   # nudge to taste
+	_free_move_hints.visible = false
+	_free_move_hints.set_hints([
+		{"keys": "WASD", "label": "Move"},
+		{"keys": "Kick / Handball / Bounce", "label": "Action inputs"},
+	])
+	_ui.add_child(_free_move_hints)
+
+
+func _build_control_group() -> HBoxContainer:
+	var group := HBoxContainer.new()
+	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	group.add_theme_constant_override(&"separation", 12)
+	group.add_child(UIStyle.label("CONTROL", UIStyle.SIZE_LABEL,
+		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
+
+	var toggle := _make_button("FREE MOVE")
+	toggle.toggle_mode = true
+	toggle.toggled.connect(_on_free_move_toggled)
+	group.add_child(toggle)
+	_free_move_button = toggle
+	return group
 
 
 func _build_locomotion_group() -> VBoxContainer:
@@ -539,10 +602,10 @@ func _button_box(kind: StringName) -> StyleBoxFlat:
 	box.set_corner_radius_all(RetroWindow.RADIUS)   # sharp, matching the shell
 	box.set_border_width_all(2)
 	box.border_color = RetroWindow.BORDER
-	box.content_margin_left = 12.0
-	box.content_margin_right = 12.0
-	box.content_margin_top = 5.0
-	box.content_margin_bottom = 5.0
+	box.content_margin_left = 8.0
+	box.content_margin_right = 8.0
+	box.content_margin_top = 3.0
+	box.content_margin_bottom = 3.0
 	box.anti_aliasing_size = 1.0
 	match kind:
 		&"hover":
@@ -586,8 +649,19 @@ func _show_single_subject() -> void:
 		_contest_ball.visible = false
 	if _umpire != null:
 		_umpire.visible = false
+	if _free_player_built:
+		_free_player.visible = false
+	if _free_move_floor != null:
+		_free_move_floor.visible = false
 	_contest_stage = ContestStage.NONE
 	_sequence_stage = ContestStage.NONE
+
+	_free_move_active = false
+	_studio_floor.visible = true
+	_preview_columns.visible = true
+	_free_move_hints.visible = false
+	if _free_move_button != null:
+		_free_move_button.set_pressed_no_signal(false)
 
 
 func _show_contest() -> void:
@@ -597,6 +671,15 @@ func _show_contest() -> void:
 	_contest_ball.visible = true
 	if _umpire != null:
 		_umpire.visible = false
+	if _free_player_built:
+		_free_player.visible = false
+	if _free_move_floor != null:
+		_free_move_floor.visible = false
+	_free_move_active = false
+	if _free_move_button != null:
+		_free_move_button.set_pressed_no_signal(false)
+	_preview_columns.visible = true
+	_free_move_hints.visible = false
 	_move_camera_to(STAND_ON \
 		+ Vector3(-CONTEST_CAMERA_SIDESTEP, CONTEST_CAMERA_HEIGHT, CONTEST_CAMERA_DISTANCE))
 
@@ -620,24 +703,47 @@ func _move_camera_to(target: Vector3) -> void:
 # scripted approach through the real gameplay resolvers, fixed camera —
 # not a free-roam sandbox. See ContestKind/CONTESTS above. ───────────────
 
-func _ensure_contest_built() -> void:
-	if _contest_built:
+## Physics floor only — split out of _ensure_contest_built so free-move
+## can get somewhere to stand without paying for two PlayerControllers it
+## doesn't use. Shared by both.
+func _ensure_contest_floor_built() -> void:
+	if _contest_floor != null:
 		return
-	_contest_built = true
-
 	_contest_floor = _build_contest_floor()
 	add_child(_contest_floor)
 
-	# Same-frame-construction-race workaround (docs/HANDOVER.md, Tackle
-	# Sandbox + TACKLED entries): a handful of throwaway PlayerControllers
-	# spawned and freed first, ahead of the two that actually matter.
+
+func _ensure_contest_ball_built() -> void:
+	if _contest_ball != null:
+		return
+	_contest_ball = BallScene.instantiate()
+	add_child(_contest_ball)
+
+
+## Same-frame-construction-race workaround (docs/HANDOVER.md, Tackle
+## Sandbox + TACKLED entries): a handful of throwaway PlayerControllers
+## spawned and freed first, ahead of any PlayerController that actually
+## matters. Split into its own guarded function so whichever of contests
+## or free-move builds first pays this cost exactly once, rather than it
+## being tied to _ensure_contest_built specifically.
+func _ensure_player_construction_warmed() -> void:
+	if _player_construction_warmed:
+		return
+	_player_construction_warmed = true
 	for i in 3:
 		var throwaway := PlayerScene.instantiate()
 		add_child(throwaway)
 		throwaway.queue_free()
 
-	_contest_ball = BallScene.instantiate()
-	add_child(_contest_ball)
+
+func _ensure_contest_built() -> void:
+	if _contest_built:
+		return
+	_contest_built = true
+
+	_ensure_contest_floor_built()
+	_ensure_player_construction_warmed()
+	_ensure_contest_ball_built()
 
 	# high_detail set before add_child so the rig's own _ready() builds the
 	# fuller mesh — same window, same one-to-three-bodies budget as the
@@ -980,18 +1086,102 @@ func _sequence_status_text() -> String:
 	return ""
 
 
-# ── Studio floor (single-subject preview only) ────────────────────────
+# ── Free move: one real PlayerController under real input, for roaming
+# and testing actions live rather than through a scripted vignette (see
+# CONTESTS/SEQUENCES above, which are deliberately the opposite: fixed and
+# non-interactive). Solo only — no second body to kick to, no camera
+# changes while moving; both are natural follow-ups once this lands. ────
 
-## A bounded reference grid, not an infinite ground plane — a floor with no
-## edge gives the eye nothing to judge scale or footing against, which is
-## the opposite of what a "does this animation look right" tool needs.
-## Drawn as flat lines (PRIMITIVE_LINES, unshaded) rather than a textured
-## mesh, matching skeleton_wireframe.gd's own reasoning: this is a
-## reference cue, not scenery.
+## Built lazily on the first FREE MOVE press, same reasoning as
+## _ensure_contest_built — most sessions may never touch it.
+func _ensure_free_player_built() -> void:
+	if _free_player_built:
+		return
+	_free_player_built = true
+	_ensure_contest_floor_built()
+	_ensure_player_construction_warmed()
+	_ensure_contest_ball_built()
+
+	_free_player = PlayerScene.instantiate()
+	_free_player.team = Tuning.Team.HOME
+	(_free_player.get_node("Rig") as HumanoidRig).high_detail = true
+	add_child(_free_player)
+	_free_player.global_position = STAND_ON
+	_free_player.rotation.y = deg_to_rad(180.0)
+	_free_player.visible = false
+
+	# NOTE: name-guessed. ContestBrain's own doc comment describes itself
+	# as "the scripted-choreography equivalent of HumanBrain reading real
+	# Input/InputManager" — swap this for whatever that class is actually
+	# called if HumanBrain isn't it.
+	_free_brain = HumanBrain.new()
+	_free_player.set_brain(_free_brain)
+
+	_free_move_floor = _build_free_move_floor()
+	_free_move_floor.visible = false
+	add_child(_free_move_floor)
+
+
+func _show_free_move() -> void:
+	_ensure_free_player_built()
+	_subject.visible = false
+	if _contest_built:
+		_contest_a.visible = false
+		_contest_b.visible = false
+	if _umpire != null:
+		_umpire.visible = false
+	_contest_stage = ContestStage.NONE
+	_sequence_stage = ContestStage.NONE
+
+	_free_player.visible = true
+	_contest_ball.visible = true
+	if not _free_player.is_carrying():
+		_free_player.give_possession(_contest_ball)
+
+	# Same spot as the single-subject framing — camera behaviour for
+	# free-move is a separate pass, not part of this toggle.
+	_move_camera_to(STAND_ON + Vector3(-CAMERA_SIDESTEP, CAMERA_HEIGHT, CAMERA_DISTANCE))
+
+	_studio_floor.visible = false
+	_free_move_floor.visible = true
+	_preview_columns.visible = false
+	_free_move_hints.visible = true
+
+
+func _on_free_move_toggled(on: bool) -> void:
+	if on:
+		_free_move_active = true
+		_show_free_move()
+	else:
+		_show_single_subject()
+
+
+# ── Floor grids: bounded reference grid, not an infinite ground plane —
+# a floor with no edge gives the eye nothing to judge scale or footing
+# against, which is the opposite of what either a pose-preview or a
+# roaming test needs. Drawn as flat lines (PRIMITIVE_LINES, unshaded)
+# rather than a textured mesh, matching skeleton_wireframe.gd's own
+# reasoning: this is a reference cue, not scenery. Studio and free-move
+# share the same draw code (_build_grid_floor) at two different sizes. ──
+
 func _build_studio_floor() -> MeshInstance3D:
+	return _build_grid_floor(GRID_HALF_EXTENT, GRID_STEP, true, "StudioFloor")
+
+
+## Bigger, wall-less counterpart for free-move — same wireframe technique,
+## just without the corner uprights (those frame a standing figure for a
+## pose preview; roaming under a 2.3m box would just get in the way).
+func _build_free_move_floor() -> MeshInstance3D:
+	return _build_grid_floor(FREE_MOVE_GRID_HALF_EXTENT, FREE_MOVE_GRID_STEP, false, "FreeMoveFloor")
+
+
+## Shared grid-drawing code behind both floors above. `with_walls` draws
+## the four corner uprights the studio floor uses to frame a standing
+## figure; free-move skips them.
+func _build_grid_floor(half_extent: float, step: float, with_walls: bool, floor_name: String) -> MeshInstance3D:
 	var mesh := ImmediateMesh.new()
 	var instance := MeshInstance3D.new()
-	instance.name = "StudioFloor"
+	instance.name = floor_name
 	instance.mesh = mesh
 	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
@@ -1004,21 +1194,22 @@ func _build_studio_floor() -> MeshInstance3D:
 	mesh.surface_begin(Mesh.PRIMITIVE_LINES)
 	mesh.surface_set_color(GRID_COLOUR)
 
-	var e := GRID_HALF_EXTENT
-	var steps := int(round(e * 2.0 / GRID_STEP))
+	var e := half_extent
+	var steps := int(round(e * 2.0 / step))
 	for i in steps + 1:
-		var t := -e + i * GRID_STEP
+		var t := -e + i * step
 		mesh.surface_add_vertex(Vector3(t, 0.0, -e))
 		mesh.surface_add_vertex(Vector3(t, 0.0, e))
 		mesh.surface_add_vertex(Vector3(-e, 0.0, t))
 		mesh.surface_add_vertex(Vector3(e, 0.0, t))
 
-	# Four corner uprights, open-topped — the "box" the floor grid sits in,
-	# tall enough to frame the 1.85m rig with headroom.
-	var box_height := 2.3
-	for corner in [Vector2(-e, -e), Vector2(e, -e), Vector2(-e, e), Vector2(e, e)]:
-		mesh.surface_add_vertex(Vector3(corner.x, 0.0, corner.y))
-		mesh.surface_add_vertex(Vector3(corner.x, box_height, corner.y))
+	if with_walls:
+		# Four corner uprights, open-topped — the "box" the floor grid sits
+		# in, tall enough to frame the 1.85m rig with headroom.
+		var box_height := 2.3
+		for corner in [Vector2(-e, -e), Vector2(e, -e), Vector2(-e, e), Vector2(e, e)]:
+			mesh.surface_add_vertex(Vector3(corner.x, 0.0, corner.y))
+			mesh.surface_add_vertex(Vector3(corner.x, box_height, corner.y))
 
 	mesh.surface_end()
 	return instance

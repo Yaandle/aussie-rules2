@@ -5,18 +5,20 @@
 
 ; Dev-only scene: a bare HumanoidRig in an empty white studio box, driven by
 ; a real AnimationTree, with a button-driven UI to preview every locomotion
-; blend point and discrete action clip in isolation. Deliberately NOT the
-; real field.tscn/character_backdrop.tscn look this started from — that
-; read as "another game mode" rather than an isolated animation preview, so
-; there's no turf/oval/goalposts here at all, just a flat wireframe floor
-; grid (built in code, see _build_studio_floor) under plain white sky.
+; blend point and discrete action clip in isolation, plus a FREE MOVE
+; toggle that swaps in a real, solo PlayerController under real input on a
+; larger wireframe floor. Deliberately NOT the real field.tscn/character_
+; backdrop.tscn look this started from — that read as "another game mode"
+; rather than an isolated animation preview, so there's no turf/oval/
+; goalposts here at all, just flat wireframe floor grids (built in code,
+; see _build_grid_floor) under plain white sky.
 ;
 ; Not reachable from the main menu — open this directly in the editor and
 ; press F6, same precedent as scenes/main.tscn. Everything except the
 ; environment/light/camera shell is built in code by animation_viewer.gd
-; (the rig, the floor grid, the AnimationPlayer/AnimationTree/
-; PlayerAnimation trio, and the whole UI), same reasoning as
-; character_screen.tscn leaving its UI node empty.
+; (the rig, both floor grids, the AnimationPlayer/AnimationTree/
+; PlayerAnimation trio, the free-move PlayerController, and the whole UI),
+; same reasoning as character_screen.tscn leaving its UI node empty.
 
 [node name="AnimationViewer" type="Node3D"]
 script = ExtResource("1_viewer")

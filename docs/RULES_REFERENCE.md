@@ -24,7 +24,7 @@ Prototype 1 ran on abstract "logical units" on a 200×112 pixel grid, with the
 oval spanning 166×88 of them. That grid was chosen to suit a fixed 16:9
 diorama camera, so its scale is inconsistent on purpose:
 
-- Rules that happen to be *actual AFL metre values* were written as metres
+- Rules that happen to be were written as metres
   and read as logical units — `MARK_STAND_MIN_DISTANCE = 15.0` translates
   1:1. `BOUNCE_INTERVAL` started at the real 15.0 and was later nudged to
   20.0 purely on playtest feel (see its own comment: `_carry_distance` is
