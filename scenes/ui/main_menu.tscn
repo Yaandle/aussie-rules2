@@ -1,20 +1,22 @@
-[gd_scene format=3 uid="uid://c6t460iqevfaf"]
+[gd_scene load_steps=2 format=3 uid="uid://c6t460iqevfaf"]
 
 [ext_resource type="Script" uid="uid://bk0ljw8m5rscd" path="res://scripts/ui/main_menu.gd" id="1_menu"]
-[ext_resource type="PackedScene" path="res://scenes/props/tackle_bag.tscn" id="2_m1kxf"]
-[ext_resource type="PackedScene" path="res://scenes/field/field.tscn" id="3_x2yvf"]
-[ext_resource type="PackedScene" path="res://scenes/ball/ball.tscn" id="4_uhagc"]
+[ext_resource type="PackedScene" path="res://scenes/ui/menu_backdrop.tscn" id="2_backdrop"]
 
 [node name="MainMenu" type="CanvasLayer" unique_id=636318780]
 script = ExtResource("1_menu")
 
-[node name="TackleBag" parent="." unique_id=1297623666 instance=ExtResource("2_m1kxf")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.1317389, 0, 0.27317786)
+[node name="BackdropContainer" type="SubViewportContainer" parent="." unique_id=3059247868]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+stretch = true
 
-[node name="AnimationPlayer" type="AnimationPlayer" parent="." unique_id=92322578]
+[node name="SubViewport" type="SubViewport" parent="BackdropContainer" unique_id=1959625104]
+handle_input_locally = false
+own_world_3d = true
+size = Vector2i(1280, 720)
 
-[node name="Field" parent="." unique_id=1959085763 instance=ExtResource("3_x2yvf")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.6475204, 0, 0.92854214)
-
-[node name="Ball" parent="." unique_id=1344303865 instance=ExtResource("4_uhagc")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.023651406, 0.0875, 0.8181034)
+[node name="MenuBackdrop" parent="BackdropContainer/SubViewport" unique_id=2058941819 instance=ExtResource("2_backdrop")]
