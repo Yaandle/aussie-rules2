@@ -62,6 +62,9 @@ const STAND_ON := Vector3.ZERO
 const CAMERA_DISTANCE := 8.0
 const CAMERA_HEIGHT := 1.0
 
+const SUBJECT_SCREEN_FRACTION := 0.667
+
+
 ## How far left of the subject the camera sits — pushes the figure right of
 ## centre in frame (same trick character_backdrop.gd uses via its own
 ## CAMERA_SIDESTEP) so it clears the three button columns on the left
@@ -165,7 +168,7 @@ const SEQUENCE_TIMEOUT := 4.5
 ## BUMP_CLEAN/BUMP_MISS below inject the dash fields directly instead, the
 ## same "assign the private fields, no headless device to fake" approach
 ## this project's own scratch physics tests already use. This is the delay
-## (seconds since launch) before that injection fires, giving the carrier
+## (seconds before launch) before that injection fires, giving the carrier
 ## time to close some real distance and speed first so the assist has
 ## something genuine to correct rather than firing at point-blank range.
 const BUMP_CONTEST_TRIGGER_DELAY := 0.6
@@ -200,8 +203,17 @@ const BUTTON_HEIGHT := 26.0
 ## different distances (4m vs 8m) reads as a glitch, not a shot change.
 const CAMERA_MOVE_TIME := 0.35
 
+const EXPERIMENT_SWIPE_TIME := 0.32
+const EXPERIMENT_CAMERA_DISTANCE := 4.2
+const EXPERIMENT_CAMERA_HEIGHT := 1.1
+const EXPERIMENT_CAMERA_SIDESTEP := 0.0
+
 const PlayerScene := preload("res://scenes/player/player.tscn")
 const BallScene := preload("res://scenes/ball/ball.tscn")
+
+const TackleModelScript := preload("res://scripts/dev/tackle_model.gd")
+const TackleExperimentScript := preload("res://scripts/dev/tackle_experiment.gd")
+const TackleChartScript := preload("res://scripts/dev/tackle_chart.gd")
 
 @onready var _camera: Camera3D = $Camera3D
 @onready var _ui: Control = $Overlay/UI
@@ -218,46 +230,20 @@ var _jump_tween: Tween
 var _preview_columns: HBoxContainer
 var _studio_floor: MeshInstance3D
 var _camera_tween: Tween
+var _root_layout: VBoxContainer
 
-## Non-input brain for both contest characters — every want is a plain
-## field this script sets directly, the scripted-choreography equivalent
-## of HumanBrain reading real Input/InputManager. wish_direction() returns
-## world space unconverted (no camera to be relative to; every scenario's
-## approach direction below is already authored in world space).
-class ContestBrain extends PlayerBrain:
-	var wish_dir := Vector3.ZERO
-	var gait_value := 0.0
-	var tackle_wanted := false
-	var lunge_wanted := false
-	var smother_wanted := false
-	var kick_wanted := false
-	var bounce_wanted := false
+# ML Experiments
+var _experiment_layer: Control
+var _experiment_panel: PanelContainer
+var _experiment_status: Label
+var _experiment_model_label: Label
+var _experiment_results: Label
+var _experiment_open := false
+var _experiment_layer_tween: Tween
+var _experiment_w2 := 0.2
+var _experiment_attempts := 1000
+var _experiment_cube: Node3D
 
-	func wish_direction(_controller: PlayerController) -> Vector3:
-		return wish_dir
-
-	func gait() -> float:
-		return gait_value
-
-	func wants_tackle() -> bool:
-		return tackle_wanted
-
-	func wants_lunge_tackle() -> bool:
-		return lunge_wanted
-
-	func wants_smother() -> bool:
-		return smother_wanted
-
-	func wants_kick() -> bool:
-		return kick_wanted
-
-	func wants_bounce() -> bool:
-		return bounce_wanted
-
-
-## Lazily built on the first CONTESTS button press — most sessions only
-## ever look at a handful of plain clips, no reason to pay for two extra
-## PlayerControllers/a Ball/a collision floor before they're wanted.
 var _contest_built := false
 var _contest_floor: StaticBody3D
 var _contest_ball: Ball
@@ -294,6 +280,48 @@ var _free_move_floor: MeshInstance3D
 var _free_move_hints: KeyHintBar
 var _free_move_button: Button
 var _player_construction_warmed := false
+
+
+var _experiment_success_label: Label
+var _experiment_z_label: Label
+var _experiment_s2_label: Label
+var _experiment_sf_label: Label
+
+
+## Non-input brain for both contest characters — every want is a plain
+## field this script sets directly, the scripted-choreography equivalent
+## of HumanBrain reading real Input/InputManager. wish_direction() returns
+## world space unconverted (no camera to be relative to; every scenario's
+## approach direction below is already authored in world space).
+class ContestBrain extends PlayerBrain:
+	var wish_dir := Vector3.ZERO
+	var gait_value := 0.0
+	var tackle_wanted := false
+	var lunge_wanted := false
+	var smother_wanted := false
+	var kick_wanted := false
+	var bounce_wanted := false
+
+	func wish_direction(_controller: PlayerController) -> Vector3:
+		return wish_dir
+
+	func gait() -> float:
+		return gait_value
+
+	func wants_tackle() -> bool:
+		return tackle_wanted
+
+	func wants_lunge_tackle() -> bool:
+		return lunge_wanted
+
+	func wants_smother() -> bool:
+		return smother_wanted
+
+	func wants_kick() -> bool:
+		return kick_wanted
+
+	func wants_bounce() -> bool:
+		return bounce_wanted
 
 
 func _ready() -> void:
@@ -408,6 +436,7 @@ func _build_ui() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_theme_constant_override(&"separation", 16)
 	_ui.add_child(root)
+	_root_layout = root
 
 	root.add_child(UIStyle.label("ANIMATION VIEWER — DEV", UIStyle.SIZE_TITLE,
 		UIStyle.TEXT_PRIMARY, UIStyle.WEIGHT_HEAVY, UIStyle.TRACK_TITLE))
@@ -421,9 +450,6 @@ func _build_ui() -> void:
 	status.add_child(_state_label)
 	status.add_child(_blend_label)
 
-	# Sits above the three preview columns, never hidden by them — FREE
-	# MOVE has to stay reachable even while the columns are toggled away
-	# below (see _show_free_move), or there'd be no button-based way back.
 	root.add_child(_build_control_group())
 
 	_preview_columns = HBoxContainer.new()
@@ -443,18 +469,299 @@ func _build_ui() -> void:
 	])
 	_ui.add_child(hints)
 
-	# Swaps in for the preview columns while FREE MOVE is active — you're
-	# steering with WASD at that point, not clicking, so the button list
-	# is dead weight and the move/action keys are what's actually useful.
-	# Esc/C stays covered by `hints` above; not repeated here.
 	_free_move_hints = KeyHintBar.new()
-	_free_move_hints.position = Vector2(24.0, 140.0)   # nudge to taste
+	_free_move_hints.position = Vector2(24.0, 140.0)
 	_free_move_hints.visible = false
 	_free_move_hints.set_hints([
 		{"keys": "WASD", "label": "Move"},
 		{"keys": "Kick / Handball / Bounce", "label": "Action inputs"},
 	])
 	_ui.add_child(_free_move_hints)
+
+	_build_experiment_layer()
+
+
+func _build_experiment_layer() -> void:
+	_experiment_layer = Control.new()
+	_experiment_layer.name = "ExperimentLayer"
+	_experiment_layer.custom_minimum_size = get_window().size
+	_experiment_layer.mouse_filter = Control.MOUSE_FILTER_STOP
+	_experiment_layer.visible = false
+	_ui.add_child(_experiment_layer)
+
+	_experiment_panel = PanelContainer.new()
+	_experiment_panel.position = Vector2(24.0, 24.0)
+	_experiment_panel.custom_minimum_size = Vector2(380.0, 600.0)
+	_experiment_panel.size = Vector2(380.0, 600.0)
+	_experiment_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_experiment_layer.add_child(_experiment_panel)
+
+	var panel_box := StyleBoxFlat.new()
+	panel_box.bg_color = Color(RetroWindow.PANEL, 0.97)
+	panel_box.border_color = RetroWindow.BORDER
+	panel_box.set_border_width_all(2)
+	panel_box.set_corner_radius_all(RetroWindow.RADIUS)
+	panel_box.content_margin_left = 18.0
+	panel_box.content_margin_right = 18.0
+	panel_box.content_margin_top = 16.0
+	panel_box.content_margin_bottom = 16.0
+	_experiment_panel.add_theme_stylebox_override(&"panel", panel_box)
+
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.custom_minimum_size = Vector2(344.0, 560.0)
+	_experiment_panel.add_child(scroll)
+
+	var root := VBoxContainer.new()
+	root.add_theme_constant_override(&"separation", 10)
+	scroll.add_child(root)
+
+	# ── Title ──────────────────────────────────────────
+	root.add_child(UIStyle.label(
+		"ML Experiments",
+		UIStyle.SIZE_TITLE,
+		UIStyle.TEXT_PRIMARY,
+		UIStyle.WEIGHT_HEAVY
+	))
+	root.add_child(_muted_caption("Tackle model: adjust inputs and weights, then run a sweep."))
+	root.add_child(HSeparator.new())
+
+	# ── Metric cards: P(break) / Tackle success ─────────
+	var metrics := GridContainer.new()
+	metrics.columns = 2
+	metrics.add_theme_constant_override(&"h_separation", 12)
+	metrics.add_theme_constant_override(&"v_separation", 12)
+	root.add_child(metrics)
+
+	var pb_card := _metric_card("P(BREAK)")
+	_experiment_model_label = pb_card.value_label
+	metrics.add_child(pb_card.node)
+
+	var ts_card := _metric_card("TACKLE SUCCESS")
+	_experiment_success_label = ts_card.value_label
+	metrics.add_child(ts_card.node)
+
+	_experiment_z_label = _mono_caption("")
+	root.add_child(_experiment_z_label)
+
+	# ── Inputs ───────────────────────────────────────────
+	root.add_child(_section_heading("Inputs"))
+
+	var dspeed := _slider_row(root, "Δspeed", -2.0, 4.0, 0.1, 2.0)
+	var angle := _slider_row(root, "Angle", -2.0, 2.0, 0.1, 1.0)
+	var stamina := _slider_row(root, "Stamina", 0.0, 2.0, 0.1, 1.0)
+
+	# ── Weights ──────────────────────────────────────────
+	root.add_child(_section_heading("Weights"))
+
+	var w1 := _slider_row(root, "w₁ speed", -1.0, 2.0, 0.1, 0.8)
+	var w2 := _slider_row(root, "w₂ angle", 0.0, 1.0, 0.05, 0.2)
+	var w3 := _slider_row(root, "w₃ stamina", 0.0, 1.5, 0.1, 0.5)
+	var bias := _slider_row(root, "b bias", -3.0, 1.0, 0.1, -1.0)
+
+	var recompute := func() -> void:
+		var z := w1.value * dspeed.value + w2.value * angle.value \
+			+ w3.value * stamina.value + bias.value
+		var p := 1.0 / (1.0 + exp(-z))
+		_experiment_model_label.text = "%.1f%%" % (p * 100.0)
+		_experiment_success_label.text = "%.1f%%" % ((1.0 - p) * 100.0)
+		_experiment_z_label.text = "z = %.2f" % z
+		_experiment_w2 = w2.value
+
+	for s in [dspeed, angle, stamina, w1, w2, w3, bias]:
+		s.value_changed.connect(func(_v): recompute.call())
+	recompute.call()
+
+	# ── Experiment 01: sweep w₂ ──────────────────────────
+	root.add_child(_section_heading("Experiment 01: sweep w₂"))
+
+	var run_row := HBoxContainer.new()
+	run_row.add_theme_constant_override(&"separation", 10)
+	root.add_child(run_row)
+
+	var attempts := OptionButton.new()
+	attempts.add_item("100 attempts each", 100)
+	attempts.add_item("1,000 attempts each", 1000)
+	attempts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	run_row.add_child(attempts)
+
+	var run := _make_button("RUN")
+	run.pressed.connect(func() -> void:
+		var n := attempts.get_selected_id()
+		_run_tackle_experiment(
+			dspeed.value,
+			angle.value,
+			stamina.value,
+			w2.value,
+			n
+		)
+	)
+	run_row.add_child(run)
+
+	var back_button := _make_button("← Back")
+	back_button.add_theme_font_size_override(&"font_size", UIStyle.SIZE_LABEL)
+	back_button.pressed.connect(func() -> void:
+		_set_experiments_open(false)
+	)
+	root.add_child(back_button)
+
+	# Legend
+	var legend := HBoxContainer.new()
+	legend.add_theme_constant_override(&"separation", 16)
+	root.add_child(legend)
+	legend.add_child(_legend_item("Simulated", UIStyle.ACCENT))
+	legend.add_child(_legend_item("Illustrative", UIStyle.TEXT_MUTED))
+
+	_experiment_results = UIStyle.label(
+		"Results\n—",
+		UIStyle.SIZE_LABEL,
+		UIStyle.TEXT_PRIMARY
+	)
+	root.add_child(_experiment_results)
+
+	var summary := GridContainer.new()
+	summary.columns = 2
+	summary.add_theme_constant_override(&"h_separation", 12)
+	summary.add_theme_constant_override(&"v_separation", 12)
+	root.add_child(summary)
+
+	var s2_card := _metric_card("0.2 → 0.8")
+	_experiment_s2_label = s2_card.value_label
+	summary.add_child(s2_card.node)
+
+	var sf_card := _metric_card("0.0 → 0.8")
+	_experiment_sf_label = sf_card.value_label
+	summary.add_child(sf_card.node)
+
+	_experiment_status = _muted_caption("Percentage points per weight unit.")
+	root.add_child(_experiment_status)
+
+
+
+
+# ── Helpers ───────────────────────────────────────────────
+
+func _metric_card(caption: String) -> Dictionary:
+	var box := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(RetroWindow.PANEL, 0.6)
+	style.set_corner_radius_all(RetroWindow.RADIUS)
+	style.content_margin_left = 12.0
+	style.content_margin_right = 12.0
+	style.content_margin_top = 12.0
+	style.content_margin_bottom = 12.0
+	box.add_theme_stylebox_override(&"panel", style)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override(&"separation", 2)
+	box.add_child(col)
+
+	col.add_child(UIStyle.label(caption, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED))
+	var value := UIStyle.label("—", UIStyle.SIZE_TITLE, UIStyle.TEXT_PRIMARY, UIStyle.WEIGHT_BOLD)
+	col.add_child(value)
+
+	return {"node": box, "value_label": value}
+
+func _section_heading(text: String) -> Label:
+	var l := UIStyle.label(text.to_upper(), UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD)
+	return l
+
+func _muted_caption(text: String) -> Label:
+	return UIStyle.label(text, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
+
+func _mono_caption(text: String) -> Label:
+	return UIStyle.label(text, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
+
+func _legend_item(text: String, color: Color) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override(&"separation", 4)
+	var swatch := ColorRect.new()
+	swatch.custom_minimum_size = Vector2(10.0, 10.0)
+	swatch.color = color
+	row.add_child(swatch)
+	row.add_child(UIStyle.label(text, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED))
+	return row
+
+func _slider_row(parent: VBoxContainer, label_text: String, min_v: float, max_v: float, step: float, default: float) -> HSlider:
+	var row := GridContainer.new()
+	row.columns = 3
+	row.add_theme_constant_override(&"h_separation", 10)
+	parent.add_child(row)
+
+	var label := UIStyle.label(label_text, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
+	label.custom_minimum_size.x = 76.0
+	row.add_child(label)
+
+	var slider := HSlider.new()
+	slider.min_value = min_v
+	slider.max_value = max_v
+	slider.step = step
+	slider.value = default
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(slider)
+
+	var out := UIStyle.label("%.2f" % default, UIStyle.SIZE_LABEL, UIStyle.TEXT_PRIMARY)
+	out.custom_minimum_size.x = 44.0
+	out.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(out)
+
+	slider.value_changed.connect(func(v: float) -> void:
+		out.text = "%.2f" % v
+	)
+
+	return slider
+func _on_experiments_toggled(on: bool) -> void:
+	_set_experiments_open(on)
+
+
+# ── ML Experiments swipe transition ────────────────────────────────────
+
+func _set_experiments_open(open: bool) -> void:
+	_experiment_open = open
+	if _experiment_layer_tween != null and _experiment_layer_tween.is_valid():
+		_experiment_layer_tween.kill()
+
+	var viewport_width := maxf(0.0, get_window().size.x)
+	var hidden_x := viewport_width
+	var shown_x := 0.0
+
+	if open:
+		_show_single_subject()
+		_move_camera_to(STAND_ON + Vector3(-EXPERIMENT_CAMERA_SIDESTEP, EXPERIMENT_CAMERA_HEIGHT, EXPERIMENT_CAMERA_DISTANCE))
+		_ensure_experiment_cube_built()
+		if _experiment_cube != null:
+			_experiment_cube.visible = true
+		_studio_floor.visible = false
+		_root_layout.visible = false
+		_experiment_layer.visible = true
+		_experiment_layer.position.x = hidden_x
+	else:
+		_studio_floor.visible = true
+		if _experiment_cube != null:
+			_experiment_cube.visible = false
+
+	_experiment_layer_tween = create_tween()
+	_experiment_layer_tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_experiment_layer_tween.tween_property(
+		_experiment_layer, "position:x", shown_x if open else hidden_x, EXPERIMENT_SWIPE_TIME
+	)
+	if not open:
+		_experiment_layer_tween.finished.connect(func() -> void:
+			_experiment_layer.visible = false
+			_root_layout.visible = true
+			_move_camera_to(STAND_ON + Vector3(-CAMERA_SIDESTEP, CAMERA_HEIGHT, CAMERA_DISTANCE))
+		)
+
+
+## Placeholder for experiment visualization cube — build if needed for
+## displaying model/simulation results in 3D space. For now, a no-op stub.
+func _ensure_experiment_cube_built() -> void:
+	if _experiment_cube != null:
+		return
+	# TODO: Build experiment visualization cube if desired
+	# _experiment_cube = MeshInstance3D.new()
+	# ...setup...
+	# add_child(_experiment_cube)
 
 
 func _build_control_group() -> HBoxContainer:
@@ -469,7 +776,66 @@ func _build_control_group() -> HBoxContainer:
 	toggle.toggled.connect(_on_free_move_toggled)
 	group.add_child(toggle)
 	_free_move_button = toggle
+
+	var experiment_button := _make_button("EXPERIMENTS")
+	experiment_button.toggle_mode = true
+	experiment_button.toggled.connect(_on_experiments_toggled)
+	group.add_child(experiment_button)
+
 	return group
+
+
+func _run_tackle_experiment(
+		dspeed: float,
+		angle: float,
+		stamina: float,
+		w2: float,
+		attempts: int
+	) -> void:
+	var model = TackleModelScript.new()
+	model.w_angle = w2
+
+	var probability := model.p_break(dspeed, angle, stamina)
+	var success_probability := 1.0 - probability
+
+	_experiment_model_label.text = (
+		"P(BREAK): %.1f%%\nTACKLE SUCCESS: %.1f%%"
+		% [probability * 100.0, success_probability * 100.0]
+	)
+
+	var inputs := {
+		"dspeed": dspeed,
+		"angle": angle,
+		"stamina": stamina,
+	}
+
+	var values := [0.0, 0.2, 0.4, 0.6, 0.8]
+	var rows: Array = TackleExperimentScript.sweep(
+		model,
+		"w_angle",
+		values,
+		inputs,
+		attempts,
+		1
+	)
+
+	var result_text := "RESULTS\n"
+	for row in rows:
+		result_text += (
+			"w₂ %.1f  %.1f%%  [%d/%d]\n"
+			% [
+				row.value,
+				row.rate,
+				row.successes,
+				row.attempts
+			]
+		)
+
+	result_text += "\nSENSITIVITY\n"
+	result_text += "%.1f pp / weight unit" % TackleExperimentScript.slope(rows)
+
+	_experiment_results.text = result_text
+	_experiment_status.text = "MODEL: COMPLETE  |  SIMULATION: WIRED"
 
 
 func _build_locomotion_group() -> VBoxContainer:
@@ -573,19 +939,20 @@ func _build_misc_group() -> VBoxContainer:
 	return group
 
 
-## A Button dressed in RetroWindow's shell — warm parchment fill, near-black
-## rule, sharp corners, rust accent on hover/press — so a clicked control
-## reads as the same family as this screen's labels rather than as Godot's
-## default grey theme sitting on top of them. Toggle buttons (the LOCOMOTION
-## column) reuse the same styles: the "pressed" look doubles as the
-## toggled-on highlight, marking the live gait.
+## Local-only shrink for this screen's button labels — 17.5% off
+## UIStyle.SIZE_LABEL, applied as a per-button override rather than
+## touching the shared constant, so nothing outside this dev tool changes.
+## BUTTON_WIDTH/BUTTON_HEIGHT (the outer control's own minimum size) are
+## untouched, so the smaller text just gets more breathing room.
+const MENU_LABEL_SCALE := 0.825
+
 func _make_button(text: String) -> Button:
 	var button := Button.new()
 	button.text = text
 	button.custom_minimum_size = Vector2(BUTTON_WIDTH, BUTTON_HEIGHT)
 	button.focus_mode = Control.FOCUS_NONE   # mouse-click screen; no cursor to steal focus
 	button.add_theme_font_override(&"font", UIStyle.font(UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
-	button.add_theme_font_size_override(&"font_size", UIStyle.SIZE_LABEL)
+	button.add_theme_font_size_override(&"font_size", int(UIStyle.SIZE_LABEL * MENU_LABEL_SCALE))
 	for colour: StringName in [&"font_color", &"font_hover_color", &"font_pressed_color"]:
 		button.add_theme_color_override(colour, RetroWindow.BORDER)
 	button.add_theme_color_override(&"font_disabled_color", UIStyle.TEXT_MUTED)
@@ -642,7 +1009,7 @@ func _on_jump_pressed() -> void:
 ## which one is on screen and getting driven by _process.
 func _show_single_subject() -> void:
 	_subject.visible = true
-	_move_camera_to(STAND_ON + Vector3(-CAMERA_SIDESTEP, CAMERA_HEIGHT, CAMERA_DISTANCE))
+	_move_camera_to(STAND_ON + Vector3(-_screen_fraction_sidestep(), CAMERA_HEIGHT, CAMERA_DISTANCE))
 	if _contest_built:
 		_contest_a.visible = false
 		_contest_b.visible = false
@@ -697,6 +1064,16 @@ func _move_camera_to(target: Vector3) -> void:
 	_camera_tween = create_tween()
 	_camera_tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	_camera_tween.tween_property(_camera, "position", target, CAMERA_MOVE_TIME)
+
+## Converts SUBJECT_SCREEN_FRACTION (0=left edge, 0.5=centre, 1=right edge)
+## into a world-space camera sidestep at CAMERA_DISTANCE, using the
+## camera's own horizontal FOV — this is what makes the 66%-across framing
+## hold across window resolutions instead of a hardcoded metre offset.
+func _screen_fraction_sidestep() -> float:
+	var half_width_at_distance := CAMERA_DISTANCE * tan(deg_to_rad(_camera.fov) * 0.5) * _camera.get_viewport().get_visible_rect().size.aspect()
+	# fraction 0.5 => sidestep 0 (centred); 1.0 => full half-width right.
+	return (SUBJECT_SCREEN_FRACTION - 0.5) * 2.0 * half_width_at_distance
+
 
 
 # ── Contests: real PlayerController/Ball physics, two bodies, a short
