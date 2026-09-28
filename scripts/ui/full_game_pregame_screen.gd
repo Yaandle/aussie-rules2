@@ -218,121 +218,23 @@ class Card:
 ## must stay self-contained.
 class _CameraPreviewField extends Control:
 	var full_side := false
+	var _texture_rect: TextureRect
 
-	func _draw() -> void:
-		var bounds := Rect2(Vector2.ZERO, size)
-		var field_rect := bounds.grow(-4.0)
+	func _ready() -> void:
+		# Create a TextureRect to display the camera screenshot
+		_texture_rect = TextureRect.new()
+		_texture_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+		_texture_rect.expand_mode = TextureRect.EXPAND_FIT_HEIGHT
+		_texture_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		_texture_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(_texture_rect)
+		update_texture()
 
-		draw_rect(
-			field_rect,
-			RetroWindow.BORDER,
-			false,
-			1.0
-		)
-
-		var centre_x := (
-			field_rect.position.x +
-			field_rect.size.x * 0.5
-		)
-
-		draw_line(
-			Vector2(centre_x, field_rect.position.y),
-			Vector2(centre_x, field_rect.end.y),
-			SoftBrutalist.MUTED,
-			1.0
-		)
-
-		if full_side:
-			var player_positions := [
-				Vector2(0.16, 0.35),
-				Vector2(0.28, 0.65),
-				Vector2(0.40, 0.42),
-				Vector2(0.50, 0.62),
-				Vector2(0.62, 0.35),
-				Vector2(0.74, 0.58),
-				Vector2(0.86, 0.40),
-			]
-
-			for p in player_positions:
-				_draw_player(
-					Vector2(
-						field_rect.position.x +
-						field_rect.size.x * p.x,
-						field_rect.position.y +
-						field_rect.size.y * p.y
-					),
-					3.0
-				)
-
-			var frame := field_rect.grow(-8.0)
-
-			draw_rect(
-				frame,
-				RetroWindow.ACCENT,
-				false,
-				1.0
-			)
-		else:
-			var player := Vector2(
-				field_rect.position.x +
-				field_rect.size.x * 0.42,
-				field_rect.position.y +
-				field_rect.size.y * 0.58
-			)
-
-			_draw_player(player, 5.0)
-
-			_draw_player(
-				Vector2(
-					field_rect.position.x +
-					field_rect.size.x * 0.68,
-					field_rect.position.y +
-					field_rect.size.y * 0.38
-				),
-				4.0
-			)
-
-			var camera_frame := Rect2(
-				player - Vector2(32.0, 26.0),
-				Vector2(64.0, 52.0)
-			)
-
-			draw_rect(
-				camera_frame,
-				RetroWindow.ACCENT,
-				false,
-				1.0
-			)
-
-			draw_circle(
-				player + Vector2(10.0, -7.0),
-				2.0,
-				RetroWindow.ACCENT
-			)
-
-	func _draw_player(
-		player_position: Vector2,
-		radius: float
-	) -> void:
-		draw_circle(
-			player_position,
-			radius,
-			RetroWindow.ACCENT
-		)
-
-		draw_line(
-			player_position + Vector2(0.0, radius),
-			player_position + Vector2(0.0, radius + 6.0),
-			RetroWindow.BORDER,
-			1.0
-		)
-
-		draw_line(
-			player_position + Vector2(-3.0, radius + 3.0),
-			player_position + Vector2(3.0, radius + 3.0),
-			RetroWindow.BORDER,
-			1.0
-		)
+	func update_texture() -> void:
+		if _texture_rect == null:
+			return
+		var image_path := "res://assets/textures/images/fullside.png" if full_side else "res://assets/textures/images/3rdperson.png"
+		_texture_rect.texture = load(image_path)
 
 
 var _cards: Array[Card] = []
@@ -1240,10 +1142,21 @@ func _sync_camera_preview() -> void:
 		return
 
 	var full_side := Settings.full_game_camera_mode == Settings.FullGameCameraMode.FULL_SIDE
+	
+	# Only show the panel matching the current camera mode
+	_camera_panel_third_person.visible = not full_side
+	_camera_panel_full_side.visible = full_side
+	
 	_camera_panel_third_person.add_theme_stylebox_override(
 		&"panel", RetroWindow.row_style(not full_side))
 	_camera_panel_full_side.add_theme_stylebox_override(
 		&"panel", RetroWindow.row_style(full_side))
+	
+	# Update the displayed images in both camera preview fields
+	if is_instance_valid(_camera_field_third_person):
+		_camera_field_third_person.update_texture()
+	if is_instance_valid(_camera_field_full_side):
+		_camera_field_full_side.update_texture()
 
 
 ## Pushes the live settings into the preview window. All three board dials
