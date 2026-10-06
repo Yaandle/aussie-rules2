@@ -1,6 +1,12 @@
 class_name MLExperimentViewer
 extends RefCounted
 
+const STAGES := ["Logistic regression", "Genetic algorithm", "MLP", "Deep Q-learning"]
+const ACTIVE_STAGE := 0
+const SWEEP_VALUES := [0.0, 0.2, 0.4, 0.6, 0.8]
+
+
+
 ## Split out of animation_viewer.gd: the ML Experiments side panel
 ## (tackle-break-probability model + sweep). Self-contained UI + logic;
 ## talks back to the AnimationViewer only for the three things it can't
@@ -89,7 +95,8 @@ func build(ui_root: Control) -> void:
 		UIStyle.TEXT_PRIMARY,
 		UIStyle.WEIGHT_HEAVY
 	))
-	root.add_child(_muted_caption("Tackle model: adjust inputs and weights, then run a sweep."))
+	root.add_child(_muted_caption("Stage %d of %d: %s" % [ACTIVE_STAGE + 1, STAGES.size(), STAGES[ACTIVE_STAGE]]))
+	root.add_child(_muted_caption("P(break) = σ(w₁·Δspeed + w₂·angle + w₃·stamina + b)\nTackle success = 1 − P(break)"))
 	root.add_child(HSeparator.new())
 
 	var metrics := GridContainer.new()
@@ -143,30 +150,21 @@ func build(ui_root: Control) -> void:
 	var attempts := OptionButton.new()
 	attempts.add_item("100 attempts each", 100)
 	attempts.add_item("1,000 attempts each", 1000)
+	attempts.add_item("10,000 attempts each", 10000)
+	attempts.select(1)
 	attempts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	run_row.add_child(attempts)
 
-	var run := _viewer.make_dev_button("RUN")
-	run.pressed.connect(func() -> void:
-		var n := attempts.get_selected_id()
+	var run_sweep := func() -> void:
 		_run_tackle_experiment(
-			dspeed.value,
-			angle.value,
-			stamina.value,
-			w2.value,
-			n
+			{"dspeed": dspeed.value, "angle": angle.value, "stamina": stamina.value},
+			{"w_speed": w1.value, "w_stamina": w3.value, "bias": bias.value},
+			attempts.get_selected_id()
 		)
-	)
+
+	var run := _viewer.make_dev_button("RUN")
+	run.pressed.connect(run_sweep)
 	run_row.add_child(run)
-
-	_run_tackle_experiment(dspeed.value, angle.value, stamina.value, w2.value, attempts.get_selected_id())
-
-	var back_button := _viewer.make_dev_button("← Back")
-	back_button.add_theme_font_size_override(&"font_size", UIStyle.SIZE_LABEL)
-	back_button.pressed.connect(func() -> void:
-		set_open(false)
-	)
-	root.add_child(back_button)
 
 	var legend := HBoxContainer.new()
 	legend.add_theme_constant_override(&"separation", 16)
@@ -177,11 +175,7 @@ func build(ui_root: Control) -> void:
 	_chart = TackleChartScript.new()
 	root.add_child(_chart)
 
-	_experiment_results = UIStyle.label(
-		"Results\n—",
-		UIStyle.SIZE_LABEL,
-		UIStyle.TEXT_PRIMARY
-	)
+	_experiment_results = UIStyle.label("RESULTS\n—", UIStyle.SIZE_LABEL, UIStyle.TEXT_PRIMARY)
 	root.add_child(_experiment_results)
 
 	var summary := GridContainer.new()
@@ -190,16 +184,22 @@ func build(ui_root: Control) -> void:
 	summary.add_theme_constant_override(&"v_separation", 12)
 	root.add_child(summary)
 
-	var s2_card := _metric_card("0.2 → 0.8")
+	var s2_card := _metric_card("TWO-POINT 0.2 → 0.8")
 	_experiment_s2_label = s2_card.value_label
 	summary.add_child(s2_card.node)
 
-	var sf_card := _metric_card("0.0 → 0.8")
+	var sf_card := _metric_card("FULL RANGE 0.0 → 0.8")
 	_experiment_sf_label = sf_card.value_label
 	summary.add_child(sf_card.node)
 
-	_experiment_status = _muted_caption("Percentage points per weight unit.")
+	_experiment_status = _muted_caption("")
 	root.add_child(_experiment_status)
+
+	var back_button := _viewer.make_dev_button("← Back")
+	back_button.pressed.connect(func() -> void: set_open(false))
+	root.add_child(back_button)
+
+	run_sweep.call()  # last, so every label exists
 
 
 ## Toggled callback target — wire the CONTROL group's EXPERIMENTS button
@@ -255,57 +255,41 @@ func _ensure_experiment_cube_built() -> void:
 	# TODO: Build experiment visualization cube if desired
 
 
-func _run_tackle_experiment(
-		dspeed: float,
-		angle: float,
-		stamina: float,
-		w2: float,
-		attempts: int
-	) -> void:
+func _run_tackle_experiment(inputs: Dictionary, weights: Dictionary, attempts: int) -> void:
 	var model = TackleModelScript.new()
-	model.w_angle = w2
+	for key in weights:
+		model.set(key, weights[key])
 
-	var probability := model.p_break(dspeed, angle, stamina)
-	var success_probability := 1.0 - probability
+	var rows: Array = TackleExperimentScript.sweep(model, "w_angle", SWEEP_VALUES, inputs, attempts, 1)
 
-	_experiment_model_label.text = (
-		"P(BREAK): %.1f%%\nTACKLE SUCCESS: %.1f%%"
-		% [probability * 100.0, success_probability * 100.0]
-	)
-
-	var inputs := {
-		"dspeed": dspeed,
-		"angle": angle,
-		"stamina": stamina,
-	}
-
-	var values := [0.0, 0.2, 0.4, 0.6, 0.8]
-	var rows: Array = TackleExperimentScript.sweep(
-		model,
-		"w_angle",
-		values,
-		inputs,
-		attempts,
-		1
-	)
-
-	var result_text := "RESULTS\n"
+	var text := "RESULTS\n"
 	var plot_points: Array[Vector2] = []
 	for row in rows:
-		result_text += (
-			"w₂ %.1f  %.1f%%  [%d/%d]\n"
-			% [row.value, row.rate, row.successes, row.attempts]
-		)
+		text += "w₂ %.1f  %.1f%%  [%d/%d]\n" % [row.value, row.rate, row.successes, row.attempts]
 		plot_points.append(Vector2(row.value, row.rate))
+	_experiment_results.text = text
 
-	result_text += "\nSENSITIVITY\n"
-	result_text += "%.1f pp / weight unit" % TackleExperimentScript.slope(rows)
+	_experiment_s2_label.text = "%.1f pp/unit" % _slope_between(rows, 0.2, 0.8)
+	_experiment_sf_label.text = "%.1f pp/unit" % _slope_between(rows, 0.0, 0.8)
 
-	_experiment_results.text = result_text
-	_experiment_status.text = "MODEL: COMPLETE  |  SIMULATION: WIRED"
+	var noise := sqrt(0.25 / attempts) * 100.0
+	_experiment_status.text = "%d attempts per setting, noise about ±%.1f pp (1 SE, worst case). Slopes are experimental over the tested range." % [attempts, noise]
 
 	if _chart != null:
 		_chart.set_simulated(plot_points)
+
+
+func _slope_between(rows: Array, from_w: float, to_w: float) -> float:
+	var lo = null
+	var hi = null
+	for row in rows:
+		if is_equal_approx(row.value, from_w):
+			lo = row
+		if is_equal_approx(row.value, to_w):
+			hi = row
+	if lo == null or hi == null:
+		return NAN
+	return (hi.rate - lo.rate) / (to_w - from_w)
 
 
 func _metric_card(caption: String) -> Dictionary:
