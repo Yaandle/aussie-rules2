@@ -61,6 +61,7 @@ var _experiment_open := false
 var _experiment_layer_tween: Tween
 var _experiment_w2 := 0.2
 var _experiment_attempts := 1000
+var _experiment_seed := 1
 var _experiment_cube: Node3D
 var _experiment_success_label: Label
 var _experiment_z_label: Label
@@ -220,15 +221,19 @@ func _build_model_page(page: VBoxContainer) -> Dictionary:
 	page.add_child(_experiment_z_label)
 
 	page.add_child(_section_heading("Inputs"))
-	var dspeed := _slider_row(page, "Δspeed", -2.0, 4.0, 0.1, 2.0)
-	var angle := _slider_row(page, "Angle", -2.0, 2.0, 0.1, 1.0)
-	var stamina := _slider_row(page, "Stamina", 0.0, 2.0, 0.1, 1.0)
+	var dspeed := _slider_row(page, "Δspeed", -2.0, 4.0, 0.1, 0.7)
+	var angle := _slider_row(page, "Angle", -2.0, 2.0, 0.1, 0.7)
+	var stamina := _slider_row(page, "Stamina", 0.0, 2.0, 0.1, 0.7)
+	var seed := _spinbox_row(page, "Seed", 1, 1000, 1, _experiment_seed)
+	seed.value_changed.connect(func(v: float) -> void:
+		_experiment_seed = int(v)
+	)
 
 	page.add_child(_section_heading("Weights"))
-	var w1 := _slider_row(page, "w₁ speed", -1.0, 2.0, 0.1, 0.8)
-	var w2 := _slider_row(page, "w₂ angle", 0.0, 1.0, 0.05, 0.2)
-	var w3 := _slider_row(page, "w₃ stamina", 0.0, 1.5, 0.1, 0.5)
-	var bias := _slider_row(page, "b bias", -3.0, 1.0, 0.1, -1.0)
+	var w1 := _slider_row(page, "w₁ speed", 0.0, 12.0, 0.5, 6.0)
+	var w2 := _slider_row(page, "w₂ angle", 0.0, 8.0, 0.2, 4.0)
+	var w3 := _slider_row(page, "w₃ stamina", 0.0, 6.0, 0.2, 2.0)
+	var bias := _slider_row(page, "b bias", -10.0, 2.0, 0.2, -5.6)
 
 	var recompute := func() -> void:
 		var z := w1.value * dspeed.value + w2.value * angle.value + w3.value * stamina.value + bias.value
@@ -242,7 +247,7 @@ func _build_model_page(page: VBoxContainer) -> Dictionary:
 		s.value_changed.connect(func(_v): recompute.call())
 	recompute.call()
 
-	return {"dspeed": dspeed, "angle": angle, "stamina": stamina, "w1": w1, "w2": w2, "w3": w3, "bias": bias}
+	return {"dspeed": dspeed, "angle": angle, "stamina": stamina, "w1": w1, "w2": w2, "w3": w3, "bias": bias, "seed": seed}
 
 
 func _build_sweep_page(page: VBoxContainer, s: Dictionary) -> void:
@@ -266,6 +271,15 @@ func _build_sweep_page(page: VBoxContainer, s: Dictionary) -> void:
 	attempts.select(1)
 	attempts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	run_row.add_child(attempts)
+
+	var seed := OptionButton.new()
+	seed.add_item("Seed 1", 1)
+	seed.add_item("Seed 2", 2)
+	seed.add_item("Seed 3", 3)
+	seed.add_item("Seed 4", 4)
+	seed.select(0)
+	seed.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	run_row.add_child(seed)
 
 	var run_sweep := func() -> void:
 		var pick: Dictionary = SWEEP_WEIGHTS[weight_pick.selected]
@@ -559,7 +573,7 @@ func _run_tackle_experiment(inputs: Dictionary, weights: Dictionary, attempts: i
 	for key in weights:
 		model.set(key, weights[key])
 
-	var rows: Array = TackleExperimentScript.sweep(model, sweep_key, SWEEP_VALUES, inputs, attempts, 1)
+	var rows: Array = TackleExperimentScript.sweep(model, sweep_key, SWEEP_VALUES, inputs, attempts, _experiment_seed)
 
 	var text := "RESULTS · sweep %s\n" % sweep_name
 	var plot_points: Array[Vector2] = []
@@ -698,3 +712,34 @@ func _slider_row(parent: Control, label_text: String, min_v: float, max_v: float
 	)
 
 	return slider
+
+
+func _spinbox_row(parent: Control, label_text: String, min_v: int, max_v: int, step: int, default: int) -> SpinBox:
+	var row := GridContainer.new()
+	row.columns = 3
+	row.add_theme_constant_override(&"h_separation", 8)
+	parent.add_child(row)
+
+	var label := UIStyle.label(label_text, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
+	label.custom_minimum_size.x = 70.0
+	row.add_child(label)
+
+	var box := SpinBox.new()
+	box.min_value = float(min_v)
+	box.max_value = float(max_v)
+	box.step = float(step)
+	box.value = float(default)
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(box)
+
+	var out := UIStyle.label("%d" % default, UIStyle.SIZE_LABEL, UIStyle.TEXT_PRIMARY)
+	out.custom_minimum_size.x = 40.0
+	out.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(out)
+
+	box.value_changed.connect(func(v: float) -> void:
+		out.text = "%d" % int(v)
+	)
+
+	return box

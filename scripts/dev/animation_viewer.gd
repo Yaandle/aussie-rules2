@@ -195,8 +195,9 @@ const JUMP_FALL_TIME := 0.32
 
 ## Every clickable control on this screen is one width/height so the three
 ## columns line up as a grid rather than a ragged stack of 200/220px odds.
-const BUTTON_WIDTH := 180.0
-const BUTTON_HEIGHT := 26.0
+## Halved again so the menu/buttons are much smaller and take less screen space.
+const BUTTON_WIDTH := 18.0
+const BUTTON_HEIGHT := 4.0
 
 ## Camera moves between the single-subject framing and the wider contest one
 ## are eased over this rather than cut — a hard jump between two quite
@@ -206,9 +207,16 @@ const CAMERA_MOVE_TIME := 0.35
 const PlayerScene := preload("res://scenes/player/player.tscn")
 const BallScene := preload("res://scenes/ball/ball.tscn")
 const MLExperimentViewerScript := preload("res://scripts/dev/ml_experiment_viewer.gd")
+const TackleModelScript := preload("res://scripts/dev/tackle_model.gd")
+
+## Tackle model integration: baseline stamina value (not tracked in viewer; use constant).
+const CONTEST_STAMINA_BASELINE := 1.0
 
 @onready var _camera: Camera3D = $Camera3D
 @onready var _ui: Control = $Overlay/UI
+
+## Seeded RNG for tackle model roll_break() in contest simulation.
+var _contest_rng := RandomNumberGenerator.new()
 
 var _subject: Node3D
 var _rig: HumanoidRig
@@ -248,6 +256,25 @@ var _sequence_kind := SequenceKind.BOUNCE_RUN
 var _sequence_stage := ContestStage.NONE
 var _sequence_timer := 0.0
 var _sequence_triggered := false
+
+## Tackle model prediction result (for debug display in _step_contest).
+var _contest_tackle_prediction := ""
+var _tackle_model_manual := false
+var _tackle_model_rolled := false
+var _tackle_model_manual_inputs := {
+	"dspeed": 0.7,
+	"angle": 0.7,
+	"stamina": 0.7,
+}
+var _tackle_model_dspeed_slider: HSlider
+var _tackle_model_angle_slider: HSlider
+var _tackle_model_stamina_slider: HSlider
+var _tackle_model_dspeed_value: Label
+var _tackle_model_angle_value: Label
+var _tackle_model_stamina_value: Label
+var _tackle_model_z_label: Label
+var _tackle_model_p_label: Label
+var _tackle_model_panel: VBoxContainer
 
 ## Free move — solo real PlayerController under real input, roaming the
 ## bigger grid above. Built lazily on the first FREE MOVE press, same
@@ -342,6 +369,118 @@ func _build_fill_light() -> DirectionalLight3D:
 	return light
 
 
+func _build_studio_floor() -> MeshInstance3D:
+	var mesh := ImmediateMesh.new()
+	var half_steps := int(floor(GRID_HALF_EXTENT / GRID_STEP))
+	mesh.surface_begin(Mesh.PRIMITIVE_LINES)
+	for step in range(-half_steps, half_steps + 1):
+		var x := step * GRID_STEP
+		mesh.surface_set_color(GRID_COLOUR)
+		mesh.surface_add_vertex(Vector3(x, 0.0, -GRID_HALF_EXTENT))
+		mesh.surface_add_vertex(Vector3(x, 0.0, GRID_HALF_EXTENT))
+		mesh.surface_add_vertex(Vector3(-GRID_HALF_EXTENT, 0.0, x))
+		mesh.surface_add_vertex(Vector3(GRID_HALF_EXTENT, 0.0, x))
+	mesh.surface_end()
+	var instance := MeshInstance3D.new()
+	instance.name = "StudioFloor"
+	instance.mesh = mesh
+	return instance
+
+
+func _build_free_move_floor() -> MeshInstance3D:
+	var mesh := ImmediateMesh.new()
+	var half_steps := int(floor(FREE_MOVE_GRID_HALF_EXTENT / FREE_MOVE_GRID_STEP))
+	mesh.surface_begin(Mesh.PRIMITIVE_LINES)
+	for step in range(-half_steps, half_steps + 1):
+		var x := step * FREE_MOVE_GRID_STEP
+		mesh.surface_set_color(GRID_COLOUR)
+		mesh.surface_add_vertex(Vector3(x, 0.0, -FREE_MOVE_GRID_HALF_EXTENT))
+		mesh.surface_add_vertex(Vector3(x, 0.0, FREE_MOVE_GRID_HALF_EXTENT))
+		mesh.surface_add_vertex(Vector3(-FREE_MOVE_GRID_HALF_EXTENT, 0.0, x))
+		mesh.surface_add_vertex(Vector3(FREE_MOVE_GRID_HALF_EXTENT, 0.0, x))
+	mesh.surface_end()
+	var instance := MeshInstance3D.new()
+	instance.name = "FreeMoveFloor"
+	instance.mesh = mesh
+	instance.visible = false
+	return instance
+
+
+func _ensure_free_player_built() -> void:
+	if _free_player_built:
+		return
+	_free_player_built = true
+	_ensure_player_construction_warmed()
+
+	_free_player = PlayerScene.instantiate()
+	_free_player.team = Tuning.Team.HOME
+	_free_player.camera = _camera
+	var rig := _free_player.get_node("Rig") as HumanoidRig
+	if rig != null:
+		rig.high_detail = true
+	add_child(_free_player)
+	_free_player.global_position = STAND_ON
+	_free_brain = HumanBrain.new()
+	_free_player.set_brain(_free_brain)
+
+	_free_move_floor = _build_free_move_floor()
+	add_child(_free_move_floor)
+	_free_move_floor.visible = false
+
+
+func _show_free_move() -> void:
+	_subject.visible = false
+	if _contest_built:
+		_contest_a.visible = false
+		_contest_b.visible = false
+		_contest_ball.visible = false
+	if _umpire != null:
+		_umpire.visible = false
+	if _free_player_built:
+		_free_player.visible = true
+	if _free_move_floor != null:
+		_free_move_floor.visible = true
+	_studio_floor.visible = false
+	_preview_columns.visible = false
+	_free_move_hints.visible = true
+	_free_move_active = true
+	_move_camera_to(STAND_ON + Vector3(-CAMERA_SIDESTEP, CAMERA_HEIGHT, CAMERA_DISTANCE))
+
+
+func _on_free_move_toggled(toggled_on: bool) -> void:
+	if toggled_on:
+		_ensure_free_player_built()
+		_show_free_move()
+		return
+	_show_single_subject()
+
+
+func _launch_sequence(kind: SequenceKind) -> void:
+	_show_single_subject()
+	_sequence_kind = kind
+	_sequence_stage = ContestStage.NONE
+	_sequence_timer = 0.0
+	_sequence_triggered = false
+	match kind:
+		SequenceKind.BOUNCE_RUN:
+			pass
+		SequenceKind.MARK_RETREAT:
+			pass
+		SequenceKind.UMPIRE_BALLUP:
+			_ensure_umpire()
+			_umpire.visible = true
+			_umpire.global_position = Vector3(0.0, 0.0, 2.0)
+
+
+func _step_sequence(delta: float) -> void:
+	if _sequence_stage == ContestStage.NONE:
+		return
+	_sequence_timer += delta
+	if _sequence_timer > SEQUENCE_TIMEOUT:
+		_sequence_stage = ContestStage.NONE
+		_sequence_triggered = false
+
+
 func _process(delta: float) -> void:
 	if _subject.visible and _player_animation != null:
 		_player_animation.drive(_current_blend, delta)
@@ -407,21 +546,30 @@ func _build_subject() -> void:
 
 func _build_ui() -> void:
 	var root := VBoxContainer.new()
-	root.position = Vector2(10.0, 14.0)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_theme_constant_override(&"separation", 16)
-	_ui.add_child(root)
+	root.add_theme_constant_override(&"separation", 8)
+
+	# Wrap the menu in a styled panel so it doesn't stretch full-screen
+	var panel := PanelContainer.new()
+	panel.position = Vector2(10.0, 14.0)
+	panel.custom_minimum_size.x = 120.0
+	panel.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	panel.anchor_right = 0.5
+	panel.add_theme_stylebox_override(&"panel", _box(Color(RetroWindow.PANEL), 2, 4.0, 12))
+	panel.add_child(root)
+	_ui.add_child(panel)
 	_root_layout = root
 
-	root.add_child(UIStyle.label("ANIMATION VIEWER — DEV", UIStyle.SIZE_TITLE,
+	root.add_child(UIStyle.label("ANIMATION VIEWER — DEV", UIStyle.SIZE_TITLE - 6,
 		UIStyle.TEXT_PRIMARY, UIStyle.WEIGHT_HEAVY, UIStyle.TRACK_TITLE))
 
 	var status := HBoxContainer.new()
 	status.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	status.add_theme_constant_override(&"separation", 24)
 	root.add_child(status)
-	_state_label = UIStyle.label("STATE: —", UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
-	_blend_label = UIStyle.label("BLEND: 0.00, 0.00", UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
+	_state_label = UIStyle.label("STATE: —", UIStyle.SIZE_LABEL - 12, UIStyle.TEXT_MUTED)
+	_blend_label = UIStyle.label("BLEND: 0.00, 0.00", UIStyle.SIZE_LABEL - 12, UIStyle.TEXT_MUTED)
 	status.add_child(_state_label)
 	status.add_child(_blend_label)
 
@@ -463,7 +611,7 @@ func _build_control_group() -> HBoxContainer:
 	var group := HBoxContainer.new()
 	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	group.add_theme_constant_override(&"separation", 12)
-	group.add_child(UIStyle.label("CONTROL", UIStyle.SIZE_LABEL,
+	group.add_child(UIStyle.label("CONTROL", UIStyle.SIZE_LABEL - 6,
 		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
 
 	var toggle := _make_button("FREE MOVE")
@@ -484,7 +632,7 @@ func _build_locomotion_group() -> VBoxContainer:
 	var group := VBoxContainer.new()
 	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	group.add_theme_constant_override(&"separation", 8)
-	group.add_child(UIStyle.label("LOCOMOTION — ON THE SPOT", UIStyle.SIZE_LABEL,
+	group.add_child(UIStyle.label("LOCOMOTION — ON THE SPOT", UIStyle.SIZE_LABEL - 6,
 		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
 
 	var toggle_group := ButtonGroup.new()
@@ -492,6 +640,8 @@ func _build_locomotion_group() -> VBoxContainer:
 		var label: String = entry[0]
 		var blend: Vector2 = entry[1]
 		var button := _make_button(label)
+		# Reduce locomotion button width
+		button.custom_minimum_size.x = BUTTON_WIDTH * 0.5
 		button.toggle_mode = true
 		button.button_group = toggle_group
 		button.button_pressed = blend == Vector2.ZERO
@@ -506,7 +656,7 @@ func _build_action_group() -> VBoxContainer:
 	var group := VBoxContainer.new()
 	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	group.add_theme_constant_override(&"separation", 8)
-	group.add_child(UIStyle.label("ACTIONS", UIStyle.SIZE_LABEL,
+	group.add_child(UIStyle.label("ACTIONS", UIStyle.SIZE_LABEL - 6,
 		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
 
 	for entry: Array in ACTIONS:
@@ -524,17 +674,22 @@ func _build_contest_group() -> VBoxContainer:
 	var group := VBoxContainer.new()
 	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	group.add_theme_constant_override(&"separation", 8)
-	group.add_child(UIStyle.label("CONTESTS — SPAWNS AN OPPONENT", UIStyle.SIZE_LABEL,
+	group.add_child(UIStyle.label("CONTESTS — SPAWNS AN OPPONENT", UIStyle.SIZE_LABEL - 6,
 		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
 
 	for entry: Array in CONTESTS:
 		var label: String = entry[0]
 		var kind: ContestKind = entry[1]
 		var button := _make_button(label)
+		# Reduce contest button width
+		button.custom_minimum_size.x = BUTTON_WIDTH * 0.5
 		button.pressed.connect(func() -> void: _launch_contest(kind))
 		group.add_child(button)
 
-	group.add_child(UIStyle.label("SEQUENCES — CARRIER / BALL / UMPIRE", UIStyle.SIZE_LABEL,
+	_tackle_model_panel = _build_tackle_model_panel()
+	group.add_child(_tackle_model_panel)
+
+	group.add_child(UIStyle.label("SEQUENCES — CARRIER / BALL / UMPIRE", UIStyle.SIZE_LABEL - 6,
 		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
 
 	for entry: Array in SEQUENCES:
@@ -544,107 +699,227 @@ func _build_contest_group() -> VBoxContainer:
 		button.pressed.connect(func() -> void: _launch_sequence(kind))
 		group.add_child(button)
 
-	_contest_status_label = UIStyle.label("", UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
+	_contest_status_label = UIStyle.label("", UIStyle.SIZE_LABEL - 12, UIStyle.TEXT_MUTED)
 	group.add_child(_contest_status_label)
 	return group
+
+
+func _build_tackle_model_panel() -> VBoxContainer:
+	var panel := VBoxContainer.new()
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_theme_constant_override(&"separation", 8)
+	panel.add_child(UIStyle.label("MODEL INPUTS", UIStyle.SIZE_LABEL - 6,
+		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
+
+	var mode_row := HBoxContainer.new()
+	mode_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mode_row.add_theme_constant_override(&"separation", 8)
+	var toggle_group := ButtonGroup.new()
+	var auto_button := _make_button("AUTO")
+	auto_button.toggle_mode = true
+	auto_button.button_group = toggle_group
+	auto_button.button_pressed = true
+	auto_button.pressed.connect(func() -> void:
+		_tackle_model_manual = false
+		_update_tackle_model_panel_state())
+	var manual_button := _make_button("MANUAL")
+	manual_button.toggle_mode = true
+	manual_button.button_group = toggle_group
+	manual_button.pressed.connect(func() -> void:
+		_tackle_model_manual = true
+		_update_tackle_model_panel_state())
+	mode_row.add_child(auto_button)
+	mode_row.add_child(manual_button)
+	panel.add_child(mode_row)
+
+	var dspeed_row := _make_tackle_model_input_row("dspeed", -2.0, 4.0, "dspeed")
+	panel.add_child(dspeed_row)
+	var angle_row := _make_tackle_model_input_row("angle", -2.0, 2.0, "angle")
+	panel.add_child(angle_row)
+	var stamina_row := _make_tackle_model_input_row("stamina", 0.0, 2.0, "stamina")
+	panel.add_child(stamina_row)
+
+	var action_row := HBoxContainer.new()
+	action_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	action_row.add_theme_constant_override(&"separation", 8)
+	var baseline_button := _make_button("BASELINE")
+	baseline_button.pressed.connect(func() -> void:
+		_tackle_model_manual = true
+		manual_button.set_pressed_no_signal(true)
+		_tackle_model_manual_inputs = {"dspeed": 0.7, "angle": 0.7, "stamina": 0.7}
+		_update_tackle_model_panel_state())
+	var randomise_button := _make_button("RANDOMISE")
+	randomise_button.pressed.connect(func() -> void:
+		_tackle_model_manual = true
+		manual_button.set_pressed_no_signal(true)
+		_tackle_model_manual_inputs = {
+			"dspeed": randf_range(-2.0, 4.0),
+			"angle": randf_range(-2.0, 2.0),
+			"stamina": randf_range(0.0, 2.0),
+		}
+		_update_tackle_model_panel_state())
+	action_row.add_child(baseline_button)
+	action_row.add_child(randomise_button)
+	panel.add_child(action_row)
+
+	_tackle_model_z_label = UIStyle.label("Z: —", UIStyle.SIZE_LABEL - 12, UIStyle.TEXT_MUTED)
+	_tackle_model_p_label = UIStyle.label("P(BREAK): —", UIStyle.SIZE_LABEL - 12, UIStyle.TEXT_MUTED)
+	panel.add_child(_tackle_model_z_label)
+	panel.add_child(_tackle_model_p_label)
+
+	_update_tackle_model_panel_state()
+	return panel
+
+
+func _make_tackle_model_input_row(label_text: String, min_value: float, max_value: float, key: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override(&"separation", 8)
+
+	var label := UIStyle.label(label_text.to_upper(), UIStyle.SIZE_LABEL - 12,
+		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL)
+	row.add_child(label)
+
+	var value_label := UIStyle.label("%.2f" % _tackle_model_manual_inputs[key], UIStyle.SIZE_LABEL - 12, UIStyle.TEXT_MUTED)
+	row.add_child(value_label)
+
+	var slider := HSlider.new()
+	slider.min_value = min_value
+	slider.max_value = max_value
+	slider.step = 0.01
+	slider.value = _tackle_model_manual_inputs[key]
+	slider.value_changed.connect(func(value: float) -> void:
+		_tackle_model_manual_inputs[key] = value
+		_update_tackle_model_panel_state())
+
+	if key == "dspeed":
+		_tackle_model_dspeed_slider = slider
+		_tackle_model_dspeed_value = value_label
+	elif key == "angle":
+		_tackle_model_angle_slider = slider
+		_tackle_model_angle_value = value_label
+	else:
+		_tackle_model_stamina_slider = slider
+		_tackle_model_stamina_value = value_label
+
+	row.add_child(slider)
+	return row
+
+
+func _make_button(label_text: String) -> Button:
+	var button := Button.new()
+	button.text = label_text
+	# Ensure consistent sizing so the three columns align visually.
+	button.custom_minimum_size = Vector2(BUTTON_WIDTH, BUTTON_HEIGHT)
+	return button
 
 
 func _build_misc_group() -> VBoxContainer:
 	var group := VBoxContainer.new()
 	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	group.add_theme_constant_override(&"separation", 8)
-	group.add_child(UIStyle.label("OTHER", UIStyle.SIZE_LABEL,
+	group.add_child(UIStyle.label("MISC", UIStyle.SIZE_LABEL - 6,
 		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
 
-	var jump_button := _make_button("JUMP")
-	jump_button.pressed.connect(func() -> void:
-		_show_single_subject()
-		_on_jump_pressed())
-	group.add_child(jump_button)
+	var reset_button := _make_button("RESET CONTEST")
+	reset_button.pressed.connect(func() -> void:
+		_reset_contest_state()
+		_show_single_subject())
+	group.add_child(reset_button)
 
-	# Show/hide the bone overlay — on by default, the "pressed" style doubling
-	# as the on state exactly like the LOCOMOTION toggles.
-	var wire_button := _make_button("WIREFRAME")
-	wire_button.toggle_mode = true
-	wire_button.button_pressed = true
-	wire_button.toggled.connect(func(on: bool) -> void:
-		if _wireframe != null:
-			_wireframe.visible = on)
-	group.add_child(wire_button)
+	var rebuild_button := _make_button("REBUILD SUBJECT")
+	rebuild_button.pressed.connect(func() -> void:
+		# Rebuild the single-subject rig in-place.
+		if _subject != null:
+			_subject.queue_free()
+			_build_subject())
+	group.add_child(rebuild_button)
 
-	group.add_child(UIStyle.label("PHYSICS-ONLY — NO CLIP YET", UIStyle.SIZE_LABEL,
-		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
-	for label: String in UNIMPLEMENTED:
-		var button := _make_button(label)
-		button.disabled = true
-		group.add_child(button)
 	return group
 
 
-## Local-only shrink for this screen's button labels — 17.5% off
-## UIStyle.SIZE_LABEL, applied as a per-button override rather than
-## touching the shared constant, so nothing outside this dev tool changes.
-## BUTTON_WIDTH/BUTTON_HEIGHT (the outer control's own minimum size) are
-## untouched, so the smaller text just gets more breathing room.
-const MENU_LABEL_SCALE := 0.825
-
-## Public alias so split-out dev panels (e.g. MLExperimentViewer) can use
-## the same button styling without reaching into a private method.
-func make_dev_button(text: String) -> Button:
-	return _make_button(text)
-
-func _make_button(text: String) -> Button:
-	var button := Button.new()
-	button.text = text
-	button.custom_minimum_size = Vector2(BUTTON_WIDTH, BUTTON_HEIGHT)
-	button.focus_mode = Control.FOCUS_NONE   # mouse-click screen; no cursor to steal focus
-	button.add_theme_font_override(&"font", UIStyle.font(UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
-	button.add_theme_font_size_override(&"font_size", int(UIStyle.SIZE_LABEL * MENU_LABEL_SCALE))
-	for colour: StringName in [&"font_color", &"font_hover_color", &"font_pressed_color"]:
-		button.add_theme_color_override(colour, RetroWindow.BORDER)
-	button.add_theme_color_override(&"font_disabled_color", UIStyle.TEXT_MUTED)
-	button.add_theme_stylebox_override(&"normal", _button_box(&"normal"))
-	button.add_theme_stylebox_override(&"hover", _button_box(&"hover"))
-	button.add_theme_stylebox_override(&"pressed", _button_box(&"pressed"))
-	button.add_theme_stylebox_override(&"disabled", _button_box(&"disabled"))
-	button.add_theme_stylebox_override(&"focus", StyleBoxEmpty.new())
-	return button
+func _box(fill: Color, border_w: int, shadow: float, margin: float) -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = fill
+	s.border_color = RetroWindow.BORDER
+	s.set_border_width_all(border_w)
+	s.set_corner_radius_all(6)
+	s.content_margin_left = margin
+	s.content_margin_right = margin
+	s.content_margin_top = margin
+	s.content_margin_bottom = margin
+	if shadow > 0.0:
+		s.shadow_color = Color(0, 0, 0, 0.55)
+		s.shadow_size = 1
+		s.shadow_offset = Vector2(shadow, shadow)
+	return s
 
 
-func _button_box(kind: StringName) -> StyleBoxFlat:
-	var box := StyleBoxFlat.new()
-	box.set_corner_radius_all(RetroWindow.RADIUS)   # sharp, matching the shell
-	box.set_border_width_all(2)
-	box.border_color = RetroWindow.BORDER
-	box.content_margin_left = 8.0
-	box.content_margin_right = 8.0
-	box.content_margin_top = 3.0
-	box.content_margin_bottom = 3.0
-	box.anti_aliasing_size = 1.0
-	match kind:
-		&"hover":
-			box.bg_color = RetroWindow.ACCENT.lightened(0.66)
-			box.border_color = RetroWindow.ACCENT
-		&"pressed":
-			box.bg_color = RetroWindow.ACCENT.lightened(0.42)
-			box.border_color = RetroWindow.ACCENT
-		&"disabled":
-			box.bg_color = Color(RetroWindow.PANEL, 0.45)
-			box.border_color = SoftBrutalist.DISABLED_BORDER
-		_:   # normal
-			box.bg_color = RetroWindow.PANEL
-	return box
+func _update_tackle_model_panel_state() -> void:
+	if _tackle_model_dspeed_slider == null:
+		return
+
+	var inputs := _tackle_model_inputs_for_current_state()
+	_tackle_model_dspeed_slider.editable = _tackle_model_manual
+	_tackle_model_angle_slider.editable = _tackle_model_manual
+	_tackle_model_stamina_slider.editable = _tackle_model_manual
+	_tackle_model_dspeed_slider.value = inputs["dspeed"]
+	_tackle_model_angle_slider.value = inputs["angle"]
+	_tackle_model_stamina_slider.value = inputs["stamina"]
+	_tackle_model_dspeed_value.text = "%.2f" % inputs["dspeed"]
+	_tackle_model_angle_value.text = "%.2f" % inputs["angle"]
+	_tackle_model_stamina_value.text = "%.2f" % inputs["stamina"]
+	_tackle_model_z_label.text = "Z: %.2f" % _tackle_model_z_for_inputs(inputs)
+	_tackle_model_p_label.text = "P(BREAK): %.2f%%" % (_tackle_model_p_for_inputs(inputs) * 100.0)
 
 
-func _on_jump_pressed() -> void:
-	if _jump_tween != null and _jump_tween.is_valid():
-		_jump_tween.kill()
-	_rig.position.y = 0.0
-	_jump_tween = create_tween()
-	_jump_tween.tween_property(_rig, "position:y", JUMP_HEIGHT, JUMP_RISE_TIME) \
-		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	_jump_tween.tween_property(_rig, "position:y", 0.0, JUMP_FALL_TIME) \
-		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+func _tackle_model_inputs_for_current_state() -> Dictionary:
+	if _tackle_model_manual:
+		return _tackle_model_manual_inputs.duplicate()
+	if _contest_a == null or _contest_b == null:
+		return {"dspeed": 0.0, "angle": 0.0, "stamina": CONTEST_STAMINA_BASELINE}
+	var vel_a := Vector3(_contest_a.velocity.x, 0.0, _contest_a.velocity.z)
+	var vel_b := Vector3(_contest_b.velocity.x, 0.0, _contest_b.velocity.z)
+	var pos_a := _contest_a.global_position
+	var pos_b := _contest_b.global_position
+	var approach_dir := pos_b - pos_a
+	if approach_dir.length_squared() < 0.0001:
+		return {"dspeed": 0.0, "angle": 0.0, "stamina": CONTEST_STAMINA_BASELINE}
+	approach_dir = approach_dir.normalized()
+	var dspeed := -(vel_b - vel_a).dot(approach_dir)
+	var a_forward := Vector3(sin(_contest_a.rotation.y), 0.0, cos(_contest_a.rotation.y))
+	var angle_cos := a_forward.dot(approach_dir)
+	var raw_angle := acos(clampf(angle_cos, -1.0, 1.0))
+	var angle := 2.0 * (1.0 - raw_angle / PI)
+	return {"dspeed": dspeed, "angle": angle, "stamina": CONTEST_STAMINA_BASELINE}
+
+
+func _tackle_model_z_for_inputs(inputs: Dictionary) -> float:
+	var model := TackleModelScript.new()
+	var nd := model.normalise(inputs["dspeed"], model.NORM_MIN["dspeed"], model.NORM_MAX["dspeed"])
+	var na := model.normalise(inputs["angle"], model.NORM_MIN["angle"], model.NORM_MAX["angle"])
+	var ns := model.normalise(inputs["stamina"], model.NORM_MIN["stamina"], model.NORM_MAX["stamina"])
+	return model.w_speed * nd + model.w_angle * na + model.w_stamina * ns + model.bias
+
+
+func _tackle_model_p_for_inputs(inputs: Dictionary) -> float:
+	var model := TackleModelScript.new()
+	return model.p_break(inputs["dspeed"], inputs["angle"], inputs["stamina"])
+
+
+func _compute_tackle_model_prediction() -> void:
+	var inputs := _tackle_model_inputs_for_current_state()
+	var model := TackleModelScript.new()
+	var broke := model.roll_break(_contest_rng, inputs["dspeed"], inputs["angle"], inputs["stamina"])
+	var p_break := model.p_break(inputs["dspeed"], inputs["angle"], inputs["stamina"])
+	var z := _tackle_model_z_for_inputs(inputs)
+	var result_text := "BREAK" if broke else "TACKLE"
+	var log_line := "raw: dspeed=%.2f angle=%.2f stamina=%.2f | z=%.2f | P(break)=%.2f%% | roll=%s → %s" % [
+		inputs["dspeed"], inputs["angle"], inputs["stamina"], z, p_break * 100.0, broke, result_text
+	]
+	print("CONTEST TACKLE MODEL: " + log_line)
+	_contest_tackle_prediction = "%s %.1f%%" % [result_text, p_break * 100.0]
+	_update_tackle_model_panel_state()
 
 
 ## Swaps which subject is visible/live — the bare single-figure rig for
@@ -890,6 +1165,9 @@ func _launch_contest(kind: ContestKind) -> void:
 	_show_contest()
 	_reset_contest_state()
 
+	# Initialize tackle model RNG with a fixed seed for reproducibility.
+	_contest_rng.seed = 42
+
 	match kind:
 		# TACKLE — SLIDE is the one to watch for the hold: once it
 		# connects, the two bodies are pinned together at Tuning.TACKLE_
@@ -949,6 +1227,7 @@ func _launch_contest(kind: ContestKind) -> void:
 	_contest_stage = ContestStage.APPROACH
 	_contest_timer = 0.0
 	_contest_bump_triggered = false
+	_tackle_model_rolled = false
 
 
 ## Drives the running scenario each frame. Bump's dash is injected directly
@@ -1015,238 +1294,14 @@ func _step_contest(delta: float) -> void:
 		if resolved or _contest_timer > CONTEST_TIMEOUT:
 			_contest_stage = ContestStage.HOLD
 
-	_contest_status_label.text = "A: %s   B: %s" % [
+		if _contest_kind == ContestKind.TACKLE_SLIDE or _contest_kind == ContestKind.TACKLE_LUNGE:
+			if not _tackle_model_rolled:
+				_compute_tackle_model_prediction()
+				_tackle_model_rolled = true
+		else:
+			_contest_tackle_prediction = ""
+
+	_contest_status_label.text = "A: %s   B: %s   %s" % [
 		Tuning.Action.keys()[_contest_a._action], Tuning.Action.keys()[_contest_b._action],
+		_contest_tackle_prediction,
 	]
-
-
-# ── Sequences: one carrier / a ball / the umpire, no opponent. Same real
-# gameplay code as the contests, just a solo or prop motion that isn't a
-# single clip. See SequenceKind / SEQUENCES. ────────────────────────────
-
-## Sets up whichever SequenceKind `kind` is and starts it running. Re-
-## callable exactly like _launch_contest — press again, it tears down and
-## replays from scratch.
-func _launch_sequence(kind: SequenceKind) -> void:
-	_ensure_contest_built()
-	_reset_contest_state()
-	_show_contest()          # wide framing (also hides the umpire); overridden below
-	_contest_b.visible = false
-
-	match kind:
-		SequenceKind.BOUNCE_RUN:
-			# Carrier jogs downfield (+X, camera-right) and, once it has real
-			# speed under it, bounces — the ball is driven into the contest
-			# floor and re-gathered through the identical _dispose()/_try_
-			# gather path a match uses (nothing here fakes the rebound).
-			_contest_a.visible = true
-			_contest_ball.visible = true
-			_contest_a.global_position = Vector3(-3.5, 0.0, 0.0)
-			_contest_a.rotation.y = deg_to_rad(-90.0)   # face +X
-			_contest_a.give_possession(_contest_ball)
-			_brain_a.wish_dir = Vector3(1.0, 0.0, 0.0)
-			_brain_a.gait_value = 0.75
-		SequenceKind.MARK_RETREAT:
-			# Plays the Safe-mark catch clip, then walks the 5m back off the
-			# mark (Tuning.MARK_RETREAT_*) — run_back blend while facing stays
-			# downfield, exactly as _finish_mark_catch chains the two.
-			_contest_a.visible = true
-			_contest_ball.visible = true
-			_contest_a.global_position = Vector3(2.5, 0.0, 0.0)
-			_contest_a.rotation.y = deg_to_rad(-90.0)   # face +X; feet carry -X
-			_contest_a.give_possession(_contest_ball)
-			_contest_a._animation.play_action(Tuning.Action.MARK_SAFE)
-			_contest_a._begin_mark_retreat()
-		SequenceKind.UMPIRE_BALLUP:
-			# The field umpire's own rig performs the crouch/wind/toss
-			# (umpire.gd), a real Ball riding the grip until the release point
-			# FullGame._begin_ruck_contest fires at, then lobbed straight up
-			# at Tuning.BALL_UP_TOSS_SPEED.
-			_ensure_umpire()
-			_contest_a.visible = false
-			_umpire.visible = true
-			_umpire.stand_at(Vector3(0.0, 0.0, 0.4), Vector3(6.0, 0.0, 0.4))   # profile to camera
-			_contest_ball.visible = true
-			_contest_ball.lock_to(_umpire.ball_hold_point())
-			_umpire.throw_up(Tuning.BALL_UP_THROW_DURATION)
-
-	_sequence_kind = kind
-	_sequence_stage = ContestStage.APPROACH
-	_sequence_timer = 0.0
-	_sequence_triggered = false
-
-
-## Per-frame driver for the running sequence — the SEQUENCES equivalent of
-## _step_contest. Each kind's trigger is the one thing a scripted run can't
-## get from a brain want: BOUNCE_RUN pulses wants_bounce() once the carrier
-## has speed, UMPIRE_BALLUP launches the toss at the throw's release point,
-## MARK_RETREAT needs nothing (the retreat drives itself once begun).
-func _step_sequence(delta: float) -> void:
-	if _sequence_stage == ContestStage.NONE:
-		return
-	_sequence_timer += delta
-
-	if _sequence_stage == ContestStage.APPROACH:
-		match _sequence_kind:
-			SequenceKind.BOUNCE_RUN:
-				if not _sequence_triggered and _sequence_timer >= SEQUENCE_TRIGGER_DELAY:
-					_sequence_triggered = true
-					_brain_a.bounce_wanted = true     # one-frame edge, like a real tap
-				elif _sequence_triggered:
-					_brain_a.bounce_wanted = false
-			SequenceKind.UMPIRE_BALLUP:
-				var release := Tuning.BALL_UP_THROW_DURATION * Umpire.THROW_RELEASE_END
-				if not _sequence_triggered and _sequence_timer >= release:
-					_sequence_triggered = true
-					var from := _contest_ball.global_position
-					_contest_ball.reset_at(from)
-					_contest_ball.launch(Vector3.UP, Tuning.BALL_UP_TOSS_SPEED, Vector3.ZERO)
-			SequenceKind.MARK_RETREAT:
-				pass
-
-		if _sequence_timer > SEQUENCE_TIMEOUT:
-			_sequence_stage = ContestStage.HOLD
-
-	_contest_status_label.text = _sequence_status_text()
-
-
-func _sequence_status_text() -> String:
-	match _sequence_kind:
-		SequenceKind.BOUNCE_RUN:
-			return "BOUNCE ON THE RUN — %s" % \
-				("gathered" if _sequence_triggered and _contest_a.is_carrying() else "running")
-		SequenceKind.MARK_RETREAT:
-			return "MARK RETREAT — %s" % \
-				("walking back" if _contest_a.is_retreating_from_mark() else "on the mark")
-		SequenceKind.UMPIRE_BALLUP:
-			return "UMPIRE BALL-UP — %s" % ("thrown" if _sequence_triggered else "winding up")
-	return ""
-
-
-# ── Free move: one real PlayerController under real input, for roaming
-# and testing actions live rather than through a scripted vignette (see
-# CONTESTS/SEQUENCES above, which are deliberately the opposite: fixed and
-# non-interactive). Solo only — no second body to kick to, no camera
-# changes while moving; both are natural follow-ups once this lands. ────
-
-## Built lazily on the first FREE MOVE press, same reasoning as
-## _ensure_contest_built — most sessions may never touch it.
-func _ensure_free_player_built() -> void:
-	if _free_player_built:
-		return
-	_free_player_built = true
-	_ensure_contest_floor_built()
-	_ensure_player_construction_warmed()
-	_ensure_contest_ball_built()
-
-	_free_player = PlayerScene.instantiate()
-	_free_player.team = Tuning.Team.HOME
-	(_free_player.get_node("Rig") as HumanoidRig).high_detail = true
-	add_child(_free_player)
-	_free_player.global_position = STAND_ON
-	_free_player.rotation.y = deg_to_rad(180.0)
-	_free_player.visible = false
-
-	# NOTE: name-guessed. ContestBrain's own doc comment describes itself
-	# as "the scripted-choreography equivalent of HumanBrain reading real
-	# Input/InputManager" — swap this for whatever that class is actually
-	# called if HumanBrain isn't it.
-	_free_brain = HumanBrain.new()
-	_free_player.set_brain(_free_brain)
-
-	_free_move_floor = _build_free_move_floor()
-	_free_move_floor.visible = false
-	add_child(_free_move_floor)
-
-
-func _show_free_move() -> void:
-	_ensure_free_player_built()
-	_subject.visible = false
-	if _contest_built:
-		_contest_a.visible = false
-		_contest_b.visible = false
-	if _umpire != null:
-		_umpire.visible = false
-	_contest_stage = ContestStage.NONE
-	_sequence_stage = ContestStage.NONE
-
-	_free_player.visible = true
-	_contest_ball.visible = true
-	if not _free_player.is_carrying():
-		_free_player.give_possession(_contest_ball)
-
-	# Same spot as the single-subject framing — camera behaviour for
-	# free-move is a separate pass, not part of this toggle.
-	_move_camera_to(STAND_ON + Vector3(-CAMERA_SIDESTEP, CAMERA_HEIGHT, CAMERA_DISTANCE))
-
-	_studio_floor.visible = false
-	_free_move_floor.visible = true
-	_preview_columns.visible = false
-	_free_move_hints.visible = true
-
-
-func _on_free_move_toggled(on: bool) -> void:
-	if on:
-		_free_move_active = true
-		_show_free_move()
-	else:
-		_show_single_subject()
-
-
-# ── Floor grids: bounded reference grid, not an infinite ground plane —
-# a floor with no edge gives the eye nothing to judge scale or footing
-# against, which is the opposite of what either a pose-preview or a
-# roaming test needs. Drawn as flat lines (PRIMITIVE_LINES, unshaded)
-# rather than a textured mesh, matching skeleton_wireframe.gd's own
-# reasoning: this is a reference cue, not scenery. Studio and free-move
-# share the same draw code (_build_grid_floor) at two different sizes. ──
-
-func _build_studio_floor() -> MeshInstance3D:
-	return _build_grid_floor(GRID_HALF_EXTENT, GRID_STEP, true, "StudioFloor")
-
-
-## Bigger, wall-less counterpart for free-move — same wireframe technique,
-## just without the corner uprights (those frame a standing figure for a
-## pose preview; roaming under a 2.3m box would just get in the way).
-func _build_free_move_floor() -> MeshInstance3D:
-	return _build_grid_floor(FREE_MOVE_GRID_HALF_EXTENT, FREE_MOVE_GRID_STEP, false, "FreeMoveFloor")
-
-
-## Shared grid-drawing code behind both floors above. `with_walls` draws
-## the four corner uprights the studio floor uses to frame a standing
-## figure; free-move skips them.
-func _build_grid_floor(half_extent: float, step: float, with_walls: bool, floor_name: String) -> MeshInstance3D:
-	var mesh := ImmediateMesh.new()
-	var instance := MeshInstance3D.new()
-	instance.name = floor_name
-	instance.mesh = mesh
-	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-
-	var material := StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.vertex_color_use_as_albedo = true
-	material.albedo_color = GRID_COLOUR
-	instance.material_override = material
-
-	mesh.surface_begin(Mesh.PRIMITIVE_LINES)
-	mesh.surface_set_color(GRID_COLOUR)
-
-	var e := half_extent
-	var steps := int(round(e * 2.0 / step))
-	for i in steps + 1:
-		var t := -e + i * step
-		mesh.surface_add_vertex(Vector3(t, 0.0, -e))
-		mesh.surface_add_vertex(Vector3(t, 0.0, e))
-		mesh.surface_add_vertex(Vector3(-e, 0.0, t))
-		mesh.surface_add_vertex(Vector3(e, 0.0, t))
-
-	if with_walls:
-		# Four corner uprights, open-topped — the "box" the floor grid sits
-		# in, tall enough to frame the 1.85m rig with headroom.
-		var box_height := 2.3
-		for corner in [Vector2(-e, -e), Vector2(e, -e), Vector2(-e, e), Vector2(e, e)]:
-			mesh.surface_add_vertex(Vector3(corner.x, 0.0, corner.y))
-			mesh.surface_add_vertex(Vector3(corner.x, box_height, corner.y))
-
-	mesh.surface_end()
-	return instance
