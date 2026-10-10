@@ -193,11 +193,24 @@ const JUMP_HEIGHT := 0.45
 const JUMP_RISE_TIME := 0.28
 const JUMP_FALL_TIME := 0.32
 
-## Every clickable control on this screen is one width/height so the three
-## columns line up as a grid rather than a ragged stack of 200/220px odds.
-## Halved again so the menu/buttons are much smaller and take less screen space.
-const BUTTON_WIDTH := 18.0
-const BUTTON_HEIGHT := 4.0
+## ── Dev menu design (visual only) ───────────────────────────────────
+## Compact, left-docked, translucent panel so the figure and floor grid
+## stay clear. Every control sizes from these values.
+const MENU_POSITION := Vector2(8.0, 8.0)
+const MENU_PADDING := 8.0
+const MENU_COLUMN_GAP := 14
+const MENU_ROW_GAP := 2
+const MENU_SECTION_GAP := 8
+const MENU_PANEL_ALPHA := 0.82
+
+const MENU_FONT_TITLE := 12
+const MENU_FONT_HEAD := 9
+const MENU_FONT_BODY := 10
+
+const BUTTON_WIDTH := 104.0
+const BUTTON_WIDTH_HALF := 62.0
+const BUTTON_HEIGHT := 18.0
+const MENU_SLIDER_WIDTH := 56.0
 
 ## Camera moves between the single-subject framing and the wider contest one
 ## are eased over this rather than cut — a hard jump between two quite
@@ -544,32 +557,38 @@ func _build_subject() -> void:
 
 # ── UI ───────────────────────────────────────────────────────────────
 
+# ── UI ───────────────────────────────────────────────────────────────
+
 func _build_ui() -> void:
 	var root := VBoxContainer.new()
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_theme_constant_override(&"separation", 8)
+	root.add_theme_constant_override(&"separation", MENU_SECTION_GAP)
 
-	# Wrap the menu in a styled panel so it doesn't stretch full-screen
+	# Single translucent panel, hairline border, hugging the top-left.
+	var fill := Color(RetroWindow.PANEL)
+	fill.a = MENU_PANEL_ALPHA
+	var panel_box := _flat_box(fill, Color(RetroWindow.BORDER, 0.5), 1,
+		MENU_PADDING, MENU_PADDING, 4)
 	var panel := PanelContainer.new()
-	panel.position = Vector2(10.0, 14.0)
-	panel.custom_minimum_size.x = 120.0
-	panel.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	panel.anchor_right = 0.5
-	panel.add_theme_stylebox_override(&"panel", _box(Color(RetroWindow.PANEL), 2, 4.0, 12))
+	panel.position = MENU_POSITION
+	panel.add_theme_stylebox_override(&"panel", panel_box)
 	panel.add_child(root)
 	_ui.add_child(panel)
 	_root_layout = root
+	# When the experiment view hides the layout, drop the empty frame too.
+	root.visibility_changed.connect(func() -> void:
+		panel.add_theme_stylebox_override(&"panel",
+			panel_box if root.visible else StyleBoxEmpty.new()))
 
-	root.add_child(UIStyle.label("ANIMATION VIEWER — DEV", UIStyle.SIZE_TITLE - 6,
+	root.add_child(UIStyle.label("ANIMATION VIEWER", MENU_FONT_TITLE,
 		UIStyle.TEXT_PRIMARY, UIStyle.WEIGHT_HEAVY, UIStyle.TRACK_TITLE))
 
 	var status := HBoxContainer.new()
 	status.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	status.add_theme_constant_override(&"separation", 24)
+	status.add_theme_constant_override(&"separation", 12)
 	root.add_child(status)
-	_state_label = UIStyle.label("STATE: —", UIStyle.SIZE_LABEL - 12, UIStyle.TEXT_MUTED)
-	_blend_label = UIStyle.label("BLEND: 0.00, 0.00", UIStyle.SIZE_LABEL - 12, UIStyle.TEXT_MUTED)
+	_state_label = UIStyle.label("STATE: —", MENU_FONT_BODY, UIStyle.TEXT_MUTED)
+	_blend_label = UIStyle.label("BLEND: 0.00, 0.00", MENU_FONT_BODY, UIStyle.TEXT_MUTED)
 	status.add_child(_state_label)
 	status.add_child(_blend_label)
 
@@ -579,13 +598,12 @@ func _build_ui() -> void:
 
 	_preview_columns = HBoxContainer.new()
 	_preview_columns.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_preview_columns.add_theme_constant_override(&"separation", 24)
+	_preview_columns.add_theme_constant_override(&"separation", MENU_COLUMN_GAP)
 	root.add_child(_preview_columns)
 
 	_preview_columns.add_child(_build_locomotion_group())
 	_preview_columns.add_child(_build_action_group())
 	_preview_columns.add_child(_build_contest_group())
-	_preview_columns.add_child(_build_misc_group())
 
 	var hints := KeyHintBar.new()
 	hints.position = Vector2(24.0, 674.0)
@@ -595,7 +613,7 @@ func _build_ui() -> void:
 	_ui.add_child(hints)
 
 	_free_move_hints = KeyHintBar.new()
-	_free_move_hints.position = Vector2(24.0, 140.0)
+	_free_move_hints.position = Vector2(MENU_POSITION.x, 118.0)
 	_free_move_hints.visible = false
 	_free_move_hints.set_hints([
 		{"keys": "WASD", "label": "Move"},
@@ -603,45 +621,60 @@ func _build_ui() -> void:
 	])
 	_ui.add_child(_free_move_hints)
 
-	
 	_experiment_ui.build(_ui)
 
 
 func _build_control_group() -> HBoxContainer:
 	var group := HBoxContainer.new()
 	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	group.add_theme_constant_override(&"separation", 12)
-	group.add_child(UIStyle.label("CONTROL", UIStyle.SIZE_LABEL - 6,
-		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
+	group.add_theme_constant_override(&"separation", 6)
 
-	var toggle := _make_button("FREE MOVE")
+	var title := _make_header("CONTROL")
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	group.add_child(title)
+
+	var toggle := _make_button("FREE MOVE", 0.0)
 	toggle.toggle_mode = true
 	toggle.toggled.connect(_on_free_move_toggled)
 	group.add_child(toggle)
 	_free_move_button = toggle
 
-	var experiment_button := _make_button("EXPERIMENTS")
+	var experiment_button := _make_button("EXPERIMENTS", 0.0)
 	experiment_button.toggle_mode = true
 	experiment_button.toggled.connect(_experiment_ui.on_toggled)
 	group.add_child(experiment_button)
 
+	_add_misc_buttons(group)
 	return group
 
 
+## Reset / rebuild live in the control row now (was its own MISC column).
+func _add_misc_buttons(group: HBoxContainer) -> void:
+	var reset_button := _make_button("RESET", 0.0)
+	reset_button.tooltip_text = "Reset contest"
+	reset_button.pressed.connect(func() -> void:
+		_reset_contest_state()
+		_show_single_subject())
+	group.add_child(reset_button)
+
+	var rebuild_button := _make_button("REBUILD", 0.0)
+	rebuild_button.tooltip_text = "Rebuild subject"
+	rebuild_button.pressed.connect(func() -> void:
+		# Rebuild the single-subject rig in-place.
+		if _subject != null:
+			_subject.queue_free()
+			_build_subject())
+	group.add_child(rebuild_button)
+
+
 func _build_locomotion_group() -> VBoxContainer:
-	var group := VBoxContainer.new()
-	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	group.add_theme_constant_override(&"separation", 8)
-	group.add_child(UIStyle.label("LOCOMOTION — ON THE SPOT", UIStyle.SIZE_LABEL - 6,
-		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
+	var group := _make_group("LOCOMOTION")
 
 	var toggle_group := ButtonGroup.new()
 	for entry: Array in LOCOMOTION:
 		var label: String = entry[0]
 		var blend: Vector2 = entry[1]
 		var button := _make_button(label)
-		# Reduce locomotion button width
-		button.custom_minimum_size.x = BUTTON_WIDTH * 0.5
 		button.toggle_mode = true
 		button.button_group = toggle_group
 		button.button_pressed = blend == Vector2.ZERO
@@ -653,11 +686,7 @@ func _build_locomotion_group() -> VBoxContainer:
 
 
 func _build_action_group() -> VBoxContainer:
-	var group := VBoxContainer.new()
-	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	group.add_theme_constant_override(&"separation", 8)
-	group.add_child(UIStyle.label("ACTIONS", UIStyle.SIZE_LABEL - 6,
-		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
+	var group := _make_group("ACTIONS")
 
 	for entry: Array in ACTIONS:
 		var label: String = entry[0]
@@ -671,26 +700,21 @@ func _build_action_group() -> VBoxContainer:
 
 
 func _build_contest_group() -> VBoxContainer:
-	var group := VBoxContainer.new()
-	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	group.add_theme_constant_override(&"separation", 8)
-	group.add_child(UIStyle.label("CONTESTS — SPAWNS AN OPPONENT", UIStyle.SIZE_LABEL - 6,
-		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
+	var group := _make_group("CONTESTS")
 
 	for entry: Array in CONTESTS:
 		var label: String = entry[0]
 		var kind: ContestKind = entry[1]
 		var button := _make_button(label)
-		# Reduce contest button width
-		button.custom_minimum_size.x = BUTTON_WIDTH * 0.5
 		button.pressed.connect(func() -> void: _launch_contest(kind))
 		group.add_child(button)
 
+	group.add_child(_make_spacer(MENU_SECTION_GAP - MENU_ROW_GAP))
 	_tackle_model_panel = _build_tackle_model_panel()
 	group.add_child(_tackle_model_panel)
 
-	group.add_child(UIStyle.label("SEQUENCES — CARRIER / BALL / UMPIRE", UIStyle.SIZE_LABEL - 6,
-		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
+	group.add_child(_make_spacer(MENU_SECTION_GAP - MENU_ROW_GAP))
+	group.add_child(_make_header("SEQUENCES"))
 
 	for entry: Array in SEQUENCES:
 		var label: String = entry[0]
@@ -699,7 +723,10 @@ func _build_contest_group() -> VBoxContainer:
 		button.pressed.connect(func() -> void: _launch_sequence(kind))
 		group.add_child(button)
 
-	_contest_status_label = UIStyle.label("", UIStyle.SIZE_LABEL - 12, UIStyle.TEXT_MUTED)
+	_contest_status_label = UIStyle.label("", MENU_FONT_BODY, UIStyle.TEXT_MUTED)
+	# Wrap instead of widening the column when the status line gets long.
+	_contest_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_contest_status_label.custom_minimum_size.x = BUTTON_WIDTH
 	group.add_child(_contest_status_label)
 	return group
 
@@ -707,22 +734,23 @@ func _build_contest_group() -> VBoxContainer:
 func _build_tackle_model_panel() -> VBoxContainer:
 	var panel := VBoxContainer.new()
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_theme_constant_override(&"separation", 8)
-	panel.add_child(UIStyle.label("MODEL INPUTS", UIStyle.SIZE_LABEL - 6,
-		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
+	panel.add_theme_constant_override(&"separation", MENU_ROW_GAP)
+	panel.add_child(_make_header("MODEL INPUTS"))
 
 	var mode_row := HBoxContainer.new()
 	mode_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	mode_row.add_theme_constant_override(&"separation", 8)
+	mode_row.add_theme_constant_override(&"separation", 4)
 	var toggle_group := ButtonGroup.new()
-	var auto_button := _make_button("AUTO")
+	var auto_button := _make_button("AUTO", BUTTON_WIDTH_HALF)
+	auto_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	auto_button.toggle_mode = true
 	auto_button.button_group = toggle_group
 	auto_button.button_pressed = true
 	auto_button.pressed.connect(func() -> void:
 		_tackle_model_manual = false
 		_update_tackle_model_panel_state())
-	var manual_button := _make_button("MANUAL")
+	var manual_button := _make_button("MANUAL", BUTTON_WIDTH_HALF)
+	manual_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	manual_button.toggle_mode = true
 	manual_button.button_group = toggle_group
 	manual_button.pressed.connect(func() -> void:
@@ -741,14 +769,16 @@ func _build_tackle_model_panel() -> VBoxContainer:
 
 	var action_row := HBoxContainer.new()
 	action_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	action_row.add_theme_constant_override(&"separation", 8)
-	var baseline_button := _make_button("BASELINE")
+	action_row.add_theme_constant_override(&"separation", 4)
+	var baseline_button := _make_button("BASELINE", BUTTON_WIDTH_HALF)
+	baseline_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	baseline_button.pressed.connect(func() -> void:
 		_tackle_model_manual = true
 		manual_button.set_pressed_no_signal(true)
 		_tackle_model_manual_inputs = {"dspeed": 0.7, "angle": 0.7, "stamina": 0.7}
 		_update_tackle_model_panel_state())
-	var randomise_button := _make_button("RANDOMISE")
+	var randomise_button := _make_button("RANDOMISE", BUTTON_WIDTH_HALF)
+	randomise_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	randomise_button.pressed.connect(func() -> void:
 		_tackle_model_manual = true
 		manual_button.set_pressed_no_signal(true)
@@ -762,8 +792,8 @@ func _build_tackle_model_panel() -> VBoxContainer:
 	action_row.add_child(randomise_button)
 	panel.add_child(action_row)
 
-	_tackle_model_z_label = UIStyle.label("Z: —", UIStyle.SIZE_LABEL - 12, UIStyle.TEXT_MUTED)
-	_tackle_model_p_label = UIStyle.label("P(BREAK): —", UIStyle.SIZE_LABEL - 12, UIStyle.TEXT_MUTED)
+	_tackle_model_z_label = UIStyle.label("Z: —", MENU_FONT_BODY, UIStyle.TEXT_MUTED)
+	_tackle_model_p_label = UIStyle.label("P(BREAK): —", MENU_FONT_BODY, UIStyle.TEXT_MUTED)
 	panel.add_child(_tackle_model_z_label)
 	panel.add_child(_tackle_model_p_label)
 
@@ -774,13 +804,16 @@ func _build_tackle_model_panel() -> VBoxContainer:
 func _make_tackle_model_input_row(label_text: String, min_value: float, max_value: float, key: String) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_theme_constant_override(&"separation", 8)
+	row.add_theme_constant_override(&"separation", 4)
 
-	var label := UIStyle.label(label_text.to_upper(), UIStyle.SIZE_LABEL - 12,
+	var label := UIStyle.label(label_text.to_upper(), MENU_FONT_BODY,
 		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL)
+	label.custom_minimum_size.x = 40.0
 	row.add_child(label)
 
-	var value_label := UIStyle.label("%.2f" % _tackle_model_manual_inputs[key], UIStyle.SIZE_LABEL - 12, UIStyle.TEXT_MUTED)
+	var value_label := UIStyle.label("%.2f" % _tackle_model_manual_inputs[key], MENU_FONT_BODY, UIStyle.TEXT_PRIMARY)
+	value_label.custom_minimum_size.x = 30.0
+	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	row.add_child(value_label)
 
 	var slider := HSlider.new()
@@ -788,6 +821,9 @@ func _make_tackle_model_input_row(label_text: String, min_value: float, max_valu
 	slider.max_value = max_value
 	slider.step = 0.01
 	slider.value = _tackle_model_manual_inputs[key]
+	slider.custom_minimum_size = Vector2(MENU_SLIDER_WIDTH, 12.0)
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	slider.value_changed.connect(func(value: float) -> void:
 		_tackle_model_manual_inputs[key] = value
 		_update_tackle_model_panel_state())
@@ -806,13 +842,68 @@ func _make_tackle_model_input_row(label_text: String, min_value: float, max_valu
 	return row
 
 
-func _make_button(label_text: String) -> Button:
+# ── Menu building blocks ─────────────────────────────────────────────
+
+func _make_header(text: String) -> Label:
+	return UIStyle.label(text, MENU_FONT_HEAD, UIStyle.TEXT_MUTED,
+		UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL)
+
+
+func _make_group(title: String) -> VBoxContainer:
+	var group := VBoxContainer.new()
+	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	group.add_theme_constant_override(&"separation", MENU_ROW_GAP)
+	group.add_child(_make_header(title))
+	return group
+
+
+func _make_spacer(height: float) -> Control:
+	var spacer := Control.new()
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	spacer.custom_minimum_size.y = height
+	return spacer
+
+
+## Flat, borderless-by-default button: faint fill, muted text, brighter on
+## hover, outlined when toggled on. Left-aligned so columns read as lists.
+func _make_button(label_text: String, width: float = BUTTON_WIDTH) -> Button:
 	var button := Button.new()
 	button.text = label_text
-	# Ensure consistent sizing so the three columns align visually.
-	button.custom_minimum_size = Vector2(BUTTON_WIDTH, BUTTON_HEIGHT)
+	button.custom_minimum_size = Vector2(width, BUTTON_HEIGHT)
+	button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+
+	var ink := Color(UIStyle.TEXT_PRIMARY)
+	var normal := _flat_box(Color(ink, 0.05))
+	var hover := _flat_box(Color(ink, 0.12))
+	var pressed := _flat_box(Color(ink, 0.20), Color(ink, 0.60), 1)
+	button.add_theme_stylebox_override(&"normal", normal)
+	button.add_theme_stylebox_override(&"hover", hover)
+	button.add_theme_stylebox_override(&"pressed", pressed)
+	button.add_theme_stylebox_override(&"hover_pressed", pressed)
+	button.add_theme_stylebox_override(&"disabled", normal)
+	button.add_theme_stylebox_override(&"focus", StyleBoxEmpty.new())
+
+	button.add_theme_font_size_override(&"font_size", MENU_FONT_BODY)
+	button.add_theme_color_override(&"font_color", UIStyle.TEXT_MUTED)
+	button.add_theme_color_override(&"font_hover_color", UIStyle.TEXT_PRIMARY)
+	button.add_theme_color_override(&"font_pressed_color", UIStyle.TEXT_PRIMARY)
+	button.add_theme_color_override(&"font_hover_pressed_color", UIStyle.TEXT_PRIMARY)
+	button.add_theme_color_override(&"font_focus_color", UIStyle.TEXT_PRIMARY)
 	return button
 
+
+func _flat_box(fill: Color, border: Color = Color(0, 0, 0, 0), border_w: int = 0,
+		margin_h: float = 6.0, margin_v: float = 2.0, radius: int = 3) -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = fill
+	s.border_color = border
+	s.set_border_width_all(border_w)
+	s.set_corner_radius_all(radius)
+	s.content_margin_left = margin_h
+	s.content_margin_right = margin_h
+	s.content_margin_top = margin_v
+	s.content_margin_bottom = margin_v
+	return s
 
 func _build_misc_group() -> VBoxContainer:
 	var group := VBoxContainer.new()

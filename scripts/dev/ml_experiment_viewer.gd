@@ -224,10 +224,6 @@ func _build_model_page(page: VBoxContainer) -> Dictionary:
 	var dspeed := _slider_row(page, "Δspeed", -2.0, 4.0, 0.1, 0.7)
 	var angle := _slider_row(page, "Angle", -2.0, 2.0, 0.1, 0.7)
 	var stamina := _slider_row(page, "Stamina", 0.0, 2.0, 0.1, 0.7)
-	var seed := _spinbox_row(page, "Seed", 1, 1000, 1, _experiment_seed)
-	seed.value_changed.connect(func(v: float) -> void:
-		_experiment_seed = int(v)
-	)
 
 	page.add_child(_section_heading("Weights"))
 	var w1 := _slider_row(page, "w₁ speed", 0.0, 12.0, 0.5, 6.0)
@@ -235,11 +231,16 @@ func _build_model_page(page: VBoxContainer) -> Dictionary:
 	var w3 := _slider_row(page, "w₃ stamina", 0.0, 6.0, 0.2, 2.0)
 	var bias := _slider_row(page, "b bias", -10.0, 2.0, 0.2, -5.6)
 
+	var m = TackleModelScript.new()
 	var recompute := func() -> void:
-		var z := w1.value * dspeed.value + w2.value * angle.value + w3.value * stamina.value + bias.value
-		var p := 1.0 / (1.0 + exp(-z))
-		_experiment_model_label.text = "%.1f%%" % (p * 100.0)
-		_experiment_success_label.text = "%.1f%%" % ((1.0 - p) * 100.0)
+		m.w_speed = w1.value
+		m.w_angle = w2.value
+		m.w_stamina = w3.value
+		m.bias = bias.value
+		var z: float = m.score(dspeed.value, angle.value, stamina.value)
+		var p: float = TackleModelScript.sigmoid(z)
+		_experiment_model_label.text = "%.2f%%" % (p * 100.0)
+		_experiment_success_label.text = "%.2f%%" % ((1.0 - p) * 100.0)
 		_experiment_z_label.text = "z = %.2f" % z
 		_experiment_w2 = w2.value
 
@@ -247,7 +248,7 @@ func _build_model_page(page: VBoxContainer) -> Dictionary:
 		s.value_changed.connect(func(_v): recompute.call())
 	recompute.call()
 
-	return {"dspeed": dspeed, "angle": angle, "stamina": stamina, "w1": w1, "w2": w2, "w3": w3, "bias": bias, "seed": seed}
+	return {"dspeed": dspeed, "angle": angle, "stamina": stamina, "w1": w1, "w2": w2, "w3": w3, "bias": bias}
 
 
 func _build_sweep_page(page: VBoxContainer, s: Dictionary) -> void:
@@ -273,15 +274,14 @@ func _build_sweep_page(page: VBoxContainer, s: Dictionary) -> void:
 	run_row.add_child(attempts)
 
 	var seed := OptionButton.new()
-	seed.add_item("Seed 1", 1)
-	seed.add_item("Seed 2", 2)
-	seed.add_item("Seed 3", 3)
-	seed.add_item("Seed 4", 4)
+	for n in range(1, 11):
+		seed.add_item("Seed %d" % n, n)
 	seed.select(0)
 	seed.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	run_row.add_child(seed)
 
 	var run_sweep := func() -> void:
+		_experiment_seed = seed.get_selected_id()
 		var pick: Dictionary = SWEEP_WEIGHTS[weight_pick.selected]
 		_run_tackle_experiment(
 			{"dspeed": s.dspeed.value, "angle": s.angle.value, "stamina": s.stamina.value},
@@ -292,10 +292,46 @@ func _build_sweep_page(page: VBoxContainer, s: Dictionary) -> void:
 		)
 
 	weight_pick.item_selected.connect(func(_i: int) -> void: run_sweep.call())
+	seed.item_selected.connect(func(_i: int) -> void: run_sweep.call())
 
 	var run := _button("RUN")
 	run.pressed.connect(run_sweep)
-	run_row.add_child(run)
+	
+	var ten := _button("10 SEEDS")
+	ten.pressed.connect(func() -> void:
+		var m = TackleModelScript.new()
+		m.w_speed = s.w1.value
+		m.w_angle = s.w2.value
+		m.w_stamina = s.w3.value
+		m.bias = s.bias.value
+		var counts := []
+		for sd in range(1, 11):
+			var rng := RandomNumberGenerator.new()
+			rng.seed = sd
+			var n := 0
+			for i in 1000:
+				if m.roll_break(rng, s.dspeed.value, s.angle.value, s.stamina.value):
+					n += 1
+			counts.append(n)
+		var total := 0.0
+		for c in counts:
+			total += c
+		var mean: float = total / counts.size()
+		var ss := 0.0
+		for c in counts:
+			ss += (c - mean) * (c - mean)
+		var sd_val := sqrt(ss / (counts.size() - 1))
+		_experiment_results.text = "10 SEEDS · 1,000 trials each\ncounts: %s\nmean %.1f   SD %.1f" % [str(counts), mean, sd_val]
+	)
+	var action_row := HBoxContainer.new()
+	action_row.add_theme_constant_override(&"separation", 8)
+	page.add_child(action_row)
+	run.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ten.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	action_row.add_child(run)
+	action_row.add_child(ten)
+
+	
 
 	var legend := HBoxContainer.new()
 	legend.add_theme_constant_override(&"separation", 14)

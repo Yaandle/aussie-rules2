@@ -39,11 +39,14 @@ static func normalise(value: float, minimum: float, maximum: float) -> float:
 		return 0.0
 	return clampf((value - minimum) / (maximum - minimum), 0.0, 1.0)
 
-func p_break(dspeed: float, angle: float, stamina: float) -> float:
+func score(dspeed: float, angle: float, stamina: float) -> float:
 	var nd := normalise(dspeed, NORM_MIN["dspeed"], NORM_MAX["dspeed"])
 	var na := normalise(angle, NORM_MIN["angle"], NORM_MAX["angle"])
 	var ns := normalise(stamina, NORM_MIN["stamina"], NORM_MAX["stamina"])
-	return sigmoid(w_speed * nd + w_angle * na + w_stamina * ns + bias)
+	return w_speed * nd + w_angle * na + w_stamina * ns + bias
+
+func p_break(dspeed: float, angle: float, stamina: float) -> float:
+	return sigmoid(score(dspeed, angle, stamina))
 
 func roll_break(rng: RandomNumberGenerator, dspeed: float, angle: float, stamina: float) -> bool:
 	return rng.randf() < p_break(dspeed, angle, stamina)
