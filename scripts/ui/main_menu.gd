@@ -389,7 +389,11 @@ func _build_card(entry: Entry, index: int) -> CardWidgets:
 	# just that its own artwork is smaller while still stretching to fill.
 	frame.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	frame.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	frame.mouse_filter = Control.MOUSE_FILTER_STOP
+	if entry.unlocked:
+		frame.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	frame.gui_input.connect(_on_card_gui_input.bind(index))
+	frame.mouse_entered.connect(_on_card_hover.bind(index))
 	widgets.frame = frame
 
 	# Hard offset "brutalist" shadow — a solid black Panel added as the
@@ -517,7 +521,21 @@ func _build_card(entry: Entry, index: int) -> CardWidgets:
 
 	return widgets
 
+func _on_card_gui_input(event: InputEvent, index: int) -> void:
+	if event is InputEventMouseButton and event.pressed \
+			and event.button_index == MOUSE_BUTTON_LEFT:
+		_index = index
+		_refresh()
+		_select()
 
+
+func _on_card_hover(index: int) -> void:
+	if index == _index:
+		return
+	_index = index
+	_refresh()
+
+	
 func _build_icon_badge(icon_name: StringName, badge_size: float) -> Panel:
 	var badge := Panel.new()
 	badge.custom_minimum_size = Vector2(badge_size, badge_size)

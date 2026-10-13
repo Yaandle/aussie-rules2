@@ -130,7 +130,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		_nudge(-1)
 	elif event.is_action_pressed(&"move_right") or event.is_action_pressed(&"ui_right"):
 		_nudge(1)
-	elif event.is_action_pressed(&"ui_accept"):
+	elif event.is_action_pressed(&"ui_accept") or event.is_action_pressed(&"confirm"):
 		_activate()
 	elif event.is_action_pressed(&"pause") or event.is_action_pressed(&"character_menu"):
 		_exit_to_menu()
@@ -245,6 +245,8 @@ func _build() -> void:
 	_apply_row.configure(&"gear", "APPLY TO", false, false)
 
 	_play = ActionButton.new(ACTION_TEXT)
+	_play.mouse_filter = Control.MOUSE_FILTER_STOP
+	_play.gui_input.connect(_on_play_gui_input)
 	_play.position = Vector2(LEFT_MARGIN, BUTTON_TOP)
 	_ui.add_child(_play)
 
@@ -252,6 +254,14 @@ func _build() -> void:
 	_hints.position = Vector2(LEFT_MARGIN, HINTS_TOP)
 	_ui.add_child(_hints)
 	_apply_hints()
+
+func _on_play_gui_input(event: InputEvent) -> void:
+	if _busy:
+		return
+	if event is InputEventMouseButton and event.pressed \
+			and event.button_index == MOUSE_BUTTON_LEFT:
+		_selected = _play_index()
+		_confirm_and_play()
 
 
 func _on_device_changed(_device: int) -> void:

@@ -37,6 +37,25 @@ enum CoachState { NONE, PROMPT, DIALOGUE, CHALLENGE }
 ## _active_coach branch below.
 enum CoachKind { KICKING, MARKING, TACKLING }
 
+## Per-coach copy for the dialogue card (eyebrow drill name + one-line pitch).
+const COACH_COPY := {
+	CoachKind.KICKING: {
+		"drill": "KICKING",
+		"body": "Let's work on your kicking technique.",
+	},
+	CoachKind.MARKING: {
+		"drill": "MARKING",
+		"body": "Let's work on your marking.",
+	},
+	CoachKind.TACKLING: {
+		"drill": "TACKLING",
+		"body": "Let's work on your tackling technique.",
+	},
+}
+
+## Shown by the hint label while the player is in range of a coach.
+const PROMPT_TEXT := "X  Talk to coach"
+
 @onready var _field: Field = $Field
 @onready var _ball: Ball = $Ball
 @onready var _player: PlayerController = $Player
@@ -64,11 +83,15 @@ var _tutorial_card_body: Label
 var _tutorial_card_kb: KeyHintBar
 var _tutorial_card_pad: KeyHintBar
 
-## PLACEHOLDER: a bare Label standing in for the real coach dialogue
-## bubble / hint UI (design brief describes a proper chat bubble; UI is
-## out of scope for this agent — see docs/HANDOVER.md). Built in code
-## rather than a scene so it's trivially deleted once the real thing
-## lands; nothing else in this file depends on its styling.
+## The coach dialogue card (built in _build_dialogue_card). Shown during
+## CoachState.DIALOGUE; confirm/decline are routed in _unhandled_input.
+var _dialogue_card: Control
+var _dialogue_eyebrow: Label
+var _dialogue_body: Label
+
+## Plain hint label: the in-range prompt and in-drill/result messages. The
+## dialogue itself lives in the styled card above. Built in code rather than
+## a scene so it's trivially replaceable.
 var _prompt_label: Label
 
 
@@ -111,6 +134,7 @@ func _ready() -> void:
 	_setup_tackle_ground()
 	_build_placeholder_prompt()
 	_build_tutorial_card()
+	_build_dialogue_card()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -237,7 +261,7 @@ func _check_coach_in_range(kind: CoachKind) -> bool:
 		return false
 	_coach_state = CoachState.PROMPT
 	_active_coach = kind
-	_set_hint_text("Press X to talk to the coach")
+	_set_hint_text(PROMPT_TEXT)
 	return true
 
 
@@ -324,7 +348,7 @@ func _on_coach_range_entered(player: PlayerController, kind: CoachKind) -> void:
 		return
 	_coach_state = CoachState.PROMPT
 	_active_coach = kind
-	_set_hint_text("Press X to talk to the coach")
+	_set_hint_text(PROMPT_TEXT)
 
 
 func _on_coach_range_left(_player_left: PlayerController, kind: CoachKind) -> void:
@@ -339,23 +363,14 @@ func _begin_dialogue() -> void:
 	var coach := _coach_node(_active_coach)
 	coach.face_toward(_player.global_position)
 	_camera.enter_dialogue(coach, _player)
-	var offer: String
-	match _active_coach:
-		CoachKind.MARKING:
-			offer = "Want to work on your marking?"
-		CoachKind.TACKLING:
-			offer = "Want to work on your tackling?"
-		_:
-			offer = "Want to practice your kicking?"
-	# Y is the accept action (see _unhandled_input's CoachState.DIALOGUE
-	# branch) and is the option most players want to take, so it reads as
-	# the "selected" one — bracketed like a retro console menu's default
-	# choice (user report: "make it have brackets around the options
-	# selected like < Yes > No") rather than two flat, equal-weight labels.
-	_set_hint_text("Coach: \"%s\"\n< Y: Yes >   N: No" % offer)
+	# The styled card replaces the old bracketed "< Y: Yes >" hint text.
+	# confirm/decline routing is unchanged (see _unhandled_input).
+	_set_hint_text("")
+	_show_dialogue_card(_active_coach)
 
 
 func _end_dialogue() -> void:
+	_hide_dialogue_card()
 	InputManager.gameplay_input_enabled = true
 	_camera.exit_dialogue()
 	# Still standing next to the coach after declining — re-offer the
@@ -364,7 +379,7 @@ func _end_dialogue() -> void:
 	var coach := _coach_node(_active_coach)
 	if is_instance_valid(coach) and coach.player_in_range() == _player:
 		_coach_state = CoachState.PROMPT
-		_set_hint_text("Press X to talk to the coach")
+		_set_hint_text(PROMPT_TEXT)
 	else:
 		_coach_state = CoachState.NONE
 		_set_hint_text("")
@@ -374,6 +389,8 @@ func _accept_challenge() -> void:
 	_coach_state = CoachState.CHALLENGE
 	InputManager.gameplay_input_enabled = true
 	_camera.exit_dialogue()
+	_hide_dialogue_card()
+	_set_hint_text("")
 	# Coach interaction only ever triggers while not carrying (see
 	# _on_coach_range_entered), so the player is guaranteed empty-handed
 	# right here — nothing to kick unless a fresh ball is put in their
@@ -417,9 +434,9 @@ func _on_tackle_tutorial_ended(cleared: int, steps_total: int) -> void:
 		% [cleared, steps_total])
 
 
-# ── Placeholder prompt/hint UI ──────────────────────────────────────
-# Stands in for the real chat-bubble UI (design brief) until the UI agent
-# builds it — plain text, no styling, deliberately disposable.
+# ── Hint label ──────────────────────────────────────────────────────
+# Plain text for the in-range prompt and drill/result messages. The coach
+# conversation itself is the styled card below.
 
 func _build_placeholder_prompt() -> void:
 	var layer := CanvasLayer.new()
@@ -452,26 +469,132 @@ func _set_hint_text(text: String) -> void:
 		_prompt_label.text = text
 
 
+# ── Coach dialogue card ─────────────────────────────────────────────
+# Bottom-centre card shown while talking to a coach. Same UIStyle look as
+# the tackling tutorial card, but no full-screen dim: the dialogue camera
+# already frames the coach, so the field stays visible behind it.
+
+func _build_dialogue_card() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 6
+	add_child(layer)
+
+	var root := MarginContainer.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_theme_constant_override(&"margin_bottom", 48)
+	layer.add_child(root)
+
+	var bottom := VBoxContainer.new()
+	bottom.alignment = BoxContainer.ALIGNMENT_END
+	bottom.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(bottom)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(560.0, 0.0)
+	panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	panel.add_theme_stylebox_override(
+		&"panel",
+		UIStyle.rounded(Color(UIStyle.PANEL_FILL, 0.96), UIStyle.CHIP_BORDER, 2)
+	)
+	bottom.add_child(panel)
+
+	var margin := MarginContainer.new()
+	for side in [&"margin_left", &"margin_right"]:
+		margin.add_theme_constant_override(side, 28)
+	for side in [&"margin_top", &"margin_bottom"]:
+		margin.add_theme_constant_override(side, 22)
+	panel.add_child(margin)
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override(&"separation", 10)
+	margin.add_child(column)
+
+	_dialogue_eyebrow = UIStyle.label(
+		"",
+		UIStyle.SIZE_HINT,
+		UIStyle.TEXT_MUTED,
+		UIStyle.WEIGHT_BOLD,
+		UIStyle.TRACK_HINT
+	)
+	column.add_child(_dialogue_eyebrow)
+
+	column.add_child(UIStyle.label(
+		"Ready to train?",
+		UIStyle.SIZE_TITLE,
+		UIStyle.TEXT_PRIMARY,
+		UIStyle.WEIGHT_HEAVY,
+		UIStyle.TRACK_TITLE
+	))
+
+	_dialogue_body = UIStyle.label(
+		"",
+		UIStyle.SIZE_LABEL,
+		UIStyle.TEXT_MUTED
+	)
+	_dialogue_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	column.add_child(_dialogue_body)
+
+	var rule := ColorRect.new()
+	rule.color = UIStyle.CHIP_BORDER
+	rule.custom_minimum_size = Vector2(0.0, 1.0)
+	column.add_child(rule)
+
+	var footer := HBoxContainer.new()
+	footer.add_theme_constant_override(&"separation", 28)
+	column.add_child(footer)
+
+	footer.add_child(UIStyle.label(
+		"Y / A   YES, LET'S GO",
+		UIStyle.SIZE_HINT,
+		UIStyle.TEXT_PRIMARY,
+		UIStyle.WEIGHT_BOLD
+	))
+	footer.add_child(UIStyle.label(
+		"N / B   NOT NOW",
+		UIStyle.SIZE_HINT,
+		UIStyle.TEXT_MUTED,
+		UIStyle.WEIGHT_REGULAR
+	))
+
+	_dialogue_card = root
+	_dialogue_card.visible = false
+
+
+func _show_dialogue_card(kind: CoachKind) -> void:
+	if not is_instance_valid(_dialogue_card):
+		return
+	var copy: Dictionary = COACH_COPY[kind]
+	_dialogue_eyebrow.text = "TRAINING GROUND  /  %s" % copy["drill"]
+	_dialogue_body.text = copy["body"]
+	_dialogue_card.visible = true
+
+
+func _hide_dialogue_card() -> void:
+	if is_instance_valid(_dialogue_card):
+		_dialogue_card.visible = false
+
+
 # ── Tackling tutorial step card ─────────────────────────────────────
 # Freeze-and-teach overlay: one control per step, shown for both schemes at
 # once (keyboard/mouse AND controller), play frozen behind it. Built in code
-# from the shared UIStyle/KeyHintBar helpers — same disposable, no-scene
-# approach as _build_placeholder_prompt above, just a real styled panel
-# rather than a bare Label since this one is the centre of attention.
+# from the shared UIStyle/KeyHintBar helpers — same no-scene approach as
+# _build_placeholder_prompt above, just a real styled panel rather than a
+# bare Label since this one is the centre of attention.
 
 func _build_tutorial_card() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 6
 	add_child(layer)
 
-	# One root Control so a single .visible toggle hides dim + panel together.
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(root)
 
+	# Dim the field without hiding the training environment.
 	var dim := ColorRect.new()
-	dim.color = Color(0.0, 0.0, 0.0, 0.55)
+	dim.color = Color(0.04, 0.04, 0.05, 0.72)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.add_child(dim)
 
@@ -480,34 +603,102 @@ func _build_tutorial_card() -> void:
 	root.add_child(centre)
 
 	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override(&"panel",
-		UIStyle.rounded(Color(UIStyle.PANEL_FILL, 0.98), UIStyle.CHIP_BORDER, 1))
+	panel.custom_minimum_size = Vector2(660.0, 0.0)
+	panel.add_theme_stylebox_override(
+		&"panel",
+		UIStyle.rounded(
+			Color(UIStyle.PANEL_FILL, 0.99),
+			UIStyle.CHIP_BORDER,
+			2
+		)
+	)
 	centre.add_child(panel)
 
 	var margin := MarginContainer.new()
-	for side in [&"margin_left", &"margin_right", &"margin_top", &"margin_bottom"]:
+	for side in [&"margin_left", &"margin_right"]:
+		margin.add_theme_constant_override(side, 32)
+	for side in [&"margin_top", &"margin_bottom"]:
 		margin.add_theme_constant_override(side, 28)
 	panel.add_child(margin)
 
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override(&"separation", 14)
+	column.add_theme_constant_override(&"separation", 18)
 	margin.add_child(column)
 
-	_tutorial_card_title = UIStyle.label("", UIStyle.SIZE_TITLE, UIStyle.TEXT_PRIMARY,
-		UIStyle.WEIGHT_HEAVY, UIStyle.TRACK_TITLE)
+	# Small section label.
+	var eyebrow := UIStyle.label(
+		"TRAINING GROUND  /  TACKLING",
+		UIStyle.SIZE_HINT,
+		UIStyle.TEXT_MUTED,
+		UIStyle.WEIGHT_BOLD,
+		UIStyle.TRACK_HINT
+	)
+	column.add_child(eyebrow)
+
+	# Main step title.
+	_tutorial_card_title = UIStyle.label(
+		"",
+		UIStyle.SIZE_TITLE,
+		UIStyle.TEXT_PRIMARY,
+		UIStyle.WEIGHT_HEAVY,
+		UIStyle.TRACK_TITLE
+	)
+	_tutorial_card_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(_tutorial_card_title)
 
-	_tutorial_card_body = UIStyle.label("", UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
+	# Clear separation between title and instruction.
+	var rule := ColorRect.new()
+	rule.color = UIStyle.CHIP_BORDER
+	rule.custom_minimum_size = Vector2(0.0, 2.0)
+	column.add_child(rule)
+
+	_tutorial_card_body = UIStyle.label(
+		"",
+		UIStyle.SIZE_LABEL,
+		UIStyle.TEXT_PRIMARY
+	)
 	_tutorial_card_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_tutorial_card_body.custom_minimum_size = Vector2(560.0, 0.0)
+	_tutorial_card_body.custom_minimum_size = Vector2(580.0, 64.0)
 	column.add_child(_tutorial_card_body)
 
-	_tutorial_card_kb = _card_control_row(column, "Keyboard / Mouse")
-	_tutorial_card_pad = _card_control_row(column, "Controller")
+	# Controls.
+	var controls_label := UIStyle.label(
+		"CONTROLS",
+		UIStyle.SIZE_HINT,
+		UIStyle.TEXT_MUTED,
+		UIStyle.WEIGHT_BOLD,
+		UIStyle.TRACK_HINT
+	)
+	column.add_child(controls_label)
 
-	var footer := UIStyle.label("Y  Start       N  Skip step", UIStyle.SIZE_HINT,
-		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_REGULAR, UIStyle.TRACK_HINT)
+	_tutorial_card_kb = _card_control_row(column, "KEYBOARD / MOUSE")
+	_tutorial_card_pad = _card_control_row(column, "CONTROLLER")
+
+	# Footer separated from the control instructions.
+	var footer_rule := ColorRect.new()
+	footer_rule.color = UIStyle.CHIP_BORDER
+	footer_rule.custom_minimum_size = Vector2(0.0, 1.0)
+	column.add_child(footer_rule)
+
+	var footer := HBoxContainer.new()
+	footer.add_theme_constant_override(&"separation", 24)
 	column.add_child(footer)
+
+	var start_hint := UIStyle.label(
+		"A  Start rep",
+		UIStyle.SIZE_HINT,
+		UIStyle.TEXT_PRIMARY,
+		UIStyle.WEIGHT_BOLD
+	)
+	footer.add_child(start_hint)
+
+	var skip_hint := UIStyle.label(
+		"B  Skip step",
+		UIStyle.SIZE_HINT,
+		UIStyle.TEXT_MUTED,
+		UIStyle.WEIGHT_REGULAR
+	)
+	footer.add_child(skip_hint)
 
 	_tutorial_card = root
 	_tutorial_card.visible = false
@@ -517,17 +708,26 @@ func _build_tutorial_card() -> void:
 ## a KeyHintBar the step fills with that scheme's chips.
 func _card_control_row(parent: VBoxContainer, caption: String) -> KeyHintBar:
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override(&"separation", 14)
+	row.add_theme_constant_override(&"separation", 18)
 	parent.add_child(row)
 
-	var caption_label := UIStyle.label(caption, UIStyle.SIZE_HINT, UIStyle.TEXT_MUTED,
-		UIStyle.WEIGHT_BOLD, UIStyle.TRACK_HINT)
-	caption_label.custom_minimum_size = Vector2(150.0, 0.0)
+	var caption_label := UIStyle.label(
+		caption,
+		UIStyle.SIZE_HINT,
+		UIStyle.TEXT_MUTED,
+		UIStyle.WEIGHT_BOLD,
+		UIStyle.TRACK_HINT
+	)
+	caption_label.custom_minimum_size = Vector2(155.0, 42.0)
 	caption_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	caption_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	row.add_child(caption_label)
 
 	var bar := KeyHintBar.new()
+	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(bar)
+
 	return bar
 
 
