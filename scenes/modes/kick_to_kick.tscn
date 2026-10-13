@@ -1,66 +1,43 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene format=3 uid="uid://cxf8ugpdequ3a"]
 
-[ext_resource type="Script" path="res://scripts/modes/kick_to_kick.gd" id="1_kick_to_kick"]
+[ext_resource type="Script" uid="uid://ely0vosk3k16" path="res://scripts/modes/kick_to_kick.gd" id="1_kick_to_kick"]
 [ext_resource type="PackedScene" path="res://scenes/field/field.tscn" id="2_field"]
 [ext_resource type="PackedScene" path="res://scenes/ball/ball.tscn" id="3_ball"]
 [ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="4_player"]
 [ext_resource type="PackedScene" path="res://scenes/camera/broadcast_camera.tscn" id="5_camera"]
 [ext_resource type="PackedScene" path="res://scenes/ui/debug_hud.tscn" id="6_hud"]
-[ext_resource type="Environment" path="res://materials/broadcast_environment.tres" id="7_env"]
+[ext_resource type="Environment" uid="uid://bswq6sjep4ekj" path="res://materials/broadcast_environment.tres" id="7_env"]
+[ext_resource type="PackedScene" uid="uid://dna2rbffrr6ua" path="res://assets/imported/bench.glb" id="8_jff13"]
 
-[node name="KickToKick" type="Node3D"]
+[node name="KickToKick" type="Node3D" unique_id=2005225079]
 script = ExtResource("1_kick_to_kick")
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1491960238]
 environment = ExtResource("7_env")
 
-; Afternoon sun, travelling (-0.35, -0.72, -0.60) — i.e. downward, at
-; about 46 degrees of elevation.
-;
-; The transform this replaces was the transposed one docs/HANDOVER.md
-; warns about: the 12 numbers in a Transform3D literal are the basis
-; ROWS, while basis.x/y/z are its COLUMNS, so writing an axis along a
-; triple instead of down them yields the transpose. That is still
-; orthonormal, so it loads without complaint and the light looks
-; configured — but here it left basis.z = (0.574, -0.628, 0.527), meaning
-; the sun travelled *upward* at 39 degrees. Every horizontal surface in
-; the match scenes, the whole ground included, was therefore lit by sky
-; ambient alone: green turf under a blue-only ambient rendered dark teal,
-; and nothing in the scene cast a shadow worth the name.
-;
-; character_backdrop.tscn had already been corrected; that file's own note
-; flags that the same literal was still in four other scenes. This is one
-; of them.
-[node name="Sun" type="DirectionalLight3D" parent="."]
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=1817684772]
 transform = Transform3D(0.8637, -0.3627, 0.3499, 0, 0.6943, 0.7197, -0.5039, -0.6216, 0.5998, 0, 40, 0)
-; Eased down from 1.7 now that the sun actually reaches the ground: at
-; full strength over the sky ambient the pitch clipped to flat white on
-; the lit side, which is the opposite of the calm overcast afternoon this
-; is meant to be.
 light_energy = 1.05
-; Penumbra width in degrees. The real sun subtends about half a degree;
-; overcast light is far wider, and this is what turns a hard-edged
-; stencil of a player into the soft ground shadow the brief asks for.
-; It is not a post effect — the directional soft-shadow filter is already
-; on (project.godot sets soft_shadow_filter_quality=3) and was simply
-; being handed a zero-radius source to filter.
 light_angular_distance = 2.2
-; Shadows sit at three-quarter strength rather than fully occluding, so
-; the shaded side of the ground keeps its colour instead of going to a
-; grey silhouette.
-shadow_opacity = 0.72
 shadow_enabled = true
-directional_shadow_max_distance = 120.0
+shadow_opacity = 0.72
 directional_shadow_blend_splits = true
+directional_shadow_max_distance = 120.0
 
-[node name="Field" parent="." instance=ExtResource("2_field")]
+[node name="Field" parent="." unique_id=72479121 instance=ExtResource("2_field")]
 
-[node name="Ball" parent="." instance=ExtResource("3_ball")]
+[node name="Ball" parent="." unique_id=1717741214 instance=ExtResource("3_ball")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
 
-[node name="Player" parent="." instance=ExtResource("4_player")]
+[node name="Player" parent="." unique_id=1866055995 instance=ExtResource("4_player")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 8)
 
-[node name="BroadcastCamera" parent="." instance=ExtResource("5_camera")]
+[node name="BroadcastCamera" parent="." unique_id=486062091 instance=ExtResource("5_camera")]
 
-[node name="DebugHud" parent="." instance=ExtResource("6_hud")]
+[node name="DebugHud" parent="." unique_id=655590377 instance=ExtResource("6_hud")]
+
+[node name="bench" parent="." unique_id=1019999232 instance=ExtResource("8_jff13")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.977072, 0, -68.46657)
+
+[node name="bench2" parent="." unique_id=450059674 instance=ExtResource("8_jff13")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.836523, 0, -68.46657)
