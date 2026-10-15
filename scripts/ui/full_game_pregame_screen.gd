@@ -587,8 +587,8 @@ func _build_header(parent: Control) -> void:
 ## Settings dials) plus an overlaid readout strip.
 ##
 ## The board alone can only reflect three of the five real settings —
-## it moves its 18 markers for FORMATION and BALL MOVEMENT and swings its
-## dashed engagement line for DEFENSIVE PRESSURE, but it has no concept of
+## it moves its 18 markers for FORMATION, BALL MOVEMENT and DEFENSIVE
+## PRESSURE, but it has no concept of
 ## who is holding the controller or where the camera is. Rather than
 ## teach it two settings that have nothing to do with formation geometry
 ## (it is shared with TeamListScreen, which must not change), the two
