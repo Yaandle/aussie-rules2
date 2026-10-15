@@ -27,14 +27,16 @@ extends Node3D
 ## convention; nothing else in this file drives animation.
 ##
 ## ── Import swap (4A) ─────────────────────────────────────────────────
-## If IMPORTED_CHARACTER_PATH exists, _build() loads it instead of building
-## the primitive meshes below, and uses whatever Skeleton3D it finds inside
-## as this rig's skeleton() — same call, same "Skeleton3D" child name,
-## same bone names, so PlayerAnimation/HumanoidAnimations/SkeletonWireframe
-## need no changes either way (see docs/ note below for the full contract
-## wiring and scripts/dev/rig_export.gd for round-tripping the current
-## procedural rig out to Blender in the meantime). THE EXPORT CONTRACT a
-## Blender-built model must satisfy to drop in here cleanly:
+## If selected_model() (character_model_override, else CharacterProfile.
+## model_id — see CHARACTER_MODELS below) names a real file, _build() loads
+## it instead of building the primitive meshes below, and uses whatever
+## Skeleton3D it finds inside as this rig's skeleton() — same call, same
+## "Skeleton3D" child name, same bone names, so PlayerAnimation/
+## HumanoidAnimations/SkeletonWireframe need no changes either way (see
+## docs/ note below for the full contract wiring and scripts/dev/rig_
+## export.gd for round-tripping the current procedural rig out to Blender
+## in the meantime). THE EXPORT CONTRACT a Blender-built model must
+## satisfy to drop in here cleanly:
 ##
 ## 1. Bone names/hierarchy must match the BONES table below exactly (22
 ##    bones: Root -> Hips -> Spine -> Chest -> {Neck -> Head,
@@ -60,9 +62,10 @@ extends Node3D
 ##    twisted/broken — the control-bone hierarchy exporting alongside (or
 ##    instead of) the baked deform bones, or raw unbaked IK still "live".
 ## 4. Export as glTF2 (.glb), with the Skeleton3D + skin + all actions, to
-##    res://assets/characters/player.glb (IMPORTED_CHARACTER_PATH below).
-##    Godot's own importer picks it up as a normal PackedScene on the next
-##    project scan — no custom import code needed on that side.
+##    res://assets/characters/<name>.glb and add an entry to
+##    CHARACTER_MODELS below pointing at it. Godot's own importer picks up
+##    the file as a normal PackedScene on the next project scan — no
+##    custom import code needed on that side.
 ##
 ## NOT YET VERIFIED: axis convention. This rig's "-Y hangs down the limb"
 ## local convention (docs/HANDOVER.md's own "Rest-pose axis convention for
@@ -132,16 +135,28 @@ const COLOUR_TREAD := Color("#141513")
 const DETAIL_SCALE := 2.4
 
 ## See the "Import swap (4A)" header note above for the full contract.
-## Convention path for a Blender-built character — Godot's own importer
-## turns a .glb under res:// into a loadable PackedScene with no extra
-## config, so dropping one in here is the entire "install" step.
-const IMPORTED_CHARACTER_PATH := "res://assets/characters/player.glb"
+## Known importable characters, by the id CharacterProfile.model_id (and
+## the character screen's MODEL row) use -> glb path. "procedural" is
+## deliberately not a key here: it means "build the primitives below" and
+## is always valid, even with this table empty. Godot's own importer turns
+## a .glb under res:// into a loadable PackedScene with no extra config,
+## so adding a new skin is just a new entry here plus the file on disk.
+const CHARACTER_MODELS := {
+	"fifthbuild": "res://assets/characters/fifthbuild.glb",
+}
 
 ## Set false by callers whose kit_* colour overrides only work on the
 ## procedural primitives (Umpire's stripes) — see header note. Every other
 ## caller (players, menu/character backdrops) wants the real model once
 ## one exists, so this defaults on.
 @export var allow_imported_character := true
+
+## Explicit model choice, set before add_child like kit_torso/away_kit —
+## takes priority over CharacterProfile.model_id when non-empty. Lets a
+## preview (CharacterBackdrop) show a draft selection the player hasn't
+## committed yet without touching the global profile. Leave empty to just
+## follow CharacterProfile, which is what every in-match spawn wants.
+@export var character_model_override := ""
 
 ## name, parent, rest offset from parent bone (bone-local, i.e. before the
 ## parent's own rotation is applied — matches Skeleton3D.set_bone_rest's
@@ -194,6 +209,16 @@ var _imported := false
 
 func is_imported() -> bool:
 	return _imported
+
+
+## "procedural" or a CHARACTER_MODELS key — character_model_override if
+## set, else whatever CharacterProfile.model_id currently says. The single
+## place that decides which model a given rig instance wants, so the
+## character screen, CharacterBackdrop and every in-match spawn agree.
+func selected_model() -> String:
+	if character_model_override != "":
+		return character_model_override
+	return CharacterProfile.model_id
 
 
 func _build() -> void:
@@ -292,26 +317,29 @@ func _build() -> void:
 
 # ── Import swap ──────────────────────────────────────────────────────
 
-## Loads IMPORTED_CHARACTER_PATH and, if it contains a Skeleton3D, hoists
-## that Skeleton3D up to be a direct child of this node (same place the
-## procedural build puts its own) so every downstream reader —
-## PlayerAnimation's `_rig.get_node_or_null(^"Skeleton3D")`,
-## HumanoidAnimations' "Skeleton3D:BoneName" track paths, SkeletonWireframe
-## — keeps working against a fixed path regardless of which path built it.
-## Returns false (procedural fallback stays in charge) if the file doesn't
-## exist, fails to load, or has no skeleton inside — never partially builds.
+## Resolves selected_model() through CHARACTER_MODELS and, if it names a
+## real file, loads it and hoists its Skeleton3D up to be a direct child
+## of this node (same place the procedural build puts its own) so every
+## downstream reader — PlayerAnimation's
+## `_rig.get_node_or_null(^"Skeleton3D")`, HumanoidAnimations'
+## "Skeleton3D:BoneName" track paths, SkeletonWireframe — keeps working
+## against a fixed path regardless of which path built it. Returns false
+## (procedural fallback stays in charge) if "procedural" is selected, the
+## model id is unrecognised, the file doesn't exist, fails to load, or has
+## no skeleton inside — never partially builds.
 func _try_build_from_import() -> bool:
-	if not ResourceLoader.exists(IMPORTED_CHARACTER_PATH):
+	var model_path: String = CHARACTER_MODELS.get(selected_model(), "")
+	if model_path == "" or not ResourceLoader.exists(model_path):
 		return false
-	var packed: PackedScene = load(IMPORTED_CHARACTER_PATH)
+	var packed: PackedScene = load(model_path)
 	if packed == null:
-		push_error("HumanoidRig: failed to load " + IMPORTED_CHARACTER_PATH)
+		push_error("HumanoidRig: failed to load " + model_path)
 		return false
 
 	var imported := packed.instantiate()
 	var found := _find_skeleton(imported)
 	if found == null:
-		push_error("HumanoidRig: " + IMPORTED_CHARACTER_PATH + " has no Skeleton3D")
+		push_error("HumanoidRig: " + model_path + " has no Skeleton3D")
 		imported.queue_free()
 		return false
 
