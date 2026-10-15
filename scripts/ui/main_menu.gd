@@ -77,16 +77,15 @@ const ESTABLISHED_TEXT := "EST. 2025"
 ## by hand until one exists.
 const VERSION_TEXT := "v.1.0"
 
-## Control legend, in the same chip form the character screen uses
-## (KeyHintBar) rather than this screen's old single run-on sentence —
-## one legend treatment across the front end, and four short pairs read
-## at a glance where a 78-character line did not.
-const HINTS := [
-	{"keys": "A / D", "label": "Choose"},
-	{"keys": "Enter", "label": "Select"},
-	{"keys": "C", "label": "Character"},
-	{"keys": "T", "label": "Team"},
+## Utility row below the mode cards — navigable via ↓/↑ (or d-pad),
+## left/right to cycle, Enter/A to enter. Character and Team shortcuts
+## (C / T) still jump there directly.
+const UTIL_ENTRIES := [
+	{"label": "CHARACTER", "scene": "res://scenes/ui/character_screen.tscn"},
+	{"label": "TEAM", "scene": "res://scenes/ui/team_list_screen.tscn"},
 ]
+const UTIL_ROW_HEIGHT := 28.0
+const UTIL_SEPARATION := 48
 
 const IMAGE_DIR := "res://assets/textures/images/"
 const IMAGE_EXTENSIONS := ["jpg", "jpeg", "png", "webp"]
@@ -173,6 +172,14 @@ var _cards: Array[CardWidgets] = []
 var _placeholder_tints := [SoftBrutalist.ACCENT_SECONDARY, SoftBrutalist.MUTED,
 	SoftBrutalist.ACCENT_PRIMARY]
 
+## 0 = mode card row, 1 = utility row (CHARACTER/TEAM), 2 = footer SETTINGS.
+var _row := 0
+var _util_index := 0
+var _util_labels: Array[Label] = []
+var _hints_bar: KeyHintBar
+var _footer_settings_icon: UIIcon
+var _footer_settings_label: Label
+
 
 func _ready() -> void:
 	GameState.mode = GameState.Mode.SANDBOX
@@ -182,18 +189,49 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	# Direct shortcuts still work regardless of row.
 	if event.is_action_pressed(&"character_menu"):
 		SceneWipe.change_scene("res://scenes/ui/character_screen.tscn")
+		return
 	elif event.is_action_pressed(&"team_menu"):
 		SceneWipe.change_scene("res://scenes/ui/team_list_screen.tscn")
-	elif event.is_action_pressed(&"move_left") or event.is_action_pressed(&"ui_left") \
-			or event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up"):
-		_move(-1)
-	elif event.is_action_pressed(&"move_right") or event.is_action_pressed(&"ui_right") \
-			or event.is_action_pressed(&"move_back") or event.is_action_pressed(&"ui_down"):
-		_move(1)
-	elif event.is_action_pressed(&"ui_accept") or _is_gamepad_a_press(event):
-		_select()
+		return
+
+	if _row == 2:
+		# Footer SETTINGS button — up/B back to util row, Enter/A opens settings.
+		if event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up") \
+				or event.is_action_pressed(&"decline"):
+			_row = 1
+			_refresh()
+		elif event.is_action_pressed(&"ui_accept") or _is_gamepad_a_press(event):
+			SceneWipe.change_scene("res://scenes/ui/settings_screen.tscn")
+	elif _row == 1:
+		# Util row — left/right cycles items, down → footer, up/B → cards.
+		if event.is_action_pressed(&"move_left") or event.is_action_pressed(&"ui_left"):
+			_util_move(-1)
+		elif event.is_action_pressed(&"move_right") or event.is_action_pressed(&"ui_right"):
+			_util_move(1)
+		elif event.is_action_pressed(&"move_back") or event.is_action_pressed(&"ui_down"):
+			_row = 2
+			_refresh()
+		elif event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up") \
+				or event.is_action_pressed(&"decline"):
+			_row = 0
+			_refresh()
+		elif event.is_action_pressed(&"ui_accept") or _is_gamepad_a_press(event):
+			_util_select()
+	else:
+		# Card row — left/right/up cycles cards, down → util row.
+		if event.is_action_pressed(&"move_left") or event.is_action_pressed(&"ui_left") \
+				or event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up"):
+			_move(-1)
+		elif event.is_action_pressed(&"move_right") or event.is_action_pressed(&"ui_right"):
+			_move(1)
+		elif event.is_action_pressed(&"move_back") or event.is_action_pressed(&"ui_down"):
+			_row = 1
+			_refresh()
+		elif event.is_action_pressed(&"ui_accept") or _is_gamepad_a_press(event):
+			_select()
 
 
 ## ui_accept's built-in default binding already includes joypad button 0,
@@ -218,6 +256,15 @@ func _select() -> void:
 	if not entry.unlocked:
 		return
 	SceneWipe.change_scene(entry.scene_path)
+
+
+func _util_move(step: int) -> void:
+	_util_index = (_util_index + step + UTIL_ENTRIES.size()) % UTIL_ENTRIES.size()
+	_refresh()
+
+
+func _util_select() -> void:
+	SceneWipe.change_scene(UTIL_ENTRIES[_util_index]["scene"])
 
 
 # ── Build ────────────────────────────────────────────────────────────
@@ -251,6 +298,7 @@ func _build() -> void:
 	_build_corner_chrome(bands)
 	_build_header(bands)
 	_build_card_row(bands)
+	_build_util_row(bands)
 	_build_footer(bands)
 
 
@@ -314,6 +362,39 @@ func _build_card_row(parent: Control) -> void:
 		_cards.append(widgets)
 
 
+## Three utility destinations (CHARACTER / TEAM / SETTINGS) below the mode
+## cards. Muted at rest; the focused item highlights with the accent colour
+## when the cursor is on this row. Mouse hover still works too.
+func _build_util_row(parent: Control) -> void:
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.custom_minimum_size.y = UTIL_ROW_HEIGHT
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override(&"separation", UTIL_SEPARATION)
+	parent.add_child(row)
+
+	_util_labels.clear()
+	for i in UTIL_ENTRIES.size():
+		var entry: Dictionary = UTIL_ENTRIES[i]
+		var label := SoftBrutalist.label(String(entry["label"]), SoftBrutalist.SIZE_LABEL,
+			SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_TITLE)
+		label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		label.mouse_filter = Control.MOUSE_FILTER_STOP
+		label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		# Hover moves row cursor to util row + this item.
+		label.mouse_entered.connect(func() -> void:
+			_row = 1
+			_util_index = i
+			_refresh())
+		# Click selects immediately.
+		label.gui_input.connect(func(event: InputEvent) -> void:
+			if event is InputEventMouseButton and event.pressed \
+					and event.button_index == MOUSE_BUTTON_LEFT:
+				_util_select())
+		row.add_child(label)
+		_util_labels.append(label)
+
+
 ## SETTINGS on the left margin, the control legend centred, EXIT GAME on
 ## the right margin — the expanding legend in the middle is what pins the
 ## two actions to the screen's own margins instead of to a hardcoded
@@ -325,15 +406,23 @@ func _build_footer(parent: Control) -> void:
 	row.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_3))
 	parent.add_child(row)
 
-	row.add_child(_build_footer_action(&"gear", "SETTINGS",
-		func() -> void: SceneWipe.change_scene("res://scenes/ui/settings_screen.tscn")))
+	var settings_widget := _build_footer_action(&"gear", "SETTINGS",
+		func() -> void: SceneWipe.change_scene("res://scenes/ui/settings_screen.tscn"))
+	# Store icon/label refs so _refresh() can highlight this button when
+	# the d-pad cursor reaches the footer row.
+	_footer_settings_icon = settings_widget.get_child(0) as UIIcon
+	_footer_settings_label = settings_widget.get_child(1) as Label
+	# Hover also focuses this row so the controller cursor stays consistent.
+	settings_widget.mouse_entered.connect(func() -> void:
+		_row = 2
+		_refresh())
+	row.add_child(settings_widget)
 
-	var hints := KeyHintBar.new()
-	hints.alignment = BoxContainer.ALIGNMENT_CENTER
-	hints.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hints.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(hints)
-	hints.set_hints(HINTS)
+	_hints_bar = KeyHintBar.new()
+	_hints_bar.alignment = BoxContainer.ALIGNMENT_CENTER
+	_hints_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_hints_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(_hints_bar)
 
 	row.add_child(_build_footer_action(&"exit", "EXIT GAME",
 		func() -> void: get_tree().quit()))
@@ -649,3 +738,39 @@ func _refresh() -> void:
 		var next_border := border_style.duplicate()
 		widgets.border.add_theme_stylebox_override(&"panel", next_border)
 		tween.tween_property(next_border, "border_color", target_border, CARD_ANIM_DURATION)
+
+	# Util row labels: accent on the focused one, muted otherwise.
+	for i in _util_labels.size():
+		var focused := _row == 1 and i == _util_index
+		_util_labels[i].add_theme_color_override(&"font_color",
+			RetroWindow.ACCENT if focused else SoftBrutalist.MUTED)
+
+	# Footer SETTINGS highlight.
+	var settings_focused := _row == 2
+	if is_instance_valid(_footer_settings_icon):
+		_footer_settings_icon.line_colour = RetroWindow.ACCENT if settings_focused \
+			else SoftBrutalist.MUTED
+	if is_instance_valid(_footer_settings_label):
+		_footer_settings_label.add_theme_color_override(&"font_color",
+			RetroWindow.ACCENT if settings_focused else SoftBrutalist.MUTED)
+
+	# Dynamic hints reflect which row the cursor is on.
+	if is_instance_valid(_hints_bar):
+		if _row == 2:
+			_hints_bar.set_hints([
+				{"keys": "Enter / A", "label": "Open settings"},
+				{"keys": "↑ / B", "label": "Back"},
+			])
+		elif _row == 1:
+			_hints_bar.set_hints([
+				{"keys": "← / →", "label": "Choose"},
+				{"keys": "Enter / A", "label": "Open"},
+				{"keys": "↑ / B", "label": "Back to modes"},
+				{"keys": "↓", "label": "Settings"},
+			])
+		else:
+			_hints_bar.set_hints([
+				{"keys": "← / →", "label": "Choose"},
+				{"keys": "Enter / A", "label": "Select"},
+				{"keys": "↓", "label": "Character / Team"},
+			])

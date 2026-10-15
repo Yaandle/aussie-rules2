@@ -188,6 +188,9 @@ const CARD_SHADOW_OFFSET_SELECTED := Vector2(9.0, 9.0)
 ## the camera preview needs to know which card triggers it.
 const CAMERA_CARD_INDEX := 1
 
+## Index of the YOUR POSITION card — locked whenever PLAYER CONTROL is FULL TEAM.
+const YOUR_POSITION_CARD_INDEX := 5
+
 
 ## One setting tile. `row` is SettingsScreen.Row — the project's
 ## established cycling-value shape, reused rather than re-declared
@@ -307,6 +310,7 @@ func _ready() -> void:
 		Card.new(SettingsScreen.Row.new("WEATHER", ["CLEAR"]), true),
 	]
 
+	_update_your_position_lock()
 	_build()
 	# _refresh() drives the preview too, so there is no separate seeding
 	# call — one path keeps the cards and the window from ever disagreeing.
@@ -492,6 +496,14 @@ func _back() -> void:
 func _set_player_control(index: int) -> void:
 	Settings.player_control_mode = index as Settings.PlayerControlMode
 	Settings.save()
+	_update_your_position_lock()
+
+
+func _update_your_position_lock() -> void:
+	if _cards.size() <= YOUR_POSITION_CARD_INDEX:
+		return
+	_cards[YOUR_POSITION_CARD_INDEX].locked = \
+		Settings.player_control_mode != Settings.PlayerControlMode.SINGLE_PLAYER
 
 
 func _set_camera_mode(index: int) -> void:
@@ -1043,6 +1055,7 @@ func _refresh() -> void:
 		card.value_label.add_theme_color_override(&"font_color",
 			SoftBrutalist.MUTED if card.locked else RetroWindow.ACCENT)
 		card.glyph.line_colour = _glyph_colour(card, selected)
+		card.glyph.icon_name = &"lock" if card.locked else &"arrow_right"
 
 		# Alpha rather than `visible`, so the glyph row's layout never
 		# reflows — see _build_card().
@@ -1165,6 +1178,9 @@ func _sync_preview() -> void:
 		_whiteboard.formation_index = Settings.home_formation_index
 		_whiteboard.ball_movement = Settings.home_ball_movement
 		_whiteboard.defensive_pressure = Settings.home_defensive_pressure
+		_whiteboard.highlighted_slot = Settings.home_human_slot \
+			if Settings.player_control_mode == Settings.PlayerControlMode.SINGLE_PLAYER \
+			else -1
 
 	if _readout_values.size() < 4:
 		return
