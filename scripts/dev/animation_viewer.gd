@@ -232,6 +232,7 @@ var _player_animation: PlayerAnimation
 var _current_blend := Vector2.ZERO
 var _state_label: Label
 var _blend_label: Label
+var _model_label: Label
 var _jump_tween: Tween
 
 var _preview_columns: Control
@@ -548,6 +549,16 @@ func _build_subject() -> void:
 	_player_animation.name = "PlayerAnimation"
 	_subject.add_child(_player_animation)
 
+	_update_model_label()
+
+
+## Reads HumanoidRig.is_imported() so the MODEL metric card always reflects
+## whichever path _rig._build() actually took, including after REBUILD.
+func _update_model_label() -> void:
+	if _model_label == null or _rig == null:
+		return
+	_model_label.text = "IMPORTED" if _rig.is_imported() else "PROCEDURAL"
+
 
 # ── UI ───────────────────────────────────────────────────────────────
 # Same hard-shell card language as MLExperimentViewer (ml_experiment_viewer.
@@ -596,6 +607,18 @@ func _build_ui() -> void:
 	_blend_label.text = "0.00, 0.00"
 	blend_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	metrics.add_child(blend_card.node)
+
+	# 4B's "development menu" half in miniature: proves HumanoidRig's import
+	# swap (see humanoid_rig.gd's own header) actually took effect, without
+	# having to read code or attach a debugger. REBUILD already re-runs
+	# _build_subject() -> HumanoidRig._ready() -> _build(), so it's already
+	# a full end-to-end exercise of the swap path once a real res://assets/
+	# characters/player.glb exists — this just surfaces which path won.
+	var model_card := _metric_card("MODEL")
+	_model_label = model_card.value_label
+	model_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	metrics.add_child(model_card.node)
+	_update_model_label()
 
 	_experiment_ui = MLExperimentViewerScript.new(self)
 
@@ -1251,6 +1274,9 @@ func _ensure_umpire() -> void:
 func _reset_contest_state() -> void:
 	_contest_stage = ContestStage.NONE
 	_sequence_stage = ContestStage.NONE
+
+	if _contest_a == null or _contest_b == null:
+		return
 
 	_contest_a.velocity = Vector3.ZERO
 	_contest_b.velocity = Vector3.ZERO
