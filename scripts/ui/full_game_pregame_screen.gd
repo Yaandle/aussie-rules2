@@ -162,9 +162,13 @@ const READOUT_ROW_GAP := 16
 ## camera preview occupies the same landscape RetroWindow shell. The card
 ## row therefore remains completely stationary regardless of the selected
 ## camera mode.
-const CAMERA_PREVIEW_WIDTH := 460.0
-const CAMERA_PREVIEW_HEIGHT := 360.0
-const CAMERA_BG_COLOUR := Color("#d4b5a0")
+##
+## Sized to nearly fill the landscape card (compare PREVIEW_WIDTH, which
+## only covers the narrow portrait board) rather than floating as a small
+## box in the middle of it, so the screenshot itself reads as the point of
+## the window instead of a thumbnail inside one.
+const CAMERA_PREVIEW_WIDTH := 860.0
+const CAMERA_PREVIEW_HEIGHT := 358.0
 
 
 const TITLE_TEXT := "FULL GAME"
@@ -690,7 +694,7 @@ func _build_camera_preview_content(parent: Control) -> void:
 	divider.size = Vector2(CAMERA_PREVIEW_WIDTH - 40.0, 1.0)
 	_camera_preview_container.add_child(divider)
 
-	var cam_panel_size := Vector2(CAMERA_PREVIEW_WIDTH - 32.0, 192.0)
+	var cam_panel_size := Vector2(CAMERA_PREVIEW_WIDTH - 32.0, CAMERA_PREVIEW_HEIGHT - 68.0)
 	var cam_panel_pos := Vector2(16.0, 52.0)
 
 	_camera_panel_third_person = _build_camera_panel(
@@ -991,8 +995,15 @@ func _build_camera_panel(
 	panel.position = panel_position
 	panel.size = panel_size
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Transparent, not the old solid brown fill — the card's own parchment
+	# already sits behind this, so a screenshot narrower than the panel's
+	# aspect now letterboxes onto the same paper colour as the rest of the
+	# screen instead of a mismatched brown slab. A hairline border keeps the
+	# field legible as its own region.
 	var cam_style := StyleBoxFlat.new()
-	cam_style.bg_color = CAMERA_BG_COLOUR
+	cam_style.bg_color = Color(RetroWindow.PANEL, 0.0)
+	cam_style.border_color = RetroWindow.BORDER
+	cam_style.set_border_width_all(2)
 	cam_style.set_corner_radius_all(RetroWindow.RADIUS)
 	panel.add_theme_stylebox_override(&"panel", cam_style)
 	parent.add_child(panel)
