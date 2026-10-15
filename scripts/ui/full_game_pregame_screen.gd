@@ -699,7 +699,7 @@ func _build_camera_preview_content(parent: Control) -> void:
 	_camera_panel_full_side = _build_camera_panel(
 		_camera_preview_container, cam_panel_pos, cam_panel_size, "FULL-SIDE", true)
 ## A formatted column — title, rule, four label/value rows — docked to the
-## card's right edge (see READOUT_PANEL_* above). Parented to the window's
+## card's left edge (see READOUT_PANEL_* above). Parented to the window's
 ## front Panel rather than to the MarginContainer the board fills, and
 ## positioned by anchors rather than sorted into any container's layout, so
 ## it sits beside the board instead of being squeezed under it.
@@ -708,9 +708,9 @@ func _build_readout(panel: Control) -> void:
 	_readout_strip = strip
 	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	strip.alignment = BoxContainer.ALIGNMENT_CENTER
-	strip.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
-	strip.offset_left = -(READOUT_INSET_X + READOUT_PANEL_WIDTH)
-	strip.offset_right = -READOUT_INSET_X
+	strip.set_anchors_preset(Control.PRESET_CENTER_LEFT)
+	strip.offset_left = READOUT_INSET_X
+	strip.offset_right = READOUT_INSET_X + READOUT_PANEL_WIDTH
 	strip.offset_top = -READOUT_PANEL_HEIGHT * 0.5
 	strip.offset_bottom = READOUT_PANEL_HEIGHT * 0.5
 	strip.add_theme_constant_override(&"separation", READOUT_ROW_GAP)
