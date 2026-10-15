@@ -25,6 +25,59 @@ extends Node3D
 ## HumanoidAnimations (formerly PlaceholderAnimations) writes bone tracks
 ## against this skeleton via the "Skeleton3D:BoneName" track-path
 ## convention; nothing else in this file drives animation.
+##
+## ── Import swap (4A) ─────────────────────────────────────────────────
+## If IMPORTED_CHARACTER_PATH exists, _build() loads it instead of building
+## the primitive meshes below, and uses whatever Skeleton3D it finds inside
+## as this rig's skeleton() — same call, same "Skeleton3D" child name,
+## same bone names, so PlayerAnimation/HumanoidAnimations/SkeletonWireframe
+## need no changes either way (see docs/ note below for the full contract
+## wiring and scripts/dev/rig_export.gd for round-tripping the current
+## procedural rig out to Blender in the meantime). THE EXPORT CONTRACT a
+## Blender-built model must satisfy to drop in here cleanly:
+##
+## 1. Bone names/hierarchy must match the BONES table below exactly (22
+##    bones: Root -> Hips -> Spine -> Chest -> {Neck -> Head,
+##    Left/RightShoulder -> Left/RightUpperArm -> Left/RightLowerArm ->
+##    Left/RightHand}, Hips -> Left/RightUpperLeg -> Left/RightLowerLeg ->
+##    Left/RightFoot -> Left/RightToes). These already match Godot's
+##    SkeletonProfileHumanoid, same reasoning as the header above.
+## 2. Rest pose must be identity rotation on every bone — this rig's bones
+##    are pure translation at rest (see BONES below), and humanoid_
+##    animations.gd's pose math assumes that convention. Blender's own
+##    rest pose for a mirrored armature built by hand is usually already
+##    this (bones pointing along one local axis with no twist); double-
+##    check in Blender's N-panel per bone if an import comes in looking
+##    sheared.
+## 3. **Bake FK before export.** IK constraints/control bones (forearm,
+##    shin, etc.) are a Blender posing aid only — Godot's AnimationPlayer
+##    plays back flat bone transform tracks, it has no constraint solver.
+##    Before exporting, select the deform bones in Pose Mode, Bake Action
+##    with "Visual Keying" on (bakes the IK-solved result into plain FK
+##    keys), then delete the IK constraints/control bones so only the
+##    clean deform skeleton and its baked actions export. Skipping this is
+##    the single most likely reason a first export comes in looking
+##    twisted/broken — the control-bone hierarchy exporting alongside (or
+##    instead of) the baked deform bones, or raw unbaked IK still "live".
+## 4. Export as glTF2 (.glb), with the Skeleton3D + skin + all actions, to
+##    res://assets/characters/player.glb (IMPORTED_CHARACTER_PATH below).
+##    Godot's own importer picks it up as a normal PackedScene on the next
+##    project scan — no custom import code needed on that side.
+##
+## NOT YET VERIFIED: axis convention. This rig's "-Y hangs down the limb"
+## local convention (docs/HANDOVER.md's own "Rest-pose axis convention for
+## retargeting is also unverified" note) has never been checked against a
+## real Blender/glTF import land correctly without a 90-degree twist per
+## limb — if bone #2 above still looks wrong after a careful rest-pose
+## export, this is the next thing to check, via Godot's BoneMap retarget
+## UI or a manual per-bone rotation fixup in Blender before export.
+##
+## kit_torso/kit_shorts/kit_stripes/away_kit (below) only ever recolour the
+## procedural primitives — an imported mesh brings its own materials from
+## Blender, so those exports become no-ops once a character is imported.
+## Umpire needs the stripe override, so it sets allow_imported_character
+## = false before add_child() to stay on the procedural path regardless of
+## whether a player character has been imported.
 
 const HIP_HEIGHT := 0.99
 const THIGH_LENGTH := 0.44
@@ -78,6 +131,18 @@ const COLOUR_TREAD := Color("#141513")
 ## either way so they're left alone.
 const DETAIL_SCALE := 2.4
 
+## See the "Import swap (4A)" header note above for the full contract.
+## Convention path for a Blender-built character — Godot's own importer
+## turns a .glb under res:// into a loadable PackedScene with no extra
+## config, so dropping one in here is the entire "install" step.
+const IMPORTED_CHARACTER_PATH := "res://assets/characters/player.glb"
+
+## Set false by callers whose kit_* colour overrides only work on the
+## procedural primitives (Umpire's stripes) — see header note. Every other
+## caller (players, menu/character backdrops) wants the real model once
+## one exists, so this defaults on.
+@export var allow_imported_character := true
+
 ## name, parent, rest offset from parent bone (bone-local, i.e. before the
 ## parent's own rotation is applied — matches Skeleton3D.set_bone_rest's
 ## own convention of a Transform3D relative to the parent bone). Order
@@ -123,7 +188,19 @@ func skeleton() -> Skeleton3D:
 	return _skeleton
 
 
+## True once an imported Blender character replaced the primitives below —
+## dev tooling (animation_viewer.gd) reads this to show which path is live.
+var _imported := false
+
+func is_imported() -> bool:
+	return _imported
+
+
 func _build() -> void:
+	if allow_imported_character and _try_build_from_import():
+		_imported = true
+		return
+
 	var guernsey := COLOUR_GUERNSEY_AWAY if away_kit else COLOUR_GUERNSEY
 	if kit_torso.a > 0.0:
 		guernsey = kit_torso
@@ -211,6 +288,80 @@ func _build() -> void:
 		# the Boot's own Foot attachment.
 		_box_on("Foot" + suffix, "Tread" + suffix, Vector3(0.105, 0.02, 0.27),
 			Vector3(0.0, -0.06, -0.06), COLOUR_TREAD, 0.9)
+
+
+# ── Import swap ──────────────────────────────────────────────────────
+
+## Loads IMPORTED_CHARACTER_PATH and, if it contains a Skeleton3D, hoists
+## that Skeleton3D up to be a direct child of this node (same place the
+## procedural build puts its own) so every downstream reader —
+## PlayerAnimation's `_rig.get_node_or_null(^"Skeleton3D")`,
+## HumanoidAnimations' "Skeleton3D:BoneName" track paths, SkeletonWireframe
+## — keeps working against a fixed path regardless of which path built it.
+## Returns false (procedural fallback stays in charge) if the file doesn't
+## exist, fails to load, or has no skeleton inside — never partially builds.
+func _try_build_from_import() -> bool:
+	if not ResourceLoader.exists(IMPORTED_CHARACTER_PATH):
+		return false
+	var packed: PackedScene = load(IMPORTED_CHARACTER_PATH)
+	if packed == null:
+		push_error("HumanoidRig: failed to load " + IMPORTED_CHARACTER_PATH)
+		return false
+
+	var imported := packed.instantiate()
+	var found := _find_skeleton(imported)
+	if found == null:
+		push_error("HumanoidRig: " + IMPORTED_CHARACTER_PATH + " has no Skeleton3D")
+		imported.queue_free()
+		return false
+
+	if found == imported:
+		# Imported scene's own root IS the Skeleton3D (Blender's Armature
+		# object was the single root) — nothing to hoist.
+		_clear_owner(imported)
+		add_child(imported)
+		_skeleton = found
+		_skeleton.name = "Skeleton3D"
+		return true
+
+	# Move every child of the skeleton's own parent up to be a direct child
+	# of this node, not just the skeleton in isolation — a Blender "Parent
+	# (With Automatic Weights)" export can place skinned MeshInstance3D
+	# nodes as siblings of the Skeleton3D rather than nested under it, and
+	# extracting only the skeleton would silently drop those meshes. Any
+	# other sibling (a stray light/camera Blender's exporter added) rides
+	# along too; harmless clutter, not a correctness problem.
+	var holder := found.get_parent()
+	for child in holder.get_children():
+		holder.remove_child(child)
+		_clear_owner(child)  # must happen before add_child — Godot checks owner consistency as part of the call itself, not after
+		add_child(child)
+	_skeleton = found
+	_skeleton.name = "Skeleton3D"
+	imported.queue_free()
+	return true
+
+
+## Every node loaded from a PackedScene keeps `owner` pointing at that
+## scene's original root (used for editor saving, irrelevant once we're
+## just composing a runtime tree) — left set after reparenting here, it's
+## a dangling reference to a root we're about to free, which Godot warns
+## about loudly on every add_child above. Recurse because owner is set
+## per-node, not inherited.
+func _clear_owner(node: Node) -> void:
+	node.owner = null
+	for child in node.get_children():
+		_clear_owner(child)
+
+
+func _find_skeleton(node: Node) -> Skeleton3D:
+	if node is Skeleton3D:
+		return node
+	for child in node.get_children():
+		var found := _find_skeleton(child)
+		if found != null:
+			return found
+	return null
 
 
 # ── Construction helpers ─────────────────────────────────────────────

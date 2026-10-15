@@ -86,6 +86,14 @@ const ACTION_BLEND_OUT := 0.18    ## s
 ## below the bone with half-height 0.035m puts its bottom edge there), not
 ## a separately eyeballed number. Below this, the boot mesh is visibly
 ## through the flat y=0 ground plane every mode's Field actually uses.
+##
+## FLAGGED FOR 4A/4C: this number is specific to the PROCEDURAL Boot mesh
+## and does not re-derive itself from an imported character (humanoid_rig.
+## gd's "Import swap" — a Blender model's own sole-to-ankle-bone distance
+## will almost never be exactly 0.07m). Once a real import exists and feet
+## clip through or float above the turf, this is the constant to recheck/
+## recalibrate against the new model's actual geometry — not a bug in the
+## clamp logic itself.
 const BOOT_GROUND_CLEARANCE := 0.07
 const GROUND_CLAMP_FEET: Array[StringName] = [&"LeftFoot", &"RightFoot"]
 
