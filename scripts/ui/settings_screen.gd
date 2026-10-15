@@ -219,7 +219,7 @@ func _ready() -> void:
 	top += ROW_HEIGHT + ROW_GAP
 
 	var hint := SoftBrutalist.label(
-		"UP/DOWN SELECT · LEFT/RIGHT CHANGE · ENTER ACTIVATE · ESC BACK",
+		"UP/DOWN SELECT · LEFT/RIGHT CHANGE · ENTER ACTIVATE · B/ESC BACK",
 		SoftBrutalist.SIZE_CAPTION,
 		SoftBrutalist.MUTED,
 		SoftBrutalist.WEIGHT_REGULAR,
@@ -237,7 +237,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _busy:
 		return
 
-	if event.is_action_pressed(&"pause") or event.is_action_pressed(&"ui_cancel"):
+	if event.is_action_pressed(&"pause") or event.is_action_pressed(&"ui_cancel") \
+			or event.is_action_pressed(&"decline"):
 		_back()
 	elif event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up"):
 		_move(-1)

@@ -353,7 +353,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_cycle(-1)
 		elif event.is_action_pressed(&"move_right") or event.is_action_pressed(&"ui_right"):
 			_cycle(1)
-		elif event.is_action_pressed(&"ui_accept") or event.is_action_pressed(&"ui_cancel") \
+		elif event.is_action_pressed(&"ui_accept") or event.is_action_pressed(&"confirm") \
+				or event.is_action_pressed(&"ui_cancel") or event.is_action_pressed(&"decline") \
 				or event.is_action_pressed(&"pause") \
 				or event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up"):
 			_close_card()
@@ -367,13 +368,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		_move(-1)
 	elif event.is_action_pressed(&"move_right") or event.is_action_pressed(&"ui_right"):
 		_move(1)
-	elif event.is_action_pressed(&"ui_accept"):
+	elif event.is_action_pressed(&"ui_accept") or event.is_action_pressed(&"confirm"):
 		_activate()
 	elif event.is_action_pressed(&"move_back") or event.is_action_pressed(&"ui_down"):
 		_go_to_start()
 	elif event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up"):
 		_leave_start()
-	elif event.is_action_pressed(&"pause") or event.is_action_pressed(&"ui_cancel"):
+	elif event.is_action_pressed(&"pause") or event.is_action_pressed(&"ui_cancel") \
+			or event.is_action_pressed(&"decline"):
 		_back()
 
 
@@ -1001,27 +1003,27 @@ func _hints_for_state() -> Array:
 	if _open:
 		return [
 			{"keys": "← / →", "label": "Change"},
-			{"keys": "Enter / Esc", "label": "Close"},
+			{"keys": "Enter / A / B / Esc", "label": "Close"},
 		]
 	if _index == _cards.size():
 		return [
 			{"keys": "← / →", "label": "Choose"},
-			{"keys": "Enter", "label": "Start match"},
+			{"keys": "Enter / A", "label": "Start match"},
 			{"keys": "↑", "label": "Back to cards"},
-			{"keys": "Esc", "label": "Back to menu"},
+			{"keys": "B / Esc", "label": "Back to menu"},
 		]
 	if _cards[_index].locked:
 		return [
 			{"keys": "← / →", "label": "Choose"},
 			{"keys": "—", "label": "Not built yet"},
 			{"keys": "↓", "label": "Start match"},
-			{"keys": "Esc", "label": "Back to menu"},
+			{"keys": "B / Esc", "label": "Back to menu"},
 		]
 	return [
 		{"keys": "← / →", "label": "Choose"},
-		{"keys": "Enter", "label": "Open"},
+		{"keys": "Enter / A", "label": "Open"},
 		{"keys": "↓", "label": "Start match"},
-		{"keys": "Esc", "label": "Back to menu"},
+		{"keys": "B / Esc", "label": "Back to menu"},
 	]
 
 
