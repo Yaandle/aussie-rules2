@@ -154,8 +154,9 @@ const READOUT_ROW_GAP := 1
 ## camera preview occupies the same landscape RetroWindow shell. The card
 ## row therefore remains completely stationary regardless of the selected
 ## camera mode.
-const CAMERA_PREVIEW_WIDTH := 320.0
-const CAMERA_PREVIEW_HEIGHT := 270.0
+const CAMERA_PREVIEW_WIDTH := 460.0
+const CAMERA_PREVIEW_HEIGHT := 360.0
+const CAMERA_BG_COLOUR := Color("#d4b5a0")
 
 
 const TITLE_TEXT := "FULL GAME"
@@ -186,6 +187,9 @@ const CARD_SHADOW_OFFSET_SELECTED := Vector2(9.0, 9.0)
 ## built in _ready(), named here rather than left as a bare "1" everywhere
 ## the camera preview needs to know which card triggers it.
 const CAMERA_CARD_INDEX := 1
+
+## Index of the YOUR POSITION card — locked whenever PLAYER CONTROL is FULL TEAM.
+const YOUR_POSITION_CARD_INDEX := 5
 
 
 ## One setting tile. `row` is SettingsScreen.Row — the project's
@@ -224,8 +228,9 @@ class _CameraPreviewField extends Control:
 		# Create a TextureRect to display the camera screenshot
 		_texture_rect = TextureRect.new()
 		_texture_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
-		_texture_rect.expand_mode = TextureRect.EXPAND_FIT_HEIGHT
+		_texture_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		_texture_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		_texture_rect.clip_contents = true
 		_texture_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(_texture_rect)
 		update_texture()
@@ -273,6 +278,7 @@ var _camera_field_third_person: _CameraPreviewField
 var _camera_field_full_side: _CameraPreviewField
 var _camera_panel_third_person: Panel
 var _camera_panel_full_side: Panel
+var _readout_strip: VBoxContainer
 
 
 func _ready() -> void:
@@ -304,6 +310,7 @@ func _ready() -> void:
 		Card.new(SettingsScreen.Row.new("WEATHER", ["CLEAR"]), true),
 	]
 
+	_update_your_position_lock()
 	_build()
 	# _refresh() drives the preview too, so there is no separate seeding
 	# call — one path keeps the cards and the window from ever disagreeing.
@@ -350,7 +357,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_cycle(-1)
 		elif event.is_action_pressed(&"move_right") or event.is_action_pressed(&"ui_right"):
 			_cycle(1)
-		elif event.is_action_pressed(&"ui_accept") or event.is_action_pressed(&"ui_cancel") \
+		elif event.is_action_pressed(&"ui_accept") or event.is_action_pressed(&"confirm") \
+				or event.is_action_pressed(&"ui_cancel") or event.is_action_pressed(&"decline") \
 				or event.is_action_pressed(&"pause") \
 				or event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up"):
 			_close_card()
@@ -364,13 +372,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		_move(-1)
 	elif event.is_action_pressed(&"move_right") or event.is_action_pressed(&"ui_right"):
 		_move(1)
-	elif event.is_action_pressed(&"ui_accept"):
+	elif event.is_action_pressed(&"ui_accept") or event.is_action_pressed(&"confirm"):
 		_activate()
 	elif event.is_action_pressed(&"move_back") or event.is_action_pressed(&"ui_down"):
 		_go_to_start()
 	elif event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up"):
 		_leave_start()
-	elif event.is_action_pressed(&"pause") or event.is_action_pressed(&"ui_cancel"):
+	elif event.is_action_pressed(&"pause") or event.is_action_pressed(&"ui_cancel") \
+			or event.is_action_pressed(&"decline"):
 		_back()
 
 
@@ -487,6 +496,14 @@ func _back() -> void:
 func _set_player_control(index: int) -> void:
 	Settings.player_control_mode = index as Settings.PlayerControlMode
 	Settings.save()
+	_update_your_position_lock()
+
+
+func _update_your_position_lock() -> void:
+	if _cards.size() <= YOUR_POSITION_CARD_INDEX:
+		return
+	_cards[YOUR_POSITION_CARD_INDEX].locked = \
+		Settings.player_control_mode != Settings.PlayerControlMode.SINGLE_PLAYER
 
 
 func _set_camera_mode(index: int) -> void:
@@ -664,21 +681,14 @@ func _build_camera_preview_content(parent: Control) -> void:
 	divider.size = Vector2(CAMERA_PREVIEW_WIDTH - 40.0, 1.0)
 	_camera_preview_container.add_child(divider)
 
+	var cam_panel_size := Vector2(CAMERA_PREVIEW_WIDTH - 32.0, 192.0)
+	var cam_panel_pos := Vector2(16.0, 52.0)
+
 	_camera_panel_third_person = _build_camera_panel(
-		_camera_preview_container,
-		Vector2(16.0, 62.0),
-		Vector2(140.0, 184.0),
-		"3RD PERSON",
-		false
-	)
+		_camera_preview_container, cam_panel_pos, cam_panel_size, "3RD PERSON", false)
 
 	_camera_panel_full_side = _build_camera_panel(
-		_camera_preview_container,
-		Vector2(164.0, 62.0),
-		Vector2(140.0, 184.0),
-		"FULL-SIDE",
-		true
-	)
+		_camera_preview_container, cam_panel_pos, cam_panel_size, "FULL-SIDE", true)
 ## Three label/value rows overlaid on the empty parchment band below the
 ## board (see READOUT_HEIGHT's comment). Parented to the window's front
 ## Panel rather than to the MarginContainer the board fills, so it draws
@@ -686,6 +696,7 @@ func _build_camera_preview_content(parent: Control) -> void:
 ## into the container's layout.
 func _build_readout(panel: Control) -> void:
 	var strip := VBoxContainer.new()
+	_readout_strip = strip
 	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	strip.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	strip.grow_vertical = Control.GROW_DIRECTION_BEGIN
@@ -968,8 +979,10 @@ func _build_camera_panel(
 	panel.position = panel_position
 	panel.size = panel_size
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_theme_stylebox_override(
-		&"panel", RetroWindow.row_style(false))
+	var cam_style := StyleBoxFlat.new()
+	cam_style.bg_color = CAMERA_BG_COLOUR
+	cam_style.set_corner_radius_all(RetroWindow.RADIUS)
+	panel.add_theme_stylebox_override(&"panel", cam_style)
 	parent.add_child(panel)
 
 	var title := SoftBrutalist.label(
@@ -1002,27 +1015,27 @@ func _hints_for_state() -> Array:
 	if _open:
 		return [
 			{"keys": "← / →", "label": "Change"},
-			{"keys": "Enter / Esc", "label": "Close"},
+			{"keys": "Enter / A / B / Esc", "label": "Close"},
 		]
 	if _index == _cards.size():
 		return [
 			{"keys": "← / →", "label": "Choose"},
-			{"keys": "Enter", "label": "Start match"},
+			{"keys": "Enter / A", "label": "Start match"},
 			{"keys": "↑", "label": "Back to cards"},
-			{"keys": "Esc", "label": "Back to menu"},
+			{"keys": "B / Esc", "label": "Back to menu"},
 		]
 	if _cards[_index].locked:
 		return [
 			{"keys": "← / →", "label": "Choose"},
 			{"keys": "—", "label": "Not built yet"},
 			{"keys": "↓", "label": "Start match"},
-			{"keys": "Esc", "label": "Back to menu"},
+			{"keys": "B / Esc", "label": "Back to menu"},
 		]
 	return [
 		{"keys": "← / →", "label": "Choose"},
-		{"keys": "Enter", "label": "Open"},
+		{"keys": "Enter / A", "label": "Open"},
 		{"keys": "↓", "label": "Start match"},
-		{"keys": "Esc", "label": "Back to menu"},
+		{"keys": "B / Esc", "label": "Back to menu"},
 	]
 
 
@@ -1042,6 +1055,7 @@ func _refresh() -> void:
 		card.value_label.add_theme_color_override(&"font_color",
 			SoftBrutalist.MUTED if card.locked else RetroWindow.ACCENT)
 		card.glyph.line_colour = _glyph_colour(card, selected)
+		card.glyph.icon_name = &"lock" if card.locked else &"arrow_right"
 
 		# Alpha rather than `visible`, so the glyph row's layout never
 		# reflows — see _build_card().
@@ -1128,8 +1142,8 @@ func _set_camera_preview_active(active: bool) -> void:
 	if is_instance_valid(_whiteboard):
 		_whiteboard.visible = not active
 
-	for readout: Label in _readout_values:
-		readout.visible = not active
+	if is_instance_valid(_readout_strip):
+		_readout_strip.visible = not active
 
 
 ## Highlights whichever field panel matches Settings.full_game_camera_mode
@@ -1146,11 +1160,6 @@ func _sync_camera_preview() -> void:
 	# Only show the panel matching the current camera mode
 	_camera_panel_third_person.visible = not full_side
 	_camera_panel_full_side.visible = full_side
-	
-	_camera_panel_third_person.add_theme_stylebox_override(
-		&"panel", RetroWindow.row_style(not full_side))
-	_camera_panel_full_side.add_theme_stylebox_override(
-		&"panel", RetroWindow.row_style(full_side))
 	
 	# Update the displayed images in both camera preview fields
 	if is_instance_valid(_camera_field_third_person):
@@ -1169,6 +1178,9 @@ func _sync_preview() -> void:
 		_whiteboard.formation_index = Settings.home_formation_index
 		_whiteboard.ball_movement = Settings.home_ball_movement
 		_whiteboard.defensive_pressure = Settings.home_defensive_pressure
+		_whiteboard.highlighted_slot = Settings.home_human_slot \
+			if Settings.player_control_mode == Settings.PlayerControlMode.SINGLE_PLAYER \
+			else -1
 
 	if _readout_values.size() < 4:
 		return

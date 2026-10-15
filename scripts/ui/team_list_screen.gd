@@ -164,7 +164,8 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if _busy:
 		return
-	if event.is_action_pressed(&"pause") or event.is_action_pressed(&"team_menu"):
+	if event.is_action_pressed(&"pause") or event.is_action_pressed(&"team_menu") \
+			or event.is_action_pressed(&"decline"):
 		_exit_to_menu()
 	elif event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up"):
 		_move_row(-1)
@@ -431,5 +432,5 @@ func _build_hint(parent: Control) -> void:
 		{"keys": "↑ / ↓", "label": "Select"},
 		{"keys": "← / →", "label": "Change"},
 		{"keys": "O", "label": "Opposition"},
-		{"keys": "T / Esc", "label": "Back to menu"},
+		{"keys": "B / T / Esc", "label": "Back to menu"},
 	])

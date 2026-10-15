@@ -73,7 +73,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _listening:
 		_handle_listen_input(event)
 		return
-	if event.is_action_pressed(&"pause") or event.is_action_pressed(&"ui_cancel"):
+	if event.is_action_pressed(&"pause") or event.is_action_pressed(&"ui_cancel") \
+			or event.is_action_pressed(&"decline"):
 		_back()
 	elif event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up"):
 		_move(-1)

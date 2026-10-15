@@ -109,7 +109,7 @@ func _ready() -> void:
 			{"keys": "W / S", "label": "Select"},
 			{"keys": "A / D", "label": "Adjust"},
 			{"keys": "Enter", "label": "Play"},
-			{"keys": "Esc / C", "label": "Back"},
+			{"keys": "B / Esc / C", "label": "Back"},
 		],
 	}
 
@@ -132,7 +132,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_nudge(1)
 	elif event.is_action_pressed(&"ui_accept") or event.is_action_pressed(&"confirm"):
 		_activate()
-	elif event.is_action_pressed(&"pause") or event.is_action_pressed(&"character_menu"):
+	elif event.is_action_pressed(&"pause") or event.is_action_pressed(&"character_menu") \
+			or event.is_action_pressed(&"decline"):
 		_exit_to_menu()
 
 

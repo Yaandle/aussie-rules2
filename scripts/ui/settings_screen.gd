@@ -23,7 +23,7 @@ const ROW_HEIGHT := 56.0
 const ROW_GAP := 14.0
 
 const PREVIEW_WIDTH := 320.0
-const PREVIEW_HEIGHT := 270.0
+const PREVIEW_HEIGHT := 310.0
 const PREVIEW_OFFSET := 80.0
 const PREVIEW_GAP := -10.0
 const PREVIEW_DURATION := 0.28
@@ -141,16 +141,6 @@ func _ready() -> void:
 	title.position = Vector2(32.0, 28.0)
 	_settings_content.add_child(title)
 
-	var subtitle := SoftBrutalist.label(
-		"SCREEN SHAKE NOT YET WIRED ",
-		SoftBrutalist.SIZE_CAPTION,
-		SoftBrutalist.MUTED,
-		SoftBrutalist.WEIGHT_REGULAR,
-		SoftBrutalist.TRACK_LABEL
-	)
-	subtitle.position = Vector2(32.0, 74.0)
-	_settings_content.add_child(subtitle)
-
 	var top := 112.0
 
 	for i in _rows.size():
@@ -229,7 +219,7 @@ func _ready() -> void:
 	top += ROW_HEIGHT + ROW_GAP
 
 	var hint := SoftBrutalist.label(
-		"UP/DOWN SELECT · LEFT/RIGHT CHANGE · ENTER ACTIVATE · ESC BACK",
+		"UP/DOWN SELECT · LEFT/RIGHT CHANGE · ENTER ACTIVATE · B/ESC BACK",
 		SoftBrutalist.SIZE_CAPTION,
 		SoftBrutalist.MUTED,
 		SoftBrutalist.WEIGHT_REGULAR,
@@ -247,7 +237,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _busy:
 		return
 
-	if event.is_action_pressed(&"pause") or event.is_action_pressed(&"ui_cancel"):
+	if event.is_action_pressed(&"pause") or event.is_action_pressed(&"ui_cancel") \
+			or event.is_action_pressed(&"decline"):
 		_back()
 	elif event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up"):
 		_move(-1)
@@ -376,19 +367,11 @@ func _create_camera_preview(
 	divider.size = Vector2(PREVIEW_WIDTH - 40.0, 1.0)
 	_preview_window.add_child(divider)
 
-	_create_camera_panel(
-		Vector2(16.0, 62.0),
-		Vector2(140.0, 184.0),
-		"3RD PERSON",
-		false
-	)
+	var panel_size := Vector2(PREVIEW_WIDTH - 32.0, 192.0)
+	var panel_pos := Vector2(16.0, 52.0)
 
-	_create_camera_panel(
-		Vector2(164.0, 62.0),
-		Vector2(140.0, 184.0),
-		"FULL-SIDE",
-		true
-	)
+	_create_camera_panel(panel_pos, panel_size, "3RD PERSON", false)
+	_create_camera_panel(panel_pos, panel_size, "FULL-SIDE", true)
 
 
 func _create_camera_panel(
@@ -576,8 +559,9 @@ class _CameraPreviewField extends Control:
 		# Create a TextureRect to display the camera screenshot
 		_texture_rect = TextureRect.new()
 		_texture_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
-		_texture_rect.expand_mode = TextureRect.EXPAND_FIT_HEIGHT
+		_texture_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		_texture_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		_texture_rect.clip_contents = true
 		_texture_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(_texture_rect)
 		update_texture()

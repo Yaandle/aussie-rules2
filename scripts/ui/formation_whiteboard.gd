@@ -113,6 +113,13 @@ var show_opposition := false:
 		show_opposition = value
 		queue_redraw()
 
+## Slot index whose player marker gets a highlight ring in SINGLE_PLAYER
+## pregame. -1 disables the ring (FULL TEAM mode or not in pregame).
+var highlighted_slot: int = -1:
+	set(value):
+		highlighted_slot = value
+		queue_redraw()
+
 # ── Depth (Matchday Formation) / width (Ball Movement) offset tables ───
 # Small [preset]x[line] lookup tables (design brief), not per-player: any
 # new position later only ever needs a Line to fall under, never its own
@@ -228,6 +235,11 @@ const OPPOSITION_DOT_SCALE := 0.75
 const TWEEN_DURATION := 0.35
 const TWEEN_TRANS := Tween.TRANS_CUBIC
 const TWEEN_EASE := Tween.EASE_IN_OUT
+
+## Ring drawn around the player-controlled slot — pregame sets this to
+## Settings.home_human_slot when SINGLE_PLAYER mode is active. -1 = no ring.
+const HIGHLIGHT_RING_RADIUS := DOT_RADIUS + 5.5
+const HIGHLIGHT_RING_WIDTH := 2.5
 
 ## Per-fielded-slot animation state, keyed by TeamFormation.SLOTS index.
 ## An index enters this dict fading in from alpha 0 the first time it's
@@ -453,6 +465,9 @@ func _draw_formation(centre: Vector2, scale: float) -> void:
 		var point := _to_screen(centre, e["display_pos"], scale)
 		var colour: Color = LINE_COLOURS[slot["line"]]
 		_draw_dot(point, Color(colour, alpha))
+		if idx == highlighted_slot:
+			draw_arc(point, HIGHLIGHT_RING_RADIUS, 0.0, TAU, 32,
+				Color(RetroWindow.ACCENT, alpha), HIGHLIGHT_RING_WIDTH, true)
 		_draw_label(point, String(slot["label"]), false, Color(LABEL_COLOUR, alpha))
 
 
