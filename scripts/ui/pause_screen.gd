@@ -75,6 +75,9 @@ func _ready() -> void:
 		panel.position = Vector2(32.0, top)
 		panel.size = Vector2(CARD_WIDTH - 64.0, ROW_HEIGHT)
 		card.add_child(panel)
+		panel.mouse_filter = Control.MOUSE_FILTER_STOP
+		panel.gui_input.connect(_on_row_gui_input.bind(i))
+		panel.mouse_entered.connect(_on_row_hover.bind(i))
 		_row_panels.append(panel)
 
 		var label := SoftBrutalist.label(row.title, SoftBrutalist.SIZE_BODY, RetroWindow.BORDER,
@@ -89,6 +92,22 @@ func _ready() -> void:
 
 	_refresh()
 
+func _on_row_gui_input(event: InputEvent, i: int) -> void:
+	if _busy:
+		return
+	if event is InputEventMouseButton and event.pressed \
+			and event.button_index == MOUSE_BUTTON_LEFT:
+		_index = i
+		_refresh()
+		_select()
+
+
+func _on_row_hover(i: int) -> void:
+	if _busy:
+		return
+	_index = i
+	_refresh()
+
 
 func _unhandled_input(event: InputEvent) -> void:
 	if _busy:
@@ -99,7 +118,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		_move(-1)
 	elif event.is_action_pressed(&"move_back") or event.is_action_pressed(&"ui_down"):
 		_move(1)
-	elif event.is_action_pressed(&"ui_accept"):
+	elif event.is_action_pressed(&"ui_accept") or event.is_action_pressed(&"confirm"):
 		_select()
 
 
