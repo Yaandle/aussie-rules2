@@ -161,6 +161,17 @@ func recenter() -> void:
 func switch_target(new_target: Node3D) -> void:
 	target = new_target
 	_ball_weight = 0.0
+	if mode == Mode.FULL_SIDE:
+		# FULL_SIDE already recomputes the rig's own position from `target`
+		# every frame via its own slow pan (_update_full_side,
+		# CAM_FULL_SIDE_FOLLOW_RATE) — nothing to snap here. Doing the
+		# CHASE snap below instead yanked global_position down to the new
+		# target's own position (player height, right next to them), which
+		# _update_full_side then had to visibly pan back out from on the
+		# very next frames — playtest report: "switches to player quickly
+		# then zooms out". Just retargeting and letting the existing pan
+		# carry the transition is the smooth/subtle version asked for.
+		return
 	_focus = _target_focus()
 	global_position = _focus
 	_switch_timer = Tuning.CAM_SWITCH_PAN_DURATION
