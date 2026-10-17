@@ -146,7 +146,7 @@ func resume() -> void:
 		resumed.emit()
 		queue_free()
 		return
-	SceneWipe.change_scene("res://scenes/ui/main_menu.tscn")
+	SceneWipe.change_scene(_quit_destination())
 
 
 func _quit_to_menu() -> void:
@@ -154,7 +154,21 @@ func _quit_to_menu() -> void:
 		return
 	_busy = true
 	get_tree().paused = false
-	SceneWipe.change_scene("res://scenes/ui/main_menu.tscn")
+	SceneWipe.change_scene(_quit_destination())
+
+
+## QUIT TO MENU from a Career match goes back to the Dashboard, not the
+## main menu — the fixture's still there to replay (quitting doesn't
+## count as a loss or advance the season, see CareerProfile.record_
+## result()'s own call sites). Clears GameState.career_active either
+## way: we're leaving the match context regardless of destination, same
+## as career_match_end_screen.gd's RETURN TO MENU already does on the
+## full-time path.
+func _quit_destination() -> String:
+	var destination := "res://scenes/ui/career_dashboard_screen.tscn" if GameState.career_active \
+		else "res://scenes/ui/main_menu.tscn"
+	GameState.career_active = false
+	return destination
 
 
 func _refresh() -> void:
