@@ -179,9 +179,11 @@ func _on_focus_changed(team: Tuning.Team, previous: PlayerController, next: Play
 
 	if is_instance_valid(previous) and previous != next:
 		previous.camera = null
+		previous.camera_rig = null
 
 	if is_instance_valid(next):
 		next.camera = _camera.camera()
+		next.camera_rig = _camera
 		if previous == null:
 			_camera.target = next
 			_camera.recenter()
@@ -594,6 +596,36 @@ func _on_hit_out_resolved(_player: PlayerController, connected: bool) -> void:
 ## called) is a separate, harder problem — see docs/HANDOVER.md.
 func _on_player_disposed(action: Tuning.Action, player: PlayerController) -> void:
 	MatchState.record_disposal(player.team, action)
+	if action == Tuning.Action.KICK:
+		_on_home_kick_disposed(player)
+
+
+## FULL_TEAM: the instant the human's own kick leaves the boot there is
+## nothing left to control at the kicker's own feet while the ball is in
+## the air — jump straight to whoever on HOME is nearest the kick's
+## predicted landing spot (user report: "after I kick it, I should control
+## the player closest to the ball's landing trajectory"). Same "control
+## whoever matters" idea _on_home_gained_possession already applies once
+## someone actually gathers the ball, just applied immediately instead of
+## waiting for that gather — Ball.predicted_landing_position() is the same
+## simple-projectile estimate LandingShadow already shows on screen, so
+## this follows the same cue the player can see.
+##
+## Only for the human's own kick — an AI teammate disposing of the ball
+## should not drag the human's control away from whatever they're doing.
+func _on_home_kick_disposed(kicker: PlayerController) -> void:
+	if GameState.phase != GameState.Phase.PLAY:
+		return
+	if Settings.player_control_mode != Settings.PlayerControlMode.FULL_TEAM:
+		return
+	if ControlMode.scheme_for(Tuning.Team.HOME) != ControlMode.Scheme.SINGLE_PLAYER:
+		return
+	if kicker.team != Tuning.Team.HOME \
+			or ControlMode.controlled_player(Tuning.Team.HOME) != kicker:
+		return
+	var landing := _ball.predicted_landing_position()
+	var next := ControlMode.next_in_roster(Tuning.Team.HOME, kicker, landing)
+	_assign_human_to(next)
 
 
 func _on_player_marked(_tier: Tuning.Action, _legal_mark: bool, player: PlayerController) -> void:

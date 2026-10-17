@@ -14,15 +14,22 @@ extends CanvasLayer
 ## badge point), so it foreshortens into a proper ground ellipse rather
 ## than a flat screen circle.
 
-const RADIUS := 0.62        ## m — about a capsule's footprint on the ground
+## Widened from 0.62 (user report: "increase the circle around the player
+## to be larger in diameter") — big enough to pick out at a glance from the
+## FULL_SIDE broadcast rig's own elevation/distance, not just a capsule's
+## own footprint.
+const RADIUS := 1.1          ## m
 const SEGMENTS := 40
-const THICKNESS := 2.5
+const THICKNESS := 3.5
 const LIFT := 0.03          ## m off the turf, clear of z-fighting the grass
 
-## Same accent the kick-aim overlay uses, lightened for legibility as an
-## unshaded mark on grass — reads as part of the same "this is you / your
-## aim" HUD language rather than a new colour.
-var _colour: Color = SoftBrutalist.ACCENT_PRIMARY.lightened(0.35)
+## Blue rather than the kick-aim overlay's green accent (user report: "a
+## blue colour to better contrast on the green field" — green-on-green was
+## the same low-contrast problem KickTrajectory's own colour comment
+## already flags, just worse here since this ring sits flat on the turf
+## itself rather than floating above it). SoftBrutalist.BUTTON_X is already
+## this project's one blue, reused here rather than inventing a second.
+var _colour: Color = SoftBrutalist.BUTTON_X.lightened(0.15)
 
 ## Set by whichever mode owns the human-controlled player. Null → nothing
 ## drawn, so this is harmless to instantiate before a player exists.

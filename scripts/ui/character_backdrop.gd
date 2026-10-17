@@ -66,18 +66,7 @@ var _rig_holder: HumanoidRig
 
 func _ready() -> void:
 	add_child(FIELD_SCENE.instantiate())
-
-	var rig := HumanoidRig.new()
-	rig.away_kit = false
-	rig.position = STAND_ON
-	rig.rotation.y = deg_to_rad(180.0)   # face the camera
-	add_child(rig)
-	_rig_holder = rig
-
-	# After add_child, so HumanoidRig._ready() has actually built the
-	# meshes there are to move.
-	for mesh in rig.find_children("*", "MeshInstance3D", true, false):
-		(mesh as MeshInstance3D).layers = SUBJECT_LAYER
+	_build_rig(CharacterProfile.model_id)
 
 	_ring.position = STAND_ON + Vector3(0.0, RING_HEIGHT, 0.0)
 
@@ -92,3 +81,34 @@ func _ready() -> void:
 func set_height_scale(scale: float) -> void:
 	if is_instance_valid(_rig_holder):
 		_rig_holder.scale = Vector3.ONE * scale
+
+
+## Swaps the previewed body to `model_id` ("procedural" or a HumanoidRig.
+## CHARACTER_MODELS key) without touching CharacterProfile — the character
+## screen calls this as the MODEL row is nudged, same "live preview of an
+## uncommitted draft" relationship set_height_scale already has with the
+## HEIGHT stat. Rebuilds the rig outright rather than mutating one in
+## place: swapping the procedural/imported path only happens in _build(),
+## which only ever runs once per instance (see HumanoidRig._ready()).
+func set_model(model_id: String) -> void:
+	var previous_scale := Vector3.ONE
+	if is_instance_valid(_rig_holder):
+		previous_scale = _rig_holder.scale
+		_rig_holder.queue_free()
+	_build_rig(model_id, previous_scale)
+
+
+func _build_rig(model_id: String, scale := Vector3.ONE) -> void:
+	var rig := HumanoidRig.new()
+	rig.away_kit = false
+	rig.character_model_override = model_id
+	rig.position = STAND_ON
+	rig.rotation.y = deg_to_rad(180.0)   # face the camera
+	rig.scale = scale
+	add_child(rig)
+	_rig_holder = rig
+
+	# After add_child, so HumanoidRig._ready() has actually built the
+	# meshes/skeleton there are to move.
+	for mesh in rig.find_children("*", "MeshInstance3D", true, false):
+		(mesh as MeshInstance3D).layers = SUBJECT_LAYER

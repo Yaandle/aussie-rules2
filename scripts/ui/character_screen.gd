@@ -41,7 +41,23 @@ const ATTRIBUTE_ROWS := [
 
 ## Trailing interactive rows after the stat list, in order. The APPLY TO
 ## row cycles CharacterProfile.apply_all; PLAY commits + persists + launches.
+## MODEL (CharacterProfile.model_id — see _model_ids, built in _ready()
+## since HumanoidRig.CHARACTER_MODELS.keys() isn't a constant expression)
+## is a separate small switcher under the 3D preview instead of a row in
+## this list — see _build_model_switch().
 const APPLY_MODE_TEXT := {true: "ALL PLAYERS", false: "START PLAYER"}
+
+## Small MODEL switcher card, floating over the 3D preview rather than in
+## the stat list — centred under the previewed figure, in the preview's
+## own right-hand region (the stat card occupies CARD_LEFT..CARD_LEFT+
+## CARD_WIDTH on the left). Independent of the stat card's own fixed
+## geometry above, so it never risks pushing BUTTON_TOP/HINTS_TOP off the
+## bottom of the 720px design canvas the way adding a ninth stat row
+## would have.
+const MODEL_SWITCH_SIZE := Vector2(280.0, 76.0)
+const MODEL_SWITCH_PAD := 14.0
+const MODEL_SWITCH_POSITION := Vector2(821.0, 628.0)
+const MODEL_SWITCH_BUTTON := 28.0
 
 const TITLE := "PLAYER PROFILE"
 const SUBTITLE := "CUSTOMISE YOUR CHARACTER"
@@ -53,7 +69,25 @@ const HEADER_TOP := 62.0
 const STAT_TOP := 160.0
 const ROW_SEPARATION := 8
 const BUTTON_TOP := 613.0
-const HINTS_TOP := 678.0
+
+## Retro card shell behind the left column — the same windowed-console
+## treatment (parchment fill, thick near-black border, hard offset shadow)
+## team_list_screen.gd and the dev animation/ML-experiments viewers already
+## use, so this screen reads as the same family instead of its rows sitting
+## bare on the live 3D backdrop. Only the shell is new: StatRow,
+## ActionButton and KeyHintBar are untouched, same content just framed.
+## Derived from the existing row geometry above (CARD_PAD in from
+## LEFT_MARGIN/HEADER_TOP) rather than a second hand-tuned layout.
+const CARD_PAD := 24.0
+const CARD_LEFT := LEFT_MARGIN - CARD_PAD
+const CARD_TOP := HEADER_TOP - CARD_PAD
+const CARD_WIDTH := StatRow.WIDTH + CARD_PAD * 2.0
+const CARD_HEIGHT := BUTTON_TOP + ActionButton.HEIGHT - CARD_TOP + CARD_PAD
+
+## Below the card's own hard shadow (RetroWindow.SHADOW_OFFSET.y), clear of
+## the card entirely rather than sitting on its edge the way the old
+## HINTS_TOP (inside the card's old footprint) did.
+const HINTS_TOP := CARD_TOP + CARD_HEIGHT + RetroWindow.SHADOW_OFFSET.y + 6.0
 
 
 @onready var _ui: Control = $Overlay/UI
@@ -75,6 +109,8 @@ var _hint_sets := {}
 
 var _draft := {}
 var _rows: Array[StatRow] = []
+var _model_ids: Array[String] = ["procedural"]   ## + HumanoidRig.CHARACTER_MODELS.keys(), in _ready()
+var _model_label: Label          ## MODEL switch value text — see _build_model_switch()
 var _apply_row: StatRow          ## APPLY TO toggle, at index _apply_index()
 var _play: ActionButton
 var _hints: KeyHintBar
@@ -96,6 +132,7 @@ func _ready() -> void:
 		"agility": {"min": Tuning.CHARACTER_AGILITY_MIN, "max": Tuning.CHARACTER_AGILITY_MAX,
 			"step": Tuning.CHARACTER_AGILITY_STEP, "format": "%.2fx"},
 	}
+	_model_ids.append_array(HumanoidRig.CHARACTER_MODELS.keys())
 	_draft = {
 		"speed": CharacterProfile.speed,
 		"height": CharacterProfile.height,
@@ -103,6 +140,7 @@ func _ready() -> void:
 		"kick_accuracy": CharacterProfile.kick_accuracy,
 		"agility": CharacterProfile.agility,
 		"apply_all": CharacterProfile.apply_all,
+		"model_id": CharacterProfile.model_id,
 	}
 	_hint_sets = {
 		InputManager.Device.KEYBOARD: [
@@ -184,6 +222,18 @@ func _activate() -> void:
 		_confirm_and_play()
 
 
+## Steps the draft model selection forward/back through _model_ids and
+## live-previews it on the backdrop — same "draft until PLAY/back-out
+## commits it" relationship every stat row already has, via
+## CharacterBackdrop.set_model() rather than CharacterProfile directly.
+func _cycle_model(direction: int) -> void:
+	var idx := _model_ids.find(_draft["model_id"])
+	idx = (idx + direction + _model_ids.size()) % _model_ids.size()
+	_draft["model_id"] = _model_ids[idx]
+	_backdrop.set_model(_draft["model_id"])
+	_refresh()
+
+
 ## Copy the whole draft onto CharacterProfile and persist it. Shared by
 ## PLAY and by backing out (the lean screen has no separate SAVE row, so
 ## an edit shouldn't be lost just because you left via Esc).
@@ -194,6 +244,7 @@ func _commit_draft() -> void:
 	CharacterProfile.kick_accuracy = _draft["kick_accuracy"]
 	CharacterProfile.agility = _draft["agility"]
 	CharacterProfile.apply_all = _draft["apply_all"]
+	CharacterProfile.model_id = _draft["model_id"]
 	CharacterProfile.save()
 
 
@@ -216,21 +267,39 @@ func _exit_to_menu() -> void:
 # ── Build ────────────────────────────────────────────────────────────
 
 func _build() -> void:
+	# Retro card shell (see CARD_* above) — shell() rather than card() since
+	# every child below is positioned by hand with raw .position offsets,
+	# same reason settings_screen.gd/pause_screen.gd use it instead of a
+	# layout container.
+	var card_panel := RetroWindow.shell(_ui, Vector2(CARD_WIDTH, CARD_HEIGHT))
+	(card_panel.get_parent() as Control).position = Vector2(CARD_LEFT, CARD_TOP)
+
 	var header := VBoxContainer.new()
-	header.position = Vector2(LEFT_MARGIN, HEADER_TOP)
+	header.position = Vector2(CARD_PAD, CARD_PAD)
 	header.add_theme_constant_override(&"separation", 2)
 	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	header.add_child(UIStyle.label(TITLE, UIStyle.SIZE_TITLE, UIStyle.TEXT_PRIMARY,
 		UIStyle.WEIGHT_HEAVY, UIStyle.TRACK_TITLE))
+
+	# The same short rust-coloured rule team_list_screen.gd prints under its
+	# own title — the one "printed card" flourish, now shared.
+	var underline := Panel.new()
+	underline.custom_minimum_size = Vector2(56.0, 4.0)
+	underline.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var underline_style := StyleBoxFlat.new()
+	underline_style.bg_color = RetroWindow.ACCENT
+	underline.add_theme_stylebox_override(&"panel", underline_style)
+	header.add_child(underline)
+
 	header.add_child(UIStyle.label(SUBTITLE, UIStyle.SIZE_SUBTITLE, UIStyle.TEXT_MUTED,
 		UIStyle.WEIGHT_REGULAR, UIStyle.TRACK_SUBTITLE))
-	_ui.add_child(header)
+	card_panel.add_child(header)
 
 	var list := VBoxContainer.new()
-	list.position = Vector2(LEFT_MARGIN, STAT_TOP)
+	list.position = Vector2(CARD_PAD, STAT_TOP - CARD_TOP)
 	list.add_theme_constant_override(&"separation", ROW_SEPARATION)
 	list.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_ui.add_child(list)
+	card_panel.add_child(list)
 	for entry: Dictionary in ATTRIBUTE_ROWS:
 		var row := StatRow.new()
 		list.add_child(row)
@@ -248,13 +317,87 @@ func _build() -> void:
 	_play = ActionButton.new(ACTION_TEXT)
 	_play.mouse_filter = Control.MOUSE_FILTER_STOP
 	_play.gui_input.connect(_on_play_gui_input)
-	_play.position = Vector2(LEFT_MARGIN, BUTTON_TOP)
-	_ui.add_child(_play)
+	_play.position = Vector2(CARD_PAD, BUTTON_TOP - CARD_TOP)
+	card_panel.add_child(_play)
 
 	_hints = KeyHintBar.new()
 	_hints.position = Vector2(LEFT_MARGIN, HINTS_TOP)
 	_ui.add_child(_hints)
 	_apply_hints()
+
+	_build_model_switch()
+
+
+## Small floating card under the 3D preview: ‹ MODEL name › — click either
+## arrow to step through _model_ids and live-preview the result on
+## _backdrop (see _cycle_model). Mouse-only; unlike the stat rows this
+## isn't part of the keyboard up/down list, so it has no selection state.
+func _build_model_switch() -> void:
+	var inner := RetroWindow.card(_ui, MODEL_SWITCH_SIZE, MODEL_SWITCH_PAD)
+	var wrapper := inner.get_parent().get_parent() as Control
+	wrapper.position = MODEL_SWITCH_POSITION
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override(&"separation", 10)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	inner.add_child(row)
+
+	var prev_btn := _make_switch_button("<")
+	prev_btn.pressed.connect(func() -> void: _cycle_model(-1))
+	row.add_child(prev_btn)
+
+	var mid := VBoxContainer.new()
+	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mid.alignment = BoxContainer.ALIGNMENT_CENTER
+	mid.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(mid)
+
+	var caption := UIStyle.label("MODEL", UIStyle.SIZE_HINT, UIStyle.TEXT_MUTED,
+		UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL)
+	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	mid.add_child(caption)
+
+	_model_label = UIStyle.label("", UIStyle.SIZE_LABEL, UIStyle.TEXT_PRIMARY, UIStyle.WEIGHT_BOLD)
+	_model_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	mid.add_child(_model_label)
+
+	var next_btn := _make_switch_button(">")
+	next_btn.pressed.connect(func() -> void: _cycle_model(1))
+	row.add_child(next_btn)
+
+	_model_label.text = (_draft["model_id"] as String).to_upper()
+
+
+## Square retro-styled arrow button for the MODEL switcher — sharp corners,
+## near-black border, accent fill while pressed, same palette as the retro
+## card shell but a one-off stylebox rather than a shared helper since
+## nothing else on this screen needs a button this small.
+func _make_switch_button(text: String) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.custom_minimum_size = Vector2(MODEL_SWITCH_BUTTON, MODEL_SWITCH_BUTTON)
+	b.focus_mode = Control.FOCUS_NONE
+
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = RetroWindow.PANEL.darkened(0.05)
+	normal.border_color = RetroWindow.BORDER
+	normal.set_border_width_all(2)
+	var pressed := StyleBoxFlat.new()
+	pressed.bg_color = RetroWindow.ACCENT
+	pressed.border_color = RetroWindow.BORDER
+	pressed.set_border_width_all(2)
+	b.add_theme_stylebox_override(&"normal", normal)
+	b.add_theme_stylebox_override(&"hover", normal)
+	b.add_theme_stylebox_override(&"pressed", pressed)
+	b.add_theme_stylebox_override(&"hover_pressed", pressed)
+	b.add_theme_stylebox_override(&"focus", StyleBoxEmpty.new())
+	b.add_theme_font_size_override(&"font_size", UIStyle.SIZE_LABEL)
+	b.add_theme_color_override(&"font_color", UIStyle.TEXT_PRIMARY)
+	b.add_theme_color_override(&"font_hover_color", UIStyle.TEXT_PRIMARY)
+	b.add_theme_color_override(&"font_pressed_color", Color.BLACK)
+	b.add_theme_color_override(&"font_hover_pressed_color", Color.BLACK)
+	return b
+
 
 func _on_play_gui_input(event: InputEvent) -> void:
 	if _busy:
@@ -281,6 +424,8 @@ func _refresh() -> void:
 		var entry: Dictionary = ATTRIBUTE_ROWS[i]
 		_rows[i].set_state(i == _selected, _filled_segments(entry["key"]),
 			_value_text(entry["key"]))
+	if _model_label != null:
+		_model_label.text = (_draft["model_id"] as String).to_upper()
 	_apply_row.set_state(_selected == _apply_index(), 0,
 		APPLY_MODE_TEXT[_draft["apply_all"]])
 	_play.set_selected(_selected == _play_index())

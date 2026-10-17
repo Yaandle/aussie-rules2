@@ -194,23 +194,17 @@ const JUMP_RISE_TIME := 0.28
 const JUMP_FALL_TIME := 0.32
 
 ## ── Dev menu design (visual only) ───────────────────────────────────
-## Compact, left-docked, translucent panel so the figure and floor grid
-## stay clear. Every control sizes from these values.
+## Left-docked control panel, same hard-shell/card language as
+## MLExperimentViewer (ml_experiment_viewer.gd): square corners, opaque
+## parchment fill, hard offset shadow, pinned metric cards up top and the
+## three preview groups as tabbed pages rather than three parallel columns.
 const MENU_POSITION := Vector2(8.0, 8.0)
-const MENU_PADDING := 8.0
-const MENU_COLUMN_GAP := 14
+const MENU_WIDTH := 320.0
+const MENU_PADDING := 12.0
 const MENU_ROW_GAP := 2
 const MENU_SECTION_GAP := 8
-const MENU_PANEL_ALPHA := 0.82
+const HARD_SHADOW := 4.0
 
-const MENU_FONT_TITLE := 12
-const MENU_FONT_HEAD := 9
-const MENU_FONT_BODY := 10
-
-const BUTTON_WIDTH := 104.0
-const BUTTON_WIDTH_HALF := 62.0
-const BUTTON_HEIGHT := 18.0
-const MENU_SLIDER_WIDTH := 56.0
 
 ## Camera moves between the single-subject framing and the wider contest one
 ## are eased over this rather than cut — a hard jump between two quite
@@ -238,9 +232,10 @@ var _player_animation: PlayerAnimation
 var _current_blend := Vector2.ZERO
 var _state_label: Label
 var _blend_label: Label
+var _model_label: Label
 var _jump_tween: Tween
 
-var _preview_columns: HBoxContainer
+var _preview_columns: Control
 var _studio_floor: MeshInstance3D
 var _camera_tween: Tween
 var _root_layout: VBoxContainer
@@ -497,9 +492,9 @@ func _step_sequence(delta: float) -> void:
 func _process(delta: float) -> void:
 	if _subject.visible and _player_animation != null:
 		_player_animation.drive(_current_blend, delta)
-		_state_label.text = "STATE: %s" % String(_player_animation.current_state()).to_upper()
+		_state_label.text = String(_player_animation.current_state()).to_upper()
 		var b := _player_animation.blend_position()
-		_blend_label.text = "BLEND: %.2f, %.2f" % [b.x, b.y]
+		_blend_label.text = "%.2f, %.2f" % [b.x, b.y]
 	_step_contest(delta)
 	_step_sequence(delta)
 
@@ -554,23 +549,34 @@ func _build_subject() -> void:
 	_player_animation.name = "PlayerAnimation"
 	_subject.add_child(_player_animation)
 
+	_update_model_label()
+
+
+## Reads HumanoidRig.is_imported() so the MODEL metric card always reflects
+## whichever path _rig._build() actually took, including after REBUILD.
+func _update_model_label() -> void:
+	if _model_label == null or _rig == null:
+		return
+	_model_label.text = "IMPORTED" if _rig.is_imported() else "PROCEDURAL"
+
 
 # ── UI ───────────────────────────────────────────────────────────────
-
-# ── UI ───────────────────────────────────────────────────────────────
+# Same hard-shell card language as MLExperimentViewer (ml_experiment_viewer.
+# gd): square corners, opaque parchment fill, hard offset shadow, pinned
+# metric cards, tabbed pages. See that file's own STYLE HELPERS section —
+# _box/_button/_metric_card/_section_heading/_muted_caption below are the
+# same shapes, kept local since the two build off separate roots (Node3D
+# vs RefCounted) with no shared base to hang them on.
 
 func _build_ui() -> void:
 	var root := VBoxContainer.new()
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_theme_constant_override(&"separation", MENU_SECTION_GAP)
 
-	# Single translucent panel, hairline border, hugging the top-left.
-	var fill := Color(RetroWindow.PANEL)
-	fill.a = MENU_PANEL_ALPHA
-	var panel_box := _flat_box(fill, Color(RetroWindow.BORDER, 0.5), 1,
-		MENU_PADDING, MENU_PADDING, 4)
 	var panel := PanelContainer.new()
 	panel.position = MENU_POSITION
+	panel.custom_minimum_size.x = MENU_WIDTH
+	var panel_box := _box(Color(RetroWindow.PANEL), 2, HARD_SHADOW, MENU_PADDING)
 	panel.add_theme_stylebox_override(&"panel", panel_box)
 	panel.add_child(root)
 	_ui.add_child(panel)
@@ -580,30 +586,103 @@ func _build_ui() -> void:
 		panel.add_theme_stylebox_override(&"panel",
 			panel_box if root.visible else StyleBoxEmpty.new()))
 
-	root.add_child(UIStyle.label("ANIMATION VIEWER", MENU_FONT_TITLE,
+	root.add_child(UIStyle.label("ANIMATION VIEWER", UIStyle.SIZE_TITLE,
 		UIStyle.TEXT_PRIMARY, UIStyle.WEIGHT_HEAVY, UIStyle.TRACK_TITLE))
 
-	var status := HBoxContainer.new()
-	status.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	status.add_theme_constant_override(&"separation", 12)
-	root.add_child(status)
-	_state_label = UIStyle.label("STATE: —", MENU_FONT_BODY, UIStyle.TEXT_MUTED)
-	_blend_label = UIStyle.label("BLEND: 0.00, 0.00", MENU_FONT_BODY, UIStyle.TEXT_MUTED)
-	status.add_child(_state_label)
-	status.add_child(_blend_label)
+	# Pinned live metrics — same sunken metric-card pair as the ML
+	# Experiments page's P(BREAK)/SUCCESS row.
+	var metrics := HBoxContainer.new()
+	metrics.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	metrics.add_theme_constant_override(&"separation", 8)
+	root.add_child(metrics)
+
+	var state_card := _metric_card("STATE")
+	_state_label = state_card.value_label
+	_state_label.text = "—"
+	state_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	metrics.add_child(state_card.node)
+
+	var blend_card := _metric_card("BLEND")
+	_blend_label = blend_card.value_label
+	_blend_label.text = "0.00, 0.00"
+	blend_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	metrics.add_child(blend_card.node)
+
+	# 4B's "development menu" half in miniature: proves HumanoidRig's import
+	# swap (see humanoid_rig.gd's own header) actually took effect, without
+	# having to read code or attach a debugger. REBUILD already re-runs
+	# _build_subject() -> HumanoidRig._ready() -> _build(), so it's already
+	# a full end-to-end exercise of the swap path once a real res://assets/
+	# characters/player.glb exists — this just surfaces which path won.
+	var model_card := _metric_card("MODEL")
+	_model_label = model_card.value_label
+	model_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	metrics.add_child(model_card.node)
+	_update_model_label()
 
 	_experiment_ui = MLExperimentViewerScript.new(self)
 
 	root.add_child(_build_control_group())
 
-	_preview_columns = HBoxContainer.new()
-	_preview_columns.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_preview_columns.add_theme_constant_override(&"separation", MENU_COLUMN_GAP)
-	root.add_child(_preview_columns)
+	# Tabs: LOCOMOTION / ACTIONS / CONTESTS swap page visibility inside a
+	# scrolling pane — the same single-active-tab pattern the ML
+	# Experiments page uses for its MODEL / SWEEP pages, in place of the
+	# three always-visible columns this panel used before.
+	var tabs := HBoxContainer.new()
+	tabs.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tabs.add_theme_constant_override(&"separation", 6)
+	root.add_child(tabs)
 
-	_preview_columns.add_child(_build_locomotion_group())
-	_preview_columns.add_child(_build_action_group())
-	_preview_columns.add_child(_build_contest_group())
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.custom_minimum_size.y = 420.0
+	root.add_child(scroll)
+	_preview_columns = scroll
+
+	var pages := VBoxContainer.new()
+	pages.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pages.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(pages)
+
+	var locomotion_page := _build_locomotion_group()
+	var action_page := _build_action_group()
+	var contest_page := _build_contest_group()
+	action_page.visible = false
+	contest_page.visible = false
+	pages.add_child(locomotion_page)
+	pages.add_child(action_page)
+	pages.add_child(contest_page)
+
+	var tab_group := ButtonGroup.new()
+	var loc_tab := _button("LOCOMOTION", true)
+	loc_tab.button_group = tab_group
+	loc_tab.button_pressed = true
+	loc_tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tabs.add_child(loc_tab)
+
+	var action_tab := _button("ACTIONS", true)
+	action_tab.button_group = tab_group
+	action_tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tabs.add_child(action_tab)
+
+	var contest_tab := _button("CONTESTS", true)
+	contest_tab.button_group = tab_group
+	contest_tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tabs.add_child(contest_tab)
+
+	loc_tab.pressed.connect(func() -> void:
+		locomotion_page.visible = true
+		action_page.visible = false
+		contest_page.visible = false)
+	action_tab.pressed.connect(func() -> void:
+		locomotion_page.visible = false
+		action_page.visible = true
+		contest_page.visible = false)
+	contest_tab.pressed.connect(func() -> void:
+		locomotion_page.visible = false
+		action_page.visible = false
+		contest_page.visible = true)
 
 	var hints := KeyHintBar.new()
 	hints.position = Vector2(24.0, 674.0)
@@ -629,18 +708,16 @@ func _build_control_group() -> HBoxContainer:
 	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	group.add_theme_constant_override(&"separation", 6)
 
-	var title := _make_header("CONTROL")
+	var title := _section_heading("CONTROL")
 	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	group.add_child(title)
 
-	var toggle := _make_button("FREE MOVE", 0.0)
-	toggle.toggle_mode = true
+	var toggle := _button("FREE MOVE", true)
 	toggle.toggled.connect(_on_free_move_toggled)
 	group.add_child(toggle)
 	_free_move_button = toggle
 
-	var experiment_button := _make_button("EXPERIMENTS", 0.0)
-	experiment_button.toggle_mode = true
+	var experiment_button := _button("EXPERIMENTS", true)
 	experiment_button.toggled.connect(_experiment_ui.on_toggled)
 	group.add_child(experiment_button)
 
@@ -650,14 +727,14 @@ func _build_control_group() -> HBoxContainer:
 
 ## Reset / rebuild live in the control row now (was its own MISC column).
 func _add_misc_buttons(group: HBoxContainer) -> void:
-	var reset_button := _make_button("RESET", 0.0)
+	var reset_button := _button("RESET")
 	reset_button.tooltip_text = "Reset contest"
 	reset_button.pressed.connect(func() -> void:
 		_reset_contest_state()
 		_show_single_subject())
 	group.add_child(reset_button)
 
-	var rebuild_button := _make_button("REBUILD", 0.0)
+	var rebuild_button := _button("REBUILD")
 	rebuild_button.tooltip_text = "Rebuild subject"
 	rebuild_button.pressed.connect(func() -> void:
 		# Rebuild the single-subject rig in-place.
@@ -668,16 +745,18 @@ func _add_misc_buttons(group: HBoxContainer) -> void:
 
 
 func _build_locomotion_group() -> VBoxContainer:
-	var group := _make_group("LOCOMOTION")
+	var group := VBoxContainer.new()
+	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	group.add_theme_constant_override(&"separation", MENU_ROW_GAP)
 
 	var toggle_group := ButtonGroup.new()
 	for entry: Array in LOCOMOTION:
 		var label: String = entry[0]
 		var blend: Vector2 = entry[1]
-		var button := _make_button(label)
-		button.toggle_mode = true
+		var button := _button(label, true)
 		button.button_group = toggle_group
 		button.button_pressed = blend == Vector2.ZERO
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.pressed.connect(func() -> void:
 			_show_single_subject()
 			_current_blend = blend)
@@ -686,12 +765,15 @@ func _build_locomotion_group() -> VBoxContainer:
 
 
 func _build_action_group() -> VBoxContainer:
-	var group := _make_group("ACTIONS")
+	var group := VBoxContainer.new()
+	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	group.add_theme_constant_override(&"separation", MENU_ROW_GAP)
 
 	for entry: Array in ACTIONS:
 		var label: String = entry[0]
 		var action: Tuning.Action = entry[1]
-		var button := _make_button(label)
+		var button := _button(label)
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.pressed.connect(func() -> void:
 			_show_single_subject()
 			_player_animation.play_action(action))
@@ -700,12 +782,15 @@ func _build_action_group() -> VBoxContainer:
 
 
 func _build_contest_group() -> VBoxContainer:
-	var group := _make_group("CONTESTS")
+	var group := VBoxContainer.new()
+	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	group.add_theme_constant_override(&"separation", MENU_ROW_GAP)
 
 	for entry: Array in CONTESTS:
 		var label: String = entry[0]
 		var kind: ContestKind = entry[1]
-		var button := _make_button(label)
+		var button := _button(label)
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.pressed.connect(func() -> void: _launch_contest(kind))
 		group.add_child(button)
 
@@ -714,19 +799,19 @@ func _build_contest_group() -> VBoxContainer:
 	group.add_child(_tackle_model_panel)
 
 	group.add_child(_make_spacer(MENU_SECTION_GAP - MENU_ROW_GAP))
-	group.add_child(_make_header("SEQUENCES"))
+	group.add_child(_section_heading("Sequences"))
 
 	for entry: Array in SEQUENCES:
 		var label: String = entry[0]
 		var kind: SequenceKind = entry[1]
-		var button := _make_button(label)
+		var button := _button(label)
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.pressed.connect(func() -> void: _launch_sequence(kind))
 		group.add_child(button)
 
-	_contest_status_label = UIStyle.label("", MENU_FONT_BODY, UIStyle.TEXT_MUTED)
+	_contest_status_label = _muted_caption("")
 	# Wrap instead of widening the column when the status line gets long.
 	_contest_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_contest_status_label.custom_minimum_size.x = BUTTON_WIDTH
 	group.add_child(_contest_status_label)
 	return group
 
@@ -734,24 +819,22 @@ func _build_contest_group() -> VBoxContainer:
 func _build_tackle_model_panel() -> VBoxContainer:
 	var panel := VBoxContainer.new()
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_theme_constant_override(&"separation", MENU_ROW_GAP)
-	panel.add_child(_make_header("MODEL INPUTS"))
+	panel.add_theme_constant_override(&"separation", 6)
+	panel.add_child(_section_heading("Model inputs"))
 
 	var mode_row := HBoxContainer.new()
 	mode_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	mode_row.add_theme_constant_override(&"separation", 4)
+	mode_row.add_theme_constant_override(&"separation", 6)
 	var toggle_group := ButtonGroup.new()
-	var auto_button := _make_button("AUTO", BUTTON_WIDTH_HALF)
+	var auto_button := _button("AUTO", true)
 	auto_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	auto_button.toggle_mode = true
 	auto_button.button_group = toggle_group
 	auto_button.button_pressed = true
 	auto_button.pressed.connect(func() -> void:
 		_tackle_model_manual = false
 		_update_tackle_model_panel_state())
-	var manual_button := _make_button("MANUAL", BUTTON_WIDTH_HALF)
+	var manual_button := _button("MANUAL", true)
 	manual_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	manual_button.toggle_mode = true
 	manual_button.button_group = toggle_group
 	manual_button.pressed.connect(func() -> void:
 		_tackle_model_manual = true
@@ -769,15 +852,15 @@ func _build_tackle_model_panel() -> VBoxContainer:
 
 	var action_row := HBoxContainer.new()
 	action_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	action_row.add_theme_constant_override(&"separation", 4)
-	var baseline_button := _make_button("BASELINE", BUTTON_WIDTH_HALF)
+	action_row.add_theme_constant_override(&"separation", 6)
+	var baseline_button := _button("BASELINE")
 	baseline_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	baseline_button.pressed.connect(func() -> void:
 		_tackle_model_manual = true
 		manual_button.set_pressed_no_signal(true)
 		_tackle_model_manual_inputs = {"dspeed": 0.7, "angle": 0.7, "stamina": 0.7}
 		_update_tackle_model_panel_state())
-	var randomise_button := _make_button("RANDOMISE", BUTTON_WIDTH_HALF)
+	var randomise_button := _button("RANDOMISE")
 	randomise_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	randomise_button.pressed.connect(func() -> void:
 		_tackle_model_manual = true
@@ -792,38 +875,50 @@ func _build_tackle_model_panel() -> VBoxContainer:
 	action_row.add_child(randomise_button)
 	panel.add_child(action_row)
 
-	_tackle_model_z_label = UIStyle.label("Z: —", MENU_FONT_BODY, UIStyle.TEXT_MUTED)
-	_tackle_model_p_label = UIStyle.label("P(BREAK): —", MENU_FONT_BODY, UIStyle.TEXT_MUTED)
-	panel.add_child(_tackle_model_z_label)
-	panel.add_child(_tackle_model_p_label)
+	var readouts := HBoxContainer.new()
+	readouts.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	readouts.add_theme_constant_override(&"separation", 8)
+	panel.add_child(readouts)
+
+	var z_card := _metric_card("Z")
+	_tackle_model_z_label = z_card.value_label
+	z_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	readouts.add_child(z_card.node)
+
+	var p_card := _metric_card("P(BREAK)")
+	_tackle_model_p_label = p_card.value_label
+	p_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	readouts.add_child(p_card.node)
 
 	_update_tackle_model_panel_state()
 	return panel
 
 
-func _make_tackle_model_input_row(label_text: String, min_value: float, max_value: float, key: String) -> HBoxContainer:
-	var row := HBoxContainer.new()
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_theme_constant_override(&"separation", 4)
+## Label / slider / readout row, same 3-column GridContainer shape as
+## MLExperimentViewer._slider_row.
+func _make_tackle_model_input_row(label_text: String, min_value: float, max_value: float, key: String) -> GridContainer:
+	var row := GridContainer.new()
+	row.columns = 3
+	row.add_theme_constant_override(&"h_separation", 8)
 
-	var label := UIStyle.label(label_text.to_upper(), MENU_FONT_BODY,
-		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL)
-	label.custom_minimum_size.x = 40.0
+	var label := UIStyle.label(label_text.to_upper(), UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
+	label.custom_minimum_size.x = 56.0
 	row.add_child(label)
-
-	var value_label := UIStyle.label("%.2f" % _tackle_model_manual_inputs[key], MENU_FONT_BODY, UIStyle.TEXT_PRIMARY)
-	value_label.custom_minimum_size.x = 30.0
-	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	row.add_child(value_label)
 
 	var slider := HSlider.new()
 	slider.min_value = min_value
 	slider.max_value = max_value
 	slider.step = 0.01
 	slider.value = _tackle_model_manual_inputs[key]
-	slider.custom_minimum_size = Vector2(MENU_SLIDER_WIDTH, 12.0)
 	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(slider)
+
+	var value_label := UIStyle.label("%.2f" % _tackle_model_manual_inputs[key], UIStyle.SIZE_LABEL, UIStyle.TEXT_PRIMARY)
+	value_label.custom_minimum_size.x = 36.0
+	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(value_label)
+
 	slider.value_changed.connect(func(value: float) -> void:
 		_tackle_model_manual_inputs[key] = value
 		_update_tackle_model_panel_state())
@@ -838,24 +933,12 @@ func _make_tackle_model_input_row(label_text: String, min_value: float, max_valu
 		_tackle_model_stamina_slider = slider
 		_tackle_model_stamina_value = value_label
 
-	row.add_child(slider)
 	return row
 
 
 # ── Menu building blocks ─────────────────────────────────────────────
-
-func _make_header(text: String) -> Label:
-	return UIStyle.label(text, MENU_FONT_HEAD, UIStyle.TEXT_MUTED,
-		UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL)
-
-
-func _make_group(title: String) -> VBoxContainer:
-	var group := VBoxContainer.new()
-	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	group.add_theme_constant_override(&"separation", MENU_ROW_GAP)
-	group.add_child(_make_header(title))
-	return group
-
+# Ported from MLExperimentViewer's own STYLE HELPERS section so this panel
+# and the Experiments overlay read as the same shell.
 
 func _make_spacer(height: float) -> Control:
 	var spacer := Control.new()
@@ -864,77 +947,13 @@ func _make_spacer(height: float) -> Control:
 	return spacer
 
 
-## Flat, borderless-by-default button: faint fill, muted text, brighter on
-## hover, outlined when toggled on. Left-aligned so columns read as lists.
-func _make_button(label_text: String, width: float = BUTTON_WIDTH) -> Button:
-	var button := Button.new()
-	button.text = label_text
-	button.custom_minimum_size = Vector2(width, BUTTON_HEIGHT)
-	button.alignment = HORIZONTAL_ALIGNMENT_LEFT
-
-	var ink := Color(UIStyle.TEXT_PRIMARY)
-	var normal := _flat_box(Color(ink, 0.05))
-	var hover := _flat_box(Color(ink, 0.12))
-	var pressed := _flat_box(Color(ink, 0.20), Color(ink, 0.60), 1)
-	button.add_theme_stylebox_override(&"normal", normal)
-	button.add_theme_stylebox_override(&"hover", hover)
-	button.add_theme_stylebox_override(&"pressed", pressed)
-	button.add_theme_stylebox_override(&"hover_pressed", pressed)
-	button.add_theme_stylebox_override(&"disabled", normal)
-	button.add_theme_stylebox_override(&"focus", StyleBoxEmpty.new())
-
-	button.add_theme_font_size_override(&"font_size", MENU_FONT_BODY)
-	button.add_theme_color_override(&"font_color", UIStyle.TEXT_MUTED)
-	button.add_theme_color_override(&"font_hover_color", UIStyle.TEXT_PRIMARY)
-	button.add_theme_color_override(&"font_pressed_color", UIStyle.TEXT_PRIMARY)
-	button.add_theme_color_override(&"font_hover_pressed_color", UIStyle.TEXT_PRIMARY)
-	button.add_theme_color_override(&"font_focus_color", UIStyle.TEXT_PRIMARY)
-	return button
-
-
-func _flat_box(fill: Color, border: Color = Color(0, 0, 0, 0), border_w: int = 0,
-		margin_h: float = 6.0, margin_v: float = 2.0, radius: int = 3) -> StyleBoxFlat:
-	var s := StyleBoxFlat.new()
-	s.bg_color = fill
-	s.border_color = border
-	s.set_border_width_all(border_w)
-	s.set_corner_radius_all(radius)
-	s.content_margin_left = margin_h
-	s.content_margin_right = margin_h
-	s.content_margin_top = margin_v
-	s.content_margin_bottom = margin_v
-	return s
-
-func _build_misc_group() -> VBoxContainer:
-	var group := VBoxContainer.new()
-	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	group.add_theme_constant_override(&"separation", 8)
-	group.add_child(UIStyle.label("MISC", UIStyle.SIZE_LABEL - 6,
-		UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL))
-
-	var reset_button := _make_button("RESET CONTEST")
-	reset_button.pressed.connect(func() -> void:
-		_reset_contest_state()
-		_show_single_subject())
-	group.add_child(reset_button)
-
-	var rebuild_button := _make_button("REBUILD SUBJECT")
-	rebuild_button.pressed.connect(func() -> void:
-		# Rebuild the single-subject rig in-place.
-		if _subject != null:
-			_subject.queue_free()
-			_build_subject())
-	group.add_child(rebuild_button)
-
-	return group
-
-
+## Flat fill, hard border, square corners, optional hard offset shadow.
 func _box(fill: Color, border_w: int, shadow: float, margin: float) -> StyleBoxFlat:
 	var s := StyleBoxFlat.new()
 	s.bg_color = fill
 	s.border_color = RetroWindow.BORDER
 	s.set_border_width_all(border_w)
-	s.set_corner_radius_all(6)
+	s.set_corner_radius_all(0)
 	s.content_margin_left = margin
 	s.content_margin_right = margin
 	s.content_margin_top = margin
@@ -944,6 +963,51 @@ func _box(fill: Color, border_w: int, shadow: float, margin: float) -> StyleBoxF
 		s.shadow_size = 1
 		s.shadow_offset = Vector2(shadow, shadow)
 	return s
+
+
+func _button(text: String, toggle := false) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.toggle_mode = toggle
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size.y = 30.0
+
+	var base := Color(RetroWindow.PANEL)
+	b.add_theme_stylebox_override(&"normal", _box(base.lightened(0.08), 2, 3.0, 8.0))
+	b.add_theme_stylebox_override(&"hover", _box(base.lightened(0.18), 2, 3.0, 8.0))
+	b.add_theme_stylebox_override(&"pressed", _box(Color(UIStyle.ACCENT), 2, 0.0, 8.0))
+	b.add_theme_stylebox_override(&"hover_pressed", _box(Color(UIStyle.ACCENT), 2, 0.0, 8.0))
+	b.add_theme_stylebox_override(&"focus", StyleBoxEmpty.new())
+	b.add_theme_font_size_override(&"font_size", UIStyle.SIZE_LABEL)
+	b.add_theme_color_override(&"font_color", UIStyle.TEXT_PRIMARY)
+	b.add_theme_color_override(&"font_hover_color", UIStyle.TEXT_PRIMARY)
+	b.add_theme_color_override(&"font_pressed_color", Color.BLACK)
+	b.add_theme_color_override(&"font_hover_pressed_color", Color.BLACK)
+	return b
+
+
+func _metric_card(caption: String) -> Dictionary:
+	var box := PanelContainer.new()
+	# Sunken look: darker fill, thin border, no shadow.
+	box.add_theme_stylebox_override(&"panel", _box(Color(RetroWindow.PANEL).darkened(0.18), 2, 0.0, 8.0))
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override(&"separation", 0)
+	box.add_child(col)
+
+	col.add_child(UIStyle.label(caption, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED))
+	var value := UIStyle.label("—", UIStyle.SIZE_TITLE, UIStyle.TEXT_PRIMARY, UIStyle.WEIGHT_BOLD)
+	col.add_child(value)
+
+	return {"node": box, "value_label": value}
+
+
+func _section_heading(text: String) -> Label:
+	return UIStyle.label(text.to_upper(), UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD)
+
+
+func _muted_caption(text: String) -> Label:
+	return UIStyle.label(text, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
 
 
 func _update_tackle_model_panel_state() -> void:
@@ -960,8 +1024,8 @@ func _update_tackle_model_panel_state() -> void:
 	_tackle_model_dspeed_value.text = "%.2f" % inputs["dspeed"]
 	_tackle_model_angle_value.text = "%.2f" % inputs["angle"]
 	_tackle_model_stamina_value.text = "%.2f" % inputs["stamina"]
-	_tackle_model_z_label.text = "Z: %.2f" % _tackle_model_z_for_inputs(inputs)
-	_tackle_model_p_label.text = "P(BREAK): %.2f%%" % (_tackle_model_p_for_inputs(inputs) * 100.0)
+	_tackle_model_z_label.text = "%.2f" % _tackle_model_z_for_inputs(inputs)
+	_tackle_model_p_label.text = "%.2f%%" % (_tackle_model_p_for_inputs(inputs) * 100.0)
 
 
 func _tackle_model_inputs_for_current_state() -> Dictionary:
@@ -1210,6 +1274,9 @@ func _ensure_umpire() -> void:
 func _reset_contest_state() -> void:
 	_contest_stage = ContestStage.NONE
 	_sequence_stage = ContestStage.NONE
+
+	if _contest_a == null or _contest_b == null:
+		return
 
 	_contest_a.velocity = Vector3.ZERO
 	_contest_b.velocity = Vector3.ZERO

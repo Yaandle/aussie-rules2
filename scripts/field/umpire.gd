@@ -108,6 +108,10 @@ var _ball_point: Node3D = null
 
 func _ready() -> void:
 	_rig = HumanoidRig.new()
+	# Umpire's stripe/overalls kit_* overrides only recolour the procedural
+	# primitives (see humanoid_rig.gd's own "Import swap" header note) — an
+	# imported player character must never silently replace an umpire.
+	_rig.allow_imported_character = false
 	match role:
 		Role.FIELD, Role.BOUNDARY:
 			_rig.kit_torso = COLOUR_STRIPE_BASE

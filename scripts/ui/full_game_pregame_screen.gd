@@ -142,10 +142,18 @@ const PREVIEW_WIDTH := (PREVIEW_HEIGHT - FormationWhiteboard.MARGIN * 2.0) * BOA
 ## at all at this size. Four caption rows (FORMATION / CONTROL / CAMERA /
 ## POSITION) run a little past that band into the board's own inset — a
 ## harmless overlap of blank margin, not board content.
-const READOUT_INSET_X := 14.0
-const READOUT_HEIGHT := 66.0
-const READOUT_BOTTOM := 6.0
-const READOUT_ROW_GAP := 1
+## Readout panel — FORMATION / CONTROL / CAMERA / POSITION — now a
+## formatted column in the landscape card's own open parchment to the
+## board's right (the portrait board is only ~PREVIEW_WIDTH wide inside a
+## 900px-wide card, so roughly 280px sits empty there) rather than four
+## rows of SIZE_CAPTION text squeezed onto the bottom margin of the board
+## itself. READOUT_TITLE_SIZE/ROW_TITLE_SIZE/ROW_VALUE_SIZE step up from
+## the old single SIZE_CAPTION throughout, now that the panel has real
+## room to hold larger type.
+const READOUT_INSET_X := 20.0
+const READOUT_PANEL_WIDTH := 236.0
+const READOUT_PANEL_HEIGHT := 224.0
+const READOUT_ROW_GAP := 16
 
 ## ── Camera preview ───────────────────────────────────────────────────
 ## The camera preview uses the existing middle preview window rather than
@@ -154,9 +162,13 @@ const READOUT_ROW_GAP := 1
 ## camera preview occupies the same landscape RetroWindow shell. The card
 ## row therefore remains completely stationary regardless of the selected
 ## camera mode.
-const CAMERA_PREVIEW_WIDTH := 460.0
-const CAMERA_PREVIEW_HEIGHT := 360.0
-const CAMERA_BG_COLOUR := Color("#d4b5a0")
+##
+## Sized to nearly fill the landscape card (compare PREVIEW_WIDTH, which
+## only covers the narrow portrait board) rather than floating as a small
+## box in the middle of it, so the screenshot itself reads as the point of
+## the window instead of a thumbnail inside one.
+const CAMERA_PREVIEW_WIDTH := 860.0
+const CAMERA_PREVIEW_HEIGHT := 358.0
 
 
 const TITLE_TEXT := "FULL GAME"
@@ -587,8 +599,8 @@ func _build_header(parent: Control) -> void:
 ## Settings dials) plus an overlaid readout strip.
 ##
 ## The board alone can only reflect three of the five real settings —
-## it moves its 18 markers for FORMATION and BALL MOVEMENT and swings its
-## dashed engagement line for DEFENSIVE PRESSURE, but it has no concept of
+## it moves its 18 markers for FORMATION, BALL MOVEMENT and DEFENSIVE
+## PRESSURE, but it has no concept of
 ## who is holding the controller or where the camera is. Rather than
 ## teach it two settings that have nothing to do with formation geometry
 ## (it is shared with TeamListScreen, which must not change), the two
@@ -598,7 +610,8 @@ func _build_header(parent: Control) -> void:
 ## The preview band is a full-width landscape RetroWindow card (the landscape
 ## panel IS the card, not a border over a portrait one). The formation
 ## whiteboard sits portrait-sized and centred inside it. The readout strip
-## overlays the bottom of the portrait area within the wider card.
+## is a formatted column docked to the card's right edge, in the open
+## parchment beside the (narrower) portrait board — see READOUT_PANEL_*.
 ##
 ## This band is the formation whiteboard preview and is untouched by the
 ## camera preview added below — the camera preview is a separate window
@@ -651,7 +664,7 @@ func _build_preview(parent: Control) -> void:
 	_whiteboard.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	board_holder.add_child(_whiteboard)
 
-	_build_readout(board_holder)
+	_build_readout(body)
 	_build_camera_preview_content(body)
 
 func _build_camera_preview_content(parent: Control) -> void:
@@ -681,7 +694,7 @@ func _build_camera_preview_content(parent: Control) -> void:
 	divider.size = Vector2(CAMERA_PREVIEW_WIDTH - 40.0, 1.0)
 	_camera_preview_container.add_child(divider)
 
-	var cam_panel_size := Vector2(CAMERA_PREVIEW_WIDTH - 32.0, 192.0)
+	var cam_panel_size := Vector2(CAMERA_PREVIEW_WIDTH - 32.0, CAMERA_PREVIEW_HEIGHT - 68.0)
 	var cam_panel_pos := Vector2(16.0, 52.0)
 
 	_camera_panel_third_person = _build_camera_panel(
@@ -689,47 +702,50 @@ func _build_camera_preview_content(parent: Control) -> void:
 
 	_camera_panel_full_side = _build_camera_panel(
 		_camera_preview_container, cam_panel_pos, cam_panel_size, "FULL-SIDE", true)
-## Three label/value rows overlaid on the empty parchment band below the
-## board (see READOUT_HEIGHT's comment). Parented to the window's front
-## Panel rather than to the MarginContainer the board fills, so it draws
-## over the board and is positioned by anchors instead of being sorted
-## into the container's layout.
+## A formatted column — title, rule, four label/value rows — docked to the
+## card's left edge (see READOUT_PANEL_* above). Parented to the window's
+## front Panel rather than to the MarginContainer the board fills, and
+## positioned by anchors rather than sorted into any container's layout, so
+## it sits beside the board instead of being squeezed under it.
 func _build_readout(panel: Control) -> void:
 	var strip := VBoxContainer.new()
 	_readout_strip = strip
 	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	strip.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	strip.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	strip.alignment = BoxContainer.ALIGNMENT_BEGIN
+	strip.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	strip.offset_left = READOUT_INSET_X
-	strip.offset_right = -READOUT_INSET_X
-	strip.offset_top = -(READOUT_HEIGHT + READOUT_BOTTOM)
-	strip.offset_bottom = -READOUT_BOTTOM
+	strip.offset_right = READOUT_INSET_X + READOUT_PANEL_WIDTH
+	strip.offset_top = READOUT_INSET_X
+	strip.offset_bottom = READOUT_INSET_X + READOUT_PANEL_HEIGHT
 	strip.add_theme_constant_override(&"separation", READOUT_ROW_GAP)
 	panel.add_child(strip)
+
+	strip.add_child(SoftBrutalist.label("MATCH SETUP", SoftBrutalist.SIZE_HEADING,
+		RetroWindow.BORDER, SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_TITLE))
+
+	var divider := ColorRect.new()
+	divider.color = RetroWindow.BORDER
+	divider.custom_minimum_size = Vector2(0.0, 1.0)
+	divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	strip.add_child(divider)
 
 	for title: String in ["FORMATION", "CONTROL", "CAMERA", "POSITION"]:
 		_readout_values.append(_build_readout_row(strip, title))
 
 
 func _build_readout_row(parent: Control, title: String) -> Label:
-	var row := HBoxContainer.new()
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	parent.add_child(row)
+	var column := VBoxContainer.new()
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_theme_constant_override(&"separation", 1)
+	parent.add_child(column)
 
-	var title_label := SoftBrutalist.label(title, SoftBrutalist.SIZE_CAPTION,
+	var title_label := SoftBrutalist.label(title, SoftBrutalist.SIZE_LABEL,
 		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL)
-	title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(title_label)
+	column.add_child(title_label)
 
-	var spacer := Control.new()
-	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(spacer)
-
-	var value_label := SoftBrutalist.label("", SoftBrutalist.SIZE_CAPTION,
+	var value_label := SoftBrutalist.label("", SoftBrutalist.SIZE_BODY,
 		RetroWindow.ACCENT, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_NONE)
-	value_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(value_label)
+	column.add_child(value_label)
 	return value_label
 
 
@@ -979,8 +995,15 @@ func _build_camera_panel(
 	panel.position = panel_position
 	panel.size = panel_size
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Transparent, not the old solid brown fill — the card's own parchment
+	# already sits behind this, so a screenshot narrower than the panel's
+	# aspect now letterboxes onto the same paper colour as the rest of the
+	# screen instead of a mismatched brown slab. A hairline border keeps the
+	# field legible as its own region.
 	var cam_style := StyleBoxFlat.new()
-	cam_style.bg_color = CAMERA_BG_COLOUR
+	cam_style.bg_color = Color(RetroWindow.PANEL, 0.0)
+	cam_style.border_color = RetroWindow.BORDER
+	cam_style.set_border_width_all(2)
 	cam_style.set_corner_radius_all(RetroWindow.RADIUS)
 	panel.add_theme_stylebox_override(&"panel", cam_style)
 	parent.add_child(panel)
@@ -1178,7 +1201,15 @@ func _sync_preview() -> void:
 		_whiteboard.formation_index = Settings.home_formation_index
 		_whiteboard.ball_movement = Settings.home_ball_movement
 		_whiteboard.defensive_pressure = Settings.home_defensive_pressure
-		_whiteboard.highlighted_slot = Settings.home_human_slot \
+		# Settings.home_human_slot is a ROSTER index (YOUR POSITION's own
+		# "<n> <label>" numbering), not a TeamFormation.SLOTS index —
+		# FormationWhiteboard.highlighted_slot expects the latter, and the
+		# two only agree for slot 0 by coincidence of TeamFormation.
+		# ROSTER_ORDER's own ordering. Resolving through ROSTER_ORDER is
+		# what TeamFormation.roster_slot() already does internally; this is
+		# the same lookup, kept here rather than added to TeamFormation
+		# since only the ring needs a raw SLOTS index, not a slot dict.
+		_whiteboard.highlighted_slot = TeamFormation.ROSTER_ORDER[Settings.home_human_slot] \
 			if Settings.player_control_mode == Settings.PlayerControlMode.SINGLE_PLAYER \
 			else -1
 

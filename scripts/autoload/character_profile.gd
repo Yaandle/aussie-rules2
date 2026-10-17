@@ -39,6 +39,12 @@ var agility := Tuning.CHARACTER_AGILITY_DEFAULT
 ## Kick-to-Kick ignores this — it only ever has the one player.
 var apply_all := true
 
+## "procedural" (the built-in placeholder mesh) or a HumanoidRig.
+## CHARACTER_MODELS key — which body every HumanoidRig that doesn't
+## override it explicitly (Umpire does) builds. Set from the character
+## screen's MODEL row (see HumanoidRig.selected_model()).
+var model_id := "procedural"
+
 
 func _ready() -> void:
 	_load()
@@ -66,6 +72,7 @@ func save() -> void:
 	config.set_value(SECTION, "kick_accuracy", kick_accuracy)
 	config.set_value(SECTION, "agility", agility)
 	config.set_value(SECTION, "apply_all", apply_all)
+	config.set_value(SECTION, "model_id", model_id)
 	config.save(CONFIG_PATH)
 
 
@@ -88,3 +95,9 @@ func _load() -> void:
 	agility = clampf(config.get_value(SECTION, "agility", agility),
 		Tuning.CHARACTER_AGILITY_MIN, Tuning.CHARACTER_AGILITY_MAX)
 	apply_all = bool(config.get_value(SECTION, "apply_all", apply_all))
+	var loaded_model: String = config.get_value(SECTION, "model_id", model_id)
+	# A stale save naming a model that no longer exists (removed asset,
+	# renamed id) falls back to the always-valid procedural body rather
+	# than HumanoidRig silently failing to resolve it every spawn.
+	if loaded_model == "procedural" or HumanoidRig.CHARACTER_MODELS.has(loaded_model):
+		model_id = loaded_model

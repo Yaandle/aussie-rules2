@@ -31,8 +31,8 @@ extends CanvasLayer
 ##     whiteboard's width offset.
 ##   - DEFENSIVE PRESSURE — loose/balanced/tight; read by AIBrain.
 ##     _think_defend() to scale a HOME defender's chase gait and tackle-
-##     commit range. Also drives the whiteboard's dashed engagement line
-##     (never the player markers themselves — see FormationWhiteboard).
+##     commit range. Also pulls the whiteboard's own markers toward/away
+##     from their mirrored opponent (see FormationWhiteboard.PRESSURE_GAP).
 ## Up/down (move_forward/ui_up, move_back/ui_down — same actions settings_
 ## screen.gd's own row list already uses) selects which row; left/right
 ## cycles its value; Settings.save() on exit persists all three the same

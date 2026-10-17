@@ -37,6 +37,7 @@ func _ready() -> void:
 	# Movement is relative to the Camera3D itself, not the rig root — the
 	# rig root never rotates, its yaw gimbal does.
 	_player.camera = _camera.camera()
+	_player.camera_rig = _camera
 
 	_hud.player = _player
 	_hud.ball = _ball

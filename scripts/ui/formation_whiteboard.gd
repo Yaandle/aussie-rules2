@@ -31,7 +31,7 @@ extends Control
 ## ── Public surface (driven by TeamListScreen) ──────────────────────────
 ## `formation_index`/`ball_movement`/`defensive_pressure` mirror Settings'
 ## own three tactics dials; setting any of them retargets the board (see
-## _retarget()/_retarget_engagement()) and animates there via Tween rather
+## _retarget()) and animates there via Tween rather
 ## than snapping. `show_opposition` toggles a static, unanimated mirrored
 ## 18-marker "generic balanced" reference side — no tactics logic of its
 ## own, just a shape to gauge your own spacing against.
@@ -103,8 +103,7 @@ var ball_movement: Settings.BallMovementPreference = Settings.BallMovementPrefer
 var defensive_pressure: Settings.DefensivePressure = Settings.DefensivePressure.BALANCED:
 	set(value):
 		defensive_pressure = value
-		_retarget_engagement()
-		queue_redraw()
+		_retarget()
 
 ## Static mirrored 18-marker reference side — see header comment. Doesn't
 ## animate (nothing about it ever moves), so this can queue_redraw() flat.
@@ -202,19 +201,21 @@ const POCKET_ROLES := [
 const POCKET_DEPTH_INSET := 0.08     ## pulls FP/BP in, depth-wise, toward FF/FB
 const POCKET_LATERAL_SCALE := 0.82   ## pulls FP/BP in, laterally, toward FF/FB
 
-# ── Pressure (Defensive Pressure) — an engagement line, not a player move
-# Per the design brief, pressure never touches a player marker's own
-# position; it only moves this dashed line and (with the opposition
-# overlay on) restyles the marking-distance connector lines below.
-const PRESSURE_ENGAGEMENT_DEPTH := {
-	Settings.DefensivePressure.LOOSE: -0.55,     ## deep, near defensive 50
-	Settings.DefensivePressure.BALANCED: 0.0,    ## ground midpoint
-	Settings.DefensivePressure.TIGHT: 0.45,      ## pushed up, high engagement
+# ── Pressure (Defensive Pressure) — moves each marker toward/away from its
+# mirrored opponent (see _opposition_position()'s header: by construction a
+# fielded slot's raw position sits exactly on top of its opposite-number
+# opponent across the centre line — TIGHT keeps it there, standing right on
+# the direct opponent; LOOSE pulls it back toward the centre of the ground,
+# away from that opponent; BALANCED sits part-way between). Weighted by the
+# same LINE_DEPTH_WEIGHT the formation depth push already uses, so the
+# lines that actually face up an opponent (half-back/half-forward, then
+# forward/back) move the most and FOLLOWERS/CENTRE, which have no real
+# goal-side opponent to close down, barely move at all.
+const PRESSURE_GAP := {
+	Settings.DefensivePressure.LOOSE: 0.16,     ## drops off, more separation
+	Settings.DefensivePressure.BALANCED: 0.07,  ## a normal cushion
+	Settings.DefensivePressure.TIGHT: 0.0,      ## stands right on the opponent
 }
-const ENGAGEMENT_LINE_COLOUR := SoftBrutalist.ACCENT_PRIMARY
-const ENGAGEMENT_LINE_WIDTH := 1.6
-const ENGAGEMENT_DASH := 9.0
-const ENGAGEMENT_GAP := 6.0
 
 ## Marking-distance connector style per pressure (opposition overlay only)
 ## — dash <= 0 draws solid. Tight marking reads as a short, unbroken line;
@@ -252,13 +253,9 @@ const HIGHLIGHT_RING_WIDTH := 2.5
 var _anim: Dictionary = {}
 var _tween: Tween
 
-var _engagement_current := 0.0
-var _engagement_tween: Tween
-
 
 func _ready() -> void:
 	_retarget()
-	_retarget_engagement()
 
 
 func _draw() -> void:
@@ -285,7 +282,6 @@ func _draw() -> void:
 	_draw_scoring_arcs(centre, scale)
 	_draw_goal_squares(centre, scale)
 	_draw_goal_posts(centre, scale)
-	_draw_engagement_line(centre, scale)
 	_draw_opposition(centre, scale)
 	_draw_marking_lines(centre, scale)
 	_draw_formation(centre, scale)
@@ -330,6 +326,16 @@ func _pocket_lateral_scale(role: int) -> float:
 	return POCKET_LATERAL_SCALE if role in POCKET_ROLES else 1.0
 
 
+## Pulls a slot back toward the centre of the ground (depth 0), away from
+## its mirrored opponent at the raw depth position (see PRESSURE_GAP above)
+## — zero at depth 0 (nothing to close down there), and signed so a
+## forward-line slot (positive depth) and a back-line slot (negative depth)
+## both move toward midfield rather than one of them moving the wrong way.
+func _pressure_depth_offset(line: int, depth: float) -> float:
+	var gap: float = PRESSURE_GAP[defensive_pressure]
+	return -signf(depth) * gap * float(LINE_DEPTH_WEIGHT[line])
+
+
 ## Depth/lateral-fraction target for slot `idx`, tactics offsets applied —
 ## reuses TeamFormation.world_position() itself (a temp adjusted slot dict)
 ## rather than re-deriving its depth/lateral -> world-metres formula here.
@@ -340,7 +346,8 @@ func _target_position(idx: int) -> Vector3:
 	var depth := float(slot["depth"]) + _pocket_depth_inset(role)
 	var lateral := float(slot["lateral"]) * _pocket_lateral_scale(role)
 	var adjusted := {
-		"depth": clampf(depth + _depth_offset(line), -OFFSET_CLAMP, OFFSET_CLAMP),
+		"depth": clampf(depth + _depth_offset(line) + _pressure_depth_offset(line, depth),
+			-OFFSET_CLAMP, OFFSET_CLAMP),
 		"lateral": clampf(lateral * _width_scale(line), -OFFSET_CLAMP, OFFSET_CLAMP),
 	}
 	return TeamFormation.world_position(adjusted, 1.0)
@@ -438,21 +445,6 @@ func _on_tween_finished() -> void:
 	queue_redraw()
 
 
-func _retarget_engagement() -> void:
-	var target: float = PRESSURE_ENGAGEMENT_DEPTH[defensive_pressure]
-	if is_instance_valid(_engagement_tween):
-		_engagement_tween.kill()
-	if not is_inside_tree():
-		_engagement_current = target
-		return
-	var start := _engagement_current
-	_engagement_tween = create_tween()
-	_engagement_tween.set_trans(TWEEN_TRANS).set_ease(TWEEN_EASE)
-	_engagement_tween.tween_method(func(t: float) -> void:
-		_engagement_current = lerpf(start, target, t)
-		queue_redraw(), 0.0, 1.0, TWEEN_DURATION)
-
-
 # ── Drawing ──────────────────────────────────────────────────────────
 
 func _draw_formation(centre: Vector2, scale: float) -> void:
@@ -530,17 +522,6 @@ func _nearest_point(from: Vector2, points: Array[Vector2]) -> Vector2:
 			best_dist = dist
 			best = point
 	return best
-
-
-## Dashed horizontal engagement line, positioned by Defensive Pressure —
-## the one Team Edit dial the design brief keeps away from player markers
-## entirely (see _retarget_engagement()).
-func _draw_engagement_line(centre: Vector2, scale: float) -> void:
-	var y := _to_screen(centre, Vector3(_engagement_current * Tuning.FIELD_HALF_LENGTH, 0.0, 0.0),
-		scale).y
-	var half_width := Tuning.FIELD_HALF_WIDTH * scale
-	_draw_dashed_line(Vector2(centre.x - half_width, y), Vector2(centre.x + half_width, y),
-		ENGAGEMENT_LINE_COLOUR, ENGAGEMENT_LINE_WIDTH, ENGAGEMENT_DASH, ENGAGEMENT_GAP)
 
 
 ## `dash_len <= 0` draws a plain solid line. draw_line() has no native

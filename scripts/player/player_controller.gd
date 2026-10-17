@@ -110,6 +110,12 @@ var kick_accuracy := 1.0
 ## world axes, which keeps this node testable headless.
 var camera: Node3D = null
 
+## The rig `camera` belongs to, set alongside it by the same owner — only
+## so _current_look_yaw() can tell FULL_SIDE apart from CHASE (see there).
+## Left null wherever `camera` is too (sandbox/kick_to_kick never switch
+## modes, so this is always CHASE there and nothing reads it).
+var camera_rig: BroadcastCamera = null
+
 @onready var _animation: PlayerAnimation = $PlayerAnimation
 @onready var _carry_point: Marker3D = $CarryPoint
 @onready var _boot_point: Marker3D = $BootPoint
@@ -2387,8 +2393,21 @@ func _update_kick_aim(delta: float) -> void:
 ## HumanBrain.wish_direction's own camera fallback documents) or if the
 ## camera happens to be looking close enough to straight down/up that a
 ## flattened forward has nothing meaningful left to point along.
+##
+## Also falls back to _facing_yaw in BroadcastCamera.Mode.FULL_SIDE: that
+## rig looks across the field at the play from a fixed side-on mount, not
+## wherever the player means to kick, so its forward is meaningless as an
+## aim base there (playtest report: the aim/trajectory snapped toward the
+## far side of the field — the camera's own forward, rendered dead ahead
+## on screen since screen centre always *is* camera forward — rather than
+## anywhere near the body's own facing). Body facing is exactly what the
+## stick/mouse then swings away from in _update_kick_aim regardless of
+## camera mode, so this is the one spot that needs to know about FULL_SIDE
+## at all.
 func _current_look_yaw() -> float:
 	if not is_instance_valid(camera):
+		return _facing_yaw
+	if is_instance_valid(camera_rig) and camera_rig.mode == BroadcastCamera.Mode.FULL_SIDE:
 		return _facing_yaw
 	var forward := -camera.global_transform.basis.z
 	forward.y = 0.0
@@ -2632,7 +2651,8 @@ func _dispose() -> void:
 	var up_reference := Vector3.UP if absf(flight.y) < 0.98 else Vector3.FORWARD
 	ball.global_transform = Transform3D(Basis.looking_at(-flight, up_reference), origin)
 	ball.launch(launch_velocity, launch_velocity.length(), spin, self,
-		_action == Tuning.Action.KICK, _action == Tuning.Action.BOUNCE)
+		_action == Tuning.Action.KICK, _action == Tuning.Action.BOUNCE,
+		_action == Tuning.Action.HANDBALL)
 
 	_carried_ball = null
 	_carry_distance = 0.0
