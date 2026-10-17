@@ -148,6 +148,7 @@ const DETAIL_SCALE := 2.4
 ## so adding a new skin is just a new entry here plus the file on disk.
 const CHARACTER_MODELS := {
 	"fifthbuild": "res://assets/characters/fifthbuild.glb",
+	"6thbuild": "res://assets/characters/6thbuild.glb",
 }
 
 ## Set false by callers whose kit_* colour overrides only work on the
