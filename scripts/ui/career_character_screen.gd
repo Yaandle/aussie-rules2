@@ -207,7 +207,17 @@ func _confirm_and_create() -> void:
 
 	var roster := RosterGenerator.generate_team(CareerProfile.DEFAULT_TEAM_NAME)
 	var slot_index := RosterGenerator.roster_index_for_role(roster, role)
-	roster[slot_index] = {"name": player_name, "role": role, "number": _draft["number"]}
+	# Carries the real drafted attributes (not a generated teammate's
+	# random ones) so the roster table's OVERALL and HEIGHT columns read
+	# true for the player's own slot — WEIGHT has no draft value to carry
+	# (no WEIGHT row on this screen, same as the quick-play CHARACTER
+	# screen), so it gets the same one-off random fill a teammate's does.
+	roster[slot_index] = {
+		"name": player_name, "role": role, "number": _draft["number"],
+		"height": _draft["height"], "weight": RosterGenerator.random_weight(),
+		"speed": _draft["speed"], "kick_power": _draft["kick_power"],
+		"kick_accuracy": _draft["kick_accuracy"], "agility": _draft["agility"],
+	}
 	var fixtures := RosterGenerator.generate_team_names(CareerProfile.SEASON_LENGTH)
 
 	CareerProfile.player_name = player_name
@@ -265,7 +275,11 @@ func _build() -> void:
 	for entry: Dictionary in CAREER_ROWS:
 		var row := StatRow.new()
 		list.add_child(row)
-		row.configure(entry["icon"], entry["name"], false, entry.get("bar", true))
+		# NAME is edited via Enter (grabs _name_edit), not A/D — the arrow
+		# cue would say "left/right changes this" for a row that A/D does
+		# nothing on, so it's the one row configured non-adjustable.
+		var adjustable: bool = entry.get("kind", "stat") != "text"
+		row.configure(entry["icon"], entry["name"], false, entry.get("bar", true), adjustable)
 		_rows.append(row)
 
 	_play = ActionButton.new(ACTION_TEXT)

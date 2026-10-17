@@ -134,6 +134,12 @@ const SHAPES := {
 		["poly", 5.0, 12.0, 19.0, 12.0],
 		["poly", 13.5, 6.0, 19.0, 12.0, 13.5, 18.0],
 	],
+	# Mirror of arrow_right — StatRow's "you can adjust this" cue flanking
+	# a selected row's value (see stat_row.gd's _arrow_left/_arrow_right).
+	&"arrow_left": [
+		["poly", 19.0, 12.0, 5.0, 12.0],
+		["poly", 10.5, 6.0, 5.0, 12.0, 10.5, 18.0],
+	],
 	# Three sliders, not a cogwheel. A cog is a ring plus eight teeth, and
 	# at the 18px this is drawn at, teeth land at about two pixels each
 	# and mush into a fuzzy circle; sliders keep three clean horizontal

@@ -24,6 +24,18 @@ const LABEL_GAP := 10           ## label to its "· LOCKED" suffix
 const BAR_X := 254.0
 const VALUE_X := 460.0
 
+## "You can change this" cue flanking the value column, shown only while
+## the row is selected (and adjustable — a locked row never shows them,
+## nothing to change) — the orange marker on the left says "you are
+## here", these say "and here's what moves". Sized and placed to sit
+## clear of the value text itself (VALUE_X's own column) rather than
+## bracketing it exactly, since value strings vary a lot in width
+## (short counts/percentages vs a swatch name like "CRIMSON").
+const ARROW_SIZE := 13.0
+const ARROW_GAP := 8.0
+const ARROW_LEFT_X := VALUE_X - ARROW_GAP - ARROW_SIZE
+const ARROW_RIGHT_X := WIDTH + ARROW_GAP
+
 ## Nine squares regardless of the stat's real range, so every row reads
 ## the same at a glance — the bar is a rough sense of "how far up", not a
 ## precise readout. The number beside it is the precise readout.
@@ -83,7 +95,15 @@ var _name: Label
 var _lock: Label
 var _bar: SegmentBar
 var _value: Label
+var _arrow_left: UIIcon
+var _arrow_right: UIIcon
 var _locked := false
+## Separate from `_locked` — a row can be fully enabled but still edited
+## some other way than A/D (career_character_screen.gd's NAME row opens
+## a text field on Enter instead), in which case the arrow cue would be
+## actively misleading even though the row isn't "locked" in the
+## dimmed/LOCKED-badge sense at all.
+var _adjustable := true
 var _accent := UIStyle.ACCENT
 var _shadow: SoftShadow
 
@@ -154,16 +174,31 @@ func _build() -> void:
 	_value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	add_child(_value)
 
+	_arrow_left = UIIcon.new()
+	_arrow_left.icon_name = &"arrow_left"
+	_arrow_left.position = Vector2(ARROW_LEFT_X, (HEIGHT - ARROW_SIZE) * 0.5)
+	_arrow_left.size = Vector2(ARROW_SIZE, ARROW_SIZE)
+	_arrow_left.modulate.a = 0.0
+	add_child(_arrow_left)
+
+	_arrow_right = UIIcon.new()
+	_arrow_right.icon_name = &"arrow_right"
+	_arrow_right.position = Vector2(ARROW_RIGHT_X, (HEIGHT - ARROW_SIZE) * 0.5)
+	_arrow_right.size = Vector2(ARROW_SIZE, ARROW_SIZE)
+	_arrow_right.modulate.a = 0.0
+	add_child(_arrow_right)
+
 
 ## Build-time content. `bar` is false for categorical stats (KICKING
 ## FOOT is a side, not a level) — those get no squares at all rather than
 ## nine empty ones, which would read as "zero" for something that has no
 ## zero.
 func configure(icon_name: StringName, display_name: String, locked: bool,
-		bar := true) -> void:
+		bar := true, adjustable := true) -> void:
 	_icon.icon_name = icon_name
 	_name.text = display_name
 	_locked = locked
+	_adjustable = adjustable
 	_lock.visible = locked
 	_bar.visible = bar
 	# A locked row can still hold the cursor (W/S walks every row), so it
@@ -189,3 +224,13 @@ func set_state(selected: bool, filled: int, value_text: String) -> void:
 	# reads at a glance from across the column rather than only up close.
 	SoftBrutalist.set_elevation(_shadow,
 		SoftBrutalist.Elevation.REST if selected else SoftBrutalist.Elevation.LOW)
+
+	# "You can adjust this" cue — only while selected, and never on a
+	# locked row (nothing to adjust). Full opacity rather than UIStyle.
+	# ACCENT's own alpha, so the cue reads as clearly as the orange
+	# marker it's paired with.
+	var show_arrows := selected and not _locked and _adjustable
+	_arrow_left.line_colour = UIStyle.ACCENT
+	_arrow_right.line_colour = UIStyle.ACCENT
+	_arrow_left.modulate.a = 1.0 if show_arrows else 0.0
+	_arrow_right.modulate.a = 1.0 if show_arrows else 0.0

@@ -3,18 +3,27 @@ extends CanvasLayer
 
 ## Career mode's pregame screen — reached from the Dashboard's NEXT GAME
 ## card. A trimmed, re-skinned relative of full_game_pregame_screen.gd:
-## same four match-feel settings (PLAYER CONTROL, FORMATION, BALL
+## the same match-feel settings (PLAYER CONTROL, CAMERA, FORMATION, BALL
 ## MOVEMENT, DEFENSIVE PRESSURE) plus YOUR POSITION, reusing the exact
 ## same Settings fields and SettingsScreen.Row cycling class that screen
 ## already uses — a Career match is still just a Full Game match
 ## underneath, so there's no reason to invent a second settings surface
-## for the same four dials. What's dropped: the CAMERA card and its
-## preview, the four decorative locked placeholder cards, and the two-
-## level horizontal card cursor — this is a season fixture you glance at
-## and start, not a settings screen, so a plain vertical list (the same
-## keyboard-driven StatRow-style cursor character_screen.gd/career_
-## character_screen.gd already use, just styled with CareerTheme instead
-## of RetroWindow) is the simpler fit.
+## for the same dials. What's dropped: the four decorative locked
+## placeholder cards and the two-level horizontal card cursor — this is a
+## season fixture you glance at and start, not a settings screen, so a
+## plain vertical list (the same keyboard-driven StatRow-style cursor
+## character_screen.gd/career_character_screen.gd already use, just
+## styled with CareerTheme instead of RetroWindow) is the simpler fit.
+##
+## CAMERA is the one row that changes what the left-hand preview panel
+## shows: selecting it swaps the formation whiteboard out for both camera
+## screenshots at once (3RD PERSON and FULL-SIDE, same static images
+## full_game_pregame_screen.gd's own CAMERA card previews), the active
+## one bordered — "both options side by side", not a one-at-a-time
+## picker, since this panel has no second "open" cursor level to toggle
+## between them. _CameraPreviewField is copied from that file rather than
+## shared, same reasoning its own header gives: it's private to that
+## screen and this one has to stay self-contained.
 ##
 ## YOUR POSITION locks (dimmed, A/D a no-op) whenever PLAYER CONTROL is
 ## FULL TEAM, same rule full_game_pregame_screen.gd's own _update_your_
@@ -26,7 +35,8 @@ extends CanvasLayer
 ## generic spawn, and launches the same full_game.tscn Full Game does.
 
 const PLAYER_CONTROL_ROW := 0
-const YOUR_POSITION_ROW := 4
+const CAMERA_ROW := 1
+const YOUR_POSITION_ROW := 5
 
 const SCREEN_MARGIN_X := SoftBrutalist.SPACE_6
 const SCREEN_MARGIN_Y := SoftBrutalist.SPACE_4
@@ -34,7 +44,34 @@ const BAND_GAP := SoftBrutalist.SPACE_4
 const ROW_HEIGHT := 44.0
 const ROW_PAD := 16.0
 const PREVIEW_SIZE := Vector2(380.0, 460.0)
+const CAMERA_PANEL_HEIGHT := 190.0
+const CAMERA_FIELD_HEIGHT := 134.0
 const SELECTED_BORDER_WIDTH := 3
+
+## Draws one camera field (3rd-person or full-side) by loading the same
+## static screenshot full_game_pregame_screen.gd's own CAMERA preview
+## uses — copied, not shared, see this file's header.
+class _CameraPreviewField extends Control:
+	var full_side := false
+	var _texture_rect: TextureRect
+
+	func _ready() -> void:
+		_texture_rect = TextureRect.new()
+		_texture_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+		_texture_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		_texture_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		_texture_rect.clip_contents = true
+		_texture_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(_texture_rect)
+		update_texture()
+
+	func update_texture() -> void:
+		if _texture_rect == null:
+			return
+		var image_path := "res://assets/textures/images/fullside.png" if full_side \
+			else "res://assets/textures/images/3rdperson.png"
+		_texture_rect.texture = load(image_path)
+
 
 var _settings: Array[SettingsScreen.Row] = []
 var _row_panels: Array[Panel] = []
@@ -43,6 +80,11 @@ var _row_value_labels: Array[Label] = []
 var _start_panel: Panel
 var _start_label: Label
 var _whiteboard: FormationWhiteboard
+var _camera_container: Control
+var _camera_panel_third_person: Panel
+var _camera_panel_full_side: Panel
+var _camera_field_third_person: _CameraPreviewField
+var _camera_field_full_side: _CameraPreviewField
 
 var _selected := 0
 var _busy := false
@@ -54,6 +96,8 @@ func _ready() -> void:
 	_settings = [
 		SettingsScreen.Row.new("PLAYER CONTROL", ["1 PLAYER", "FULL TEAM"],
 			Settings.player_control_mode, _set_player_control),
+		SettingsScreen.Row.new("CAMERA", ["3RD PERSON", "FULL-SIDE"],
+			Settings.full_game_camera_mode, _set_camera_mode),
 		SettingsScreen.Row.new("FORMATION", _formation_options(),
 			Settings.home_formation_index, _set_formation),
 		SettingsScreen.Row.new("BALL MOVEMENT", ["CORRIDOR", "MUTUAL", "BOUNDARY"],
@@ -135,6 +179,11 @@ func _activate() -> void:
 
 func _set_player_control(index: int) -> void:
 	Settings.player_control_mode = index as Settings.PlayerControlMode
+	Settings.save()
+
+
+func _set_camera_mode(index: int) -> void:
+	Settings.full_game_camera_mode = index as Settings.FullGameCameraMode
 	Settings.save()
 
 
@@ -236,6 +285,53 @@ func _build_preview_panel() -> Control:
 	_whiteboard.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	inner.add_child(_whiteboard)
 
+	# Same full-rect inset as _whiteboard above — MarginContainer gives
+	# every child the same inset rect, so the two can share this one
+	# container and just toggle `visible` rather than needing a second
+	# margin wrapper.
+	_camera_container = VBoxContainer.new()
+	_camera_container.add_theme_constant_override(&"separation", 12)
+	_camera_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_camera_container.visible = false
+	inner.add_child(_camera_container)
+	_camera_panel_third_person = _build_camera_panel(_camera_container, "3RD PERSON", false)
+	_camera_panel_full_side = _build_camera_panel(_camera_container, "FULL-SIDE", true)
+
+	return panel
+
+
+func _build_camera_panel(parent: Control, label_text: String, full_side: bool) -> Panel:
+	var panel := Panel.new()
+	panel.custom_minimum_size = Vector2(0.0, CAMERA_PANEL_HEIGHT)
+	panel.add_theme_stylebox_override(&"panel", CareerTheme.panel_style())
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(panel)
+
+	var inner := MarginContainer.new()
+	inner.set_anchors_preset(Control.PRESET_FULL_RECT)
+	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for side in ["left", "right", "top", "bottom"]:
+		inner.add_theme_constant_override(StringName("margin_" + side), 10)
+	panel.add_child(inner)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override(&"separation", 6)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	inner.add_child(col)
+	col.add_child(CareerTheme.label(label_text, SoftBrutalist.SIZE_LABEL,
+		CareerTheme.PANEL_TEXT, SoftBrutalist.WEIGHT_BOLD, 1))
+
+	var field := _CameraPreviewField.new()
+	field.full_side = full_side
+	field.custom_minimum_size = Vector2(0.0, CAMERA_FIELD_HEIGHT)
+	field.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(field)
+
+	if full_side:
+		_camera_field_full_side = field
+	else:
+		_camera_field_third_person = field
+
 	return panel
 
 
@@ -318,17 +414,47 @@ func _build_start_row() -> Panel:
 # ── Refresh ──────────────────────────────────────────────────────────
 
 func _sync_preview() -> void:
-	if not is_instance_valid(_whiteboard):
+	if is_instance_valid(_whiteboard):
+		_whiteboard.formation_index = Settings.home_formation_index
+		_whiteboard.ball_movement = Settings.home_ball_movement
+		_whiteboard.defensive_pressure = Settings.home_defensive_pressure
+		# See full_game_pregame_screen.gd's own _sync_preview() comment — YOUR
+		# POSITION's index is a ROSTER index, FormationWhiteboard.highlighted_
+		# slot wants a raw TeamFormation.SLOTS index, resolved through
+		# ROSTER_ORDER exactly the same way.
+		_whiteboard.highlighted_slot = TeamFormation.ROSTER_ORDER[Settings.home_human_slot] \
+			if Settings.player_control_mode == Settings.PlayerControlMode.SINGLE_PLAYER else -1
+	_sync_camera_preview()
+
+
+## Both camera panels stay visible (see this file's header on why) —
+## only the border on whichever matches Settings.full_game_camera_mode
+## right now changes, so cycling CAMERA always shows which one is live.
+func _sync_camera_preview() -> void:
+	if not is_instance_valid(_camera_panel_third_person) or not is_instance_valid(_camera_panel_full_side):
 		return
-	_whiteboard.formation_index = Settings.home_formation_index
-	_whiteboard.ball_movement = Settings.home_ball_movement
-	_whiteboard.defensive_pressure = Settings.home_defensive_pressure
-	# See full_game_pregame_screen.gd's own _sync_preview() comment — YOUR
-	# POSITION's index is a ROSTER index, FormationWhiteboard.highlighted_
-	# slot wants a raw TeamFormation.SLOTS index, resolved through
-	# ROSTER_ORDER exactly the same way.
-	_whiteboard.highlighted_slot = TeamFormation.ROSTER_ORDER[Settings.home_human_slot] \
-		if Settings.player_control_mode == Settings.PlayerControlMode.SINGLE_PLAYER else -1
+	var full_side := Settings.full_game_camera_mode == Settings.FullGameCameraMode.FULL_SIDE
+	var active_panel := _camera_panel_full_side if full_side else _camera_panel_third_person
+	var inactive_panel := _camera_panel_third_person if full_side else _camera_panel_full_side
+	active_panel.add_theme_stylebox_override(&"panel",
+		CareerTheme.panel_style(CareerTheme.PANEL, CareerTheme.POSITIVE, SELECTED_BORDER_WIDTH))
+	inactive_panel.add_theme_stylebox_override(&"panel", CareerTheme.panel_style())
+	if is_instance_valid(_camera_field_third_person):
+		_camera_field_third_person.update_texture()
+	if is_instance_valid(_camera_field_full_side):
+		_camera_field_full_side.update_texture()
+
+
+## Swaps the left-hand panel to the two camera screenshots while CAMERA
+## holds the cursor, and back to the formation whiteboard otherwise —
+## full_game_pregame_screen.gd's own _set_camera_preview_active() does
+## the same swap, just between a single preview and the whiteboard+
+## readout pair instead of two always-both-visible camera panels.
+func _set_camera_preview_active(active: bool) -> void:
+	if is_instance_valid(_whiteboard):
+		_whiteboard.visible = not active
+	if is_instance_valid(_camera_container):
+		_camera_container.visible = active
 
 
 func _refresh() -> void:
@@ -338,6 +464,7 @@ func _refresh() -> void:
 	_start_panel.add_theme_stylebox_override(&"panel",
 		CareerTheme.panel_style(CareerTheme.POSITIVE, Color.BLACK,
 			SELECTED_BORDER_WIDTH if start_selected else 0))
+	_set_camera_preview_active(_selected == CAMERA_ROW)
 
 
 func _refresh_row(i: int) -> void:

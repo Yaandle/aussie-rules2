@@ -179,81 +179,116 @@ func _build_action_button(text: String, icon_name: StringName, enabled: bool,
 	return panel
 
 
-## Toggles a roster overlay reading CareerProfile.roster, grouped by
-## TeamFormation line (same grouping team_list_screen.gd's own legend
-## uses) — built once, lazily, then just shown/hidden.
+## Toggles a full-page roster table reading CareerProfile.roster — a
+## plain spreadsheet (#, NAME, POS, HEIGHT, WEIGHT, OVERALL), not a small
+## popup card over a dimmed dashboard, per the user's own "basic
+## streamlit-like spreadsheet, not a pop up window" request. Built once,
+## lazily, then just shown/hidden.
 func _on_view_roster_pressed() -> void:
 	if _roster_overlay == null:
-		_roster_overlay = _build_roster_overlay()
+		_roster_overlay = _build_roster_table()
 		_roster_overlay.visible = false   # starts hidden — a fresh node defaults to visible
 		add_child(_roster_overlay)
 	_roster_overlay.visible = not _roster_overlay.visible
 
 
-func _build_roster_overlay() -> Control:
-	var scrim := Panel.new()
-	scrim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	scrim.add_theme_stylebox_override(&"panel", CareerTheme.panel_style(Color(0.0, 0.0, 0.0, 0.72)))
-	scrim.mouse_filter = Control.MOUSE_FILTER_STOP
-	scrim.gui_input.connect(func(event: InputEvent) -> void:
-		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-			scrim.visible = false)
+## Column spec for the roster table: label, minimum width, horizontal
+## alignment, and the roster-entry key/formatter that fills its cells.
+## Table-driven so a column is one more entry here, not a hand-placed
+## node — same reasoning character_screen.gd's ATTRIBUTE_ROWS gives for
+## its own row list.
+const ROSTER_COLUMNS := [
+	{"label": "#", "width": 36.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+	{"label": "NAME", "width": 220.0, "align": HORIZONTAL_ALIGNMENT_LEFT},
+	{"label": "POS", "width": 70.0, "align": HORIZONTAL_ALIGNMENT_LEFT},
+	{"label": "HEIGHT", "width": 90.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+	{"label": "WEIGHT", "width": 90.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+	{"label": "OVERALL", "width": 90.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+]
 
-	var card := Panel.new()
-	card.anchor_left = 0.5
-	card.anchor_right = 0.5
-	card.anchor_top = 0.5
-	card.anchor_bottom = 0.5
-	card.offset_left = -220.0
-	card.offset_right = 220.0
-	card.offset_top = -280.0
-	card.offset_bottom = 280.0
-	card.add_theme_stylebox_override(&"panel", CareerTheme.panel_style())
-	# STOP, not IGNORE — otherwise a click anywhere inside the card still
-	# bubbles up to the scrim's own gui_input and closes the overlay.
-	card.mouse_filter = Control.MOUSE_FILTER_STOP
-	scrim.add_child(card)
 
-	var inner := MarginContainer.new()
-	inner.set_anchors_preset(Control.PRESET_FULL_RECT)
-	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+func _build_roster_table() -> Control:
+	var page := Panel.new()
+	page.set_anchors_preset(Control.PRESET_FULL_RECT)
+	page.add_theme_stylebox_override(&"panel", CareerTheme.panel_style(CareerTheme.BACKGROUND))
+	page.mouse_filter = Control.MOUSE_FILTER_STOP   # a full page under it, not a click-through scrim
+
+	var margin := MarginContainer.new()
+	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for side in ["left", "right", "top", "bottom"]:
-		inner.add_theme_constant_override(StringName("margin_" + side), 20)
-	card.add_child(inner)
+		var value := SCREEN_MARGIN_Y if side in ["top", "bottom"] else SCREEN_MARGIN_X
+		margin.add_theme_constant_override(StringName("margin_" + side), int(value))
+	page.add_child(margin)
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override(&"separation", int(BAND_GAP))
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	margin.add_child(column)
+
+	var header_row := HBoxContainer.new()
+	header_row.add_theme_constant_override(&"separation", 16)
+	header_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(header_row)
+	header_row.add_child(CareerTheme.label("ROSTER — " + CareerProfile.team_name,
+		SoftBrutalist.SIZE_TITLE, CareerTheme.TEXT, SoftBrutalist.WEIGHT_HEAVY))
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	header_row.add_child(spacer)
+	var back_button := _build_action_button("BACK", &"arrow_left", true,
+		func() -> void: _roster_overlay.visible = false)
+	header_row.add_child(back_button)
 
 	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.mouse_filter = Control.MOUSE_FILTER_PASS
-	inner.add_child(scroll)
+	column.add_child(scroll)
 
-	var list := VBoxContainer.new()
-	list.add_theme_constant_override(&"separation", 6)
-	list.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(list)
+	var grid := GridContainer.new()
+	grid.columns = ROSTER_COLUMNS.size()
+	grid.add_theme_constant_override(&"h_separation", 18)
+	grid.add_theme_constant_override(&"v_separation", 8)
+	grid.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	scroll.add_child(grid)
 
-	list.add_child(CareerTheme.label("ROSTER — " + CareerProfile.team_name,
-		SoftBrutalist.SIZE_LABEL, CareerTheme.PANEL_TEXT, SoftBrutalist.WEIGHT_BOLD))
+	for col: Dictionary in ROSTER_COLUMNS:
+		var heading := CareerTheme.label(col["label"], SoftBrutalist.SIZE_LABEL,
+			CareerTheme.TEXT, SoftBrutalist.WEIGHT_BOLD, 1)
+		heading.custom_minimum_size.x = col["width"]
+		heading.horizontal_alignment = col["align"]
+		grid.add_child(heading)
 
-	var role_label := {}
-	var role_line := {}
+	var sorted_roster := CareerProfile.roster.duplicate()
+	sorted_roster.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return int(a["number"]) < int(b["number"]))
+
+	for entry: Dictionary in sorted_roster:
+		_add_roster_row(grid, entry)
+
+	return page
+
+
+func _add_roster_row(grid: GridContainer, entry: Dictionary) -> void:
+	var role_label: String = ""
 	for slot: Dictionary in TeamFormation.SLOTS:
-		role_label[slot["role"]] = slot["label"]
-		role_line[slot["role"]] = slot["line"]
-
-	for line_index in TeamFormation.LINE_NAMES.size():
-		var any_in_line := false
-		for entry: Dictionary in CareerProfile.roster:
-			if role_line.get(entry["role"], -1) != line_index:
-				continue
-			if not any_in_line:
-				list.add_child(CareerTheme.label(TeamFormation.LINE_NAMES[line_index],
-					SoftBrutalist.SIZE_LABEL, CareerTheme.PANEL_TEXT, SoftBrutalist.WEIGHT_BOLD))
-				any_in_line = true
-			var row_text := "%s   %s   #%d" % [
-				role_label.get(entry["role"], ""), entry["name"], entry["number"]]
-			list.add_child(CareerTheme.label(row_text, SoftBrutalist.SIZE_BODY, CareerTheme.PANEL_TEXT))
-
-	return scrim
+		if slot["role"] == entry["role"]:
+			role_label = slot["label"]
+			break
+	var cells := [
+		"%d" % entry["number"],
+		String(entry["name"]),
+		role_label,
+		"%.0f cm" % entry.get("height", Tuning.CHARACTER_HEIGHT_DEFAULT),
+		"%.0f kg" % entry.get("weight", 0.5 * (RosterGenerator.WEIGHT_MIN + RosterGenerator.WEIGHT_MAX)),
+		"%d" % RosterGenerator.overall(entry),
+	]
+	for i in ROSTER_COLUMNS.size():
+		var col: Dictionary = ROSTER_COLUMNS[i]
+		var cell := CareerTheme.label(cells[i], SoftBrutalist.SIZE_BODY, CareerTheme.TEXT)
+		cell.custom_minimum_size.x = col["width"]
+		cell.horizontal_alignment = col["align"]
+		grid.add_child(cell)
 
 
 ## Dims (not a true blur — a semi-transparent scrim, see the plan's own
