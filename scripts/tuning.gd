@@ -618,7 +618,15 @@ const CAM_DIALOGUE_FOV := 42.0         # deg, tighter for an intimate two-shot
 const CAM_FULL_SIDE_SIDE_OFFSET := 35.0    # m off the centreline (Z) — where the rig is mounted
 const CAM_FULL_SIDE_HEIGHT := 11.0         # m elevation
 const CAM_FULL_SIDE_ARM := 6.0             # m — short; position/height already do the work
-const CAM_FULL_SIDE_FOV := 55.0
+## FOV at the two lateral extremes (see BroadcastCamera._update_full_side's
+## zoom comment) — NEAR is play right under the rig, FAR is play out on the
+## opposite side of the ground, lerped by how far across ZOOM_RANGE covers.
+## ZOOM_RANGE spans the whole field width rather than just the far half,
+## since the rig itself sits inside the boundary (see SIDE_OFFSET's own
+## comment), not on the centreline.
+const CAM_FULL_SIDE_FOV_NEAR := 55.0
+const CAM_FULL_SIDE_FOV_FAR := 32.0
+const CAM_FULL_SIDE_ZOOM_RANGE := FIELD_WIDTH
 const CAM_FULL_SIDE_FOLLOW_RATE := 2.2     # slower than CAM_FOLLOW_RATE — a deliberate pan, not a chase
 
 # Player-switch reorient. The soft version of this (0.6s / rate 5.0, with

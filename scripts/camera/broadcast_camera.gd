@@ -303,8 +303,22 @@ func _update_full_side(delta: float) -> void:
 	_pitch_pivot.rotation.x = _pitch
 
 	_arm.spring_length = lerpf(_arm.spring_length, Tuning.CAM_FULL_SIDE_ARM, rate)
-	_camera.fov = lerpf(_camera.fov, Tuning.CAM_FULL_SIDE_FOV,
-		1.0 - exp(-Tuning.CAM_FOV_RATE * delta))
+
+	# Zoom: the rig's mount is fixed on the near side (CAM_FULL_SIDE_SIDE_
+	# OFFSET), so play out on the far side of the ground is genuinely
+	# further from the lens than play near the rig — a fixed FOV left the
+	# far side reading small and distant (user report: "add a zoom so when
+	# ball goes far side it is still relatively close"). Narrowing the FOV
+	# as the lateral distance to the rig grows is the real broadcast-lens
+	# answer: zoom in to compensate, the same way a TV camera operator
+	# would, rather than moving the rig itself (which would undercut the
+	# "mounted outside the boundary" framing _update_full_side's own header
+	# describes).
+	var lateral := absf(focus_point.z - Tuning.CAM_FULL_SIDE_SIDE_OFFSET)
+	var zoom_t := clampf(lateral / Tuning.CAM_FULL_SIDE_ZOOM_RANGE, 0.0, 1.0)
+	var target_fov := lerpf(
+		Tuning.CAM_FULL_SIDE_FOV_NEAR, Tuning.CAM_FULL_SIDE_FOV_FAR, zoom_t)
+	_camera.fov = lerpf(_camera.fov, target_fov, 1.0 - exp(-Tuning.CAM_FOV_RATE * delta))
 
 
 func _update_focus(delta: float) -> void:
