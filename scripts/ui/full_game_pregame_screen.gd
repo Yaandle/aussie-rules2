@@ -711,12 +711,12 @@ func _build_readout(panel: Control) -> void:
 	var strip := VBoxContainer.new()
 	_readout_strip = strip
 	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	strip.alignment = BoxContainer.ALIGNMENT_CENTER
-	strip.set_anchors_preset(Control.PRESET_CENTER_LEFT)
+	strip.alignment = BoxContainer.ALIGNMENT_BEGIN
+	strip.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	strip.offset_left = READOUT_INSET_X
 	strip.offset_right = READOUT_INSET_X + READOUT_PANEL_WIDTH
-	strip.offset_top = -READOUT_PANEL_HEIGHT * 0.5
-	strip.offset_bottom = READOUT_PANEL_HEIGHT * 0.5
+	strip.offset_top = READOUT_INSET_X
+	strip.offset_bottom = READOUT_INSET_X + READOUT_PANEL_HEIGHT
 	strip.add_theme_constant_override(&"separation", READOUT_ROW_GAP)
 	panel.add_child(strip)
 
