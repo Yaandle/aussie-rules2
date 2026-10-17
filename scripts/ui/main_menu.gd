@@ -65,6 +65,8 @@ var _entries: Array[Entry] = [
 	Entry.new("SCENARIO", "Practice a set situation", "", false, "menuscreen_board"),
 	Entry.new("GOAL KICKING", "Shots on goal from the arc", "", false,
 		"menuscreen_ball"),
+	Entry.new("CAREER", "Create a player, play a season",
+		"res://scenes/ui/career_character_screen.tscn", true, "menuscreen_career"),
 ]
 
 var _index := 0

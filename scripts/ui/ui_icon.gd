@@ -158,6 +158,18 @@ const SHAPES := {
 		["loop", 6.5, 9.0, 17.5, 9.0, 17.5, 20.0, 6.5, 20.0],
 		["dot", 12.0, 14.0, 1.3],
 	],
+	# Round head over a trapezoid torso — the MODEL row on the CHARACTER
+	# screen's Customise panel (pick which body is previewed).
+	&"figure": [
+		["ring", 12.0, 6.5, 3.3],
+		["loop", 7.0, 11.0, 17.0, 11.0, 15.0, 20.5, 9.0, 20.5],
+	],
+	# Paint chip: a square tile split by one line — the generic "pick a
+	# colour" row (SKIN/JERSEY/SHORTS on the Customise panel).
+	&"swatch": [
+		["loop", 5.0, 5.0, 19.0, 5.0, 19.0, 19.0, 5.0, 19.0],
+		["poly", 5.0, 12.5, 19.0, 12.5],
+	],
 }
 
 const ARC_POINTS := 28

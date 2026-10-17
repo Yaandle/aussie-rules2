@@ -45,6 +45,17 @@ var apply_all := true
 ## screen's MODEL row (see HumanoidRig.selected_model()).
 var model_id := "procedural"
 
+## Customise colour rows — hex strings ("#rrggbb"), empty means "unset"
+## (HumanoidRig falls back to its own constant, same alpha-0 contract
+## kit_torso/kit_shorts already have). The character screen owns the fixed
+## swatch lists these are chosen from; this autoload just stores whatever
+## hex it's handed.
+var skin_color := ""
+var jersey_color := ""
+var shorts_color := ""
+var boot_color := ""
+
+
 
 func _ready() -> void:
 	_load()
@@ -73,6 +84,10 @@ func save() -> void:
 	config.set_value(SECTION, "agility", agility)
 	config.set_value(SECTION, "apply_all", apply_all)
 	config.set_value(SECTION, "model_id", model_id)
+	config.set_value(SECTION, "skin_color", skin_color)
+	config.set_value(SECTION, "jersey_color", jersey_color)
+	config.set_value(SECTION, "shorts_color", shorts_color)
+	config.set_value(SECTION, "boot_color", boot_color)
 	config.save(CONFIG_PATH)
 
 
@@ -101,3 +116,21 @@ func _load() -> void:
 	# than HumanoidRig silently failing to resolve it every spawn.
 	if loaded_model == "procedural" or HumanoidRig.CHARACTER_MODELS.has(loaded_model):
 		model_id = loaded_model
+	skin_color = _load_hex(config, "skin_color")
+	jersey_color = _load_hex(config, "jersey_color")
+	shorts_color = _load_hex(config, "shorts_color")
+	boot_color = _load_hex(config, "boot_color")
+
+
+## Guards against a hand-edited or stale config naming something that
+## isn't a "#rrggbb" colour at all — exactly what save() ever writes.
+func _load_hex(config: ConfigFile, key: String) -> String:
+	var value: String = config.get_value(SECTION, key, "")
+	if value.is_empty():
+		return ""
+	if value.length() != 7 or value[0] != "#":
+		return ""
+	for i in range(1, 7):
+		if not value[i].is_valid_hex_number():
+			return ""
+	return value

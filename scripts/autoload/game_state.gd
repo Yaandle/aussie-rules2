@@ -48,6 +48,16 @@ var phase: Phase = Phase.PLAY:
 		phase = value
 		phase_changed.emit(phase)
 
+## Set by career_pregame_screen.gd's START MATCH, read once by full_game.gd
+## at spawn time to pull rosters from CareerProfile/the generated opponent
+## instead of the generic Settings-driven spawn, and again at full time to
+## write the result back into the season. Plain bool, no signal — nothing
+## needs to react live to this changing, only read it at those two fixed
+## points. Reset to false by career_match_end_screen.gd before returning
+## to the Dashboard, so a quick-play Full Game started afterwards never
+## mistakes itself for a Career match.
+var career_active := false
+
 
 func is_live() -> bool:
 	return phase == Phase.PLAY or phase == Phase.CENTRE_BOUNCE

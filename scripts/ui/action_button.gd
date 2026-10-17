@@ -77,6 +77,17 @@ func _ready() -> void:
 	size = Vector2(_row.get_combined_minimum_size().x + PAD_X * 2.0, HEIGHT)
 
 
+## Swaps the fixed "play" triangle for another glyph — CUSTOMISE/BACK on
+## the character screen reuses this same button shape with &"gear".
+func set_icon(icon_name: StringName) -> void:
+	_icon.icon_name = icon_name
+
+
+func set_text(text: String) -> void:
+	_label.text = text
+	size.x = _row.get_combined_minimum_size().x + PAD_X * 2.0
+
+
 func set_selected(selected: bool) -> void:
 	add_theme_stylebox_override(&"panel", _box_selected if selected else _box_idle)
 	SoftBrutalist.set_elevation(_shadow,

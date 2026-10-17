@@ -37,6 +37,16 @@ var handballs := {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
 var marks := {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
 var tackles := {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
 
+## Per-player goal/disposal tallies for Career mode's full-time leaderboard
+## (name -> int) — keyed by PlayerController.roster_name, which is only
+## ever non-empty in a Career match (see player_controller.gd's own
+## header note), so these two dictionaries simply never gain an entry
+## outside Career and nothing non-Career reads them. full_game.gd calls
+## record_player_disposal()/record_player_goal() alongside the existing
+## team-keyed record_disposal()/score() calls, not instead of them.
+var player_goals := {}
+var player_disposals := {}
+
 var quarter := 1
 var clock_running := false
 var seconds_remaining := Tuning.QUARTER_LENGTH
@@ -100,6 +110,44 @@ func record_disposal(team: Tuning.Team, action: Tuning.Action) -> void:
 			handballs[team] += 1
 
 
+## `name` is a PlayerController.roster_name — empty for every non-Career
+## spawn, and record_disposal()'s own team-keyed tally is what every
+## other screen (MatchEndScreen) still reads, so an empty name is simply
+## ignored rather than guarded against at every call site.
+func record_player_disposal(name: String, action: Tuning.Action) -> void:
+	if name.is_empty() or not (action in [Tuning.Action.KICK, Tuning.Action.HANDBALL]):
+		return
+	player_disposals[name] = player_disposals.get(name, 0) + 1
+
+
+func record_player_goal(name: String) -> void:
+	if name.is_empty():
+		return
+	player_goals[name] = player_goals.get(name, 0) + 1
+
+
+## Top `count` {name, value} entries from a name -> int tally, highest
+## first, ties broken by name — shared by top_goalkickers()/top_
+## disposals() below rather than each sorting its own copy.
+func _top(tally: Dictionary, count: int) -> Array[Dictionary]:
+	var entries: Array[Dictionary] = []
+	for name: String in tally:
+		entries.append({"name": name, "value": tally[name]})
+	entries.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if a["value"] != b["value"]:
+			return a["value"] > b["value"]
+		return a["name"] < b["name"])
+	return entries.slice(0, mini(count, entries.size()))
+
+
+func top_goalkickers(count: int) -> Array[Dictionary]:
+	return _top(player_goals, count)
+
+
+func top_disposals(count: int) -> Array[Dictionary]:
+	return _top(player_disposals, count)
+
+
 func record_mark(team: Tuning.Team) -> void:
 	if team != Tuning.Team.NONE:
 		marks[team] += 1
@@ -117,6 +165,8 @@ func reset() -> void:
 	handballs = {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
 	marks = {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
 	tackles = {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
+	player_goals = {}
+	player_disposals = {}
 	quarter = 1
 	seconds_remaining = Tuning.QUARTER_LENGTH
 	clock_running = false

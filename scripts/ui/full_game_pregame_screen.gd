@@ -297,6 +297,13 @@ func _ready() -> void:
 	# A menu, not the match: full_game.tscn sets its own mode/phase when it
 	# actually loads.
 	GameState.phase = GameState.Phase.MENU
+	# Defensive: reached this screen without going through career_pregame_
+	# screen.gd (the only place that sets this true), so this is definitely
+	# a quick-play match — guards against a stale true left over from a
+	# Career match that was quit out of before reaching full time, which
+	# would otherwise make full_game.gd try to spawn from an empty/stale
+	# Career roster on the very next quick-play match.
+	GameState.career_active = false
 
 	_cards = [
 		Card.new(SettingsScreen.Row.new("PLAYER CONTROL",

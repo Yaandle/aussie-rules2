@@ -52,6 +52,11 @@ const SUBJECT_LAYER := 2
 const CAMERA_DISTANCE := 4.15
 const CAMERA_HEIGHT := 1.0
 
+## Customise mode framing — closer in, same level eye line, so the camera
+## reads as "stepping in" rather than cutting to a different shot.
+const ZOOM_CAMERA_DISTANCE := 2.6
+const ZOOM_DURATION := 0.45
+
 ## How far left of the player the camera sits. The stat column owns the
 ## left ~45% of the screen, so the subject is pushed right of centre by
 ## shifting the camera rather than by turning it, which would skew the
@@ -62,6 +67,15 @@ const CAMERA_SIDESTEP := 0.46
 @onready var _ring: MeshInstance3D = $SelectionRing
 
 var _rig_holder: HumanoidRig
+var _current_model_id := "procedural"
+
+## Customise draft colours, alpha-0-means-unset exactly like HumanoidRig's
+## own kit_torso/kit_shorts contract (see _build_rig) — not resolved to a
+## concrete colour here, just carried through to the next rig build.
+var _kit_skin := Color(0.0, 0.0, 0.0, 0.0)
+var _kit_jersey := Color(0.0, 0.0, 0.0, 0.0)
+var _kit_shorts := Color(0.0, 0.0, 0.0, 0.0)
+var _kit_boot := Color(0.0, 0.0, 0.0, 0.0)
 
 
 func _ready() -> void:
@@ -98,10 +112,50 @@ func set_model(model_id: String) -> void:
 	_build_rig(model_id, previous_scale)
 
 
+## Live-preview the Customise draft's colour rows. Alpha 0 (the default)
+## means "unset" and falls through to HumanoidRig's own constants, same as
+## kit_torso/kit_shorts always have. Only visible on the procedural body —
+## an imported model brings its own baked materials (see humanoid_rig.gd's
+## header note) and ignores these, same existing limitation kit_torso has.
+## Rebuilds the rig outright rather than mutating it in place, since
+## HumanoidRig only reads its kit_* exports at build time (set_model()
+## already pays this same cost for a model change).
+func set_kit_colors(skin: Color, jersey: Color, shorts: Color, boot: Color) -> void:
+	_kit_skin = skin
+	_kit_jersey = jersey
+	_kit_shorts = shorts
+	_kit_boot = boot
+	set_model(_current_model_id)
+
+
+## Eases the preview camera in for Customise mode, or back out of it.
+## Deliberately a plain position tween, not a reparent/look_at — the camera
+## is already level with no pitch (see the header note), so moving it
+## straight along its own forward axis keeps the ground plane unskewed.
+func zoom_in() -> void:
+	_tween_camera_to(ZOOM_CAMERA_DISTANCE)
+
+
+func zoom_out() -> void:
+	_tween_camera_to(CAMERA_DISTANCE)
+
+
+func _tween_camera_to(distance: float) -> void:
+	var target := STAND_ON + Vector3(-CAMERA_SIDESTEP, CAMERA_HEIGHT, distance)
+	var tween := create_tween()
+	tween.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+	tween.tween_property(_camera, "position", target, ZOOM_DURATION)
+
+
 func _build_rig(model_id: String, scale := Vector3.ONE) -> void:
+	_current_model_id = model_id
 	var rig := HumanoidRig.new()
 	rig.away_kit = false
 	rig.character_model_override = model_id
+	rig.kit_skin = _kit_skin
+	rig.kit_torso = _kit_jersey
+	rig.kit_shorts = _kit_shorts
+	rig.kit_boot = _kit_boot
 	rig.position = STAND_ON
 	rig.rotation.y = deg_to_rad(180.0)   # face the camera
 	rig.scale = scale
