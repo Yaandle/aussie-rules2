@@ -71,6 +71,15 @@ var _was_airborne := false
 var _is_kick_flight := false
 var _flight_origin := Vector3.ZERO
 
+## Set true only by a launch() from a HANDBALL disposal — the "is this
+## flight a handball" state LandingShadow reads to hide its cue for one
+## (a handball can never be marked, so the "where's this about to come
+## down" shadow reads as a false marking promise there — playtest report:
+## "the marking cue appears even if it is a handball"). Cleared on
+## knock()/landing/gather same as _is_kick_flight: once touched or settled
+## it's just a loose ball again, not specifically "a handball in flight".
+var _is_handball_flight := false
+
 ## Set true only by a launch() from a manual BOUNCE disposal (see
 ## PlayerController._dispose). While true, _physics_process scripts one
 ## clean rebound off the turf instead of trusting the prolate hull, which
@@ -178,6 +187,7 @@ func _physics_process(delta: float) -> void:
 		# Touched down without being marked — no longer a live mark chance,
 		# same as a kick that bounces before anyone takes it in real AFL.
 		_is_kick_flight = false
+		_is_handball_flight = false
 		_kick_team = Tuning.Team.NONE
 	_was_airborne = airborne
 
@@ -257,7 +267,8 @@ func _nearest_uncontested_catcher() -> PlayerController:
 ## other caller (handball, bounce, hit-out, the centre bounce) leaves it
 ## false, since none of those can ever be marked.
 func launch(direction: Vector3, speed: float, spin: Vector3, from: Node3D = null,
-		is_kick_disposal: bool = false, is_bounce: bool = false) -> void:
+		is_kick_disposal: bool = false, is_bounce: bool = false,
+		is_handball: bool = false) -> void:
 	unlock()
 	detach()
 	if from != null:
@@ -277,6 +288,7 @@ func launch(direction: Vector3, speed: float, spin: Vector3, from: Node3D = null
 	_was_airborne = is_airborne()
 	_is_kick_flight = is_kick_disposal
 	_is_bounce_flight = is_bounce
+	_is_handball_flight = is_handball
 	_bounce_rebounded = false
 	_flight_origin = global_position
 	_kick_team = (from as PlayerController).team \
@@ -297,6 +309,7 @@ func attach_to(point: Node3D, holder: Node3D) -> void:
 	angular_velocity = Vector3.ZERO
 	_is_kick_flight = false
 	_is_bounce_flight = false
+	_is_handball_flight = false
 	_kick_team = Tuning.Team.NONE
 	if is_instance_valid(_carrier) and _carrier != holder:
 		remove_collision_exception_with(_carrier)
@@ -376,6 +389,15 @@ func is_kick_flight() -> bool:
 	return _is_kick_flight and not is_held
 
 
+## True while this is still an uninterrupted handball flight — read by
+## LandingShadow to hide its landing cue for one (see that flag's own doc
+## comment on _is_handball_flight for why: a handball can never be marked,
+## so a "where's this about to come down, go judge the mark" shadow on one
+## is a false promise).
+func is_handball_flight() -> bool:
+	return _is_handball_flight and not is_held
+
+
 ## Straight-line distance from wherever this flight was launched — set by
 ## launch() on every disposal, not just a kick, so this reads sensibly for
 ## a handball/bounce too. Used by PlayerController to gate an Aggressive
@@ -415,6 +437,7 @@ func kick_team() -> Tuning.Team:
 ## invariant can't be forgotten at a new call site later.
 func knock(impulse: Vector3) -> void:
 	_is_kick_flight = false
+	_is_handball_flight = false
 	_kick_team = Tuning.Team.NONE
 	apply_central_impulse(impulse)
 
@@ -434,6 +457,7 @@ func lock_at(position: Vector3) -> void:
 	_release_grace = 0.0
 	_is_kick_flight = false
 	_is_bounce_flight = false
+	_is_handball_flight = false
 	_kick_team = Tuning.Team.NONE
 	freeze = false
 	sleeping = false
@@ -483,6 +507,7 @@ func reset_at(position: Vector3) -> void:
 	_release_grace = 0.0
 	_is_kick_flight = false
 	_is_bounce_flight = false
+	_is_handball_flight = false
 	_kick_team = Tuning.Team.NONE
 	freeze = false
 	sleeping = false

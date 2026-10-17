@@ -69,7 +69,13 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	var ball := get_parent() as Ball
-	if ball == null or not ball.is_airborne():
+	# A handball can never be marked (see Ball._is_handball_flight's own
+	# doc comment), so showing this "go judge the mark" cue for one is a
+	# false promise — playtest report: "the marking cue appears even if
+	# it is a handball". Still shown for every other kind of airborne
+	# ball (someone else's kick, a spoiled deflection, a bounce) exactly
+	# as before.
+	if ball == null or not ball.is_airborne() or ball.is_handball_flight():
 		visible = false
 		return
 
