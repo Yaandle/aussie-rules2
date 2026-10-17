@@ -179,9 +179,11 @@ func _on_focus_changed(team: Tuning.Team, previous: PlayerController, next: Play
 
 	if is_instance_valid(previous) and previous != next:
 		previous.camera = null
+		previous.camera_rig = null
 
 	if is_instance_valid(next):
 		next.camera = _camera.camera()
+		next.camera_rig = _camera
 		if previous == null:
 			_camera.target = next
 			_camera.recenter()

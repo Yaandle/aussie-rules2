@@ -110,6 +110,7 @@ func _ready() -> void:
 	_camera.ball = _ball
 	_camera.recenter()
 	_player.camera = _camera.camera()
+	_player.camera_rig = _camera
 
 	_hud.player = _player
 	_hud.ball = _ball
