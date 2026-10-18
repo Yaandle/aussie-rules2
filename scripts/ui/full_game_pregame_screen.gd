@@ -77,19 +77,19 @@ extends CanvasLayer
 ## against.
 ##
 ## ── Camera preview ─────────────────────────────────────────────────
-## The CAMERA card borrows settings_screen.gd's camera-preview system
-## wholesale rather than reinventing it: the same PREVIEW_* sizing, the
-## same RetroWindow.shell() two-panel layout, the same _CameraPreviewField
-## draw logic, and the same slide/fade/scale Tween shape as
-## SettingsScreen._set_preview_active(). The one structural difference is
-## what moves — settings_screen.gd slides its single vertical card,
-## this screen slides the whole horizontal card row (see this file's own
-## header on why a card row exists at all) left as one unit so the
-## preview has room beside it, matching this task's brief that individual
-## cards must not move independently. The preview activates whenever the
-## cursor sits on the CAMERA card, selected or open, same trigger shape as
-## settings_screen.gd's `_index == 2` check, and always reflects
-## Settings.full_game_camera_mode live — the same source of truth the
+## The CAMERA card's preview is a live CameraModePreview render (see that
+## class's own header) rather than the static fullside.png/3rdperson.png
+## screenshots this used to show — user ask: "update from the screenshot
+## to a live rendering of the field... adjust values and see it update".
+## The shared _readout_strip (MATCH SETUP's own heading/rows) swaps to a
+## CAMERA PREVIEW heading plus one ZOOM row (_build_zoom_readout_row) while
+## this is active, so the one setting adjustable directly here lands at
+## the exact size/position every other row already uses, rather than a
+## separate overlay. The preview activates whenever the cursor sits on the
+## CAMERA card, selected
+## or open, same trigger shape as settings_screen.gd's `_index == 2`
+## check, and always reflects Settings.full_game_camera_mode/camera_zoom
+## live — the same source of truth the
 ## CAMERA card itself reads and writes.
 
 # ── Layout ───────────────────────────────────────────────────────────
@@ -169,6 +169,10 @@ const READOUT_ROW_GAP := 16
 ## the window instead of a thumbnail inside one.
 const CAMERA_PREVIEW_WIDTH := 860.0
 const CAMERA_PREVIEW_HEIGHT := 358.0
+## A real camera's own aspect, not the preview window's own wide/short
+## rect — see the AspectRatioContainer this wraps in
+## _build_camera_preview_content().
+const CAMERA_PREVIEW_ASPECT := 16.0 / 9.0
 
 
 const TITLE_TEXT := "FULL GAME"
@@ -228,32 +232,6 @@ class Card:
 		locked = p_locked
 
 
-## Draws one camera field (3rd-person or full-side) exactly like
-## SettingsScreen's private _CameraPreviewField — copied rather than
-## shared since that class is private to settings_screen.gd and this file
-## must stay self-contained.
-class _CameraPreviewField extends Control:
-	var full_side := false
-	var _texture_rect: TextureRect
-
-	func _ready() -> void:
-		# Create a TextureRect to display the camera screenshot
-		_texture_rect = TextureRect.new()
-		_texture_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
-		_texture_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		_texture_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		_texture_rect.clip_contents = true
-		_texture_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		add_child(_texture_rect)
-		update_texture()
-
-	func update_texture() -> void:
-		if _texture_rect == null:
-			return
-		var image_path := "res://assets/textures/images/fullside.png" if full_side else "res://assets/textures/images/3rdperson.png"
-		_texture_rect.texture = load(image_path)
-
-
 var _cards: Array[Card] = []
 
 ## 0.._cards.size()-1 selects a card; _cards.size() is the trailing START
@@ -282,15 +260,24 @@ var _hints: KeyHintBar
 
 var _card_row: HBoxContainer
 
-## The two camera field panels live inside the existing middle preview
-## window. They are toggled as a single camera-preview state rather than
-## sliding a second window beside the card row.
+## The live camera preview lives inside the existing middle preview
+## window, toggled as a single camera-preview state rather than sliding a
+## second window beside the card row.
 var _camera_preview_container: Control
-var _camera_field_third_person: _CameraPreviewField
-var _camera_field_full_side: _CameraPreviewField
-var _camera_panel_third_person: Panel
-var _camera_panel_full_side: Panel
+var _camera_preview_live: CameraModePreview
+
+## The shared readout strip (MATCH SETUP / CAMERA PREVIEW — see
+## _build_readout()'s own header) and the pieces _set_camera_preview_
+## active() swaps between its two states.
 var _readout_strip: VBoxContainer
+var _readout_backing: Panel
+var _readout_title: Label
+var _readout_row_columns: Array[VBoxContainer] = []
+var _zoom_readout_column: VBoxContainer
+var _zoom_value_label: Label
+var _zoom_chevron_left: Control
+var _zoom_chevron_right: Control
+var _zoom_row_mouse_over := false
 
 
 func _ready() -> void:
@@ -671,9 +658,21 @@ func _build_preview(parent: Control) -> void:
 	_whiteboard.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	board_holder.add_child(_whiteboard)
 
-	_build_readout(body)
+	# Live preview built first, readout strip second — Control siblings
+	# draw in child order, and the readout (MATCH SETUP / CAMERA PREVIEW)
+	# has to land on top of the live render the same way it already sits
+	# on top of the formation whiteboard beneath it.
 	_build_camera_preview_content(body)
+	_build_readout(body)
 
+## Live render fills the window (CameraModePreview — see its own header
+## for why this replaced the old static fullside.png/3rdperson.png
+## screenshots). The CAMERA PREVIEW heading and its ZOOM control live in
+## the shared _readout_strip now (see _build_readout()/_set_camera_
+## preview_active()), not a separate header built here — user ask: "make
+## the 'Camera preview' header the same size and position as the 'Match
+## setup'... have the single zoom option in similar position as the
+## [FORMATION/CONTROL/etc rows]".
 func _build_camera_preview_content(parent: Control) -> void:
 	_camera_preview_container = Control.new()
 	_camera_preview_container.set_anchors_preset(Control.PRESET_CENTER)
@@ -685,36 +684,71 @@ func _build_camera_preview_content(parent: Control) -> void:
 	_camera_preview_container.visible = false
 	parent.add_child(_camera_preview_container)
 
-	var title := SoftBrutalist.label(
-		"CAMERA PREVIEW",
-		SoftBrutalist.SIZE_LABEL,
-		RetroWindow.BORDER,
-		SoftBrutalist.WEIGHT_HEAVY,
-		SoftBrutalist.TRACK_TITLE
-	)
-	title.position = Vector2(20.0, 18.0)
-	_camera_preview_container.add_child(title)
+	var cam_style := StyleBoxFlat.new()
+	cam_style.bg_color = Color(RetroWindow.PANEL, 0.0)
+	cam_style.border_color = RetroWindow.BORDER
+	cam_style.set_border_width_all(2)
+	cam_style.set_corner_radius_all(RetroWindow.RADIUS)
+	var frame := Panel.new()
+	frame.set_anchors_preset(Control.PRESET_FULL_RECT)
+	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	frame.add_theme_stylebox_override(&"panel", cam_style)
+	_camera_preview_container.add_child(frame)
 
-	var divider := ColorRect.new()
-	divider.color = RetroWindow.BORDER
-	divider.position = Vector2(20.0, 48.0)
-	divider.size = Vector2(CAMERA_PREVIEW_WIDTH - 40.0, 1.0)
-	_camera_preview_container.add_child(divider)
+	# AspectRatioContainer, not a plain full-rect fill — user report: "scale
+	# the resolution but maintain aspect ratio, make it a little smaller".
+	# Letterboxes to CAMERA_PREVIEW_ASPECT and centres within the frame,
+	# rather than stretching the render to fit the frame's own wide/short
+	# rect.
+	var aspect := AspectRatioContainer.new()
+	aspect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	aspect.offset_left = 2.0
+	aspect.offset_top = 2.0
+	aspect.offset_right = -2.0
+	aspect.offset_bottom = -2.0
+	aspect.ratio = CAMERA_PREVIEW_ASPECT
+	aspect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	frame.add_child(aspect)
 
-	var cam_panel_size := Vector2(CAMERA_PREVIEW_WIDTH - 32.0, CAMERA_PREVIEW_HEIGHT - 68.0)
-	var cam_panel_pos := Vector2(16.0, 52.0)
+	_camera_preview_live = CameraModePreview.new()
+	_camera_preview_live.set_anchors_preset(Control.PRESET_FULL_RECT)
+	aspect.add_child(_camera_preview_live)
 
-	_camera_panel_third_person = _build_camera_panel(
-		_camera_preview_container, cam_panel_pos, cam_panel_size, "3RD PERSON", false)
 
-	_camera_panel_full_side = _build_camera_panel(
-		_camera_preview_container, cam_panel_pos, cam_panel_size, "FULL-SIDE", true)
 ## A formatted column — title, rule, four label/value rows — docked to the
 ## card's left edge (see READOUT_PANEL_* above). Parented to the window's
 ## front Panel rather than to the MarginContainer the board fills, and
 ## positioned by anchors rather than sorted into any container's layout, so
 ## it sits beside the board instead of being squeezed under it.
+##
+## Also carries the CAMERA PREVIEW heading and its ZOOM row — this one
+## strip is reused wholesale rather than building a second one, so the
+## live preview's own heading/adjustable-value naturally lands at the same
+## size and position as MATCH SETUP's (user ask: "make the 'Camera
+## preview' header the same size and position as the 'Match setup'...
+## have the single zoom option in similar position as the [other rows]").
+## _set_camera_preview_active() swaps the title text and which rows are
+## visible; nothing here differs between the two states except that.
 func _build_readout(panel: Control) -> void:
+	# A faint backing, CAMERA PREVIEW state only — MATCH SETUP reads fine
+	# straight over the whiteboard's own parchment card same as always, but
+	# the live render's grass can run dark right under the same text, so
+	# this gives it the contrast back without touching the normal case.
+	# Same faint-overlay idea DebugHud's own panel already uses over the
+	# 3D view, not a new visual language.
+	_readout_backing = Panel.new()
+	_readout_backing.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_readout_backing.offset_left = READOUT_INSET_X - 10.0
+	_readout_backing.offset_right = READOUT_INSET_X + READOUT_PANEL_WIDTH + 10.0
+	_readout_backing.offset_top = READOUT_INSET_X - 8.0
+	_readout_backing.offset_bottom = READOUT_INSET_X + READOUT_PANEL_HEIGHT + 8.0
+	_readout_backing.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_readout_backing.add_theme_stylebox_override(&"panel",
+		SoftBrutalist.panel_style(Color(SoftBrutalist.PANEL, 0.55), SoftBrutalist.RADIUS_MD,
+			Color(RetroWindow.BORDER, 0.3)))
+	_readout_backing.visible = false
+	panel.add_child(_readout_backing)
+
 	var strip := VBoxContainer.new()
 	_readout_strip = strip
 	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -727,8 +761,9 @@ func _build_readout(panel: Control) -> void:
 	strip.add_theme_constant_override(&"separation", READOUT_ROW_GAP)
 	panel.add_child(strip)
 
-	strip.add_child(SoftBrutalist.label("MATCH SETUP", SoftBrutalist.SIZE_HEADING,
-		RetroWindow.BORDER, SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_TITLE))
+	_readout_title = SoftBrutalist.label("MATCH SETUP", SoftBrutalist.SIZE_HEADING,
+		RetroWindow.BORDER, SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_TITLE)
+	strip.add_child(_readout_title)
 
 	var divider := ColorRect.new()
 	divider.color = RetroWindow.BORDER
@@ -737,10 +772,20 @@ func _build_readout(panel: Control) -> void:
 	strip.add_child(divider)
 
 	for title: String in ["FORMATION", "CONTROL", "CAMERA", "POSITION"]:
-		_readout_values.append(_build_readout_row(strip, title))
+		var row_parts := _build_readout_row(strip, title)
+		_readout_row_columns.append(row_parts[0] as VBoxContainer)
+		_readout_values.append(row_parts[1] as Label)
+
+	var zoom_parts := _build_zoom_readout_row(strip)
+	_zoom_readout_column = zoom_parts[0] as VBoxContainer
+	_zoom_value_label = zoom_parts[1] as Label
+	_zoom_readout_column.visible = false
 
 
-func _build_readout_row(parent: Control, title: String) -> Label:
+## Returns [column, value_label] — an Array rather than a second out-param,
+## since GDScript has no tuple/struct return; destructured by both callers
+## above via `a, b = _build_...()`.
+func _build_readout_row(parent: Control, title: String) -> Array:
 	var column := VBoxContainer.new()
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_theme_constant_override(&"separation", 1)
@@ -753,7 +798,110 @@ func _build_readout_row(parent: Control, title: String) -> Label:
 	var value_label := SoftBrutalist.label("", SoftBrutalist.SIZE_BODY,
 		RetroWindow.ACCENT, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_NONE)
 	column.add_child(value_label)
-	return value_label
+	return [column, value_label]
+
+
+## Same title-above-value shape _build_readout_row() gives every other
+## row, except the value is flanked by two clickable chevrons instead of
+## being read-only — the one setting adjustable directly in this preview.
+## The chevrons stay invisible until the row is hovered (mouse) or either
+## one holds keyboard/gamepad focus, same "only show it on hover" rule
+## _refresh()'s own card chevrons now follow (user ask: "remove the
+## arrows from the options... unless that card is on hover"), and both
+## chevrons are real focusable Controls (not mouse-only) so Tab/D-pad
+## navigation and `confirm` can reach them too — see
+## _build_zoom_arrow()/_on_zoom_row_focus_changed().
+func _build_zoom_readout_row(parent: Control) -> Array:
+	var column := VBoxContainer.new()
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_theme_constant_override(&"separation", 1)
+	parent.add_child(column)
+
+	column.add_child(SoftBrutalist.label("ZOOM", SoftBrutalist.SIZE_LABEL,
+		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL))
+
+	var row := HBoxContainer.new()
+	# PASS, not IGNORE/STOP: the row itself only wants mouse_entered/exited
+	# for the hover reveal below, not to intercept clicks the two chevron
+	# Controls (each their own STOP) need to receive directly.
+	row.mouse_filter = Control.MOUSE_FILTER_PASS
+	row.add_theme_constant_override(&"separation", 6)
+	row.mouse_entered.connect(_on_zoom_row_mouse.bind(true))
+	row.mouse_exited.connect(_on_zoom_row_mouse.bind(false))
+	column.add_child(row)
+
+	_zoom_chevron_left = _build_zoom_arrow("‹", -1)
+	row.add_child(_zoom_chevron_left)
+	var value := SoftBrutalist.label("", SoftBrutalist.SIZE_BODY,
+		RetroWindow.ACCENT, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_NONE)
+	row.add_child(value)
+	_zoom_chevron_right = _build_zoom_arrow("›", 1)
+	row.add_child(_zoom_chevron_right)
+
+	return [column, value]
+
+
+## One clickable-or-confirmable chevron. Real Control focus (FOCUS_ALL),
+## unlike every other hand-built control in this screen (see action_
+## button.gd's own header on why those stay mouse/cursor-only) — this is
+## the one control here with no existing row-cursor equivalent to drive
+## it from, so it needs Godot's own focus traversal to be gamepad/keyboard
+## reachable at all (user ask: "improve the accessibility... for mouse and
+## keyboard... and controller"). The default focus stylebox is suppressed
+## since the reveal-on-focus behaviour below is this control's whole
+## visible state already.
+func _build_zoom_arrow(glyph: String, step: int) -> Control:
+	var hit := Control.new()
+	hit.custom_minimum_size = Vector2(28.0, 28.0)
+	hit.mouse_filter = Control.MOUSE_FILTER_STOP
+	hit.focus_mode = Control.FOCUS_ALL
+	hit.add_theme_stylebox_override(&"focus", StyleBoxEmpty.new())
+	hit.modulate.a = 0.0
+	hit.gui_input.connect(_on_zoom_arrow_input.bind(step))
+	hit.focus_entered.connect(_on_zoom_row_focus_changed)
+	hit.focus_exited.connect(_on_zoom_row_focus_changed)
+
+	var label := SoftBrutalist.label(glyph, SoftBrutalist.SIZE_BODY, RetroWindow.BORDER,
+		SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_NONE)
+	label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hit.add_child(label)
+	return hit
+
+
+func _on_zoom_row_mouse(over: bool) -> void:
+	_zoom_row_mouse_over = over
+	_update_zoom_arrows_visible()
+
+
+func _on_zoom_row_focus_changed() -> void:
+	_update_zoom_arrows_visible()
+
+
+func _update_zoom_arrows_visible() -> void:
+	var show_now := _zoom_row_mouse_over \
+		or (is_instance_valid(_zoom_chevron_left) and _zoom_chevron_left.has_focus()) \
+		or (is_instance_valid(_zoom_chevron_right) and _zoom_chevron_right.has_focus())
+	var target_alpha := 1.0 if show_now else 0.0
+	if is_instance_valid(_zoom_chevron_left):
+		_zoom_chevron_left.modulate.a = target_alpha
+	if is_instance_valid(_zoom_chevron_right):
+		_zoom_chevron_right.modulate.a = target_alpha
+
+
+func _on_zoom_arrow_input(event: InputEvent, step: int) -> void:
+	var clicked: bool = event is InputEventMouseButton and event.pressed \
+		and event.button_index == MOUSE_BUTTON_LEFT
+	# Control.gui_input also receives key/joypad input once the control has
+	# focus — see career_dashboard_screen.gd's _on_next_game_gui_input()
+	# for the same "confirm activates a focused control" shape.
+	if not (clicked or event.is_action_pressed(&"confirm")):
+		return
+	Settings.camera_zoom += step * Tuning.CAM_ZOOM_STEP
+	Settings.save()
+	_sync_camera_preview()
 
 
 func _build_card_row(parent: Control) -> void:
@@ -938,103 +1086,6 @@ func _build_footer(parent: Control) -> void:
 	row.add_child(_hints)
 
 
-func _build_camera_preview(body: Control) -> void:
-	_camera_preview_container = Control.new()
-	_camera_preview_container.custom_minimum_size = Vector2(
-		CAMERA_PREVIEW_WIDTH, CAMERA_PREVIEW_HEIGHT)
-	_camera_preview_container.size = Vector2(
-		CAMERA_PREVIEW_WIDTH, CAMERA_PREVIEW_HEIGHT)
-	_camera_preview_container.set_anchors_preset(Control.PRESET_CENTER)
-	_camera_preview_container.position = Vector2(
-		-CAMERA_PREVIEW_WIDTH * 0.5,
-		-CAMERA_PREVIEW_HEIGHT * 0.5)
-	_camera_preview_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_camera_preview_container.visible = false
-	body.add_child(_camera_preview_container)
-
-	var title := SoftBrutalist.label(
-		"CAMERA PREVIEW",
-		SoftBrutalist.SIZE_LABEL,
-		RetroWindow.BORDER,
-		SoftBrutalist.WEIGHT_HEAVY,
-		SoftBrutalist.TRACK_TITLE
-	)
-	title.position = Vector2(0.0, 0.0)
-	_camera_preview_container.add_child(title)
-
-	var divider := ColorRect.new()
-	divider.color = RetroWindow.BORDER
-	divider.position = Vector2(0.0, 30.0)
-	divider.size = Vector2(CAMERA_PREVIEW_WIDTH, 1.0)
-	_camera_preview_container.add_child(divider)
-
-	_camera_panel_third_person = _build_camera_panel(
-		_camera_preview_container,
-		Vector2(0.0, 44.0),
-		Vector2(140.0, 184.0),
-		"3RD PERSON",
-		false
-	)
-
-	_camera_panel_full_side = _build_camera_panel(
-		_camera_preview_container,
-		Vector2(148.0, 44.0),
-		Vector2(140.0, 184.0),
-		"FULL-SIDE",
-		true
-	)
-
-## Builds one of the two field panels inside the camera preview and
-## returns it so _refresh() can highlight whichever one is currently
-## selected — settings_screen.gd's own _create_camera_panel() has no
-## selection concept since neither of its panels ever needs highlighting,
-## but this screen already asks the same question its CAMERA card does
-## ("which mode is live right now") for the readout strip, so the
-## returned Panel lets the preview answer it the same way.
-func _build_camera_panel(
-	parent: Control,
-	panel_position: Vector2,
-	panel_size: Vector2,
-	label_text: String,
-	full_side: bool
-) -> Panel:
-	var panel := Panel.new()
-	panel.position = panel_position
-	panel.size = panel_size
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# Transparent, not the old solid brown fill — the card's own parchment
-	# already sits behind this, so a screenshot narrower than the panel's
-	# aspect now letterboxes onto the same paper colour as the rest of the
-	# screen instead of a mismatched brown slab. A hairline border keeps the
-	# field legible as its own region.
-	var cam_style := StyleBoxFlat.new()
-	cam_style.bg_color = Color(RetroWindow.PANEL, 0.0)
-	cam_style.border_color = RetroWindow.BORDER
-	cam_style.set_border_width_all(2)
-	cam_style.set_corner_radius_all(RetroWindow.RADIUS)
-	panel.add_theme_stylebox_override(&"panel", cam_style)
-	parent.add_child(panel)
-
-	var title := SoftBrutalist.label(
-		label_text,
-		SoftBrutalist.TRACK_LABEL
-	)
-	title.position = Vector2(10.0, 8.0)
-	panel.add_child(title)
-
-	var field := _CameraPreviewField.new()
-	field.full_side = full_side
-	field.position = Vector2(10.0, 38.0)
-	field.size = Vector2(panel_size.x - 20.0, panel_size.y - 50.0)
-	field.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(field)
-
-	if full_side:
-		_camera_field_full_side = field
-	else:
-		_camera_field_third_person = field
-
-	return panel
 
 
 ## The legend reflects the mode the cursor is actually in — an open card,
@@ -1088,8 +1139,13 @@ func _refresh() -> void:
 		card.glyph.icon_name = &"lock" if card.locked else &"arrow_right"
 
 		# Alpha rather than `visible`, so the glyph row's layout never
-		# reflows — see _build_card().
-		var chevron_alpha := 1.0 if open else 0.0
+		# reflows — see _build_card(). Shown on `selected`, not just `open`
+		# — user report: "remove the arrows from the options... unless that
+		# card is on hover". `selected` already means "the cursor (mouse
+		# hover or keyboard/gamepad) is on this card" (see above), so this
+		# one condition change covers every input method at once rather
+		# than needing a separate mouse-only hover flag.
+		var chevron_alpha := 1.0 if selected or open else 0.0
 		card.chevron_left.modulate.a = chevron_alpha
 		card.chevron_right.modulate.a = chevron_alpha
 
@@ -1172,8 +1228,19 @@ func _set_camera_preview_active(active: bool) -> void:
 	if is_instance_valid(_whiteboard):
 		_whiteboard.visible = not active
 
-	if is_instance_valid(_readout_strip):
-		_readout_strip.visible = not active
+	# The readout strip itself stays visible either way now — only its
+	# title text and which rows it shows change, so CAMERA PREVIEW/ZOOM
+	# land at the exact size and position MATCH SETUP's own heading/rows
+	# already use (see _build_readout()'s own header).
+	if is_instance_valid(_readout_backing):
+		_readout_backing.visible = active
+
+	if is_instance_valid(_readout_title):
+		_readout_title.text = "CAMERA PREVIEW" if active else "MATCH SETUP"
+	for column in _readout_row_columns:
+		column.visible = not active
+	if is_instance_valid(_zoom_readout_column):
+		_zoom_readout_column.visible = active
 
 
 ## Highlights whichever field panel matches Settings.full_game_camera_mode
@@ -1181,21 +1248,14 @@ func _set_camera_preview_active(active: bool) -> void:
 ## own cycle() writes it — no separate signal needed since _refresh()
 ## already runs on every cycle.
 func _sync_camera_preview() -> void:
-	if not is_instance_valid(_camera_panel_third_person) \
-			or not is_instance_valid(_camera_panel_full_side):
+	if not is_instance_valid(_camera_preview_live):
 		return
-
 	var full_side := Settings.full_game_camera_mode == Settings.FullGameCameraMode.FULL_SIDE
-	
-	# Only show the panel matching the current camera mode
-	_camera_panel_third_person.visible = not full_side
-	_camera_panel_full_side.visible = full_side
-	
-	# Update the displayed images in both camera preview fields
-	if is_instance_valid(_camera_field_third_person):
-		_camera_field_third_person.update_texture()
-	if is_instance_valid(_camera_field_full_side):
-		_camera_field_full_side.update_texture()
+	_camera_preview_live.mode = BroadcastCamera.Mode.FULL_SIDE if full_side \
+		else BroadcastCamera.Mode.CHASE
+	_camera_preview_live.zoom = Settings.camera_zoom
+	if is_instance_valid(_zoom_value_label):
+		_zoom_value_label.text = "%d%%" % roundi(Settings.camera_zoom * 100.0)
 
 
 ## Pushes the live settings into the preview window. All three board dials

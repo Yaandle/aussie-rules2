@@ -41,6 +41,13 @@ var _row_labels: Array[Label] = []
 
 
 func _ready() -> void:
+	# Topmost of every CanvasLayer this project draws (DebugHud/MarkPrompt/
+	# KickCrosshair/ControlledPlayerRing's own key-hint chips etc. all sit
+	# at single-digit layers) — a pause overlay that something else could
+	# still draw over would be a worse bug than the ring-through-pause
+	# report this is also half of the fix for (ControlledPlayerRing's own
+	# move to real 3D geometry is the other half).
+	layer = 100
 	_rows = [
 		Row.new("RESUME", resume),
 		Row.new("QUIT TO MENU", _quit_to_menu),

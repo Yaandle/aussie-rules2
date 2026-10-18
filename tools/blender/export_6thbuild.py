@@ -8,19 +8,17 @@ Run from Blender's Scripting workspace (Open this file, Run Script) with
 6thbuild.blend open, or headless:
     blender 6thbuild.blend --background --python tools/blender/export_6thbuild.py
 
-Never touches the open file's own objects — everything below works on an
-in-memory duplicate that gets deleted again after export, so this is safe
-to re-run any time you've changed the meshes/rig and want Godot to pick it
-up.
-
-No animations yet (6thbuild has no actions/NLA stashed) — this exports a
-static skinned mesh in its rest pose. humanoid_animations.gd's procedural
-clips will still drive it in-game once bone names match, exactly as they
-do for fifthbuild; see export_fifthbuild.py for the animation-export shape
-once 6thbuild gets its own poses/clips.
+Never touches the open file's own objects/actions — everything below works
+on an in-memory duplicate that gets deleted again after export, so this is
+safe to re-run any time you've changed the meshes/rig/animation and want
+Godot to pick it up.
 
 Bone names: scripts/player/humanoid_rig.gd HumanoidRig.BONES / the
             "Import swap" header comment's EXPORT CONTRACT.
+Clip names: scripts/player/humanoid_animations.gd (GAITS keys plus every
+            library.add_animation(&"...", ...) call) — anything exported
+            under one of those names overrides the matching procedural
+            clip in-game; see player_animation.gd's _build_merged_library().
 """
 
 import bpy
@@ -30,7 +28,12 @@ SOURCE_MESHES = ["Body", "Shirt", "Shorts", "Shoes"]
 EXPORT_PATH = r"F:\dev\aussie-rules2\assets\characters\6thbuild.glb"
 
 # Same map as export_fifthbuild.py's BONE_RENAME — 6thbuild's Armature is a
-# direct copy of fifthbuild's, so the source bone names are identical.
+# direct copy of fifthbuild's. NOTE: this rig has no separate ankle/toe
+# split yet (just one "foot.l"/"foot.r" bone each, no "ankle.l"/"ankle.r"),
+# unlike the fuller chain export_fifthbuild.py's version assumes — so
+# foot.l/foot.r map straight to LeftFoot/RightFoot here, and LeftToes/
+# RightToes are left unmapped (HumanoidRig tolerates a missing Toes bone;
+# it just won't get toe articulation until this rig grows one).
 BONE_RENAME = {
 	"pelvis": "Hips",
 	"spine1": "Spine",
@@ -45,12 +48,18 @@ BONE_RENAME = {
 	"hand.r": "RightHand",
 	"upperleg.l": "LeftUpperLeg",
 	"lowerleg.l": "LeftLowerLeg",
-	"ankle.l": "LeftFoot",
-	"foot.l": "LeftToes",
+	"foot.l": "LeftFoot",
 	"upperleg.r": "RightUpperLeg",
 	"lowerleg.r": "RightLowerLeg",
-	"ankle.r": "RightFoot",
-	"foot.r": "RightToes",
+	"foot.r": "RightFoot",
+}
+
+# Blender action name -> the Godot clip name it should override. Name new
+# actions directly after their target clip and this map doesn't need a new
+# entry. Only "idle" exists on 6thbuild so far — add entries here as more
+# clips (jog_fwd, run_fwd, ...) get animated.
+CLIP_RENAME = {
+	"idle": "idle",
 }
 
 
@@ -69,10 +78,56 @@ def _find_view3d_override():
 	return {}
 
 
+def _gather_actions(armature_obj):
+	"""name -> Action for every action reachable off the armature (the
+	active one plus every NLA-stashed/stored strip), de-duplicated by the
+	underlying datablock, skipping strips whose action has been lost."""
+	found = {}
+	ad = armature_obj.animation_data
+	if ad is None:
+		return found
+	if ad.action is not None:
+		found[ad.action.name] = ad.action
+	for track in ad.nla_tracks:
+		for strip in track.strips:
+			if strip.action is not None:
+				found[strip.action.name] = strip.action
+	return found
+
+
+def _pick_wanted_clips(actions):
+	"""Resolve CLIP_RENAME against what's actually in the file. When two
+	source actions map to the same clip name, keep whichever has the longer
+	frame range and report the other as skipped, rather than letting the
+	exporter pick one arbitrarily."""
+	by_clip = {}
+	skipped = []
+	for action_name, action in actions.items():
+		clip_name = CLIP_RENAME.get(action_name)
+		if clip_name is None:
+			skipped.append(action_name)
+			continue
+		existing = by_clip.get(clip_name)
+		if existing is None or (action.frame_range[1] - action.frame_range[0]) > \
+				(existing.frame_range[1] - existing.frame_range[0]):
+			if existing is not None:
+				skipped.append(existing.name)
+			by_clip[clip_name] = action
+		else:
+			skipped.append(action_name)
+	return by_clip, skipped
+
+
 def export_6thbuild():
 	src_arm_obj = bpy.data.objects[SOURCE_ARMATURE]
 	src_mesh_objs = [bpy.data.objects[n] for n in SOURCE_MESHES if n in bpy.data.objects]
 	missing_src_meshes = [n for n in SOURCE_MESHES if n not in bpy.data.objects]
+
+	actions = _gather_actions(src_arm_obj)
+	by_clip, skipped = _pick_wanted_clips(actions)
+	empty_clips = [name for name, action in by_clip.items()
+		if action.frame_range[1] - action.frame_range[0] < 1]
+	by_clip = {name: action for name, action in by_clip.items() if name not in empty_clips}
 
 	# ---- duplicate the armature + meshes; the original file is never touched ----
 	dup_arm_data = src_arm_obj.data.copy()
@@ -98,6 +153,21 @@ def export_6thbuild():
 		scene_coll.objects.link(dup_obj)
 		dup_mesh_objs.append(dup_obj)
 		dup_mesh_datas.append(dup_data)
+
+	# Independent copies of only the wanted actions, stashed onto the
+	# duplicate under their final clip names — same shape as
+	# export_fifthbuild.py's approach, so this exports one glTF animation
+	# per NLA track regardless of what the live file's own action is doing.
+	dup_arm_obj.animation_data_create()
+	action_copies = {}
+	for clip_name, action in by_clip.items():
+		copy = action.copy()
+		copy.name = clip_name
+		copy.use_fake_user = True
+		track = dup_arm_obj.animation_data.nla_tracks.new()
+		track.name = clip_name
+		track.strips.new(clip_name, 0, copy)
+		action_copies[clip_name] = copy
 
 	# ---- rename bones + vertex groups on the duplicate only ----
 	override = _find_view3d_override()
@@ -132,9 +202,18 @@ def export_6thbuild():
 		filepath=EXPORT_PATH,
 		export_format='GLB',
 		use_selection=True,
-		export_animations=False,
+		export_animations=bool(action_copies),
+		export_animation_mode='NLA_TRACKS',
+		export_bake_animation=True,
+		export_force_sampling=True,
 		export_skins=True,
-		export_apply=False,
+		# True: without this the Mirror modifier is never baked into the
+		# exported mesh (the exporter falls back to the un-mirrored base
+		# mesh data), so only the modelled half of the body ever reaches
+		# Godot. The Armature modifier/skin data is unaffected either way —
+		# glTF always reads joints/weights straight off the mesh's vertex
+		# groups, never off a modifier's evaluated result.
+		export_apply=True,
 	)
 
 	# ---- cleanup: remove every trace of the duplicate ----
@@ -144,11 +223,18 @@ def export_6thbuild():
 	for dup_data in dup_mesh_datas:
 		bpy.data.meshes.remove(dup_data, do_unlink=True)
 	bpy.data.armatures.remove(dup_arm_data, do_unlink=True)
+	for copy in action_copies.values():
+		bpy.data.actions.remove(copy, do_unlink=True)
 
 	print("export_6thbuild: wrote", EXPORT_PATH)
 	print("  meshes exported:", [o.name for o in src_mesh_objs])
+	print("  clips exported:", sorted(action_copies.keys()))
 	if missing_src_meshes:
 		print("  WARNING: expected mesh objects not found, skipped:", missing_src_meshes)
+	if skipped:
+		print("  skipped (no CLIP_RENAME entry, or shadowed duplicate):", skipped)
+	if empty_clips:
+		print("  skipped (matched a clip name but has no keyframes yet):", empty_clips)
 	if missing_bones:
 		print("  WARNING: bones not found on the source armature, left unrenamed:", missing_bones)
 

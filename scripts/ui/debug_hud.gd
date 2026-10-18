@@ -57,6 +57,7 @@ const CONTROLS := [
 	["Smother", "Q", "X"],
 	["Bump stance", "L (hold)", "LB (hold)"],
 	["Hit-out (ruck only)", "J", "RB"],
+	["Set shot for goal", "X", "Y"],
 	["Reset ball", "R", "Back / View"],
 	["Toggle this HUD", "F3", "D-Pad Up"],
 ]
@@ -70,6 +71,14 @@ const CONTROLS := [
 ## window instead of needing anchor math.
 const RESET_HINT_POSITION := Vector2(16.0, 680.0)
 
+## Set shot for goal hint — same always-on-independent-of-F3 chip as Reset
+## Ball just above (RESET_HINT_POSITION), stacked one row higher. Only
+## visible while PlayerController.can_take_goal_set_shot() is actually true
+## for the controlled player (carrying, under mark/free-kick protection,
+## within Tuning.GOAL_SET_SHOT_MAX_DISTANCE) and not already mid-kick, so
+## it reads as "you can do this right now", not a permanent reference row.
+const GOAL_SHOT_HINT_POSITION := Vector2(16.0, 644.0)
+
 var player: PlayerController
 var ball: Ball
 
@@ -82,6 +91,9 @@ var _debug_info_visible := true
 ## read the live (possibly player-remapped) binding, not a hardcoded one.
 var _reset_hint_sets := {}
 var _reset_hint: KeyHintBar
+
+var _goal_shot_hint_sets := {}
+var _goal_shot_hint: KeyHintBar
 
 @onready var _panel: Panel = $Panel
 @onready var _label: Label = $Label
@@ -129,10 +141,24 @@ func _ready() -> void:
 	_reset_hint.position = RESET_HINT_POSITION
 	add_child(_reset_hint)
 	_apply_reset_hint()
+
+	_goal_shot_hint_sets = {
+		InputManager.Device.KEYBOARD: [{"keys": "X", "label": "Set Shot for Goal"}],
+		InputManager.Device.GAMEPAD: [{"keys": "Y", "label": "Set Shot for Goal"}],
+	}
+	_goal_shot_hint = KeyHintBar.new()
+	_goal_shot_hint.position = GOAL_SHOT_HINT_POSITION
+	_goal_shot_hint.visible = false
+	add_child(_goal_shot_hint)
+	_apply_goal_shot_hint()
+
 	InputManager.device_changed.connect(_on_device_changed)
 
 
 func _process(_delta: float) -> void:
+	_goal_shot_hint.visible = is_instance_valid(player) and player.is_carrying() \
+		and not player.is_kick_aiming() and player.can_take_goal_set_shot()
+
 	if Input.is_action_just_pressed(&"debug_hud"):
 		_debug_info_visible = not _debug_info_visible
 		_panel.visible = _debug_info_visible
@@ -144,11 +170,17 @@ func _process(_delta: float) -> void:
 
 func _on_device_changed(_device: int) -> void:
 	_apply_reset_hint()
+	_apply_goal_shot_hint()
 
 
 func _apply_reset_hint() -> void:
 	var keyboard: Array = _reset_hint_sets[InputManager.Device.KEYBOARD]
 	_reset_hint.set_hints(_reset_hint_sets.get(InputManager.device, keyboard))
+
+
+func _apply_goal_shot_hint() -> void:
+	var keyboard: Array = _goal_shot_hint_sets[InputManager.Device.KEYBOARD]
+	_goal_shot_hint.set_hints(_goal_shot_hint_sets.get(InputManager.device, keyboard))
 
 
 ## Live off Settings, not a hardcoded "R" — mirrors remap_screen.gd's own

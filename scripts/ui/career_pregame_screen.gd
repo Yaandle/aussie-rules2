@@ -17,13 +17,14 @@ extends CanvasLayer
 ##
 ## CAMERA is the one row that changes what the left-hand preview panel
 ## shows: selecting it swaps the formation whiteboard out for both camera
-## screenshots at once (3RD PERSON and FULL-SIDE, same static images
-## full_game_pregame_screen.gd's own CAMERA card previews), the active
-## one bordered — "both options side by side", not a one-at-a-time
-## picker, since this panel has no second "open" cursor level to toggle
-## between them. _CameraPreviewField is copied from that file rather than
-## shared, same reasoning its own header gives: it's private to that
-## screen and this one has to stay self-contained.
+## modes live at once (3RD PERSON and FULL-SIDE, each a real
+## CameraModePreview render rather than the static screenshots this used
+## to show — user ask: "update from the screenshot to a live rendering of
+## the field"), the active one bordered — "both options side by side",
+## not a one-at-a-time picker, since this panel has no second "open"
+## cursor level to toggle between them. A ZOOM row sits above both panels,
+## the one setting adjustable directly here rather than through a row on
+## the right (see _build_zoom_row()).
 ##
 ## YOUR POSITION locks (dimmed, A/D a no-op) whenever PLAYER CONTROL is
 ## FULL TEAM, same rule full_game_pregame_screen.gd's own _update_your_
@@ -46,32 +47,11 @@ const ROW_PAD := 16.0
 const PREVIEW_SIZE := Vector2(380.0, 460.0)
 const CAMERA_PANEL_HEIGHT := 190.0
 const CAMERA_FIELD_HEIGHT := 134.0
+## A real camera's own aspect, not this panel's own wide/short rect — see
+## the AspectRatioContainer each live preview is wrapped in, in
+## _build_camera_panel().
+const CAMERA_PREVIEW_ASPECT := 16.0 / 9.0
 const SELECTED_BORDER_WIDTH := 3
-
-## Draws one camera field (3rd-person or full-side) by loading the same
-## static screenshot full_game_pregame_screen.gd's own CAMERA preview
-## uses — copied, not shared, see this file's header.
-class _CameraPreviewField extends Control:
-	var full_side := false
-	var _texture_rect: TextureRect
-
-	func _ready() -> void:
-		_texture_rect = TextureRect.new()
-		_texture_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
-		_texture_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		_texture_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		_texture_rect.clip_contents = true
-		_texture_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		add_child(_texture_rect)
-		update_texture()
-
-	func update_texture() -> void:
-		if _texture_rect == null:
-			return
-		var image_path := "res://assets/textures/images/fullside.png" if full_side \
-			else "res://assets/textures/images/3rdperson.png"
-		_texture_rect.texture = load(image_path)
-
 
 var _settings: Array[SettingsScreen.Row] = []
 var _row_panels: Array[Panel] = []
@@ -83,8 +63,9 @@ var _whiteboard: FormationWhiteboard
 var _camera_container: Control
 var _camera_panel_third_person: Panel
 var _camera_panel_full_side: Panel
-var _camera_field_third_person: _CameraPreviewField
-var _camera_field_full_side: _CameraPreviewField
+var _camera_preview_third_person: CameraModePreview
+var _camera_preview_full_side: CameraModePreview
+var _zoom_value_label: Label
 
 var _selected := 0
 var _busy := false
@@ -294,10 +275,83 @@ func _build_preview_panel() -> Control:
 	_camera_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_camera_container.visible = false
 	inner.add_child(_camera_container)
+
+	# ZOOM, top-left of this window above the two live panels — same
+	# "heading + options to change" language the row list to the right
+	# already uses (user ask: "have it look similar to the other options
+	# where I have the heading and options to change in the top left of
+	# the main large window"). The one setting adjustable directly here
+	# rather than through a row on the right.
+	_zoom_value_label = _build_zoom_row(_camera_container)
+
 	_camera_panel_third_person = _build_camera_panel(_camera_container, "3RD PERSON", false)
 	_camera_panel_full_side = _build_camera_panel(_camera_container, "FULL-SIDE", true)
 
 	return panel
+
+
+## "ZOOM" heading + "‹  100%  ›" value row, CareerTheme-styled (this
+## screen's own palette, not RetroWindow/SoftBrutalist's — see this
+## file's header on why Career reads as its own visual family).
+func _build_zoom_row(parent: Control) -> Label:
+	parent.add_child(CareerTheme.label("ZOOM", SoftBrutalist.SIZE_LABEL,
+		CareerTheme.TEXT_MUTED, SoftBrutalist.WEIGHT_BOLD, 1))
+
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override(&"separation", 10)
+	parent.add_child(row)
+
+	row.add_child(_build_zoom_arrow("‹", -1))
+	var value := CareerTheme.label("", SoftBrutalist.SIZE_BODY, CareerTheme.POSITIVE,
+		SoftBrutalist.WEIGHT_BOLD)
+	value.custom_minimum_size.x = 56.0
+	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	row.add_child(value)
+	row.add_child(_build_zoom_arrow("›", 1))
+	return value
+
+
+## One clickable chevron, same "a plain Control with gui_input, not a real
+## Button" shape every interactive element on this screen already uses
+## (_on_next_game_gui_input and friends over in career_dashboard_screen.gd
+## follow the identical pattern).
+## Real Control focus (FOCUS_ALL), not mouse-only — user ask: "improve
+## the accessibility of the options for both mouse and keyboard... and
+## controller navigating and changing them". The row cursor this screen's
+## own settings rows already use doesn't reach into this preview panel,
+## so Godot's own focus traversal is what makes Tab/D-pad land on these at
+## all. Default focus stylebox suppressed — the hover-tint _on_zoom_row_
+## hover() already gives the row is the only visible state change wanted.
+func _build_zoom_arrow(glyph: String, step: int) -> Control:
+	var hit := Control.new()
+	hit.custom_minimum_size = Vector2(28.0, 28.0)
+	hit.mouse_filter = Control.MOUSE_FILTER_STOP
+	hit.focus_mode = Control.FOCUS_ALL
+	hit.add_theme_stylebox_override(&"focus", StyleBoxEmpty.new())
+	hit.gui_input.connect(_on_zoom_arrow_input.bind(step))
+
+	var label := CareerTheme.label(glyph, SoftBrutalist.SIZE_BODY, CareerTheme.TEXT,
+		SoftBrutalist.WEIGHT_BOLD)
+	label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hit.add_child(label)
+	return hit
+
+
+func _on_zoom_arrow_input(event: InputEvent, step: int) -> void:
+	var clicked: bool = event is InputEventMouseButton and event.pressed \
+		and event.button_index == MOUSE_BUTTON_LEFT
+	# Control.gui_input also receives key/joypad input once the control has
+	# focus — same "confirm activates a focused control" shape career_
+	# dashboard_screen.gd's _on_next_game_gui_input() already established.
+	if not (clicked or event.is_action_pressed(&"confirm")):
+		return
+	Settings.camera_zoom += step * Tuning.CAM_ZOOM_STEP
+	Settings.save()
+	_sync_camera_preview()
 
 
 func _build_camera_panel(parent: Control, label_text: String, full_side: bool) -> Panel:
@@ -321,16 +375,28 @@ func _build_camera_panel(parent: Control, label_text: String, full_side: bool) -
 	col.add_child(CareerTheme.label(label_text, SoftBrutalist.SIZE_LABEL,
 		CareerTheme.PANEL_TEXT, SoftBrutalist.WEIGHT_BOLD, 1))
 
-	var field := _CameraPreviewField.new()
-	field.full_side = full_side
-	field.custom_minimum_size = Vector2(0.0, CAMERA_FIELD_HEIGHT)
-	field.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	col.add_child(field)
+	# Live render (CameraModePreview) rather than a static screenshot — see
+	# that class's own header, and this file's header on why both panels
+	# stay simultaneously live ("both options side by side"). Wrapped in an
+	# AspectRatioContainer rather than stretched to fill the panel's own
+	# wide/short rect (user report: "scale the resolution but maintain
+	# aspect ratio, make it a little smaller").
+	var aspect := AspectRatioContainer.new()
+	aspect.custom_minimum_size = Vector2(0.0, CAMERA_FIELD_HEIGHT)
+	aspect.ratio = CAMERA_PREVIEW_ASPECT
+	aspect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(aspect)
+
+	var preview := CameraModePreview.new()
+	preview.mode = BroadcastCamera.Mode.FULL_SIDE if full_side else BroadcastCamera.Mode.CHASE
+	preview.zoom = Settings.camera_zoom
+	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	aspect.add_child(preview)
 
 	if full_side:
-		_camera_field_full_side = field
+		_camera_preview_full_side = preview
 	else:
-		_camera_field_third_person = field
+		_camera_preview_third_person = preview
 
 	return panel
 
@@ -439,10 +505,12 @@ func _sync_camera_preview() -> void:
 	active_panel.add_theme_stylebox_override(&"panel",
 		CareerTheme.panel_style(CareerTheme.PANEL, CareerTheme.POSITIVE, SELECTED_BORDER_WIDTH))
 	inactive_panel.add_theme_stylebox_override(&"panel", CareerTheme.panel_style())
-	if is_instance_valid(_camera_field_third_person):
-		_camera_field_third_person.update_texture()
-	if is_instance_valid(_camera_field_full_side):
-		_camera_field_full_side.update_texture()
+	if is_instance_valid(_camera_preview_third_person):
+		_camera_preview_third_person.zoom = Settings.camera_zoom
+	if is_instance_valid(_camera_preview_full_side):
+		_camera_preview_full_side.zoom = Settings.camera_zoom
+	if is_instance_valid(_zoom_value_label):
+		_zoom_value_label.text = "%d%%" % roundi(Settings.camera_zoom * 100.0)
 
 
 ## Swaps the left-hand panel to the two camera screenshots while CAMERA

@@ -32,6 +32,17 @@ var target: Node3D = null
 var ball: Ball = null
 var mode: Mode = Mode.CHASE
 
+## User-adjustable zoom multiplier (Settings.camera_zoom) — see Tuning.
+## CAM_ZOOM_MIN's own comment for what this does in each mode. Re-applies
+## the CHASE spring-arm length immediately on change; FULL_SIDE reads it
+## fresh every frame in _update_full_side() already, so nothing extra is
+## needed there.
+var zoom := Tuning.CAM_ZOOM_DEFAULT:
+	set(value):
+		zoom = clampf(value, Tuning.CAM_ZOOM_MIN, Tuning.CAM_ZOOM_MAX)
+		if is_instance_valid(_arm):
+			_arm.spring_length = distance / zoom
+
 @onready var _yaw_pivot: Node3D = $Yaw
 @onready var _pitch_pivot: Node3D = $Yaw/Pitch
 @onready var _arm: SpringArm3D = $Yaw/Pitch/SpringArm3D
@@ -57,7 +68,7 @@ var _dialogue_right: Node3D = null
 
 
 func _ready() -> void:
-	_arm.spring_length = distance
+	_arm.spring_length = distance / zoom
 	_camera.fov = Tuning.CAM_FOV_BASE
 	recenter()
 
@@ -68,6 +79,22 @@ func _process(delta: float) -> void:
 	_switch_timer = maxf(0.0, _switch_timer - delta)
 	if is_instance_valid(_dialogue_left) and is_instance_valid(_dialogue_right):
 		_update_dialogue_framing(delta)
+	elif _in_goal_shot_override:
+		# Same cinematic pan switch_target() uses to ease behind a new
+		# target's own facing — called directly rather than through
+		# _update_rotation() because that path's very first line is
+		# `if _is_target_aiming(): return`, and goal_set_shot already set
+		# is_kick_aiming() true the same frame enter_goal_set_shot() ran,
+		# so the normal route never even started the pan (user report: ends
+		# up "side on", still aimed wherever FULL_SIDE last left it, not
+		# swung round behind the player). Kept running every frame the
+		# override is active, not just while _switch_timer is still
+		# counting down, so the camera keeps tracking the player's facing
+		# live as it turns to the goal, the same way is_kick_aiming() being
+		# true would otherwise have frozen it from doing.
+		_ease_toward_switch_target(delta)
+		_update_focus(delta)
+		_update_fov(delta)
 	elif mode == Mode.FULL_SIDE:
 		_update_full_side(delta)
 	else:
@@ -144,7 +171,7 @@ func recenter() -> void:
 	# was left mid-lerp — recenter() is the one path every camera state
 	# funnels back through (exit_dialogue included), so it's the one place
 	# that has to restore both rather than just rotation/focus.
-	_arm.spring_length = distance
+	_arm.spring_length = distance / zoom
 	_camera.fov = Tuning.CAM_FOV_BASE
 
 
@@ -181,6 +208,47 @@ func switch_target(new_target: Node3D) -> void:
 ## goals". Negative tightens.
 func punch(amount: float) -> void:
 	_punch += amount
+
+
+## True while a set shot for goal has temporarily borrowed the normal
+## behind-the-player Chase framing from FULL_SIDE — see enter_goal_set_
+## shot()/exit_goal_set_shot(), called by PlayerController._update_charge.
+## Lining up a kick on the full-ground broadcast rig reads as "which end
+## is play at", not "exactly where is my body aimed" — a set shot wants
+## the same over-the-shoulder view Chase already gives, just borrowed for
+## the moment rather than requiring that setting.
+var _goal_shot_prev_mode := Mode.CHASE
+var _in_goal_shot_override := false
+
+
+## No-op (and safe to call every frame a human brain presses goal_set_shot)
+## unless currently on FULL_SIDE — a player already on Chase is already
+## behind-the-player, nothing to borrow. Pans in over CAM_SWITCH_PAN_
+## DURATION, the same cinematic sweep switch_target() uses, rather than
+## cutting straight there.
+func enter_goal_set_shot() -> void:
+	if _in_goal_shot_override or mode != Mode.FULL_SIDE or not is_instance_valid(target):
+		return
+	_in_goal_shot_override = true
+	_goal_shot_prev_mode = mode
+	mode = Mode.CHASE
+	_focus = _target_focus()
+	global_position = _focus
+	_switch_timer = Tuning.CAM_SWITCH_PAN_DURATION
+
+
+## Hands FULL_SIDE back once the set shot is fired, cancelled, or the ball
+## is lost — see PlayerController._update_charge, every path that clears
+## _goal_set_shot_locked calls this alongside it. recenter() snapping back
+## is deliberate here, unlike the pan in: a kick has just been struck (or
+## the chance lost), so cutting straight back to the broadcast wide shot to
+## follow the ball reads as the director doing their job, not a glitch.
+func exit_goal_set_shot() -> void:
+	if not _in_goal_shot_override:
+		return
+	_in_goal_shot_override = false
+	mode = _goal_shot_prev_mode
+	recenter()
 
 
 func camera() -> Camera3D:
@@ -295,6 +363,12 @@ func _update_full_side(delta: float) -> void:
 		focus_point = focus_point.lerp(ball.global_position, 0.5)
 	focus_point.y = 0.0
 
+	# A fixed mount, permanently outside the field (see Tuning.CAM_FULL_
+	# SIDE_SIDE_OFFSET's own comment — earlier passes here reactively
+	# pulled the mount back only when play got close to it, which just
+	# meant the gap collapsed again the moment the reaction eased off;
+	# living outside the fence at all times removes the near-zero-gap
+	# case rather than chasing it).
 	var rig_target := Vector3(
 		focus_point.x, Tuning.CAM_FULL_SIDE_HEIGHT, Tuning.CAM_FULL_SIDE_SIDE_OFFSET)
 	var rate := 1.0 - exp(-Tuning.CAM_FULL_SIDE_FOLLOW_RATE * delta)
@@ -302,12 +376,17 @@ func _update_full_side(delta: float) -> void:
 	global_position = _focus
 
 	var to_play := focus_point - Vector3(global_position.x, 0.0, global_position.z)
+	var look_dist := to_play.length()
 	var desired_yaw := _yaw
 	if to_play.length_squared() > 1.0:
 		desired_yaw = atan2(-to_play.x, -to_play.z)
 	_yaw = lerp_angle(_yaw, desired_yaw, rate)
 
-	var desired_pitch := -atan2(Tuning.CAM_FULL_SIDE_HEIGHT, maxf(to_play.length(), 1.0))
+	var desired_pitch := -atan2(Tuning.CAM_FULL_SIDE_HEIGHT, maxf(look_dist, 1.0))
+	# Cheap backstop, not the primary fix any more — see its own Tuning
+	# comment. The pullback above is what actually keeps this from being
+	# hit in normal play.
+	desired_pitch = maxf(desired_pitch, -deg_to_rad(Tuning.CAM_FULL_SIDE_PITCH_MAX_DOWN))
 	_pitch = lerpf(_pitch, desired_pitch, rate)
 
 	_yaw_pivot.rotation.y = _yaw
@@ -315,20 +394,24 @@ func _update_full_side(delta: float) -> void:
 
 	_arm.spring_length = lerpf(_arm.spring_length, Tuning.CAM_FULL_SIDE_ARM, rate)
 
-	# Zoom: the rig's mount is fixed on the near side (CAM_FULL_SIDE_SIDE_
-	# OFFSET), so play out on the far side of the ground is genuinely
-	# further from the lens than play near the rig — a fixed FOV left the
-	# far side reading small and distant (user report: "add a zoom so when
-	# ball goes far side it is still relatively close"). Narrowing the FOV
-	# as the lateral distance to the rig grows is the real broadcast-lens
-	# answer: zoom in to compensate, the same way a TV camera operator
-	# would, rather than moving the rig itself (which would undercut the
-	# "mounted outside the boundary" framing _update_full_side's own header
-	# describes).
-	var lateral := absf(focus_point.z - Tuning.CAM_FULL_SIDE_SIDE_OFFSET)
-	var zoom_t := clampf(lateral / Tuning.CAM_FULL_SIDE_ZOOM_RANGE, 0.0, 1.0)
+	# Zoom off the rig's actual current look-distance (not a fixed lateral
+	# read off SIDE_OFFSET any more — that ignored the pullback above and
+	# the along-length (X) component both) — narrower as play gets further
+	# from the lens, the real broadcast-lens answer to the far side
+	# otherwise reading small and distant. ZOOM_NEAR_DIST is exactly the
+	# closest approach the pullback now allows, so the near end of this
+	# range lines up with the near end of the pitch/yaw fix above rather
+	# than being tuned independently of it.
+	var zoom_t := clampf(
+		(look_dist - Tuning.CAM_FULL_SIDE_ZOOM_NEAR_DIST)
+		/ (Tuning.CAM_FULL_SIDE_ZOOM_FAR_DIST - Tuning.CAM_FULL_SIDE_ZOOM_NEAR_DIST),
+		0.0, 1.0)
+	# User zoom (see this class's own `zoom` var) narrows the FOV further on
+	# top of the near/far lerp above — division, not subtraction, so it
+	# scales proportionally at both ends of that range instead of flattening
+	# the near/far spread at high zoom.
 	var target_fov := lerpf(
-		Tuning.CAM_FULL_SIDE_FOV_NEAR, Tuning.CAM_FULL_SIDE_FOV_FAR, zoom_t)
+		Tuning.CAM_FULL_SIDE_FOV_NEAR, Tuning.CAM_FULL_SIDE_FOV_FAR, zoom_t) / zoom
 	_camera.fov = lerpf(_camera.fov, target_fov, 1.0 - exp(-Tuning.CAM_FOV_RATE * delta))
 
 

@@ -95,6 +95,8 @@ func _ready() -> void:
 	# screen rather than only taking effect on the next match.
 	_apply_camera_mode(Settings.full_game_camera_mode)
 	Settings.camera_mode_changed.connect(_apply_camera_mode)
+	_camera.zoom = Settings.camera_zoom
+	Settings.camera_zoom_changed.connect(func(zoom: float) -> void: _camera.zoom = zoom)
 
 	# Created before _spawn_teams() so the very first ControlMode.
 	# focus_changed emission (fired synchronously by _spawn_teams()'s
@@ -1175,6 +1177,13 @@ func _call_for_ball() -> void:
 	# out-of-range case below, which is a call that simply couldn't be heard
 	# rather than one that was never made.
 	_call_for_ball_cooldown = Tuning.CALL_FOR_BALL_COOLDOWN
+	# Placeholder visible feedback for the call itself (user report: "A to
+	# call for ball... should be more visibly working" — a real animation
+	# can replace this flash later, see ControlledPlayerRing.flash()'s own
+	# comment). Fires whether or not the carrier actually gives it up,
+	# same as the cooldown above: the shout happened either way.
+	if is_instance_valid(_controlled_ring):
+		_controlled_ring.flash()
 
 	if caller.global_position.distance_to(carrier.global_position) > Tuning.CALL_FOR_BALL_RANGE:
 		return

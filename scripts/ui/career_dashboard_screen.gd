@@ -90,10 +90,26 @@ func _build_next_game_card() -> Control:
 	var panel := Panel.new()
 	panel.custom_minimum_size = Vector2(520.0, 132.0)
 	panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	# Scale grows from the card's own centre, not its top-left corner — see
+	# _set_next_game_hover().
+	panel.pivot_offset = panel.custom_minimum_size * 0.5
 	panel.add_theme_stylebox_override(&"panel", CareerTheme.panel_style())
 	if not _locked and not CareerProfile.season_complete():
 		panel.mouse_filter = Control.MOUSE_FILTER_STOP
 		panel.gui_input.connect(_on_next_game_gui_input)
+		panel.mouse_entered.connect(_set_next_game_hover.bind(panel, true))
+		panel.mouse_exited.connect(_set_next_game_hover.bind(panel, false))
+		# Real Control focus rather than this project's usual hand-rolled
+		# cursor index (user asked for this one button to react "for mouse
+		# or gamepad" — this screen has no existing gamepad navigation at
+		# all to hook into, and Control's own focus traversal already
+		# answers ui_up/down/left/right for free). The default focus
+		# stylebox is suppressed below so the only visible feedback is this
+		# same hover treatment, not a second overlapping outline.
+		panel.focus_mode = Control.FOCUS_ALL
+		panel.add_theme_stylebox_override(&"focus", StyleBoxEmpty.new())
+		panel.focus_entered.connect(_set_next_game_hover.bind(panel, true))
+		panel.focus_exited.connect(_set_next_game_hover.bind(panel, false))
 	else:
 		panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
@@ -132,8 +148,34 @@ func _build_next_game_card() -> Control:
 func _on_next_game_gui_input(event: InputEvent) -> void:
 	if _locked or CareerProfile.season_complete():
 		return
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+	var clicked: bool = event is InputEventMouseButton and event.pressed \
+		and event.button_index == MOUSE_BUTTON_LEFT
+	# Control.gui_input also receives key/joypad input once the control has
+	# focus (not just mouse events inside its rect) — see the focus_mode
+	# this card now sets in _build_next_game_card() — so "confirm" (A on a
+	# pad) activates it the same way a click does, for the gamepad
+	# navigation that focus_mode exists for in the first place.
+	if clicked or event.is_action_pressed(&"confirm"):
 		SceneWipe.change_scene("res://scenes/ui/career_pregame_screen.tscn")
+
+
+## Hover highlight for the NEXT GAME card — user report: "it should
+## highlight on hover for mouse or gamepad, just a slight stroke and
+## increase size slightly", same stroke language RetroWindow.row_style()
+## already uses for a selected list row elsewhere in this project, plus a
+## small scale pop borrowed from full_game_pregame_screen.gd's own card-
+## hover treatment (CARD_SELECTED_SCALE) rather than inventing a third
+## hover language.
+const NEXT_GAME_HOVER_SCALE := 1.03
+const NEXT_GAME_HOVER_ANIM_DURATION := 0.12
+
+func _set_next_game_hover(panel: Panel, hovering: bool) -> void:
+	panel.add_theme_stylebox_override(&"panel",
+		CareerTheme.panel_style(CareerTheme.PANEL, CareerTheme.POSITIVE, 2) if hovering
+		else CareerTheme.panel_style())
+	var tween := panel.create_tween()
+	tween.tween_property(panel, "scale",
+		Vector2.ONE * (NEXT_GAME_HOVER_SCALE if hovering else 1.0), NEXT_GAME_HOVER_ANIM_DURATION)
 
 
 ## A flat tan tile with an icon + label, mouse-clickable only when
