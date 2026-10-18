@@ -237,5 +237,22 @@ Found via transcript search (all in `F:\dev\aussie-rules2` unless noted):
 - **Graphics headroom / model isolation tooling:** `local_35765e73`,
   `local_c42f297b`, `local_8b6aef46`, `local_8933d3bf` (see B1).
 - **Animation / contact:** `local_5acfb635`, `local_85ab740b` (see B2).
+
+---
+
+## Part D — ML / AI tackle-model audit
+
+Full writeup moved to its own file: **[`docs/ML_AI_AUDIT.md`](ML_AI_AUDIT.md)**.
+Covers: verification of the Stage 1 logistic tackle model
+(`scripts/dev/tackle_model.gd`) against its spec (confirmed correct),
+root-causing the "515 vs 624 breaks/1000" discrepancy, two real bugs in
+the dev tooling (stale `tackle_selftest.gd` comments, a normalisation
+mismatch in `TackleExperiment.fit()`), the live tackle resolver's
+explicit no-probability design decision (`RULES_REFERENCE.md` §3) versus
+Stage 1's intent to wire in a probability model, a re-audit of
+`ai_brain.gd`'s five ML-opportunity items (three now partly/fully closed
+by non-ML heuristics since that audit was written), and a Stage 2
+(genetic algorithm) readiness check. Audit only — no gameplay/mechanics
+files were changed.
 - **AI structure (relevant to A1/A2):** *"Godot AFL AI brain audit and ML
   primer"* `local_a3037e42` (2026-08-29).
