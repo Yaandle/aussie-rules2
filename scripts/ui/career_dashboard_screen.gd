@@ -26,6 +26,8 @@ const ICON_SIZE := 22.0
 
 var _locked := false
 var _roster_overlay: Control
+var _roster_back_button: Control
+var _view_roster_button: Control
 
 
 func _ready() -> void:
@@ -34,8 +36,19 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed(&"pause") or event.is_action_pressed(&"decline"):
-		_on_main_menu_pressed()
+	if not (event.is_action_pressed(&"pause") or event.is_action_pressed(&"decline")):
+		return
+	# The roster table is its own page with its own BACK control (see
+	# _build_roster_table()) — Esc/B closing it straight to the main menu
+	# instead of back to the dashboard would contradict the button sitting
+	# right there on screen (ui_audit.md finding #3's fix needs this to
+	# actually be true, not just claimed in the hint bar).
+	if is_instance_valid(_roster_overlay) and _roster_overlay.visible:
+		_roster_overlay.visible = false
+		if is_instance_valid(_view_roster_button):
+			_view_roster_button.grab_focus.call_deferred()
+		return
+	_on_main_menu_pressed()
 
 
 func _build() -> void:
@@ -67,18 +80,48 @@ func _build() -> void:
 	header.add_child(CareerTheme.label("JUNIORS U18s CAREER — %s" % CareerProfile.player_name,
 		SoftBrutalist.SIZE_BODY, CareerTheme.TEXT_MUTED))
 
-	column.add_child(_build_next_game_card())
+	var next_game_card := _build_next_game_card()
+	column.add_child(next_game_card)
 
 	var button_row := HBoxContainer.new()
 	button_row.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_4))
 	button_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(button_row)
-	button_row.add_child(_build_action_button("VIEW ROSTER", &"gear", true,
-		_on_view_roster_pressed))
+	var view_roster_button := _build_action_button("VIEW ROSTER", &"gear", true,
+		_on_view_roster_pressed)
+	_view_roster_button = view_roster_button
+	button_row.add_child(view_roster_button)
 	button_row.add_child(_build_action_button("VIEW STATS", &"lock", false, Callable()))
+
+	# Hint bar — no control legend existed on this screen at all
+	# (ui_audit.md finding #2, missed by the audit's own file list but the
+	# same gap every other screen there had).
+	var hints := DeviceHintBar.new()
+	column.add_child(hints)
+	hints.set_hint_sets({
+		InputManager.Device.KEYBOARD: [
+			{"keys": "Tab", "label": "Select"},
+			{"keys": "Enter", "label": "Confirm"},
+			{"keys": "Esc", "label": "Main menu"},
+		],
+		InputManager.Device.GAMEPAD: [
+			{"keys": "D-Pad", "label": "Select"},
+			{"keys": "A", "label": "Confirm"},
+			{"keys": "B", "label": "Main menu"},
+		],
+	})
 
 	if _locked:
 		_build_locked_overlay()
+	else:
+		# Explicit default focus (mandatory per the UI brief) — whichever
+		# control is actually interactive first: the NEXT GAME card normally,
+		# VIEW ROSTER if there's no next game to set up.
+		var season_over := CareerProfile.season_complete()
+		if not season_over:
+			next_game_card.grab_focus.call_deferred()
+		else:
+			view_roster_button.grab_focus.call_deferred()
 
 
 ## The "NEXT GAME" card: a yellow/black pixel-art exclamation mark beside
@@ -125,14 +168,16 @@ func _build_next_game_card() -> Control:
 	rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	inner.add_child(rows)
 
+	# Icon to the right of the "NEXT GAME" label, not the left — label added
+	# to the row first so the icon trails it.
 	var heading_row := HBoxContainer.new()
 	heading_row.add_theme_constant_override(&"separation", 8)
 	heading_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	rows.add_child(heading_row)
-	var icon := ExclamationIcon.new()
-	heading_row.add_child(icon)
 	heading_row.add_child(CareerTheme.label("NEXT GAME", SoftBrutalist.SIZE_LABEL, CareerTheme.PANEL_TEXT,
 		SoftBrutalist.WEIGHT_BOLD, 1))
+	var icon := ExclamationIcon.new()
+	heading_row.add_child(icon)
 
 	var opponent_text := "SEASON COMPLETE" if CareerProfile.season_complete() \
 		else CareerProfile.current_fixture()
@@ -184,6 +229,12 @@ func _set_next_game_hover(panel: Panel, hovering: bool) -> void:
 ## own measure-after-layout trick (character_screen.gd's PLAY button):
 ## these are short, known labels, and a fixed width keeps the row's
 ## spacing predictable.
+##
+## Real Control focus (FOCUS_ALL) when enabled, same treatment
+## _build_next_game_card() already gives its own card — before this, VIEW
+## ROSTER, the roster table's BACK, and the locked overlay's MAIN MENU were
+## all mouse-only with no way for a keyboard/gamepad player to reach them
+## at all (ui_audit.md finding #3).
 func _build_action_button(text: String, icon_name: StringName, enabled: bool,
 		on_pressed: Callable) -> Control:
 	var panel := Panel.new()
@@ -193,10 +244,25 @@ func _build_action_button(text: String, icon_name: StringName, enabled: bool,
 	panel.add_theme_stylebox_override(&"panel", CareerTheme.panel_style(fill))
 	if enabled:
 		panel.mouse_filter = Control.MOUSE_FILTER_STOP
+		panel.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		panel.gui_input.connect(func(event: InputEvent) -> void:
-			if event is InputEventMouseButton and event.pressed \
-					and event.button_index == MOUSE_BUTTON_LEFT:
+			if (event is InputEventMouseButton and event.pressed \
+					and event.button_index == MOUSE_BUTTON_LEFT) \
+					or event.is_action_pressed(&"confirm"):
 				on_pressed.call())
+		panel.focus_mode = Control.FOCUS_ALL
+		panel.add_theme_stylebox_override(&"focus", StyleBoxEmpty.new())
+		var hover_style := CareerTheme.panel_style(fill.lightened(0.12), Color.BLACK, 2)
+		var idle_style := CareerTheme.panel_style(fill)
+		panel.mouse_entered.connect(func() -> void:
+			panel.add_theme_stylebox_override(&"panel", hover_style))
+		panel.mouse_exited.connect(func() -> void:
+			if not panel.has_focus():
+				panel.add_theme_stylebox_override(&"panel", idle_style))
+		panel.focus_entered.connect(func() -> void:
+			panel.add_theme_stylebox_override(&"panel", hover_style))
+		panel.focus_exited.connect(func() -> void:
+			panel.add_theme_stylebox_override(&"panel", idle_style))
 	else:
 		panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
@@ -232,6 +298,13 @@ func _on_view_roster_pressed() -> void:
 		_roster_overlay.visible = false   # starts hidden — a fresh node defaults to visible
 		add_child(_roster_overlay)
 	_roster_overlay.visible = not _roster_overlay.visible
+	# Explicit focus on whichever page is now showing (mandatory per the UI
+	# brief) — a keyboard/gamepad player who just opened or closed the
+	# roster table otherwise has nothing focused at all to pick up from.
+	if _roster_overlay.visible and is_instance_valid(_roster_back_button):
+		_roster_back_button.grab_focus.call_deferred()
+	elif not _roster_overlay.visible and is_instance_valid(_view_roster_button):
+		_view_roster_button.grab_focus.call_deferred()
 
 
 ## Column spec for the roster table: label, minimum width, horizontal
@@ -279,8 +352,19 @@ func _build_roster_table() -> Control:
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	header_row.add_child(spacer)
 	var back_button := _build_action_button("BACK", &"arrow_left", true,
-		func() -> void: _roster_overlay.visible = false)
+		func() -> void:
+			_roster_overlay.visible = false
+			if is_instance_valid(_view_roster_button):
+				_view_roster_button.grab_focus.call_deferred())
+	_roster_back_button = back_button
 	header_row.add_child(back_button)
+
+	var hints := DeviceHintBar.new()
+	column.add_child(hints)
+	hints.set_hint_sets({
+		InputManager.Device.KEYBOARD: [{"keys": "Esc", "label": "Back"}],
+		InputManager.Device.GAMEPAD: [{"keys": "B", "label": "Back"}],
+	})
 
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -372,6 +456,11 @@ func _build_locked_overlay() -> void:
 	var menu_button := _build_action_button("MAIN MENU", &"exit", true, _on_main_menu_pressed)
 	menu_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	centre.add_child(menu_button)
+	# The scrim's own MOUSE_FILTER_STOP already blocks every control
+	# underneath (see this function's own header note) — explicit default
+	# focus so a keyboard/gamepad player lands on the one live control here
+	# instead of on whatever the dashboard underneath last focused.
+	menu_button.grab_focus.call_deferred()
 
 
 func _on_main_menu_pressed() -> void:

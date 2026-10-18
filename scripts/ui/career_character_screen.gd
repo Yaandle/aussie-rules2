@@ -62,11 +62,10 @@ const HINTS_TOP := CARD_TOP + CARD_HEIGHT + RetroWindow.SHADOW_OFFSET.y + 6.0
 @onready var _backdrop: CharacterBackdrop = $CharacterBackdrop
 
 var _stat_config := {}
-var _hint_sets := {}
 var _draft := {}
 var _rows: Array[StatRow] = []
 var _play: ActionButton
-var _hints: KeyHintBar
+var _hints: DeviceHintBar
 var _name_edit: LineEdit
 var _selected := 0
 var _busy := false   ## true while a wipe is in flight — input is inert
@@ -98,17 +97,7 @@ func _ready() -> void:
 		"kick_accuracy": CareerProfile.kick_accuracy,
 		"agility": CareerProfile.agility,
 	}
-	_hint_sets = {
-		InputManager.Device.KEYBOARD: [
-			{"keys": "W / S", "label": "Select"},
-			{"keys": "A / D", "label": "Adjust"},
-			{"keys": "Enter", "label": "Edit / Confirm"},
-			{"keys": "B / Esc", "label": "Back"},
-		],
-	}
-
 	_build()
-	InputManager.device_changed.connect(_on_device_changed)
 	_backdrop.set_height_scale(_draft["height"] / Tuning.CHARACTER_HEIGHT_DEFAULT)
 	_backdrop.set_model(CareerProfile.model_id)
 	_backdrop.set_kit_colors(_resolved_hex(CareerProfile.skin_color),
@@ -288,10 +277,23 @@ func _build() -> void:
 	_play.position = Vector2(CARD_PAD, BUTTON_TOP - CARD_TOP)
 	card_panel.add_child(_play)
 
-	_hints = KeyHintBar.new()
+	_hints = DeviceHintBar.new()
 	_hints.position = Vector2(LEFT_MARGIN, HINTS_TOP)
 	_ui.add_child(_hints)
-	_apply_hints()
+	_hints.set_hint_sets({
+		InputManager.Device.KEYBOARD: [
+			{"keys": "W / S", "label": "Select"},
+			{"keys": "A / D", "label": "Adjust"},
+			{"keys": "Enter", "label": "Edit / Confirm"},
+			{"keys": "B / Esc", "label": "Back"},
+		],
+		InputManager.Device.GAMEPAD: [
+			{"keys": "D-Pad ↕", "label": "Select"},
+			{"keys": "D-Pad ↔", "label": "Adjust"},
+			{"keys": "A", "label": "Confirm"},
+			{"keys": "B", "label": "Back"},
+		],
+	})
 
 	_build_name_edit()
 
@@ -332,15 +334,6 @@ func _on_play_gui_input(event: InputEvent) -> void:
 			and event.button_index == MOUSE_BUTTON_LEFT:
 		_selected = _confirm_index()
 		_confirm_and_create()
-
-
-func _on_device_changed(_device: int) -> void:
-	_apply_hints()
-
-
-func _apply_hints() -> void:
-	var keyboard: Array = _hint_sets[InputManager.Device.KEYBOARD]
-	_hints.set_hints(_hint_sets.get(InputManager.device, keyboard))
 
 
 # ── Refresh ──────────────────────────────────────────────────────────

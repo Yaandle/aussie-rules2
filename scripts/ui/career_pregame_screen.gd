@@ -417,8 +417,28 @@ func _build_settings_column() -> Control:
 	column.add_child(spacer)
 
 	column.add_child(_build_start_row())
-	column.add_child(CareerTheme.label("W / S select · A / D adjust · Enter confirm · Esc back",
-		SoftBrutalist.SIZE_LABEL, CareerTheme.TEXT_MUTED))
+
+	# DeviceHintBar, not a static caption (ui_audit.md finding #1/#2 — this
+	# line never changed with the last-used device, and used a KEY/A-style
+	# label — "A / D" — which means two different things on the two devices
+	# the project otherwise treats as equivalent: the A/D *keys*, not the
+	# gamepad's A *button*).
+	var hints := DeviceHintBar.new()
+	column.add_child(hints)
+	hints.set_hint_sets({
+		InputManager.Device.KEYBOARD: [
+			{"keys": "W / S", "label": "Select"},
+			{"keys": "A / D", "label": "Adjust"},
+			{"keys": "Enter", "label": "Confirm"},
+			{"keys": "Esc", "label": "Back"},
+		],
+		InputManager.Device.GAMEPAD: [
+			{"keys": "D-Pad ↕", "label": "Select"},
+			{"keys": "D-Pad ↔", "label": "Adjust"},
+			{"keys": "A", "label": "Confirm"},
+			{"keys": "B", "label": "Back"},
+		],
+	})
 
 	return column
 

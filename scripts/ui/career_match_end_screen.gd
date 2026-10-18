@@ -58,6 +58,15 @@ func _ready() -> void:
 	column.add_child(_build_leaderboard("TOP DISPOSALS", MatchState.top_disposals(LEADERBOARD_SIZE)))
 	column.add_child(_build_return_button())
 
+	# No control legend existed on this screen at all (ui_audit.md
+	# finding #2).
+	var hints := DeviceHintBar.new()
+	column.add_child(hints)
+	hints.set_hint_sets({
+		InputManager.Device.KEYBOARD: [{"keys": "Enter / Esc", "label": "Return to menu"}],
+		InputManager.Device.GAMEPAD: [{"keys": "A / B", "label": "Return to menu"}],
+	})
+
 
 func _build_scoreline() -> Control:
 	var row := HBoxContainer.new()
@@ -120,9 +129,19 @@ func _build_return_button() -> Control:
 	panel.custom_minimum_size = Vector2(0.0, 48.0)
 	panel.add_theme_stylebox_override(&"panel", CareerTheme.panel_style(CareerTheme.POSITIVE))
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	panel.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	panel.gui_input.connect(func(event: InputEvent) -> void:
 		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 			_return_to_dashboard())
+	# Hover feedback — this was a static Panel with no state change at all
+	# before (ui_audit.md finding #3), only reachable via the global
+	# ui_accept/pause fallback with nothing on screen showing it was the
+	# control that would respond.
+	panel.mouse_entered.connect(func() -> void:
+		panel.add_theme_stylebox_override(&"panel",
+			CareerTheme.panel_style(CareerTheme.POSITIVE.lightened(0.15), Color.BLACK, 2)))
+	panel.mouse_exited.connect(func() -> void:
+		panel.add_theme_stylebox_override(&"panel", CareerTheme.panel_style(CareerTheme.POSITIVE)))
 
 	var centre := CenterContainer.new()
 	centre.set_anchors_preset(Control.PRESET_FULL_RECT)

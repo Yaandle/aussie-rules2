@@ -174,13 +174,22 @@ var _cards: Array[CardWidgets] = []
 var _placeholder_tints := [SoftBrutalist.ACCENT_SECONDARY, SoftBrutalist.MUTED,
 	SoftBrutalist.ACCENT_PRIMARY]
 
-## 0 = mode card row, 1 = utility row (CHARACTER/TEAM), 2 = footer SETTINGS.
+## 0 = mode card row, 1 = utility row (CHARACTER/TEAM), 2 = footer
+## (SETTINGS / EXIT GAME).
 var _row := 0
 var _util_index := 0
 var _util_labels: Array[Label] = []
-var _hints_bar: KeyHintBar
+var _hints_bar: DeviceHintBar
+
+## 0 = SETTINGS, 1 = EXIT GAME — left/right cycles between them, same
+## convention _util_index already uses for the row above (ui_audit.md
+## finding #3: these two were mouse-only, this file's own old comment on
+## _build_footer_action() said so directly).
+var _footer_index := 0
 var _footer_settings_icon: UIIcon
 var _footer_settings_label: Label
+var _footer_exit_icon: UIIcon
+var _footer_exit_label: Label
 
 
 func _ready() -> void:
@@ -200,13 +209,18 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if _row == 2:
-		# Footer SETTINGS button — up/B back to util row, Enter/A opens settings.
-		if event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up") \
+		# Footer row — left/right cycles SETTINGS/EXIT GAME, up/B back to util
+		# row, Enter/A activates whichever is selected.
+		if event.is_action_pressed(&"move_left") or event.is_action_pressed(&"ui_left") \
+				or event.is_action_pressed(&"move_right") or event.is_action_pressed(&"ui_right"):
+			_footer_index = 1 - _footer_index
+			_refresh()
+		elif event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up") \
 				or event.is_action_pressed(&"decline"):
 			_row = 1
 			_refresh()
 		elif event.is_action_pressed(&"ui_accept") or _is_gamepad_a_press(event):
-			SceneWipe.change_scene("res://scenes/ui/settings_screen.tscn")
+			_footer_select()
 	elif _row == 1:
 		# Util row — left/right cycles items, down → footer, up/B → cards.
 		if event.is_action_pressed(&"move_left") or event.is_action_pressed(&"ui_left"):
@@ -267,6 +281,13 @@ func _util_move(step: int) -> void:
 
 func _util_select() -> void:
 	SceneWipe.change_scene(UTIL_ENTRIES[_util_index]["scene"])
+
+
+func _footer_select() -> void:
+	if _footer_index == 0:
+		SceneWipe.change_scene("res://scenes/ui/settings_screen.tscn")
+	else:
+		get_tree().quit()
 
 
 # ── Build ────────────────────────────────────────────────────────────
@@ -408,35 +429,30 @@ func _build_footer(parent: Control) -> void:
 	row.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_3))
 	parent.add_child(row)
 
-	var settings_widget := _build_footer_action(&"gear", "SETTINGS",
-		func() -> void: SceneWipe.change_scene("res://scenes/ui/settings_screen.tscn"))
-	# Store icon/label refs so _refresh() can highlight this button when
-	# the d-pad cursor reaches the footer row.
+	var settings_widget := _build_footer_action(&"gear", "SETTINGS", 0)
 	_footer_settings_icon = settings_widget.get_child(0) as UIIcon
 	_footer_settings_label = settings_widget.get_child(1) as Label
-	# Hover also focuses this row so the controller cursor stays consistent.
-	settings_widget.mouse_entered.connect(func() -> void:
-		_row = 2
-		_refresh())
 	row.add_child(settings_widget)
 
-	_hints_bar = KeyHintBar.new()
+	_hints_bar = DeviceHintBar.new()
 	_hints_bar.alignment = BoxContainer.ALIGNMENT_CENTER
 	_hints_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_hints_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(_hints_bar)
 
-	row.add_child(_build_footer_action(&"exit", "EXIT GAME",
-		func() -> void: get_tree().quit()))
+	var exit_widget := _build_footer_action(&"exit", "EXIT GAME", 1)
+	_footer_exit_icon = exit_widget.get_child(0) as UIIcon
+	_footer_exit_label = exit_widget.get_child(1) as Label
+	row.add_child(exit_widget)
 
 
-## Mouse-only footer action (SETTINGS / EXIT GAME): the screen's real
-## navigation model is keyboard-only (left/right over the three cards, per
-## the rest of the project's screens), and these two rows are not part of
-## that card cursor — no new input actions were added for them, so a
-## keyboard/gamepad user simply cannot reach them yet. Click-only until
-## there is a reason to spend a new action binding on them.
-func _build_footer_action(icon_name: StringName, text: String, on_click: Callable) -> Control:
+## SETTINGS / EXIT GAME, both reachable now (ui_audit.md finding #3 — this
+## used to be click-only, this file's own comment said so). Hover sets the
+## cursor here the same as a keyboard/gamepad left-right move does (see
+## `_footer_index`), and `_refresh()` is the one place that then colours
+## whichever of the two is current — same "one state, every input method
+## drives it" shape `_on_card_hover()`/`_move()` already share above.
+func _build_footer_action(icon_name: StringName, text: String, footer_index: int) -> Control:
 	# HBoxContainer sized to its own content rather than a Control with a
 	# guessed 140px width — the old fixed width left the label floating
 	# short of the margin it was meant to sit on.
@@ -444,6 +460,7 @@ func _build_footer_action(icon_name: StringName, text: String, on_click: Callabl
 	row.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_1))
 	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	row.mouse_filter = Control.MOUSE_FILTER_STOP
 
 	var icon := UIIcon.new()
 	icon.icon_name = icon_name
@@ -460,13 +477,13 @@ func _build_footer_action(icon_name: StringName, text: String, on_click: Callabl
 	row.gui_input.connect(func(event: InputEvent) -> void:
 		if event is InputEventMouseButton and event.pressed \
 				and event.button_index == MOUSE_BUTTON_LEFT:
-			on_click.call())
+			_row = 2
+			_footer_index = footer_index
+			_footer_select())
 	row.mouse_entered.connect(func() -> void:
-		icon.line_colour = SoftBrutalist.INK
-		label.add_theme_color_override(&"font_color", SoftBrutalist.INK))
-	row.mouse_exited.connect(func() -> void:
-		icon.line_colour = SoftBrutalist.MUTED
-		label.add_theme_color_override(&"font_color", SoftBrutalist.MUTED))
+		_row = 2
+		_footer_index = footer_index
+		_refresh())
 	return row
 
 
@@ -747,32 +764,65 @@ func _refresh() -> void:
 		_util_labels[i].add_theme_color_override(&"font_color",
 			RetroWindow.ACCENT if focused else SoftBrutalist.MUTED)
 
-	# Footer SETTINGS highlight.
-	var settings_focused := _row == 2
+	# Footer SETTINGS/EXIT GAME highlight — whichever _footer_index points at,
+	# only while the cursor is actually on the footer row.
+	var settings_focused := _row == 2 and _footer_index == 0
 	if is_instance_valid(_footer_settings_icon):
 		_footer_settings_icon.line_colour = RetroWindow.ACCENT if settings_focused \
 			else SoftBrutalist.MUTED
 	if is_instance_valid(_footer_settings_label):
 		_footer_settings_label.add_theme_color_override(&"font_color",
 			RetroWindow.ACCENT if settings_focused else SoftBrutalist.MUTED)
+	var exit_focused := _row == 2 and _footer_index == 1
+	if is_instance_valid(_footer_exit_icon):
+		_footer_exit_icon.line_colour = RetroWindow.ACCENT if exit_focused \
+			else SoftBrutalist.MUTED
+	if is_instance_valid(_footer_exit_label):
+		_footer_exit_label.add_theme_color_override(&"font_color",
+			RetroWindow.ACCENT if exit_focused else SoftBrutalist.MUTED)
 
-	# Dynamic hints reflect which row the cursor is on.
+	# Dynamic hints reflect which row the cursor is on, per device (see
+	# ui_audit.md finding #1 — these used to be one combined "Enter / A"
+	# string that never actually swapped with the last-used device).
 	if is_instance_valid(_hints_bar):
 		if _row == 2:
-			_hints_bar.set_hints([
-				{"keys": "Enter / A", "label": "Open settings"},
-				{"keys": "↑ / B", "label": "Back"},
-			])
+			_hints_bar.set_hint_sets({
+				InputManager.Device.KEYBOARD: [
+					{"keys": "← / →", "label": "Choose"},
+					{"keys": "Enter", "label": "Confirm"},
+					{"keys": "↑", "label": "Back"},
+				],
+				InputManager.Device.GAMEPAD: [
+					{"keys": "D-Pad ↔", "label": "Choose"},
+					{"keys": "A", "label": "Confirm"},
+					{"keys": "B", "label": "Back"},
+				],
+			})
 		elif _row == 1:
-			_hints_bar.set_hints([
-				{"keys": "← / →", "label": "Choose"},
-				{"keys": "Enter / A", "label": "Open"},
-				{"keys": "↑ / B", "label": "Back to modes"},
-				{"keys": "↓", "label": "Settings"},
-			])
+			_hints_bar.set_hint_sets({
+				InputManager.Device.KEYBOARD: [
+					{"keys": "← / →", "label": "Choose"},
+					{"keys": "Enter", "label": "Open"},
+					{"keys": "↑", "label": "Back to modes"},
+					{"keys": "↓", "label": "Settings"},
+				],
+				InputManager.Device.GAMEPAD: [
+					{"keys": "D-Pad ↔", "label": "Choose"},
+					{"keys": "A", "label": "Open"},
+					{"keys": "B", "label": "Back to modes"},
+					{"keys": "D-Pad ↓", "label": "Settings"},
+				],
+			})
 		else:
-			_hints_bar.set_hints([
-				{"keys": "← / →", "label": "Choose"},
-				{"keys": "Enter / A", "label": "Select"},
-				{"keys": "↓", "label": "Character / Team"},
-			])
+			_hints_bar.set_hint_sets({
+				InputManager.Device.KEYBOARD: [
+					{"keys": "← / →", "label": "Choose"},
+					{"keys": "Enter", "label": "Select"},
+					{"keys": "↓", "label": "Character / Team"},
+				],
+				InputManager.Device.GAMEPAD: [
+					{"keys": "D-Pad ↔", "label": "Choose"},
+					{"keys": "A", "label": "Select"},
+					{"keys": "D-Pad ↓", "label": "Character / Team"},
+				],
+			})

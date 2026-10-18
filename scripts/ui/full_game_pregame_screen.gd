@@ -163,16 +163,21 @@ const READOUT_ROW_GAP := 16
 ## row therefore remains completely stationary regardless of the selected
 ## camera mode.
 ##
-## Sized to nearly fill the landscape card (compare PREVIEW_WIDTH, which
-## only covers the narrow portrait board) rather than floating as a small
-## box in the middle of it, so the screenshot itself reads as the point of
-## the window instead of a thumbnail inside one.
-const CAMERA_PREVIEW_WIDTH := 860.0
-const CAMERA_PREVIEW_HEIGHT := 358.0
 ## A real camera's own aspect, not the preview window's own wide/short
 ## rect — see the AspectRatioContainer this wraps in
 ## _build_camera_preview_content().
 const CAMERA_PREVIEW_ASPECT := 16.0 / 9.0
+## Exactly CAMERA_PREVIEW_ASPECT (576/324 = 16/9), not a size nearly filling
+## the landscape card the way this used to be — at a wider-than-16:9 frame
+## the AspectRatioContainer inside letterboxed the actual render down to
+## ~636px and left the rest of the frame showing the RetroWindow panel's
+## own parchment fill behind it, which read as a pale box around the
+## preview (compounded by a separate SubViewport sizing bug — see
+## camera_mode_preview.gd). Sizing the frame to the render's own aspect
+## removes that letterbox outright, and smaller still per playtest
+## feedback ("remove the white window/box... make the rendering smaller").
+const CAMERA_PREVIEW_WIDTH := 576.0
+const CAMERA_PREVIEW_HEIGHT := 324.0
 
 
 const TITLE_TEXT := "FULL GAME"
@@ -256,7 +261,7 @@ var _whiteboard: FormationWhiteboard
 var _readout_values: Array[Label] = []
 var _start_button: ActionButton
 var _start_band: Control
-var _hints: KeyHintBar
+var _hints: DeviceHintBar
 
 var _card_row: HBoxContainer
 
@@ -1081,7 +1086,7 @@ func _build_footer(parent: Control) -> void:
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	parent.add_child(row)
 
-	_hints = KeyHintBar.new()
+	_hints = DeviceHintBar.new()
 	_hints.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(_hints)
 
@@ -1091,33 +1096,65 @@ func _build_footer(parent: Control) -> void:
 ## The legend reflects the mode the cursor is actually in — an open card,
 ## a locked card, a functional card, or the START MATCH stop all offer
 ## genuinely different things, and one combined run-on legend would be
-## telling the player about three states they are not in.
-func _hints_for_state() -> Array:
+## telling the player about three states they are not in. Per-device (see
+## ui_audit.md finding #1) rather than one "Enter / A" string that never
+## actually swaps with the last-used device.
+func _hints_for_state() -> Dictionary:
 	if _open:
-		return [
-			{"keys": "← / →", "label": "Change"},
-			{"keys": "Enter / A / B / Esc", "label": "Close"},
-		]
+		return {
+			InputManager.Device.KEYBOARD: [
+				{"keys": "← / →", "label": "Change"},
+				{"keys": "Enter / Esc", "label": "Close"},
+			],
+			InputManager.Device.GAMEPAD: [
+				{"keys": "D-Pad ↔", "label": "Change"},
+				{"keys": "A / B", "label": "Close"},
+			],
+		}
 	if _index == _cards.size():
-		return [
-			{"keys": "← / →", "label": "Choose"},
-			{"keys": "Enter / A", "label": "Start match"},
-			{"keys": "↑", "label": "Back to cards"},
-			{"keys": "B / Esc", "label": "Back to menu"},
-		]
+		return {
+			InputManager.Device.KEYBOARD: [
+				{"keys": "← / →", "label": "Choose"},
+				{"keys": "Enter", "label": "Start match"},
+				{"keys": "↑", "label": "Back to cards"},
+				{"keys": "Esc", "label": "Back to menu"},
+			],
+			InputManager.Device.GAMEPAD: [
+				{"keys": "D-Pad ↔", "label": "Choose"},
+				{"keys": "A", "label": "Start match"},
+				{"keys": "D-Pad ↑", "label": "Back to cards"},
+				{"keys": "B", "label": "Back to menu"},
+			],
+		}
 	if _cards[_index].locked:
-		return [
+		return {
+			InputManager.Device.KEYBOARD: [
+				{"keys": "← / →", "label": "Choose"},
+				{"keys": "—", "label": "Not built yet"},
+				{"keys": "↓", "label": "Start match"},
+				{"keys": "Esc", "label": "Back to menu"},
+			],
+			InputManager.Device.GAMEPAD: [
+				{"keys": "D-Pad ↔", "label": "Choose"},
+				{"keys": "—", "label": "Not built yet"},
+				{"keys": "D-Pad ↓", "label": "Start match"},
+				{"keys": "B", "label": "Back to menu"},
+			],
+		}
+	return {
+		InputManager.Device.KEYBOARD: [
 			{"keys": "← / →", "label": "Choose"},
-			{"keys": "—", "label": "Not built yet"},
+			{"keys": "Enter", "label": "Open"},
 			{"keys": "↓", "label": "Start match"},
-			{"keys": "B / Esc", "label": "Back to menu"},
-		]
-	return [
-		{"keys": "← / →", "label": "Choose"},
-		{"keys": "Enter / A", "label": "Open"},
-		{"keys": "↓", "label": "Start match"},
-		{"keys": "B / Esc", "label": "Back to menu"},
-	]
+			{"keys": "Esc", "label": "Back to menu"},
+		],
+		InputManager.Device.GAMEPAD: [
+			{"keys": "D-Pad ↔", "label": "Choose"},
+			{"keys": "A", "label": "Open"},
+			{"keys": "D-Pad ↓", "label": "Start match"},
+			{"keys": "B", "label": "Back to menu"},
+		],
+	}
 
 
 # ── Refresh ──────────────────────────────────────────────────────────
@@ -1157,7 +1194,7 @@ func _refresh() -> void:
 		_animate_card(card, lifted)
 
 	_start_button.set_selected(_index == _cards.size())
-	_hints.set_hints(_hints_for_state())
+	_hints.set_hint_sets(_hints_for_state())
 	_sync_preview()
 
 		# The middle preview switches between the formation board and the

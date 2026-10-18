@@ -425,12 +425,26 @@ func _build_hint(parent: Control) -> void:
 	row.custom_minimum_size.y = HINT_HEIGHT
 	parent.add_child(row)
 
-	var hints := KeyHintBar.new()
+	var hints := DeviceHintBar.new()
 	hints.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(hints)
-	hints.set_hints([
-		{"keys": "↑ / ↓", "label": "Select"},
-		{"keys": "← / →", "label": "Change"},
-		{"keys": "O", "label": "Opposition"},
-		{"keys": "B / T / Esc", "label": "Back to menu"},
-	])
+	hints.set_hint_sets({
+		InputManager.Device.KEYBOARD: [
+			{"keys": "↑ / ↓", "label": "Select"},
+			{"keys": "← / →", "label": "Change"},
+			{"keys": "O", "label": "Opposition"},
+			{"keys": "T / Esc", "label": "Back to menu"},
+		],
+		# toggle_opposition's gamepad binding used to be joypad button 12
+		# (JOY_BUTTON_DPAD_DOWN), shadowed by ui_down's own engine-default
+		# D-Pad-Down binding — this screen's _unhandled_input checks
+		# move_back/ui_down first, so that event always moved the row cursor
+		# and toggle_opposition's elif branch below it never ran. Rebound to
+		# LB (project.godot, button_index 9) per ui_audit.md's fix.
+		InputManager.Device.GAMEPAD: [
+			{"keys": "D-Pad ↕", "label": "Select"},
+			{"keys": "D-Pad ↔", "label": "Change"},
+			{"keys": "LB", "label": "Opposition"},
+			{"keys": "B", "label": "Back to menu"},
+		],
+	})

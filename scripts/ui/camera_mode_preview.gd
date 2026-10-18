@@ -41,6 +41,16 @@ var zoom := Tuning.CAM_ZOOM_DEFAULT:
 ## up to the container's actual display size — a small decorative preview
 ## has no business paying full-resolution 3D render cost (user ask:
 ## "scale the resolution... make it a little smaller").
+##
+## With `stretch` enabled, SubViewportContainer resizes its child
+## SubViewport itself on every layout pass (container size / stretch_shrink)
+## — this script must never also set `_viewport.size`. It used to, in both
+## _ready() and a `resized` handler, which raced the engine's own resize
+## and produced "Can't change the size of a SubViewport with a
+## SubViewportContainer parent that has stretch enabled" plus a viewport
+## that rendered at a stale size while the container around it had already
+## grown — the washed-out/empty strip down one side of the preview that
+## looked like a blank window was that mismatch, not a styling bug.
 const RENDER_SHRINK := 2
 
 var _viewport: SubViewport
@@ -56,7 +66,6 @@ func _ready() -> void:
 	_viewport = SubViewport.new()
 	_viewport.own_world_3d = true
 	_viewport.transparent_bg = false
-	_viewport.size = _container_size()
 	add_child(_viewport)
 
 	_viewport.add_child(FIELD_SCENE.instantiate())
@@ -75,14 +84,3 @@ func _ready() -> void:
 	_viewport.add_child(_camera_rig)
 	_camera_rig.recenter()
 	_camera_rig.camera().current = true
-
-	resized.connect(_on_resized)
-
-
-func _on_resized() -> void:
-	if is_instance_valid(_viewport):
-		_viewport.size = _container_size()
-
-
-func _container_size() -> Vector2i:
-	return Vector2i(maxi(int(size.x) / RENDER_SHRINK, 1), maxi(int(size.y) / RENDER_SHRINK, 1))

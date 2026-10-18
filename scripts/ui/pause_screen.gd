@@ -19,9 +19,17 @@ extends CanvasLayer
 signal resumed
 
 const CARD_WIDTH := 420.0
-const CARD_HEIGHT := 280.0
 const ROW_HEIGHT := 64.0
 const ROW_GAP := 16.0
+const HINT_HEIGHT := 28.0
+const CARD_TOP_MARGIN := 100.0
+const CARD_BOTTOM_MARGIN := 32.0
+## Derived from content (rows + the hint bar now under them) rather than a
+## fixed constant, same reason settings_screen.gd/remap_screen.gd compute
+## their own card_height — a hand-picked number drifts the moment a row is
+## added or removed.
+const CARD_HEIGHT := CARD_TOP_MARGIN + 2.0 * (ROW_HEIGHT + ROW_GAP) + HINT_HEIGHT \
+	+ CARD_BOTTOM_MARGIN
 
 class Row:
 	var title: String
@@ -38,6 +46,7 @@ var _busy := false
 
 var _row_panels: Array[Panel] = []
 var _row_labels: Array[Label] = []
+var _hints: DeviceHintBar
 
 
 func _ready() -> void:
@@ -74,7 +83,7 @@ func _ready() -> void:
 	title.position = Vector2(32.0, 32.0)
 	card.add_child(title)
 
-	var top := 100.0
+	var top := CARD_TOP_MARGIN
 	for i in _rows.size():
 		var row := _rows[i]
 		var panel := Panel.new()
@@ -96,6 +105,25 @@ func _ready() -> void:
 		_row_labels.append(label)
 
 		top += ROW_HEIGHT + ROW_GAP
+
+	# No control legend existed on this screen at all (ui_audit.md
+	# finding #2) — RESUME/QUIT already had full keyboard/gamepad/mouse
+	# support via the row cursor above, nothing on screen just said so.
+	_hints = DeviceHintBar.new()
+	_hints.position = Vector2(32.0, top + 8.0)
+	card.add_child(_hints)
+	_hints.set_hint_sets({
+		InputManager.Device.KEYBOARD: [
+			{"keys": "↑ / ↓", "label": "Select"},
+			{"keys": "Enter", "label": "Confirm"},
+			{"keys": "Esc", "label": "Resume"},
+		],
+		InputManager.Device.GAMEPAD: [
+			{"keys": "D-Pad ↕", "label": "Select"},
+			{"keys": "A", "label": "Confirm"},
+			{"keys": "Start", "label": "Resume"},
+		],
+	})
 
 	_refresh()
 

@@ -147,22 +147,13 @@ const HINTS_TOP := CARD_TOP + CARD_HEIGHT + RetroWindow.SHADOW_OFFSET.y + 6.0
 ## relying on cross-script const-folding.
 var _stat_config := {}
 
-## Control-legend text, keyed by InputManager.Device. Only the keyboard
-## set is settled — the Xbox bindings are being defined separately, so
-## the controller legend is one more entry in here and nothing else:
-## `_apply_hints()` already runs on `device_changed`, and KeyHintBar takes
-## whatever strings it is handed. Until that entry exists a plugged-in
-## pad shows the keyboard legend, which is what every other screen in the
-## project does today.
-var _hint_sets := {}
-
 var _draft := {}
 var _rows: Array[StatRow] = []
 var _model_ids: Array[String] = ["procedural"]   ## + HumanoidRig.CHARACTER_MODELS.keys(), in _ready()
 var _apply_row: StatRow          ## APPLY TO toggle, at index _apply_index()
 var _play: ActionButton
 var _customise_button: ActionButton
-var _hints: KeyHintBar
+var _hints: DeviceHintBar
 var _selected := 0
 var _busy := false   ## true while a wipe is in flight — input is inert
 
@@ -200,17 +191,7 @@ func _ready() -> void:
 		"shorts_color": CharacterProfile.shorts_color,
 		"boot_color": CharacterProfile.boot_color,
 	}
-	_hint_sets = {
-		InputManager.Device.KEYBOARD: [
-			{"keys": "W / S", "label": "Select"},
-			{"keys": "A / D", "label": "Adjust"},
-			{"keys": "Enter", "label": "Play"},
-			{"keys": "B / Esc / C", "label": "Back"},
-		],
-	}
-
 	_build()
-	InputManager.device_changed.connect(_on_device_changed)
 	_backdrop.set_height_scale(_draft["height"] / Tuning.CHARACTER_HEIGHT_DEFAULT)
 	_apply_kit_preview()
 	_refresh()
@@ -440,10 +421,23 @@ func _build() -> void:
 	_play.position = Vector2(CARD_PAD, BUTTON_TOP - CARD_TOP)
 	card_panel.add_child(_play)
 
-	_hints = KeyHintBar.new()
+	_hints = DeviceHintBar.new()
 	_hints.position = Vector2(LEFT_MARGIN, HINTS_TOP)
 	_ui.add_child(_hints)
-	_apply_hints()
+	_hints.set_hint_sets({
+		InputManager.Device.KEYBOARD: [
+			{"keys": "W / S", "label": "Select"},
+			{"keys": "A / D", "label": "Adjust"},
+			{"keys": "Enter", "label": "Play"},
+			{"keys": "B / Esc / C", "label": "Back"},
+		],
+		InputManager.Device.GAMEPAD: [
+			{"keys": "D-Pad ↕", "label": "Select"},
+			{"keys": "D-Pad ↔", "label": "Adjust"},
+			{"keys": "A", "label": "Play"},
+			{"keys": "B", "label": "Back"},
+		],
+	})
 
 	_build_customise_button()
 	_apply_row_mode()
@@ -513,15 +507,6 @@ func _on_play_gui_input(event: InputEvent) -> void:
 			and event.button_index == MOUSE_BUTTON_LEFT:
 		_selected = _play_index()
 		_confirm_and_play()
-
-
-func _on_device_changed(_device: int) -> void:
-	_apply_hints()
-
-
-func _apply_hints() -> void:
-	var keyboard: Array = _hint_sets[InputManager.Device.KEYBOARD]
-	_hints.set_hints(_hint_sets.get(InputManager.device, keyboard))
 
 
 # ── Refresh ──────────────────────────────────────────────────────────
