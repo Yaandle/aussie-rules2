@@ -97,3 +97,7 @@ func wants_hit_out() -> bool:
 
 func wants_bump_stance() -> bool:
 	return Input.is_action_pressed(&"bump_stance")
+
+
+func wants_goal_set_shot() -> bool:
+	return InputManager.consume_buffered_press(&"goal_set_shot")

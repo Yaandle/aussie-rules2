@@ -83,6 +83,15 @@ signal bump_landed(bumper: PlayerController, carrier: PlayerController, clean: b
 
 @export var team: Tuning.Team = Tuning.Team.HOME
 
+## Identity only, not gameplay — Career mode's per-player goal/disposal
+## stats (MatchState's player-keyed dictionary, see match_state.gd) are
+## keyed by this. Empty for every non-Career spawn (Kick-to-Kick, a
+## quick-play Full Game), so nothing outside Career ever reads or writes
+## a per-player stat row. Set by full_game.gd's _spawn_team() from
+## CareerProfile.roster/the generated opponent roster, only when
+## GameState.career_active is true.
+var roster_name := ""
+
 ## Uniform multiplier over WALK/JOG/SPRINT_SPEED — 1.0 leaves Full Game
 ## and the sandbox exactly as tuned. The character screen's SPEED stat
 ## (CharacterProfile.speed_scale()) is the only thing that sets this to
@@ -311,10 +320,19 @@ var _backpedal_locked_out := false
 ## still to cover, and which way "back" is. While this is running the body
 ## is driven by it rather than by the stick or the AI, and the kick is
 ## blocked: the player has to get off the mark before they can go at goal
-## or play on. Facing is deliberately untouched, so they walk back still
-## looking downfield, the way a real kicker does.
+## or play on. _heading is snapped to the attacking goal the instant the
+## retreat begins (see _begin_mark_retreat), so _update_facing turns the
+## body to face goal while the feet carry it backwards — matches the real
+## kicker's look, not whichever way they happened to be facing on the take.
 var _mark_retreat_remaining := 0.0
 var _mark_retreat_dir := Vector3.ZERO
+
+## True from the instant goal_set_shot is pressed (in range, still under
+## mark/free-kick protection) until the kick actually fires or is lost —
+## keeps _update_charge's kick-stance branch alive even though nothing is
+## being held down, the way wants_kick() being true every frame normally
+## would. See _update_charge.
+var _goal_set_shot_locked := false
 
 ## Seconds left of the acceleration spike that fires the instant a
 ## backpedal resolves into a real direction (Tuning.TURN_BURST_*) — see
@@ -531,20 +549,33 @@ func _update_locomotion(delta: float) -> void:
 		return
 
 	# Walking back off a legal mark (Tuning.MARK_RETREAT_DISTANCE) owns the
-	# body the same way. Deliberately does NOT touch _heading: facing is
-	# driven from it, so leaving it alone keeps the player looking downfield
-	# while their feet carry them backwards — which is both what a real
-	# kicker does walking back, and what makes locomotion_blend() pick the
-	# backward run clip rather than spinning them around to jog at their own
-	# goal. Distance is retired at the intended rate rather than by measured
-	# displacement, so being blocked by the fence or another body can't
-	# leave the retreat running forever.
+	# body the same way. _heading is snapped to the attacking goal once, in
+	# _begin_mark_retreat() — not touched here every frame — so the body
+	# faces goal while the feet carry it backwards, locomotion_blend()
+	# picking the backward run clip off the heading/velocity mismatch
+	# rather than off facing ever pointing the wrong way. Distance is
+	# retired at the intended rate rather than by measured displacement,
+	# so being blocked by the fence or another body can't leave the
+	# retreat running forever.
 	if _mark_retreat_remaining > 0.0:
 		_mark_retreat_remaining = maxf(0.0,
 			_mark_retreat_remaining - Tuning.MARK_RETREAT_SPEED * delta)
 		_speed = Tuning.MARK_RETREAT_SPEED
 		velocity.x = _mark_retreat_dir.x * _speed
 		velocity.z = _mark_retreat_dir.z * _speed
+		if _mark_retreat_remaining <= 0.0:
+			# The retreat's own velocity is still sitting in `velocity` the
+			# instant it ends — left alone, next frame's generic heading
+			# read a few lines down ("if _speed > PIVOT_SPEED_THRESHOLD:
+			# _heading = horizontal/_speed") would snap _heading straight
+			# back to this frame's backward retreat direction, undoing the
+			# goal-facing _begin_mark_retreat() just set and spinning the
+			# body 180° the instant it's allowed to move again. Zeroing it
+			# here, on the exact frame the walk-back finishes, is what
+			# actually makes the goal-facing stick afterward.
+			velocity.x = 0.0
+			velocity.z = 0.0
+			_speed = 0.0
 		return
 
 	# Slide's dive-in owns the body the same way knockback does above, just
@@ -1940,6 +1971,12 @@ func _begin_mark_retreat() -> void:
 	var attack_x := 1.0 if team == Tuning.Team.HOME else -1.0
 	_mark_retreat_dir = Vector3(-attack_x, 0.0, 0.0)
 	_mark_retreat_remaining = Tuning.MARK_RETREAT_DISTANCE
+	# Face the goal being attacked while walking back off it — see this
+	# var's own comment just above. _update_facing() turns the body toward
+	# _heading every frame regardless of which branch of _update_locomotion
+	# is actually driving the feet, so this is the one line that needs to
+	# change for the retreat to turn and look at goal.
+	_heading = Vector3(attack_x, 0.0, 0.0)
 
 
 ## Public entry to the walk-back, for the free-kick / turnover restarts that
@@ -1958,6 +1995,42 @@ func _end_mark_retreat() -> void:
 
 func is_retreating_from_mark() -> bool:
 	return _mark_retreat_remaining > 0.0
+
+
+## Whether goal_set_shot should do anything right now: still under mark/
+## free-kick protection (_protected_timer — the same primitive a legal mark
+## or a protected kick-in already grants) and within Tuning.GOAL_SET_SHOT_
+## MAX_DISTANCE of the goal LINE, not whatever lateral-biased aim point an
+## actual kick might use — a straight shot-distance read, same as AIBrain's
+## own dist check in _think_carrying.
+## Public read for UI (DebugHud's goal-shot hint chip) — same eligibility
+## the goal_set_shot press itself is gated on, see _can_take_goal_set_shot.
+func can_take_goal_set_shot() -> bool:
+	return _can_take_goal_set_shot()
+
+
+func _can_take_goal_set_shot() -> bool:
+	if _protected_timer <= 0.0:
+		return false
+	var attack_x := 1.0 if team == Tuning.Team.HOME else -1.0
+	var dist := absf(attack_x * Tuning.FIELD_HALF_LENGTH - global_position.x)
+	return dist <= Tuning.GOAL_SET_SHOT_MAX_DISTANCE
+
+
+## Flat, normalized direction from the boot to the centre of the goal being
+## attacked — what a set shot snaps _kick_aim_yaw (and _heading) to the
+## instant it's lined up. Dead centre, not AIBrain._goal_point's lateral
+## bias: that bias is for a carry still choosing an angle on the move, a
+## set shot is already standing still lining up the middle of the big
+## sticks.
+func _goal_aim_direction() -> Vector3:
+	var attack_x := 1.0 if team == Tuning.Team.HOME else -1.0
+	var goal_point := Vector3(attack_x * Tuning.FIELD_HALF_LENGTH, 0.0, 0.0)
+	var to_goal := goal_point - _boot_point.global_position
+	to_goal.y = 0.0
+	if to_goal.length_squared() < 0.0001:
+		return _heading
+	return to_goal.normalized()
 
 
 ## Y commits to the jump the instant it's pressed, whether or not it will
@@ -2298,7 +2371,27 @@ func _update_charge(delta: float) -> void:
 		_kick_trajectory.update_preview(false, Vector3.ZERO, Vector3.ZERO)
 		return
 
-	if _brain.wants_kick() and is_carrying():
+	# Set shot for goal: a tap of goal_set_shot, not a hold, so it needs its
+	# own latch (_goal_set_shot_locked) to keep the kick-stance branch below
+	# alive on every later frame exactly as if wants_kick() itself were
+	# being held — see that var's own comment. Only arms within range and
+	# while still under mark/free-kick protection (_can_take_goal_set_shot);
+	# a stray press outside both does nothing, same as pressing kick_stance
+	# this frame already not-carrying would.
+	if _brain.wants_goal_set_shot() and is_carrying() and not _charging \
+			and _can_take_goal_set_shot():
+		_goal_set_shot_locked = true
+		_charging = true
+		var aim_dir := _goal_aim_direction()
+		_kick_aim_yaw = atan2(-aim_dir.x, -aim_dir.z)
+		_heading = aim_dir
+		# Borrow the normal behind-the-player Chase framing for the shot if
+		# the broadcast rig is on FULL_SIDE — a no-op there already if it
+		# isn't (see BroadcastCamera.enter_goal_set_shot).
+		if is_instance_valid(camera_rig):
+			camera_rig.enter_goal_set_shot()
+
+	if (_brain.wants_kick() or _goal_set_shot_locked) and is_carrying():
 		if not _charging:
 			_charging = true
 			# Wherever the camera/crosshair is currently pointing, not body
@@ -2322,10 +2415,19 @@ func _update_charge(delta: float) -> void:
 		_update_kick_aim(delta)
 		if _brain.wants_kick_execute():
 			_charging = false
+			_goal_set_shot_locked = false
+			if is_instance_valid(camera_rig):
+				camera_rig.exit_goal_set_shot()
 			_begin(Tuning.Action.KICK)
 	elif _charging:
-		# LT released without RT — cancel, no kick.
+		# LT released without RT — cancel, no kick. Also the natural exit
+		# for a set shot that never got fired (ball lost to a tackle, etc):
+		# is_carrying() above goes false, this branch catches it, and the
+		# latch clears with everything else.
+		if _goal_set_shot_locked and is_instance_valid(camera_rig):
+			camera_rig.exit_goal_set_shot()
 		_charging = false
+		_goal_set_shot_locked = false
 		_kick_charge = 0.0
 	elif _brain.wants_kick_execute() and is_carrying():
 		_hip_fire_kick = true

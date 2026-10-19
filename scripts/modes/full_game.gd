@@ -40,6 +40,21 @@ const FORMATION_TEAM_STAGGER := 2.0
 
 var _home_players: Array[PlayerController] = []
 var _away_players: Array[PlayerController] = []
+
+## Only populated for a Career match (GameState.career_active) — the
+## generated opponent roster for the current fixture, same shape and
+## roster-spawn order as CareerProfile.roster. See _spawn_teams().
+var _away_roster: Array[Dictionary] = []
+
+## Each team's player whose last disposal was a kick — the only way to
+## attribute a goal to a kicker, since Field's own `scored` signal carries
+## just (team, is_goal), not who kicked it (see _on_scored). Overwritten
+## on every kick, not cleared between them: the ball is "live" between a
+## kick and whatever next touches it, and if that's a goal this is still
+## the right attribution. Tracked for every match since the cost is one
+## dictionary write per kick, but only ever read when GameState.
+## career_active (roster_name is empty otherwise, see _on_scored).
+var _last_kicker := {Tuning.Team.HOME: null, Tuning.Team.AWAY: null}
 var _crosshair: KickCrosshair
 var _mark_prompt: MarkPrompt
 var _controlled_ring: ControlledPlayerRing
@@ -80,6 +95,8 @@ func _ready() -> void:
 	# screen rather than only taking effect on the next match.
 	_apply_camera_mode(Settings.full_game_camera_mode)
 	Settings.camera_mode_changed.connect(_apply_camera_mode)
+	_camera.zoom = Settings.camera_zoom
+	Settings.camera_zoom_changed.connect(func(zoom: float) -> void: _camera.zoom = zoom)
 
 	# Created before _spawn_teams() so the very first ControlMode.
 	# focus_changed emission (fired synchronously by _spawn_teams()'s
@@ -212,6 +229,14 @@ func _open_pause_menu() -> void:
 # ── Setup ────────────────────────────────────────────────────────────
 
 func _spawn_teams() -> void:
+	# Career's own HOME roster is already generated and persisted
+	# (CareerProfile.roster, built by career_character_screen.gd); the
+	# opponent's isn't — generated here, lazily, from the current
+	# fixture's name (RosterGenerator.generate_team() is seeded off that
+	# name, so this is reproducible but never persisted, see roster_
+	# generator.gd's own header).
+	if GameState.career_active:
+		_away_roster = RosterGenerator.generate_team(CareerProfile.current_fixture())
 	_home_players = _spawn_team(Tuning.Team.HOME, 1.0)
 	_away_players = _spawn_team(Tuning.Team.AWAY, -1.0)
 
@@ -312,6 +337,9 @@ func _spawn_team(team: Tuning.Team, attack_direction: float) -> Array[PlayerCont
 		# the solver blow-up described above.
 		var formation_slot := _kickoff_slot(i, attack_direction, team)
 		instance.position = _centre_bounce_slot(i, attack_direction, team)
+		if GameState.career_active:
+			var roster := CareerProfile.roster if team == Tuning.Team.HOME else _away_roster
+			instance.roster_name = roster[i]["name"]
 		add_child(instance)
 		AudioManager.register_player(instance)
 
@@ -596,6 +624,9 @@ func _on_hit_out_resolved(_player: PlayerController, connected: bool) -> void:
 ## called) is a separate, harder problem — see docs/HANDOVER.md.
 func _on_player_disposed(action: Tuning.Action, player: PlayerController) -> void:
 	MatchState.record_disposal(player.team, action)
+	MatchState.record_player_disposal(player.roster_name, action)
+	if action == Tuning.Action.KICK:
+		_last_kicker[player.team] = player
 	if action == Tuning.Action.KICK:
 		_on_home_kick_disposed(player)
 
@@ -747,6 +778,10 @@ func _on_scored(team: Tuning.Team, is_goal: bool) -> void:
 		return   # the ball can clip the trigger again while it settles
 	MatchState.clock_running = false
 	MatchState.score(team, is_goal)
+	if is_goal:
+		var kicker: PlayerController = _last_kicker.get(team)
+		if is_instance_valid(kicker):
+			MatchState.record_player_goal(kicker.roster_name)
 	GameState.phase = GameState.Phase.SCORE
 	# Dead from the moment it's a score — nobody may gather it during the
 	# celebration — but NOT frozen where it is: a hard lock_at() here
@@ -825,7 +860,18 @@ func _finish_match() -> void:
 	_start_pause(Tuning.MATCH_END_FLASH_DURATION, _show_match_end_screen)
 
 
+## Career's own full-time screen reads MatchState fresh, same as
+## MatchEndScreen does — the only thing done here is advancing the season
+## (CareerProfile.record_result()) before handing off, so the Dashboard
+## afterward already sees the incremented games_played. GameState.
+## career_active itself is left set until career_match_end_screen.gd's
+## RETURN TO MENU clears it — see that file and GameState.gd's own header
+## note on why the clear lives there, not here.
 func _show_match_end_screen() -> void:
+	if GameState.career_active:
+		CareerProfile.record_result()
+		SceneWipe.change_scene("res://scenes/ui/career_match_end_screen.tscn")
+		return
 	SceneWipe.change_scene(MATCH_END_SCREEN_PATH)
 
 
@@ -1131,6 +1177,13 @@ func _call_for_ball() -> void:
 	# out-of-range case below, which is a call that simply couldn't be heard
 	# rather than one that was never made.
 	_call_for_ball_cooldown = Tuning.CALL_FOR_BALL_COOLDOWN
+	# Placeholder visible feedback for the call itself (user report: "A to
+	# call for ball... should be more visibly working" — a real animation
+	# can replace this flash later, see ControlledPlayerRing.flash()'s own
+	# comment). Fires whether or not the carrier actually gives it up,
+	# same as the cooldown above: the shout happened either way.
+	if is_instance_valid(_controlled_ring):
+		_controlled_ring.flash()
 
 	if caller.global_position.distance_to(carrier.global_position) > Tuning.CALL_FOR_BALL_RANGE:
 		return

@@ -134,6 +134,12 @@ const SHAPES := {
 		["poly", 5.0, 12.0, 19.0, 12.0],
 		["poly", 13.5, 6.0, 19.0, 12.0, 13.5, 18.0],
 	],
+	# Mirror of arrow_right — StatRow's "you can adjust this" cue flanking
+	# a selected row's value (see stat_row.gd's _arrow_left/_arrow_right).
+	&"arrow_left": [
+		["poly", 19.0, 12.0, 5.0, 12.0],
+		["poly", 10.5, 6.0, 5.0, 12.0, 10.5, 18.0],
+	],
 	# Three sliders, not a cogwheel. A cog is a ring plus eight teeth, and
 	# at the 18px this is drawn at, teeth land at about two pixels each
 	# and mush into a fuzzy circle; sliders keep three clean horizontal
@@ -157,6 +163,18 @@ const SHAPES := {
 		["arc", 12.0, 9.0, 4.0, 200.0, 340.0],
 		["loop", 6.5, 9.0, 17.5, 9.0, 17.5, 20.0, 6.5, 20.0],
 		["dot", 12.0, 14.0, 1.3],
+	],
+	# Round head over a trapezoid torso — the MODEL row on the CHARACTER
+	# screen's Customise panel (pick which body is previewed).
+	&"figure": [
+		["ring", 12.0, 6.5, 3.3],
+		["loop", 7.0, 11.0, 17.0, 11.0, 15.0, 20.5, 9.0, 20.5],
+	],
+	# Paint chip: a square tile split by one line — the generic "pick a
+	# colour" row (SKIN/JERSEY/SHORTS on the Customise panel).
+	&"swatch": [
+		["loop", 5.0, 5.0, 19.0, 5.0, 19.0, 19.0, 5.0, 19.0],
+		["poly", 5.0, 12.5, 19.0, 12.5],
 	],
 }
 

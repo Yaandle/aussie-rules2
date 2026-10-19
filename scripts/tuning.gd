@@ -529,6 +529,21 @@ const RELEASE_GRACE := 0.25            # s the disposed ball ignores its own kic
 ## "still too far" playtest note — the player now fills more of the frame;
 ## tune by eye alongside CAM_FOV_BASE.
 const CAM_DISTANCE := 4.5              # m behind the focus point
+
+## Settings.camera_zoom's own range — a user-adjustable multiplier on top
+## of whichever mode's own baseline framing (BroadcastCamera.zoom): CHASE
+## scales the spring-arm distance by 1/zoom (shorter arm = zoomed in),
+## FULL_SIDE scales its FOV by 1/zoom (narrower FOV = zoomed in), so
+## "zoom" means the same visual thing in both modes. Exposed first in the
+## Full Game / Career pregame screens' CAMERA preview (user ask: "basic
+## ways to adjust the camera settings... just start with zoom in/out").
+## 7 steps either side of the 1.0 (unzoomed) default, same stepped-options
+## shape every other pregame row already cycles through.
+const CAM_ZOOM_MIN := 0.8
+const CAM_ZOOM_MAX := 1.4
+const CAM_ZOOM_STEP := 0.1
+const CAM_ZOOM_DEFAULT := 1.0
+
 const CAM_FOCUS_HEIGHT := 1.6          # m up the player's body that the rig frames
 const CAM_PITCH_DEFAULT := -18.0       # deg
 const CAM_PITCH_MIN := -55.0
@@ -610,23 +625,38 @@ const CAM_DIALOGUE_FOV := 42.0         # deg, tighter for an intimate two-shot
 # ARM stays short on purpose: HEIGHT does the elevation directly now
 # (global_position.y), so the spring arm isn't being asked to carry both
 # jobs the way the old fixed-pitch version needed it to.
-# Pulled in on a "still too far" playtest note: SIDE_OFFSET 60 -> 35,
-# HEIGHT 18 -> 11, FOV 68 -> 55. At 35 (against FIELD_HALF_WIDTH 67.5) the
-# rig now sits inside the boundary line — an elevated infield broadcast
-# vantage rather than a true outside-the-fence mount. Push SIDE_OFFSET back
-# toward ~50 if it should clear the boundary again; tune by eye.
-const CAM_FULL_SIDE_SIDE_OFFSET := 35.0    # m off the centreline (Z) — where the rig is mounted
-const CAM_FULL_SIDE_HEIGHT := 11.0         # m elevation
+# Several passes tried keeping the mount close (SIDE_OFFSET 35, inside
+# FIELD_HALF_WIDTH's own 67.5) and reactively pulling it back only when
+# play got close to it — that chased its tail (user report across several
+# rounds: "tilts down and flips", then "gets under the camera" again right
+# at the boundary once the reactive pullback had already eased back out).
+# The actual ask was simpler: the rig should just always live outside the
+# field, past Field.FENCE_OFFSET's fence at 76.5, full stop — a real
+# broadcast camera doesn't wheel itself in and out, it has one mount and
+# looks across from it. SIDE_OFFSET 90 clears the fence with real margin,
+# so the horizontal gap to any point on the ground is never small enough
+# for pitch/yaw to go near-singular in the first place — no reactive
+# pullback needed any more. HEIGHT raised alongside it (11 -> 20) so the
+# extra distance doesn't flatten the look-down angle into something that
+# reads as eye-level pitch-side TV.
+const CAM_FULL_SIDE_SIDE_OFFSET := 90.0    # m off the centreline (Z) — where the rig is mounted
+const CAM_FULL_SIDE_HEIGHT := 20.0         # m elevation
 const CAM_FULL_SIDE_ARM := 6.0             # m — short; position/height already do the work
-## FOV at the two lateral extremes (see BroadcastCamera._update_full_side's
-## zoom comment) — NEAR is play right under the rig, FAR is play out on the
-## opposite side of the ground, lerped by how far across ZOOM_RANGE covers.
-## ZOOM_RANGE spans the whole field width rather than just the far half,
-## since the rig itself sits inside the boundary (see SIDE_OFFSET's own
-## comment), not on the centreline.
-const CAM_FULL_SIDE_FOV_NEAR := 55.0
-const CAM_FULL_SIDE_FOV_FAR := 32.0
-const CAM_FULL_SIDE_ZOOM_RANGE := FIELD_WIDTH
+
+# Cheap backstop only — SIDE_OFFSET/HEIGHT above are what actually keep
+# the pitch sane now, this just catches anything that somehow still gets
+# unreasonably steep.
+const CAM_FULL_SIDE_PITCH_MAX_DOWN := 38.0 # deg
+## FOV across the rig's actual current look-distance (BroadcastCamera.
+## _update_full_side's zoom comment) — NEAR is about as close as play
+## can realistically get to a mount that's now permanently outside the
+## fence, FAR is the opposite far corner of the ground. Narrowed from an
+## earlier 55/32 (user report: "zoom in general a little more as the
+## baseline") — tighter throughout, not just at one extreme.
+const CAM_FULL_SIDE_FOV_NEAR := 46.0
+const CAM_FULL_SIDE_FOV_FAR := 26.0
+const CAM_FULL_SIDE_ZOOM_NEAR_DIST := 25.0                          # m
+const CAM_FULL_SIDE_ZOOM_FAR_DIST := 180.0                          # m — far corner at full width/length spread
 const CAM_FULL_SIDE_FOLLOW_RATE := 2.2     # slower than CAM_FOLLOW_RATE — a deliberate pan, not a chase
 
 # Player-switch reorient. The soft version of this (0.6s / rate 5.0, with
@@ -1027,6 +1057,12 @@ const MARK_HOLD_DURATION := 5.0         # s
 # outlasts the walk-back with time left to actually use it.
 const MARK_RETREAT_DISTANCE := 5.0      # m
 const MARK_RETREAT_SPEED := 3.4         # m/s — a deliberate walk back, ~1.5s for the 5m
+
+# Set shot for goal: pressing goal_set_shot while still under mark/free-kick
+# protection (_protected_timer > 0) and within this distance of the goal
+# line lines up a kick aimed dead at goal instead of wherever the camera
+# happens to be looking. 55m is comfortably inside AFL kicking range.
+const GOAL_SET_SHOT_MAX_DISTANCE := 55.0   # m from the goal line
 
 # The man on the mark (PlayerController._apply_stand_the_mark) is the
 # nearest opponent when the mark is taken, placed a metre goal-side of the

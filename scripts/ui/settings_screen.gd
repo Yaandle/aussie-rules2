@@ -63,6 +63,7 @@ var _busy := false
 var _row_panels: Array[Panel] = []
 var _title_labels: Array[Label] = []
 var _value_labels: Array[Label] = []
+var _hints: DeviceHintBar
 
 var _settings_content: Control
 var _card_wrapper: Control
@@ -218,15 +219,26 @@ func _ready() -> void:
 
 	top += ROW_HEIGHT + ROW_GAP
 
-	var hint := SoftBrutalist.label(
-		"UP/DOWN SELECT · LEFT/RIGHT CHANGE · ENTER ACTIVATE · B/ESC BACK",
-		SoftBrutalist.SIZE_CAPTION,
-		SoftBrutalist.MUTED,
-		SoftBrutalist.WEIGHT_REGULAR,
-		SoftBrutalist.TRACK_LABEL
-	)
-	hint.position = Vector2(32.0, top + 8.0)
-	_settings_content.add_child(hint)
+	# DeviceHintBar, not a static caption (ui_audit.md finding #2 — this
+	# screen had no real KeyHintBar at all, just one combined-device line
+	# that never updated).
+	_hints = DeviceHintBar.new()
+	_hints.position = Vector2(32.0, top + 8.0)
+	_settings_content.add_child(_hints)
+	_hints.set_hint_sets({
+		InputManager.Device.KEYBOARD: [
+			{"keys": "↑ / ↓", "label": "Select"},
+			{"keys": "← / →", "label": "Change"},
+			{"keys": "Enter", "label": "Activate"},
+			{"keys": "Esc", "label": "Back"},
+		],
+		InputManager.Device.GAMEPAD: [
+			{"keys": "D-Pad ↕", "label": "Select"},
+			{"keys": "D-Pad ↔", "label": "Change"},
+			{"keys": "A", "label": "Activate"},
+			{"keys": "B", "label": "Back"},
+		],
+	})
 
 	_create_camera_preview(root, _card_wrapper, card_height)
 

@@ -33,6 +33,21 @@ var full_game_camera_mode: FullGameCameraMode = FullGameCameraMode.THIRD_PERSON:
 		full_game_camera_mode = value
 		camera_mode_changed.emit(value)
 
+## Multiplier on top of whichever camera mode's own baseline framing — see
+## BroadcastCamera.zoom's own comment for what it does in each mode.
+## Live-apply via camera_zoom_changed, same shape as full_game_camera_mode
+## just above (and, like that setting, kick_to_kick never reads it —
+## practice mode stays unaffected). First exposed in the Full Game/Career
+## pregame screens' CAMERA preview (user ask: "basic ways to adjust the
+## camera settings... just start with zoom in/out").
+var camera_zoom := Tuning.CAM_ZOOM_DEFAULT:
+	set(value):
+		value = clampf(value, Tuning.CAM_ZOOM_MIN, Tuning.CAM_ZOOM_MAX)
+		if is_equal_approx(camera_zoom, value):
+			return
+		camera_zoom = value
+		camera_zoom_changed.emit(value)
+
 ## false (default): right-click holds kick stance/aim (like a gamepad's
 ## LT), left-click fires the kick (like RT). true: swapped, for players
 ## who expect the opposite convention (e.g. left-click-to-aim shooter
@@ -187,6 +202,7 @@ var keybind_overrides: Dictionary = {}
 
 
 signal camera_mode_changed(mode: FullGameCameraMode)
+signal camera_zoom_changed(zoom: float)
 signal mouse_kick_binding_changed(swapped: bool)
 
 
@@ -203,6 +219,7 @@ func _load() -> void:
 		return   # no save file yet — defaults above stand
 	full_game_camera_mode = config.get_value(SECTION, "full_game_camera_mode",
 		full_game_camera_mode) as FullGameCameraMode
+	camera_zoom = config.get_value(SECTION, "camera_zoom", camera_zoom) as float
 	mouse_kick_swapped = config.get_value(SECTION, "mouse_kick_swapped",
 		mouse_kick_swapped) as bool
 	player_control_mode = config.get_value(SECTION, "player_control_mode",
@@ -227,6 +244,7 @@ func _load() -> void:
 func save() -> void:
 	var config := ConfigFile.new()
 	config.set_value(SECTION, "full_game_camera_mode", full_game_camera_mode)
+	config.set_value(SECTION, "camera_zoom", camera_zoom)
 	config.set_value(SECTION, "mouse_kick_swapped", mouse_kick_swapped)
 	config.set_value(SECTION, "player_control_mode", player_control_mode)
 	config.set_value(SECTION, "home_formation_index", home_formation_index)

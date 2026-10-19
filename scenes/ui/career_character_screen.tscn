@@ -1,0 +1,20 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/career_character_screen.gd" id="1_screen"]
+[ext_resource type="PackedScene" path="res://scenes/ui/character_backdrop.tscn" id="2_backdrop"]
+
+[node name="CareerCharacterScreen" type="Node"]
+script = ExtResource("1_screen")
+
+[node name="CharacterBackdrop" parent="." instance=ExtResource("2_backdrop")]
+
+[node name="Overlay" type="CanvasLayer" parent="."]
+
+[node name="UI" type="Control" parent="Overlay"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2

@@ -6029,3 +6029,126 @@ SpatialQuery), `scripts/mechanics/ai_brain.gd` (5 helpers via SpatialQuery),
 `scripts/ball/ball.gd` (catcher scan), `scripts/tuning.gd` (Action dicts +
 accessors + header comments), `scripts/modes/full_game.gd`
 (`_apply_character_profile` ternary fix), `docs/MECHANICS_AUDIT.md`.
+
+
+## Handover — UI consistency/accessibility pass: device-aware prompts, focus reachability, match-end parity (Agent: UI & visual quality)
+
+A UI-polish brief was handed to this pass expecting a generic/default UI
+needing a ground-up redesign. It didn't match this project: `docs/
+HANDOVER.md`'s own earlier "UI & visual quality" entry (near the top of
+this file) already built a real token system (`SoftBrutalist`/
+`RetroWindow`/`CareerTheme`), shared components (`KeyHintBar`/
+`ActionButton`/`StatRow`/`UIIcon`/`SoftShadow`), and container-based
+layouts on the most recently rewritten screens. Audited the actual state
+instead of redesigning on top of a wrong assumption — written up in the
+new `docs/ui_audit.md` before any code changed, per that brief's own
+process. Scope ended up narrower and more concrete than "redesign the UI":
+a consistency/accessibility pass closing six specific, documented gaps.
+No mechanics/gameplay files touched; no palette/token changes (rule was
+to keep the existing three families, not invent a fourth).
+
+### What was actually wrong
+
+1. **Prompt bar existed but wasn't device-aware almost anywhere.**
+   `KeyHintBar` was already built to show different text per device, but
+   only `character_screen.gd`/`career_character_screen.gd` ever wired that
+   up — and even there, only the keyboard half was filled in. Every other
+   screen printed one static "Enter / A" string that never changed with
+   the last-used input device.
+2. **No prompt bar at all** on `settings_screen.gd`, `remap_screen.gd`,
+   `pause_screen.gd` (a static caption instead), and none whatsoever on
+   `match_end_screen.gd`, `career_match_end_screen.gd`,
+   `career_pregame_screen.gd`, `career_dashboard_screen.gd`.
+3. **Mouse-only controls with no keyboard/gamepad path**:
+   `main_menu.gd`'s SETTINGS/EXIT GAME footer (acknowledged in that file's
+   own old comment), `career_dashboard_screen.gd`'s VIEW ROSTER/roster
+   table BACK/locked-overlay MAIN MENU, and the RETURN TO MENU control on
+   both match-end screens.
+4. `match_end_screen.gd` was the one screen in the quick-play family still
+   on a plain SoftBrutalist card with no RetroWindow shell, no row
+   selection state, and (found while fixing it) a RETURN TO MENU button
+   that had **no mouse click handler wired at all** — a mouse player could
+   not return to the menu from this screen by any means.
+
+### What else turned up while fixing those
+
+- `main_menu.gd`'s EXIT GAME had no keyboard/gamepad path at all (not even
+  a row stop) — added one, mirroring the existing SETTINGS/EXIT GAME
+  footer row's left-right cursor convention.
+- `remap_screen.gd`'s key-listening mode ("PRESS A KEY…") only ever
+  checked `InputEventKey` to cancel or commit — a gamepad-only player who
+  opened it had no way out at all. Any joypad button press now cancels
+  listening (keyboard rebind semantics on N/Escape untouched).
+- `career_dashboard_screen.gd`'s global Esc/B handler jumped straight to
+  the main menu even while the roster table overlay was open, bypassing
+  that overlay's own BACK control. Fixed to close the overlay first.
+- `career_dashboard_screen.gd` had no explicit default focus anywhere
+  (NEXT GAME card / locked overlay's MAIN MENU / roster table's BACK), so
+  a keyboard/gamepad player landing on any of those sub-states had nothing
+  focused to start from. Added `grab_focus.call_deferred()` at each entry
+  point, with focus returned to VIEW ROSTER on close.
+
+### New shared component
+
+`scripts/ui/device_hint_bar.gd` — `DeviceHintBar extends KeyHintBar`,
+pulled out of `character_screen.gd`'s hand-rolled `_hint_sets`/
+`_apply_hints`/`device_changed` wiring (the only screen that had it)
+so every screen gets the same behaviour via `set_hint_sets({KEYBOARD:
+[...], GAMEPAD: [...]})` instead of duplicating the device-tracking glue
+per screen. `character_screen.gd`/`career_character_screen.gd` were
+migrated onto it too, gaining the gamepad hint text that was previously
+missing even where the mechanism already existed.
+
+### Known issues found, not fixed (outside this pass's scope)
+
+- `team_list_screen.gd`'s `toggle_opposition` has a gamepad binding
+  (project.godot: joypad button 12) that's shadowed by `ui_down`'s own
+  engine-default D-Pad-Down binding — that screen's row cursor reads the
+  event first, so the action never fires on a gamepad. A project.godot
+  InputMap rebind, not a UI script change; left for whoever owns input
+  config.
+- `debug_hud.gd` still carries its own independent copy of the
+  device-aware-hint pattern (`_reset_hint_sets`/`_goal_shot_hint_sets`).
+  Not migrated onto `DeviceHintBar` — diagnostic overlay, not worth the
+  risk for consistency alone.
+- `settings_screen.gd`/`remap_screen.gd`/`pause_screen.gd` still lay out
+  by hand-placed `.position` against a hardcoded 1280×720 assumption,
+  unlike `main_menu.gd`/`full_game_pregame_screen.gd`/
+  `team_list_screen.gd`'s container-based rewrites. Noted in
+  `docs/ui_audit.md`; not attempted here (higher risk to get wrong with no
+  GUI available in this environment to check it in, lower value than the
+  accessibility fixes).
+
+### How it was verified
+
+No GUI in this environment (same limitation every prior UI pass in this
+file has shipped under) — verified by: class-cache rescan clean; headless
+boot of all twelve touched scenes (`main_menu`, `full_game_pregame_screen`,
+`team_list_screen`, `character_screen`, `career_character_screen`,
+`settings_screen`, `remap_screen`, `pause_screen`, `match_end_screen`,
+`career_match_end_screen`, `career_pregame_screen`, `career_dashboard_
+screen`) — all exit 0, no script errors; a scratch scene (deleted) that
+forced `CareerProfile.games_played = 1` plus a populated roster to also
+exercise `career_dashboard_screen.gd`'s locked-overlay and roster-table
+code paths headlessly, since the default boot never reaches either.
+Visual/input-feel correctness (focus order, hover styling, layout fit) is
+not independently confirmed — flag for whoever next opens the editor.
+
+### Unrelated note
+
+`scripts/player/humanoid_rig.gd` appeared modified in `git status` at the
+end of this session (a `_fix_imported_forward_axis()` addition) despite
+never being touched by this UI-only pass. Left exactly as found — out of
+scope and not reviewed — but flagged here since it wasn't present at this
+session's start and whoever owns that file should know it's there.
+
+### Files changed
+
+`scripts/ui/device_hint_bar.gd` (new), `scripts/ui/character_screen.gd`,
+`scripts/ui/career_character_screen.gd`, `scripts/ui/main_menu.gd`,
+`scripts/ui/team_list_screen.gd`, `scripts/ui/full_game_pregame_screen.gd`,
+`scripts/ui/settings_screen.gd`, `scripts/ui/remap_screen.gd`,
+`scripts/ui/pause_screen.gd`, `scripts/ui/match_end_screen.gd`,
+`scripts/ui/career_match_end_screen.gd`, `scripts/ui/career_pregame_
+screen.gd`, `scripts/ui/career_dashboard_screen.gd`, `docs/ui_audit.md`
+(new).

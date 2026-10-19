@@ -11,8 +11,14 @@ extends CanvasLayer
 ## resets MatchState between full_game.gd's _finish_match() and this
 ## screen loading, so there's nothing to lose crossing the scene swap.
 ## No replay/rematch wiring; the only action is returning to the main
-## menu. Built in _ready() from SoftBrutalist, same hand-built pattern as
-## the other placeholder screens in this pass.
+## menu.
+##
+## RetroWindow shell + a real selectable/hover RETURN TO MENU row + a
+## DeviceHintBar, matching this screen's siblings (settings/pause/remap/
+## team-list/career_match_end) — this used to be a bare SoftBrutalist cream
+## card with a static button and no legend at all (ui_audit.md findings
+## #2/#3/#5, which named this screen specifically as the one place left
+## that never got the rest of the project's "windowed retro console" pass).
 
 const CARD_WIDTH := 520.0
 
@@ -41,15 +47,20 @@ const STATS_AWAY_X := CARD_WIDTH - 64.0 - STATS_COLUMN_WIDTH
 
 const BUTTON_HEIGHT := 56.0
 const BUTTON_GAP := 28.0
+const HINT_GAP := 16.0
+const HINT_HEIGHT := 24.0
 const CARD_BOTTOM_MARGIN := 32.0
 
 var _busy := false
+var _button_panel: Panel
+var _button_label: Label
 
 
 func _ready() -> void:
 	var stats_bottom := STATS_TOP + STATS_HEADER_HEIGHT + STAT_ROWS.size() * STATS_ROW_HEIGHT
 	var button_top := stats_bottom + BUTTON_GAP
-	var card_height := button_top + BUTTON_HEIGHT + CARD_BOTTOM_MARGIN
+	var hint_top := button_top + BUTTON_HEIGHT + HINT_GAP
+	var card_height := hint_top + HINT_HEIGHT + CARD_BOTTOM_MARGIN
 
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -58,14 +69,17 @@ func _ready() -> void:
 
 	root.add_child(SoftBrutalist.backdrop())
 
-	var card := Panel.new()
-	card.add_theme_stylebox_override(&"panel", SoftBrutalist.panel_style())
-	SoftBrutalist.soften(card, SoftBrutalist.Elevation.OVERLAY)
-	card.size = Vector2(CARD_WIDTH, card_height)
-	card.position = Vector2((1280.0 - CARD_WIDTH) / 2.0, (720.0 - card_height) / 2.0)
-	root.add_child(card)
+	# RetroWindow shell — this screen was the one sibling left on a plain
+	# SoftBrutalist card instead of the "windowed retro console" shell
+	# settings/pause/remap/team-list/character already share (ui_audit.md
+	# finding #5).
+	var card_wrapper := Control.new()
+	card_wrapper.custom_minimum_size = Vector2(CARD_WIDTH, card_height)
+	card_wrapper.position = Vector2((1280.0 - CARD_WIDTH) / 2.0, (720.0 - card_height) / 2.0)
+	root.add_child(card_wrapper)
+	var card := RetroWindow.shell(card_wrapper, Vector2(CARD_WIDTH, card_height))
 
-	var title := SoftBrutalist.label("FULL TIME", SoftBrutalist.SIZE_TITLE, SoftBrutalist.INK,
+	var title := SoftBrutalist.label("FULL TIME", SoftBrutalist.SIZE_TITLE, RetroWindow.BORDER,
 		SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_TITLE)
 	title.position = Vector2(32.0, HEADER_TOP)
 	card.add_child(title)
@@ -76,7 +90,7 @@ func _ready() -> void:
 	card.add_child(home_label)
 
 	var home_score := SoftBrutalist.numeric_label(MatchState.scoreline(Tuning.Team.HOME), SoftBrutalist.SIZE_TITLE,
-		SoftBrutalist.ACCENT_PRIMARY)
+		RetroWindow.ACCENT)
 	home_score.position = Vector2(32.0, SCORE_HOME_VALUE_TOP)
 	card.add_child(home_score)
 
@@ -86,26 +100,50 @@ func _ready() -> void:
 	card.add_child(away_label)
 
 	var away_score := SoftBrutalist.numeric_label(MatchState.scoreline(Tuning.Team.AWAY), SoftBrutalist.SIZE_TITLE,
-		SoftBrutalist.ACCENT_PRIMARY)
+		RetroWindow.ACCENT)
 	away_score.position = Vector2(32.0, SCORE_AWAY_VALUE_TOP)
 	card.add_child(away_score)
 
 	_build_stats(card)
 
-	var button_panel := Panel.new()
-	button_panel.add_theme_stylebox_override(&"panel", SoftBrutalist.button_style(&"hover"))
-	SoftBrutalist.soften(button_panel, SoftBrutalist.Elevation.LOW,
-		float(SoftBrutalist.RADIUS_SM))
-	button_panel.position = Vector2(32.0, button_top)
-	button_panel.size = Vector2(CARD_WIDTH - 64.0, BUTTON_HEIGHT)
-	card.add_child(button_panel)
+	# A real selectable row, not a button permanently stuck in its own
+	# "hover" StyleBox regardless of actual hover state (the bug this
+	# replaces) — shown selected by default since it's the only control on
+	# the screen, same "nothing else to lose focus to" reasoning
+	# pause_screen.gd's single-row case would also apply if it only had one
+	# row. Mouse hover and a click both still work; so does Enter/pause/A
+	# globally via _unhandled_input below.
+	_button_panel = Panel.new()
+	_button_panel.add_theme_stylebox_override(&"panel", RetroWindow.row_style(true))
+	_button_panel.position = Vector2(32.0, button_top)
+	_button_panel.size = Vector2(CARD_WIDTH - 64.0, BUTTON_HEIGHT)
+	_button_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_button_panel.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_button_panel.gui_input.connect(_on_button_gui_input)
+	card.add_child(_button_panel)
 
-	var button_label := SoftBrutalist.label("RETURN TO MENU", SoftBrutalist.SIZE_BODY, SoftBrutalist.INK,
+	_button_label = SoftBrutalist.label("RETURN TO MENU", SoftBrutalist.SIZE_BODY, RetroWindow.BORDER,
 		SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL)
-	button_label.set_anchors_preset(Control.PRESET_FULL_RECT)
-	button_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	button_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	button_panel.add_child(button_label)
+	_button_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_button_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_button_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_button_panel.add_child(_button_label)
+
+	# No control legend existed on this screen at all (ui_audit.md
+	# finding #2).
+	var hints := DeviceHintBar.new()
+	hints.position = Vector2(32.0, hint_top)
+	card.add_child(hints)
+	hints.set_hint_sets({
+		InputManager.Device.KEYBOARD: [{"keys": "Enter / Esc", "label": "Return to menu"}],
+		InputManager.Device.GAMEPAD: [{"keys": "A / B", "label": "Return to menu"}],
+	})
+
+
+func _on_button_gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed \
+			and event.button_index == MOUSE_BUTTON_LEFT:
+		_return_to_menu()
 
 
 ## HOME/AWAY column headers over four right-aligned value rows — the same

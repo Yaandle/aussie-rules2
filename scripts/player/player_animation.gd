@@ -122,13 +122,7 @@ func _ready() -> void:
 	_player.root_node = _player.get_path_to(_rig)
 	_tree.root_node = _tree.get_path_to(_rig)
 
-	# PLACEHOLDER: delete this line once real mocap clips are imported —
-	# HumanoidAnimations writes bone tracks against the same
-	# SkeletonProfileHumanoid-compatible names a real import would use, so
-	# swapping this call for an authored AnimationLibrary needs no other
-	# change here.
-	_player.add_animation_library(&"", HumanoidAnimations.build_library(
-		HumanoidRig.HIP_HEIGHT))
+	_player.add_animation_library(&"", _build_merged_library())
 
 	_tree.tree_root = _build_state_machine()
 	_tree.anim_player = _tree.get_path_to(_player)
@@ -208,6 +202,27 @@ func current_state() -> StringName:
 
 func blend_position() -> Vector2:
 	return _blend
+
+
+# ── Clip library ─────────────────────────────────────────────────────
+
+## Starts from HumanoidAnimations' generated set (always complete — every
+## BLEND_POINTS/ACTION_STATES name has an entry) and overrides individual
+## clips with whatever HumanoidRig pulled out of the imported model's own
+## AnimationPlayer (see humanoid_rig.gd's _extract_imported_animations),
+## keyed by the same clip names. A clip not yet authored in Blender keeps
+## its procedural fallback; nothing else here has to know which is which.
+func _build_merged_library() -> AnimationLibrary:
+	var library := HumanoidAnimations.build_library(HumanoidRig.HIP_HEIGHT)
+	var rig := _rig as HumanoidRig
+	if rig == null:
+		return library
+	for clip_name: String in rig.imported_animations():
+		var anim: Animation = rig.imported_animations()[clip_name]
+		if library.has_animation(clip_name):
+			library.remove_animation(clip_name)
+		library.add_animation(clip_name, anim)
+	return library
 
 
 # ── Graph construction ───────────────────────────────────────────────

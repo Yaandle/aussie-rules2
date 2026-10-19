@@ -28,6 +28,10 @@ extends Node
 ## Row order and content. `key` is the CharacterProfile/_stat_config
 ## field, or null for a flavour row that is displayed but not adjustable.
 ## `bar` is false for a stat that has no scale to be part-way along.
+##
+## Cosmetic *build* changes (muscle size etc.) are a later pass, once
+## there's a second body shape to vary — out of scope alongside the
+## colour-only Customise panel below (see CUSTOMISE_ROWS).
 const ATTRIBUTE_ROWS := [
 	{"key": "speed", "icon": &"speed", "name": "SPEED"},
 	{"key": null, "icon": &"jump", "name": "JUMPING"},
@@ -41,23 +45,68 @@ const ATTRIBUTE_ROWS := [
 
 ## Trailing interactive rows after the stat list, in order. The APPLY TO
 ## row cycles CharacterProfile.apply_all; PLAY commits + persists + launches.
-## MODEL (CharacterProfile.model_id — see _model_ids, built in _ready()
-## since HumanoidRig.CHARACTER_MODELS.keys() isn't a constant expression)
-## is a separate small switcher under the 3D preview instead of a row in
-## this list — see _build_model_switch().
+## Present in both ATTRIBUTE_ROWS and CUSTOMISE_ROWS modes — MODEL/colours
+## are drafted the same way a stat is, so leaving Customise shouldn't lose
+## an edit any more than leaving a stat row does.
 const APPLY_MODE_TEXT := {true: "ALL PLAYERS", false: "START PLAYER"}
 
-## Small MODEL switcher card, floating over the 3D preview rather than in
-## the stat list — centred under the previewed figure, in the preview's
+## CUSTOMISE / BACK toggle, floating over the 3D preview in the preview's
 ## own right-hand region (the stat card occupies CARD_LEFT..CARD_LEFT+
-## CARD_WIDTH on the left). Independent of the stat card's own fixed
-## geometry above, so it never risks pushing BUTTON_TOP/HINTS_TOP off the
-## bottom of the 720px design canvas the way adding a ninth stat row
-## would have.
-const MODEL_SWITCH_SIZE := Vector2(280.0, 76.0)
-const MODEL_SWITCH_PAD := 14.0
-const MODEL_SWITCH_POSITION := Vector2(821.0, 628.0)
-const MODEL_SWITCH_BUTTON := 28.0
+## CARD_WIDTH on the left) — the same ActionButton shape PLAY already
+## uses, so it inherits the one mouse-click mechanism already proven to
+## work on this screen rather than being its own one-off widget.
+const CUSTOMISE_BUTTON_POSITION := Vector2(860.0, 650.0)
+const CUSTOMISE_TEXT := "CUSTOMISE"
+const BACK_TEXT := "BACK"
+
+## Customise panel rows, shown instead of ATTRIBUTE_ROWS while
+## _customising is true — the MODEL row (existing CharacterProfile.
+## model_id machinery) plus four colour rows. `kind` picks how _nudge()/
+## _row_value_text() treat the row: "model" cycles _model_ids, "swatch"
+## cycles one of the SWATCHES lists below by name.
+const CUSTOMISE_ROWS := [
+	{"key": "model_id", "icon": &"figure", "name": "MODEL", "kind": "model", "bar": false},
+	{"key": "skin_color", "icon": &"swatch", "name": "SKIN", "kind": "swatch", "bar": false},
+	{"key": "jersey_color", "icon": &"swatch", "name": "JERSEY", "kind": "swatch", "bar": false},
+	{"key": "shorts_color", "icon": &"swatch", "name": "SHORTS", "kind": "swatch", "bar": false},
+	{"key": "boot_color", "icon": &"foot", "name": "SHOES", "kind": "swatch", "bar": false},
+]
+
+## Fixed swatch palettes for the "swatch"-kind CUSTOMISE_ROWS, by key. Only
+## ever visible on the procedural body — an imported model brings its own
+## baked materials (see humanoid_rig.gd's kit_* header note) and a swatch
+## here previews no change on one, same existing limitation kit_torso has.
+const SWATCHES := {
+	"skin_color": [
+		{"name": "FAIR", "color": Color("#ecc9a0")},
+		{"name": "LIGHT", "color": Color("#d9ae7e")},
+		{"name": "TAN", "color": Color("#b98655")},
+		{"name": "DEEP", "color": Color("#8a5a35")},
+		{"name": "DARK", "color": Color("#5c3a22")},
+	],
+	"jersey_color": [
+		{"name": "GOLD", "color": Color("#e9c95e")},
+		{"name": "CRIMSON", "color": Color("#c0392b")},
+		{"name": "BLUE", "color": Color("#2e5fa3")},
+		{"name": "GREEN", "color": Color("#2e7d4f")},
+		{"name": "PURPLE", "color": Color("#6a3d9a")},
+		{"name": "BLACK", "color": Color("#1c1a17")},
+		{"name": "WHITE", "color": Color("#f0ece0")},
+	],
+	"shorts_color": [
+		{"name": "CHARCOAL", "color": Color("#2a2c33")},
+		{"name": "BLACK", "color": Color("#1c1a17")},
+		{"name": "WHITE", "color": Color("#f0ece0")},
+		{"name": "NAVY", "color": Color("#1f2d4a")},
+		{"name": "CRIMSON", "color": Color("#c0392b")},
+	],
+	"boot_color": [
+		{"name": "BLACK", "color": Color("#22241d")},
+		{"name": "WHITE", "color": Color("#f0ece0")},
+		{"name": "CRIMSON", "color": Color("#c0392b")},
+		{"name": "GOLD", "color": Color("#e9c95e")},
+	],
+}
 
 const TITLE := "PLAYER PROFILE"
 const SUBTITLE := "CUSTOMISE YOUR CHARACTER"
@@ -98,24 +147,20 @@ const HINTS_TOP := CARD_TOP + CARD_HEIGHT + RetroWindow.SHADOW_OFFSET.y + 6.0
 ## relying on cross-script const-folding.
 var _stat_config := {}
 
-## Control-legend text, keyed by InputManager.Device. Only the keyboard
-## set is settled — the Xbox bindings are being defined separately, so
-## the controller legend is one more entry in here and nothing else:
-## `_apply_hints()` already runs on `device_changed`, and KeyHintBar takes
-## whatever strings it is handed. Until that entry exists a plugged-in
-## pad shows the keyboard legend, which is what every other screen in the
-## project does today.
-var _hint_sets := {}
-
 var _draft := {}
 var _rows: Array[StatRow] = []
 var _model_ids: Array[String] = ["procedural"]   ## + HumanoidRig.CHARACTER_MODELS.keys(), in _ready()
-var _model_label: Label          ## MODEL switch value text — see _build_model_switch()
 var _apply_row: StatRow          ## APPLY TO toggle, at index _apply_index()
 var _play: ActionButton
-var _hints: KeyHintBar
+var _customise_button: ActionButton
+var _hints: DeviceHintBar
 var _selected := 0
 var _busy := false   ## true while a wipe is in flight — input is inert
+
+## Customise panel open/closed — picks ATTRIBUTE_ROWS vs CUSTOMISE_ROWS
+## for every row-list method below (_row_count/_nudge/_refresh/…), and
+## which half of the 3D preview's zoom the backdrop currently sits at.
+var _customising := false
 
 
 func _ready() -> void:
@@ -141,19 +186,14 @@ func _ready() -> void:
 		"agility": CharacterProfile.agility,
 		"apply_all": CharacterProfile.apply_all,
 		"model_id": CharacterProfile.model_id,
+		"skin_color": CharacterProfile.skin_color,
+		"jersey_color": CharacterProfile.jersey_color,
+		"shorts_color": CharacterProfile.shorts_color,
+		"boot_color": CharacterProfile.boot_color,
 	}
-	_hint_sets = {
-		InputManager.Device.KEYBOARD: [
-			{"keys": "W / S", "label": "Select"},
-			{"keys": "A / D", "label": "Adjust"},
-			{"keys": "Enter", "label": "Play"},
-			{"keys": "B / Esc / C", "label": "Back"},
-		],
-	}
-
 	_build()
-	InputManager.device_changed.connect(_on_device_changed)
 	_backdrop.set_height_scale(_draft["height"] / Tuning.CHARACTER_HEIGHT_DEFAULT)
+	_apply_kit_preview()
 	_refresh()
 
 
@@ -175,18 +215,25 @@ func _unhandled_input(event: InputEvent) -> void:
 		_exit_to_menu()
 
 
+## ATTRIBUTE_ROWS normally, CUSTOMISE_ROWS while the Customise panel is
+## open — every row-list method below reads this instead of ATTRIBUTE_ROWS
+## directly, so the two panels share one cursor/nudge/refresh path.
+func _active_rows() -> Array:
+	return CUSTOMISE_ROWS if _customising else ATTRIBUTE_ROWS
+
+
 ## Index of the APPLY TO toggle row, then the PLAY row, in the up/down list
 ## that runs past the stat rows.
 func _apply_index() -> int:
-	return ATTRIBUTE_ROWS.size()
+	return _active_rows().size()
 
 
 func _play_index() -> int:
-	return ATTRIBUTE_ROWS.size() + 1
+	return _active_rows().size() + 1
 
 
 func _row_count() -> int:
-	return ATTRIBUTE_ROWS.size() + 2   # + the APPLY TO toggle and the PLAY action row
+	return _active_rows().size() + 2   # + the APPLY TO toggle and the PLAY action row
 
 
 func _move(step: int) -> void:
@@ -200,18 +247,26 @@ func _nudge(direction: int) -> void:
 		_draft["apply_all"] = not _draft["apply_all"]
 		_refresh()
 		return
-	if _selected >= ATTRIBUTE_ROWS.size():
+	var rows := _active_rows()
+	if _selected >= rows.size():
 		return
-	var row: Dictionary = ATTRIBUTE_ROWS[_selected]
-	var key = row["key"]
-	if key == null:
-		return
-	var config: Dictionary = _stat_config[key]
-	_draft[key] = clampf(_draft[key] + direction * float(config["step"]),
-		float(config["min"]), float(config["max"]))
-	if key == "height":
-		_backdrop.set_height_scale(_draft["height"] / Tuning.CHARACTER_HEIGHT_DEFAULT)
-	_refresh()
+	var row: Dictionary = rows[_selected]
+	match row.get("kind", "stat"):
+		"model":
+			_cycle_model(direction)
+		"swatch":
+			_cycle_swatch(row["key"], direction)
+			_refresh()
+		_:
+			var key = row["key"]
+			if key == null:
+				return
+			var config: Dictionary = _stat_config[key]
+			_draft[key] = clampf(_draft[key] + direction * float(config["step"]),
+				float(config["min"]), float(config["max"]))
+			if key == "height":
+				_backdrop.set_height_scale(_draft["height"] / Tuning.CHARACTER_HEIGHT_DEFAULT)
+			_refresh()
 
 
 func _activate() -> void:
@@ -231,7 +286,49 @@ func _cycle_model(direction: int) -> void:
 	idx = (idx + direction + _model_ids.size()) % _model_ids.size()
 	_draft["model_id"] = _model_ids[idx]
 	_backdrop.set_model(_draft["model_id"])
+	_apply_kit_preview()   # set_model() rebuilt the rig — reapply the kit draft to it
 	_refresh()
+
+
+## Index of `key`'s current draft colour within SWATCHES[key] — 0 (the
+## palette's first entry) if the draft is unset or names something that
+## isn't in the fixed list, same "fall back to a safe default" spirit
+## CharacterProfile._load_hex() already has for a stale file.
+func _swatch_index(key: String) -> int:
+	var hex: String = _draft[key]
+	if hex.is_empty():
+		return 0
+	var palette: Array = SWATCHES[key]
+	for i in palette.size():
+		if ("#" + (palette[i]["color"] as Color).to_html(false)).to_lower() == hex.to_lower():
+			return i
+	return 0
+
+
+## Steps `key`'s draft colour through its fixed SWATCHES list and
+## live-previews the result — the "swatch" row's equivalent of
+## _cycle_model() above.
+func _cycle_swatch(key: String, direction: int) -> void:
+	var palette: Array = SWATCHES[key]
+	var idx := (_swatch_index(key) + direction + palette.size()) % palette.size()
+	_draft[key] = "#" + (palette[idx]["color"] as Color).to_html(false)
+	_apply_kit_preview()
+
+
+## "" (unset) resolves to alpha 0, which HumanoidRig/CharacterBackdrop
+## both already treat as "use the built-in default" — see their kit_*
+## header notes.
+func _resolved_kit_color(key: String) -> Color:
+	var hex: String = _draft[key]
+	return Color(hex) if not hex.is_empty() else Color(0.0, 0.0, 0.0, 0.0)
+
+
+func _apply_kit_preview() -> void:
+	_backdrop.set_kit_colors(
+		_resolved_kit_color("skin_color"),
+		_resolved_kit_color("jersey_color"),
+		_resolved_kit_color("shorts_color"),
+		_resolved_kit_color("boot_color"))
 
 
 ## Copy the whole draft onto CharacterProfile and persist it. Shared by
@@ -245,6 +342,10 @@ func _commit_draft() -> void:
 	CharacterProfile.agility = _draft["agility"]
 	CharacterProfile.apply_all = _draft["apply_all"]
 	CharacterProfile.model_id = _draft["model_id"]
+	CharacterProfile.skin_color = _draft["skin_color"]
+	CharacterProfile.jersey_color = _draft["jersey_color"]
+	CharacterProfile.shorts_color = _draft["shorts_color"]
+	CharacterProfile.boot_color = _draft["boot_color"]
 	CharacterProfile.save()
 
 
@@ -320,83 +421,83 @@ func _build() -> void:
 	_play.position = Vector2(CARD_PAD, BUTTON_TOP - CARD_TOP)
 	card_panel.add_child(_play)
 
-	_hints = KeyHintBar.new()
+	_hints = DeviceHintBar.new()
 	_hints.position = Vector2(LEFT_MARGIN, HINTS_TOP)
 	_ui.add_child(_hints)
-	_apply_hints()
+	_hints.set_hint_sets({
+		InputManager.Device.KEYBOARD: [
+			{"keys": "W / S", "label": "Select"},
+			{"keys": "A / D", "label": "Adjust"},
+			{"keys": "Enter", "label": "Play"},
+			{"keys": "B / Esc / C", "label": "Back"},
+		],
+		InputManager.Device.GAMEPAD: [
+			{"keys": "D-Pad ↕", "label": "Select"},
+			{"keys": "D-Pad ↔", "label": "Adjust"},
+			{"keys": "A", "label": "Play"},
+			{"keys": "B", "label": "Back"},
+		],
+	})
 
-	_build_model_switch()
-
-
-## Small floating card under the 3D preview: ‹ MODEL name › — click either
-## arrow to step through _model_ids and live-preview the result on
-## _backdrop (see _cycle_model). Mouse-only; unlike the stat rows this
-## isn't part of the keyboard up/down list, so it has no selection state.
-func _build_model_switch() -> void:
-	var inner := RetroWindow.card(_ui, MODEL_SWITCH_SIZE, MODEL_SWITCH_PAD)
-	var wrapper := inner.get_parent().get_parent() as Control
-	wrapper.position = MODEL_SWITCH_POSITION
-
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override(&"separation", 10)
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	inner.add_child(row)
-
-	var prev_btn := _make_switch_button("<")
-	prev_btn.pressed.connect(func() -> void: _cycle_model(-1))
-	row.add_child(prev_btn)
-
-	var mid := VBoxContainer.new()
-	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	mid.alignment = BoxContainer.ALIGNMENT_CENTER
-	mid.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(mid)
-
-	var caption := UIStyle.label("MODEL", UIStyle.SIZE_HINT, UIStyle.TEXT_MUTED,
-		UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL)
-	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	mid.add_child(caption)
-
-	_model_label = UIStyle.label("", UIStyle.SIZE_LABEL, UIStyle.TEXT_PRIMARY, UIStyle.WEIGHT_BOLD)
-	_model_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	mid.add_child(_model_label)
-
-	var next_btn := _make_switch_button(">")
-	next_btn.pressed.connect(func() -> void: _cycle_model(1))
-	row.add_child(next_btn)
-
-	_model_label.text = (_draft["model_id"] as String).to_upper()
+	_build_customise_button()
+	_apply_row_mode()
 
 
-## Square retro-styled arrow button for the MODEL switcher — sharp corners,
-## near-black border, accent fill while pressed, same palette as the retro
-## card shell but a one-off stylebox rather than a shared helper since
-## nothing else on this screen needs a button this small.
-func _make_switch_button(text: String) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.custom_minimum_size = Vector2(MODEL_SWITCH_BUTTON, MODEL_SWITCH_BUTTON)
-	b.focus_mode = Control.FOCUS_NONE
+## CUSTOMISE / BACK toggle — the only mouse-interactive thing outside the
+## card besides PLAY, built the exact same way (an ActionButton with its
+## mouse_filter explicitly set to STOP and gui_input connected directly)
+## rather than as its own one-off Button, since that's the one mechanism
+## already proven to take a click on this screen.
+func _build_customise_button() -> void:
+	_customise_button = ActionButton.new(CUSTOMISE_TEXT)
+	_customise_button.set_icon(&"gear")
+	_customise_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	_customise_button.gui_input.connect(_on_customise_gui_input)
+	_customise_button.position = CUSTOMISE_BUTTON_POSITION
+	_ui.add_child(_customise_button)
 
-	var normal := StyleBoxFlat.new()
-	normal.bg_color = RetroWindow.PANEL.darkened(0.05)
-	normal.border_color = RetroWindow.BORDER
-	normal.set_border_width_all(2)
-	var pressed := StyleBoxFlat.new()
-	pressed.bg_color = RetroWindow.ACCENT
-	pressed.border_color = RetroWindow.BORDER
-	pressed.set_border_width_all(2)
-	b.add_theme_stylebox_override(&"normal", normal)
-	b.add_theme_stylebox_override(&"hover", normal)
-	b.add_theme_stylebox_override(&"pressed", pressed)
-	b.add_theme_stylebox_override(&"hover_pressed", pressed)
-	b.add_theme_stylebox_override(&"focus", StyleBoxEmpty.new())
-	b.add_theme_font_size_override(&"font_size", UIStyle.SIZE_LABEL)
-	b.add_theme_color_override(&"font_color", UIStyle.TEXT_PRIMARY)
-	b.add_theme_color_override(&"font_hover_color", UIStyle.TEXT_PRIMARY)
-	b.add_theme_color_override(&"font_pressed_color", Color.BLACK)
-	b.add_theme_color_override(&"font_hover_pressed_color", Color.BLACK)
-	return b
+
+func _on_customise_gui_input(event: InputEvent) -> void:
+	if _busy:
+		return
+	if event is InputEventMouseButton and event.pressed \
+			and event.button_index == MOUSE_BUTTON_LEFT:
+		_toggle_customise()
+
+
+## Swaps the stat card between ATTRIBUTE_ROWS and CUSTOMISE_ROWS and eases
+## the 3D preview camera in/out to match (see CharacterBackdrop.zoom_in/
+## zoom_out). The cursor resets to row 0 of whichever list just became
+## active rather than carrying over an index that may now point at a
+## differently-kinded row.
+func _toggle_customise() -> void:
+	_customising = not _customising
+	_customise_button.set_text(BACK_TEXT if _customising else CUSTOMISE_TEXT)
+	_customise_button.set_icon(&"arrow_right" if _customising else &"gear")
+	if _customising:
+		_backdrop.zoom_in()
+	else:
+		_backdrop.zoom_out()
+	_selected = 0
+	_apply_row_mode()
+	_refresh()
+
+
+## Reconfigures the shared pool of StatRow nodes (built once in _build()
+## from ATTRIBUTE_ROWS, the longer of the two lists) to show whichever
+## list _active_rows() currently returns, hiding whatever's left over —
+## CUSTOMISE_ROWS is shorter, so the last few rows just go invisible
+## rather than needing a second pool of nodes.
+func _apply_row_mode() -> void:
+	var rows := _active_rows()
+	for i in _rows.size():
+		if i < rows.size():
+			var entry: Dictionary = rows[i]
+			_rows[i].configure(entry["icon"], entry["name"], entry["key"] == null,
+				entry.get("bar", true))
+			_rows[i].visible = true
+		else:
+			_rows[i].visible = false
 
 
 func _on_play_gui_input(event: InputEvent) -> void:
@@ -408,24 +509,13 @@ func _on_play_gui_input(event: InputEvent) -> void:
 		_confirm_and_play()
 
 
-func _on_device_changed(_device: int) -> void:
-	_apply_hints()
-
-
-func _apply_hints() -> void:
-	var keyboard: Array = _hint_sets[InputManager.Device.KEYBOARD]
-	_hints.set_hints(_hint_sets.get(InputManager.device, keyboard))
-
-
 # ── Refresh ──────────────────────────────────────────────────────────
 
 func _refresh() -> void:
-	for i in _rows.size():
-		var entry: Dictionary = ATTRIBUTE_ROWS[i]
-		_rows[i].set_state(i == _selected, _filled_segments(entry["key"]),
-			_value_text(entry["key"]))
-	if _model_label != null:
-		_model_label.text = (_draft["model_id"] as String).to_upper()
+	var rows := _active_rows()
+	for i in rows.size():
+		var entry: Dictionary = rows[i]
+		_rows[i].set_state(i == _selected, _filled_segments(entry), _row_value_text(entry))
 	_apply_row.set_state(_selected == _apply_index(), 0,
 		APPLY_MODE_TEXT[_draft["apply_all"]])
 	_play.set_selected(_selected == _play_index())
@@ -434,9 +524,12 @@ func _refresh() -> void:
 ## Where the stat sits between its own min and max, quantised to the
 ## row's squares. A locked row has no backing stat yet, so it reads zero
 ## — the bar is not hidden and not faked, it just has nothing to show
-## until something in CharacterProfile drives it.
-func _filled_segments(key) -> int:
-	if key == null:
+## until something in CharacterProfile drives it. MODEL/swatch rows never
+## show a bar at all (see CUSTOMISE_ROWS' "bar": false), so this is moot
+## for them, but stays null-safe either way.
+func _filled_segments(entry: Dictionary) -> int:
+	var key = entry["key"]
+	if key == null or entry.has("kind"):
 		return 0
 	var config: Dictionary = _stat_config[key]
 	var vmin := float(config["min"])
@@ -447,15 +540,23 @@ func _filled_segments(key) -> int:
 	return int(round(fraction * StatRow.SEGMENTS))
 
 
-## Empty for the locked rows: they have no assigned number, and a "—"
-## placeholder would just be noise in a column that is otherwise all
-## real readings.
-func _value_text(key) -> String:
+## Empty for the locked attribute rows: they have no assigned number, and
+## a "—" placeholder would just be noise in a column that is otherwise
+## all real readings. MODEL/swatch rows read their current draft choice's
+## display name instead of a formatted number.
+func _row_value_text(entry: Dictionary) -> String:
+	var key = entry["key"]
 	if key == null:
 		return ""
-	var config: Dictionary = _stat_config[key]
-	var value: float = _draft[key]
-	# kick_accuracy is stored 0..1 and shown as a percentage; everything
-	# else is already in its display unit.
-	var display_value := value * 100.0 if key == "kick_accuracy" else value
-	return (config["format"] as String) % display_value
+	match entry.get("kind", "stat"):
+		"model":
+			return (_draft[key] as String).to_upper()
+		"swatch":
+			return SWATCHES[key][_swatch_index(key)]["name"]
+		_:
+			var config: Dictionary = _stat_config[key]
+			var value: float = _draft[key]
+			# kick_accuracy is stored 0..1 and shown as a percentage;
+			# everything else is already in its display unit.
+			var display_value := value * 100.0 if key == "kick_accuracy" else value
+			return (config["format"] as String) % display_value

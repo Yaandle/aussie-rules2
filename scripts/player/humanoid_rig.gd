@@ -114,6 +114,11 @@ const COLOUR_TREAD := Color("#141513")
 @export var kit_torso := Color(0.0, 0.0, 0.0, 0.0)
 @export var kit_shorts := Color(0.0, 0.0, 0.0, 0.0)
 
+## Same alpha-0-means-unset contract as kit_torso/kit_shorts, for the
+## CHARACTER screen's Customise skin/boot colour rows.
+@export var kit_skin := Color(0.0, 0.0, 0.0, 0.0)
+@export var kit_boot := Color(0.0, 0.0, 0.0, 0.0)
+
 ## Vertical stripes across the torso, for the boundary umpire's black and
 ## white uniform (rulebook §10). 0 = none, which is every player. Each is
 ## one thin box slightly deeper than the chest itself, so a single mesh
@@ -143,6 +148,7 @@ const DETAIL_SCALE := 2.4
 ## so adding a new skin is just a new entry here plus the file on disk.
 const CHARACTER_MODELS := {
 	"fifthbuild": "res://assets/characters/fifthbuild.glb",
+	"6thbuild": "res://assets/characters/6thbuild.glb",
 }
 
 ## Set false by callers whose kit_* colour overrides only work on the
@@ -194,6 +200,13 @@ const BONES := [
 var _materials := {}
 var _skeleton: Skeleton3D
 
+## clip name -> Animation, pulled from the imported scene's own AnimationPlayer
+## (if any) before it's discarded — see _extract_imported_animations(). Empty
+## on the procedural path. PlayerAnimation reads this to override matching
+## entries in HumanoidAnimations' generated library with real Blender-authored
+## clips, falling back to the generated ones for every name not present here.
+var _imported_animations := {}
+
 
 func _ready() -> void:
 	_build()
@@ -201,6 +214,10 @@ func _ready() -> void:
 
 func skeleton() -> Skeleton3D:
 	return _skeleton
+
+
+func imported_animations() -> Dictionary:
+	return _imported_animations
 
 
 ## True once an imported Blender character replaced the primitives below —
@@ -230,6 +247,8 @@ func _build() -> void:
 	if kit_torso.a > 0.0:
 		guernsey = kit_torso
 	var shorts := kit_shorts if kit_shorts.a > 0.0 else COLOUR_SHORTS
+	var skin := kit_skin if kit_skin.a > 0.0 else COLOUR_SKIN
+	var boot := kit_boot if kit_boot.a > 0.0 else COLOUR_BOOT
 
 	_skeleton = Skeleton3D.new()
 	_skeleton.name = "Skeleton3D"
@@ -268,7 +287,7 @@ func _build() -> void:
 		_box_on("Chest", "SidePanel" + ("L" if panel_side < 0 else "R"),
 			Vector3(0.045, 0.34, 0.20), Vector3(0.17 * panel_side, -0.07, 0.0), COLOUR_TRIM, 0.55)
 
-	_sphere_on("Head", "Head_Mesh", 0.115, Vector3.ZERO, COLOUR_SKIN, 16, 10)
+	_sphere_on("Head", "Head_Mesh", 0.115, Vector3.ZERO, skin, 16, 10)
 	var hair := _sphere_on("Head", "Hair", 0.125, Vector3(0.0, 0.035, -0.012), COLOUR_HAIR, 16, 10)
 	hair.scale = Vector3(1.0, 0.85, 1.0)
 
@@ -281,15 +300,15 @@ func _build() -> void:
 	for side: int in [-1, 1]:
 		var suffix := "L" if side < 0 else "R"
 		_capsule_on("UpperArm" + suffix, "UpperArm" + suffix, 0.055, UPPER_ARM_LENGTH,
-			Vector3(0.0, -UPPER_ARM_LENGTH * 0.5, 0.0), COLOUR_SKIN)
+			Vector3(0.0, -UPPER_ARM_LENGTH * 0.5, 0.0), skin)
 		_capsule_on("LowerArm" + suffix, "Forearm" + suffix, 0.048, FOREARM_LENGTH,
-			Vector3(0.0, -FOREARM_LENGTH * 0.5, 0.0), COLOUR_SKIN)
+			Vector3(0.0, -FOREARM_LENGTH * 0.5, 0.0), skin)
 		# A small capped end at the wrist — cheap (one more low-poly
 		# sphere per arm) but the forearm capsule used to just stop dead
 		# in empty air past the elbow, which read as an amputee at any
 		# distance closer than broadcast.
 		_sphere_on("LowerArm" + suffix, "Hand" + suffix, 0.045,
-			Vector3(0.0, -FOREARM_LENGTH - 0.02, 0.0), COLOUR_SKIN)
+			Vector3(0.0, -FOREARM_LENGTH - 0.02, 0.0), skin)
 		# A pair of bunched-finger blocks past the hand sphere, same
 		# reasoning as the wrist cap above (an open palm past the wrist
 		# with nothing beyond it reads as a mitt at close range) — two
@@ -298,14 +317,14 @@ func _build() -> void:
 		for finger_x in [-0.014, 0.014]:
 			_box_on("LowerArm" + suffix, "Fingers" + suffix + ("A" if finger_x < 0 else "B"),
 				Vector3(0.024, 0.05, 0.03),
-				Vector3(finger_x, -FOREARM_LENGTH - 0.075, 0.006), COLOUR_SKIN)
+				Vector3(finger_x, -FOREARM_LENGTH - 0.075, 0.006), skin)
 
 		_capsule_on("UpperLeg" + suffix, "Thigh" + suffix, 0.085, THIGH_LENGTH,
-			Vector3(0.0, -THIGH_LENGTH * 0.5, 0.0), COLOUR_SKIN)
+			Vector3(0.0, -THIGH_LENGTH * 0.5, 0.0), skin)
 		_capsule_on("LowerLeg" + suffix, "Shin" + suffix, 0.062, SHIN_LENGTH,
 			Vector3(0.0, -SHIN_LENGTH * 0.5, 0.0), COLOUR_TRIM)
 		_box_on("Foot" + suffix, "Boot" + suffix, Vector3(0.10, 0.07, 0.26),
-			Vector3(0.0, -0.035, -0.06), COLOUR_BOOT)
+			Vector3(0.0, -0.035, -0.06), boot)
 		# Tread: a wider, flush-with-the-sole slab (bottom edge lines up
 		# exactly with the Boot box's own -0.07 bottom, not below it —
 		# player_animation.gd's ground-clamp IK reads that exact number as
@@ -342,6 +361,13 @@ func _try_build_from_import() -> bool:
 		push_error("HumanoidRig: " + model_path + " has no Skeleton3D")
 		imported.queue_free()
 		return false
+
+	# Before any reparenting below touches the tree, pull out whatever clips
+	# Godot's glTF importer already generated from the .blend's own actions
+	# (tools/blender/export_fifthbuild.py bakes these with bone names matching
+	# BONES below) — the AnimationPlayer itself is discarded either way, only
+	# PlayerAnimation's own _player plays anything.
+	_imported_animations = _extract_imported_animations(imported)
 
 	if found == imported:
 		# Imported scene's own root IS the Skeleton3D (Blender's Armature
@@ -390,6 +416,54 @@ func _find_skeleton(node: Node) -> Skeleton3D:
 		if found != null:
 			return found
 	return null
+
+
+func _find_animation_player(node: Node) -> AnimationPlayer:
+	if node is AnimationPlayer:
+		return node
+	for child in node.get_children():
+		var found := _find_animation_player(child)
+		if found != null:
+			return found
+	return null
+
+
+## Flattens every library on the imported scene's AnimationPlayer into one
+## name -> Animation dict and detaches the player itself (removed from the
+## tree immediately, not just queued, so it can't ride along with whichever
+## sibling the caller reparents next) — the Animation resources themselves
+## are plain RefCounted data, so they stay valid via this dict's own
+## references after the player/scene they came from is freed.
+func _extract_imported_animations(imported: Node) -> Dictionary:
+	var out := {}
+	var player := _find_animation_player(imported)
+	if player == null:
+		return out
+	for lib_name in player.get_animation_library_list():
+		var lib := player.get_animation_library(lib_name)
+		for anim_name in lib.get_animation_list():
+			var anim := lib.get_animation(anim_name)
+			_retarget_tracks_to_skeleton(anim)
+			out[String(anim_name)] = anim
+	var player_parent := player.get_parent()
+	if player_parent != null:
+		player_parent.remove_child(player)
+	player.queue_free()
+	return out
+
+
+## glTF import gives every bone track a path like "Armature/Skeleton3D:Hips" —
+## relative to the imported scene's OWN root, one level above the skeleton.
+## _try_build_from_import() always hoists the skeleton to be a direct child
+## named "Skeleton3D" of this rig, so every track needs to end up reading
+## just "Skeleton3D:Hips" (PlayerAnimation's AnimationPlayer.root_node is the
+## rig itself) regardless of whatever node path the source scene happened to
+## nest it under — only the bone name (the path's subname) is ever real
+## here, so that's all this keeps.
+func _retarget_tracks_to_skeleton(anim: Animation) -> void:
+	for i in anim.get_track_count():
+		var bone_name := anim.track_get_path(i).get_concatenated_subnames()
+		anim.track_set_path(i, NodePath("Skeleton3D:" + String(bone_name)))
 
 
 # ── Construction helpers ─────────────────────────────────────────────

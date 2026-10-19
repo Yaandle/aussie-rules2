@@ -19,9 +19,17 @@ extends CanvasLayer
 signal resumed
 
 const CARD_WIDTH := 420.0
-const CARD_HEIGHT := 280.0
 const ROW_HEIGHT := 64.0
 const ROW_GAP := 16.0
+const HINT_HEIGHT := 28.0
+const CARD_TOP_MARGIN := 100.0
+const CARD_BOTTOM_MARGIN := 32.0
+## Derived from content (rows + the hint bar now under them) rather than a
+## fixed constant, same reason settings_screen.gd/remap_screen.gd compute
+## their own card_height — a hand-picked number drifts the moment a row is
+## added or removed.
+const CARD_HEIGHT := CARD_TOP_MARGIN + 2.0 * (ROW_HEIGHT + ROW_GAP) + HINT_HEIGHT \
+	+ CARD_BOTTOM_MARGIN
 
 class Row:
 	var title: String
@@ -38,9 +46,17 @@ var _busy := false
 
 var _row_panels: Array[Panel] = []
 var _row_labels: Array[Label] = []
+var _hints: DeviceHintBar
 
 
 func _ready() -> void:
+	# Topmost of every CanvasLayer this project draws (DebugHud/MarkPrompt/
+	# KickCrosshair/ControlledPlayerRing's own key-hint chips etc. all sit
+	# at single-digit layers) — a pause overlay that something else could
+	# still draw over would be a worse bug than the ring-through-pause
+	# report this is also half of the fix for (ControlledPlayerRing's own
+	# move to real 3D geometry is the other half).
+	layer = 100
 	_rows = [
 		Row.new("RESUME", resume),
 		Row.new("QUIT TO MENU", _quit_to_menu),
@@ -67,7 +83,7 @@ func _ready() -> void:
 	title.position = Vector2(32.0, 32.0)
 	card.add_child(title)
 
-	var top := 100.0
+	var top := CARD_TOP_MARGIN
 	for i in _rows.size():
 		var row := _rows[i]
 		var panel := Panel.new()
@@ -89,6 +105,25 @@ func _ready() -> void:
 		_row_labels.append(label)
 
 		top += ROW_HEIGHT + ROW_GAP
+
+	# No control legend existed on this screen at all (ui_audit.md
+	# finding #2) — RESUME/QUIT already had full keyboard/gamepad/mouse
+	# support via the row cursor above, nothing on screen just said so.
+	_hints = DeviceHintBar.new()
+	_hints.position = Vector2(32.0, top + 8.0)
+	card.add_child(_hints)
+	_hints.set_hint_sets({
+		InputManager.Device.KEYBOARD: [
+			{"keys": "↑ / ↓", "label": "Select"},
+			{"keys": "Enter", "label": "Confirm"},
+			{"keys": "Esc", "label": "Resume"},
+		],
+		InputManager.Device.GAMEPAD: [
+			{"keys": "D-Pad ↕", "label": "Select"},
+			{"keys": "A", "label": "Confirm"},
+			{"keys": "Start", "label": "Resume"},
+		],
+	})
 
 	_refresh()
 
@@ -146,7 +181,7 @@ func resume() -> void:
 		resumed.emit()
 		queue_free()
 		return
-	SceneWipe.change_scene("res://scenes/ui/main_menu.tscn")
+	SceneWipe.change_scene(_quit_destination())
 
 
 func _quit_to_menu() -> void:
@@ -154,7 +189,21 @@ func _quit_to_menu() -> void:
 		return
 	_busy = true
 	get_tree().paused = false
-	SceneWipe.change_scene("res://scenes/ui/main_menu.tscn")
+	SceneWipe.change_scene(_quit_destination())
+
+
+## QUIT TO MENU from a Career match goes back to the Dashboard, not the
+## main menu — the fixture's still there to replay (quitting doesn't
+## count as a loss or advance the season, see CareerProfile.record_
+## result()'s own call sites). Clears GameState.career_active either
+## way: we're leaving the match context regardless of destination, same
+## as career_match_end_screen.gd's RETURN TO MENU already does on the
+## full-time path.
+func _quit_destination() -> String:
+	var destination := "res://scenes/ui/career_dashboard_screen.tscn" if GameState.career_active \
+		else "res://scenes/ui/main_menu.tscn"
+	GameState.career_active = false
+	return destination
 
 
 func _refresh() -> void:

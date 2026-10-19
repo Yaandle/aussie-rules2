@@ -132,3 +132,12 @@ func wants_hit_out() -> bool:
 ## method, since it's a raw device gesture rather than a per-player intent.
 func wants_bump_stance() -> bool:
 	return false
+
+
+## Edge-triggered: true for the one frame a set shot for goal should be
+## lined up (within Tuning.GOAL_SET_SHOT_MAX_DISTANCE of goal, still under
+## mark/free-kick protection) — see PlayerController._update_charge. AI has
+## its own goal-shot decision in AIBrain's carrying logic, so this stays
+## false there same as every other human-only want above.
+func wants_goal_set_shot() -> bool:
+	return false

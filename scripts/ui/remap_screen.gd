@@ -59,7 +59,7 @@ var _busy := false
 
 var _row_panels: Array[Panel] = []
 var _key_labels: Array[Label] = []
-var _hint_label: Label
+var _hints: DeviceHintBar
 
 
 func _ready() -> void:
@@ -71,6 +71,17 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _busy:
 		return
 	if _listening:
+		# A gamepad has no keyboard key to offer as the new binding, and
+		# _handle_listen_input() below only ever reacts to InputEventKey —
+		# so without this, a controller-only player who opened listening mode
+		# had no way out of it at all (ui_audit.md finding #3: this screen's
+		# own documented "any key ends listening" rule only covered
+		# keyboard). Any joypad button cancels rather than just B, since no
+		# button here could ever be mistaken for "the key I meant to bind."
+		if event is InputEventJoypadButton and (event as InputEventJoypadButton).pressed:
+			_listening = false
+			_refresh()
+			return
 		_handle_listen_input(event)
 		return
 	if event.is_action_pressed(&"pause") or event.is_action_pressed(&"ui_cancel") \
@@ -186,10 +197,9 @@ func _build() -> void:
 		var y := rows_top + float(row_in_column) * (ROW_HEIGHT + ROW_GAP)
 		_build_row(card, i, Vector2(x, y))
 
-	_hint_label = SoftBrutalist.label("", SoftBrutalist.SIZE_CAPTION, SoftBrutalist.MUTED,
-		SoftBrutalist.WEIGHT_REGULAR, SoftBrutalist.TRACK_LABEL)
-	_hint_label.position = Vector2(CARD_MARGIN, card_height - CARD_MARGIN - HINT_HEIGHT + 4.0)
-	card.add_child(_hint_label)
+	_hints = DeviceHintBar.new()
+	_hints.position = Vector2(CARD_MARGIN, card_height - CARD_MARGIN - HINT_HEIGHT + 4.0)
+	card.add_child(_hints)
 
 
 func _build_row(card: Panel, index: int, pos: Vector2) -> void:
@@ -231,8 +241,32 @@ func _refresh() -> void:
 			_key_labels[i].text = _key_display_name(action)
 			_key_labels[i].add_theme_color_override(&"font_color", RetroWindow.BORDER)
 
-	_hint_label.text = "ESC CANCEL · SELECTED KEY REPLACES ANY OTHER ACTION USING IT" if _listening \
-		else "↑/↓ SELECT · ←/→ SWITCH COLUMN · ENTER REBIND · ESC BACK"
+	if _listening:
+		_hints.set_hint_sets({
+			InputManager.Device.KEYBOARD: [
+				{"keys": "Any key", "label": "Set binding"},
+				{"keys": "Esc", "label": "Cancel"},
+			],
+			InputManager.Device.GAMEPAD: [
+				{"keys": "—", "label": "Needs a keyboard to set a key"},
+				{"keys": "Any button", "label": "Cancel"},
+			],
+		})
+	else:
+		_hints.set_hint_sets({
+			InputManager.Device.KEYBOARD: [
+				{"keys": "↑ / ↓", "label": "Select"},
+				{"keys": "← / →", "label": "Switch column"},
+				{"keys": "Enter", "label": "Rebind"},
+				{"keys": "Esc", "label": "Back"},
+			],
+			InputManager.Device.GAMEPAD: [
+				{"keys": "D-Pad ↕", "label": "Select"},
+				{"keys": "D-Pad ↔", "label": "Switch column"},
+				{"keys": "A", "label": "Rebind (keyboard key)"},
+				{"keys": "B", "label": "Back"},
+			],
+		})
 
 
 func _key_display_name(action: StringName) -> String:

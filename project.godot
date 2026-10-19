@@ -12,6 +12,7 @@ config_version=5
 
 config/name="Aussie Rules 2"
 config/description="Realistic-leaning 3D Aussie Rules football. Physical resolution, controller-first."
+config/version="1.2.0"
 run/main_scene="res://scenes/ui/main_menu.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
@@ -23,6 +24,7 @@ GameState="*res://scripts/autoload/game_state.gd"
 ControlMode="*res://scripts/autoload/control_mode.gd"
 MatchState="*res://scripts/autoload/match_state.gd"
 CharacterProfile="*res://scripts/autoload/character_profile.gd"
+CareerProfile="*res://scripts/autoload/career_profile.gd"
 SceneWipe="*res://scripts/autoload/scene_wipe.gd"
 Settings="*res://scripts/autoload/settings.gd"
 AudioManager="*res://scripts/autoload/audio_manager.gd"
@@ -256,7 +258,13 @@ team_menu={
 toggle_opposition={
 "deadzone": 0.5,
 "events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":79,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
-, Object(InputEventJoypadButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":12,"pressure":0.0,"pressed":false,"script":null)
+, Object(InputEventJoypadButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":9,"pressure":0.0,"pressed":false,"script":null)
+]
+}
+goal_set_shot={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":88,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+, Object(InputEventJoypadButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":3,"pressure":0.0,"pressed":false,"script":null)
 ]
 }
 
