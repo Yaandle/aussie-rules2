@@ -244,10 +244,10 @@ Found via transcript search (all in `F:\dev\aussie-rules2` unless noted):
 
 Full writeup moved to its own file: **[`docs/ML_AI_AUDIT.md`](ML_AI_AUDIT.md)**.
 Covers: verification of the Stage 1 logistic tackle model
-(`scripts/dev/tackle_model.gd`) against its spec (confirmed correct),
-root-causing the "515 vs 624 breaks/1000" discrepancy, two real bugs in
-the dev tooling (stale `tackle_selftest.gd` comments, a normalisation
-mismatch in `TackleExperiment.fit()`), the live tackle resolver's
+(`scripts/dev/tackle_model.gd`) against its spec (confirmed correct), two
+real bugs found in the dev tooling along the way (stale
+`tackle_selftest.gd` comments, a normalisation mismatch in
+`TackleExperiment.fit()`), the live tackle resolver's
 explicit no-probability design decision (`RULES_REFERENCE.md` §3) versus
 Stage 1's intent to wire in a probability model, a re-audit of
 `ai_brain.gd`'s five ML-opportunity items (three now partly/fully closed

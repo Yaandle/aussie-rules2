@@ -46,44 +46,17 @@ headless CLI check), the animation viewer's ML Experiments page
 two-body CONTESTS simulation (`scripts/dev/animation_viewer.gd`,
 `_compute_tackle_model_prediction`).
 
-## 2. Resolving the "515 vs 624 breaks per 1000" discrepancy
+## 2. Dev-tooling bugs found while verifying Stage 1
 
-The ML doc flags that a seed experiment "previously reported a mean of
-624.2 breaks... but the latest verification output reported
-approximately 515 breaks per 1,000 trials," and asks for this to be
-reconciled against the real Godot model rather than a Python script.
-Two findings, from actually running the Godot code:
+(The ML doc's "515 vs 624 breaks per 1,000" figures were a pair of
+numbers tossed out informally, not a real reported discrepancy — nothing
+to reconcile there. Running `tackle_selftest.gd` headlessly confirms the
+model reproduces the Low/Baseline/High table above exactly at the
+documented default weights, so Stage 1's own math is fine. The two bugs
+below turned up independently while doing that verification, and stand
+on their own regardless.)
 
-**a) The model's own math is not the problem.** Running
-`tackle_selftest.gd` headlessly (`godot --headless --script
-res://scripts/dev/tackle_selftest.gd`) reproduces the Low/Baseline/High
-table above exactly — fixed inputs of (0.7, 0.7, 0.7) at the default
-weights give 62.25%, matching the "624.2 mean" figure (624.2/1000 ≈
-62.4%, within noise of 62.25%). So **the 624.2 figure is correct and
-reproducible** — it's a fixed-input, 10-seed sweep (the ML Experiments
-page's "10 SEEDS" button at its default slider values does exactly
-this).
-
-**b) The 515 figure is almost certainly a different scenario, not a
-bug.** The CONTESTS simulation (`animation_viewer.gd:1031`,
-`_tackle_model_inputs_for_current_state`) does **not** use fixed
-(0.7,0.7,0.7) inputs — it derives `dspeed` and `angle` live from the two
-simulated bodies' actual velocities/positions/headings each contest, and
-pins `stamina` to a flat `CONTEST_STAMINA_BASELINE = 1.0` (its own
-comment admits this: *"baseline stamina value (not tracked in viewer;
-use constant)"*). A contest started from a realistic approach (roughly
-level speeds, closer to a head-on angle than the doc's "0.7 raw" which
-skews favourable to the breaker on all three axes) will produce a lower
-z and therefore a lower break rate than the fixed-baseline figure — with
-no code defect required to explain the gap. **Recommended check before
-trusting either number further:** log the actual `dspeed`/`angle` the
-CONTESTS scene produces over ~1000 trials (the print line at
-`animation_viewer.gd:1072` already has everything needed) and confirm
-its *average* P(BREAK) is consistent with its own inputs, rather than
-comparing its break *count* directly against the fixed-input figure.
-
-**c) A real, separate bug found along the way:** `tackle_selftest.gd`'s
-own inline comments are stale.
+**a) `tackle_selftest.gd`'s own inline comments are stale.**
 - Line 9: `p_break(2.0, 1.0, 1.0)` is commented `(expect 0.7858)`. The
   current model actually returns **0.9168** for that call (confirmed by
   running it). 0.7858 is exactly what you get from raw, *un-normalised*
@@ -104,13 +77,13 @@ Both are comment/documentation bugs, not logic bugs — low risk to fix,
 but worth fixing before anyone uses this self-test as a regression
 guard, since both of its own stated expectations are currently wrong.
 
-**d) A second, independent bug, relevant to Stage 2:**
+**b) A second, independent bug, relevant to Stage 2:**
 `TackleExperiment.fit()` (`scripts/dev/tackle_experiment.gd:60`) runs
 gradient descent using the **raw, un-normalised** feature values in its
 gradient terms (`g0 += err * s.dspeed`, etc.), while the predictions it
 fits against (`m.p_break(...)`) always normalise internally. This scale
 mismatch means `fit()` cannot reliably recover a generating model's true
-weights — exactly the symptom seen in 2(c)'s fit-recovery test. This
+weights — exactly the symptom seen in 2(a)'s fit-recovery test. This
 matters for Stage 2: if a genetic algorithm or any other optimiser is
 built on top of `TackleExperiment`, this normalisation inconsistency
 should be fixed first, or any new fitting path should normalise its
@@ -215,7 +188,7 @@ sweep list.
 
 **Before building the GA harness itself**, in the order the ML doc's own
 "Recommended Next Experiment" section already asks for:
-1. Fix §2(c)/(d) above (stale self-test comments; `fit()`'s
+1. Fix §2(a)/(b) above (stale self-test comments; `fit()`'s
    normalisation mismatch) — a GA's fitness evaluation will call the
    same `p_break`/`roll_break` paths, and should not be built on top of
    tooling whose own self-check is currently wrong.
@@ -239,6 +212,6 @@ sweep list.
 Nothing in `scripts/dev/*` or the files discussed above was changed by
 this pass — this is an audit only, per the brief that handed it over
 ("before pushing now do an audit"). The stale-comment and `fit()`
-normalisation bugs in §2(c)/(d) are flagged, not fixed; the determinism
+normalisation bugs in §2(a)/(b) are flagged, not fixed; the determinism
 question in §3 is flagged, not decided. No gameplay/mechanics files were
 modified.
