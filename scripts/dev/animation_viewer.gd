@@ -620,6 +620,16 @@ func _build_ui() -> void:
 	metrics.add_child(model_card.node)
 	_update_model_label()
 
+	# A:/B: contest readout, pinned right under the metric cards instead
+	# of at the bottom of the CONTESTS tab's own scrolling page (past
+	# every contest-type button, the tackle-model panel, and every
+	# sequence button) — previously needed scrolling all the way down to
+	# see while a contest was actually running. _step_contest() updates
+	# this regardless of which tab is visible, so it's always current.
+	_contest_status_label = _muted_caption("")
+	_contest_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	root.add_child(_contest_status_label)
+
 	_experiment_ui = MLExperimentViewerScript.new(self)
 
 	root.add_child(_build_control_group())
@@ -809,10 +819,8 @@ func _build_contest_group() -> VBoxContainer:
 		button.pressed.connect(func() -> void: _launch_sequence(kind))
 		group.add_child(button)
 
-	_contest_status_label = _muted_caption("")
-	# Wrap instead of widening the column when the status line gets long.
-	_contest_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	group.add_child(_contest_status_label)
+	# _contest_status_label itself now lives under the metric cards in
+	# _build_ui(), not here — see that function's comment.
 	return group
 
 
