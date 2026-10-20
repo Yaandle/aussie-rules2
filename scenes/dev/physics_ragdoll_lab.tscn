@@ -6,7 +6,8 @@
 ; Dev-only Physics Ragdoll Lab (docs/MECHANICS_AUDIT.md §B4), stage 1:
 ; one passive 6thbuild ragdoll in the animation viewer's white studio,
 ; knocked over by a push or a thrown ball. Not reachable from the main
-; menu — open this directly in the editor and press F6. Everything except
+; menu — open it from the animation viewer's RAGDOLL button, or open this
+; directly in the editor and press F6. Everything except
 ; the environment/light/camera shell is built in code by
 ; physics_ragdoll_lab.gd (floor, rig, PhysicalBoneSimulator3D bodies, UI).
 

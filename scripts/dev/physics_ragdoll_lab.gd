@@ -20,8 +20,9 @@ extends Node3D
 ## responses, recovery) are meant to land here too, which is why this is a
 ## lab scene and not a one-off test.
 ##
-## Not reachable from the main menu — open scenes/dev/physics_ragdoll_lab.tscn
-## directly in the editor and press F6, same as the animation viewer.
+## Not reachable from the main menu. Open it from the animation viewer's
+## CONTROL row (RAGDOLL), or open scenes/dev/physics_ragdoll_lab.tscn directly
+## in the editor and press F6. Esc / C goes back to the animation viewer.
 
 const MODEL_ID := "6thbuild"
 
@@ -344,7 +345,7 @@ func _process(delta: float) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"pause") or event.is_action_pressed(&"character_menu"):
-		SceneWipe.change_scene("res://scenes/ui/main_menu.tscn")
+		SceneWipe.change_scene("res://scenes/dev/animation_viewer.tscn")
 		return
 	if event is InputEventMouseMotion and (event.button_mask & MOUSE_BUTTON_MASK_RIGHT):
 		var motion := event as InputEventMouseMotion
@@ -569,7 +570,7 @@ func _build_ui() -> void:
 		{"keys": "L", "label": "Go limp"},
 		{"keys": "R", "label": "Reset"},
 		{"keys": "Right-drag / Wheel", "label": "Orbit / zoom"},
-		{"keys": "Esc / C", "label": "Back to menu"},
+		{"keys": "Esc / C", "label": "Back to viewer"},
 	])
 	_ui.add_child(hints)
 	_update_readouts()

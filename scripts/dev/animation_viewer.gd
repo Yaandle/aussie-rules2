@@ -211,6 +211,10 @@ const HARD_SHADOW := 4.0
 ## different distances (4m vs 8m) reads as a glitch, not a shot change.
 const CAMERA_MOVE_TIME := 0.35
 
+## By path, not preload — the lab would otherwise load (6thbuild rig and
+## all) every time this viewer does, just to sit behind one button.
+const PHYSICS_RAGDOLL_LAB_SCENE := "res://scenes/dev/physics_ragdoll_lab.tscn"
+
 const PlayerScene := preload("res://scenes/player/player.tscn")
 const BallScene := preload("res://scenes/ball/ball.tscn")
 const MLExperimentViewerScript := preload("res://scripts/dev/ml_experiment_viewer.gd")
@@ -752,6 +756,16 @@ func _add_misc_buttons(group: HBoxContainer) -> void:
 			_subject.queue_free()
 			_build_subject())
 	group.add_child(rebuild_button)
+
+	# Physics Ragdoll Lab (docs/MECHANICS_AUDIT.md §B4) — its own scene, not
+	# a page of this one: it needs a real floor and a skeleton it can take
+	# over with physics, neither of which belongs to this preview rig. Its
+	# Esc returns here.
+	var ragdoll_button := _button("RAGDOLL")
+	ragdoll_button.tooltip_text = "Open the Physics Ragdoll Lab"
+	ragdoll_button.pressed.connect(func() -> void:
+		SceneWipe.change_scene(PHYSICS_RAGDOLL_LAB_SCENE))
+	group.add_child(ragdoll_button)
 
 
 func _build_locomotion_group() -> VBoxContainer:
