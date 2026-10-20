@@ -197,6 +197,12 @@ func _build_menu() -> Control:
 func _build_lr_stage() -> Control:
 	var stage := VBoxContainer.new()
 	stage.add_theme_constant_override(&"separation", 8)
+	# Without this, `stage` sizes to its own minimum inside stage_container
+	# — and a ScrollContainer's minimum height is deliberately tiny (that's
+	# the whole point of scrolling), so every slider row below it collapses
+	# to invisible. stage_container already expands; this is what lets the
+	# page actually use that space.
+	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
 
 	# Pinned live metrics
 	var metrics := HBoxContainer.new()
@@ -275,6 +281,7 @@ func _build_lr_stage() -> Control:
 func _build_ga_stage() -> Control:
 	var stage := VBoxContainer.new()
 	stage.add_theme_constant_override(&"separation", 8)
+	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL   # see _build_lr_stage()'s comment
 
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -421,6 +428,7 @@ func _build_ga_stage() -> Control:
 func _build_placeholder_stage(stage_name: String, fixes: String, body: String) -> Control:
 	var stage := VBoxContainer.new()
 	stage.add_theme_constant_override(&"separation", 8)
+	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL   # see _build_lr_stage()'s comment
 
 	stage.add_child(_muted_caption("QUEUED"))
 	stage.add_child(_section_heading(stage_name))
