@@ -288,9 +288,11 @@ limits, all documented in that file's header: PhysicalBone3D's CONE joint is
 unstable under Jolt (hence 6DOF); hard landings sink a light link 4-15 cm for
 a tick or two; elbows can transiently hyperextend well past their limit on
 the hardest hits; a settle/sleep assist is needed because a jointed chain
-never quite stops buzzing on its own. 6thbuild skins 104 vertices to its
-stray `pelvis.001` control bone, which nothing animates — the lab re-parents
-it under Hips, but the asset itself still needs fixing.
+never quite stops buzzing on its own. 6thbuild used to skin 104 vertices to its
+stray `pelvis.001` control bone, which nothing animates (a sliver off the
+hips in tackled/tackle_takedown); `export_6thbuild.py` now merges those
+weights into Hips and exports only the deform bones, so the lab's re-parent
+workaround is gone.
 
 **Deliverable for the first pass:** a small, isolated physics prototype
 — a single player reacting to an external impact, not a 36-player match.

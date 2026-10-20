@@ -24,8 +24,9 @@ extends RefCounted
 ## which keeps the body count at 14 and avoids tiny, jittery links.
 ## Every 6thbuild bone's rest +Y already points at its child (Blender bone
 ## convention), which is what lets "span" below be measured simply along the
-## bone; the leftover IK helper bones (ikpole.*/iktarget.*/pelvis.001) are
-## separate roots with nothing parented to them and are left alone.
+## bone. The export (tools/blender/export_6thbuild.py) ships only the 18
+## deform bones; the IK helpers (ikpole.*/iktarget.*) and the stray
+## pelvis.001 root, whose weights are merged into Hips, never reach Godot.
 ##
 ## ── What the lab's headless checks turned up (60 Hz, default Jolt) ───
 ## * Ball joints are 6DOF, NOT PhysicalBone3D's CONE type. Under Jolt the
@@ -179,18 +180,6 @@ const BODIES := [
 		"flex": Vector3.UP},
 ]
 
-## Root-level bones the export still carries (contract step 3 in
-## humanoid_rig.gd says control bones should be deleted before export) that
-## real vertices are skinned to — 36 body + 68 shorts vertices on 6thbuild's
-## pelvis.001. Nothing ever drives a parentless bone, so the moment the hips
-## move those vertices stay behind at standing pelvis height and stretch
-## into a long sliver. build() re-parents each under the named bone, keeping
-## its global rest, so the skin binding is unchanged and it simply follows.
-## No imported clip animates pelvis.001 either, so the same sliver should
-## show in-game whenever a clip moves Hips far — an asset fix, not this
-## file's; this only keeps the lab readable.
-const STRAY_DEFORM_ROOTS := {"pelvis.001": "Hips"}
-
 ## Gap left under the sole at rest so the posed body doesn't start the
 ## simulation already in contact with (or a hair inside) the floor.
 const FOOT_CLEARANCE := 0.008
@@ -232,8 +221,6 @@ func build(skeleton: Skeleton3D) -> bool:
 	if not missing.is_empty():
 		push_error("PhysicsRagdoll: skeleton has no bone(s) %s" % [missing])
 		return false
-
-	_adopt_stray_roots()
 
 	simulator = PhysicalBoneSimulator3D.new()
 	simulator.name = "PhysicalBoneSimulator3D"
@@ -280,20 +267,6 @@ func build(skeleton: Skeleton3D) -> bool:
 		if grandparent != null:
 			(bodies[bone] as PhysicalBone3D).add_collision_exception_with(grandparent)
 	return true
-
-
-func _adopt_stray_roots() -> void:
-	for stray: String in STRAY_DEFORM_ROOTS:
-		var idx := _skeleton.find_bone(stray)
-		var parent := _skeleton.find_bone(STRAY_DEFORM_ROOTS[stray])
-		if idx < 0 or parent < 0 or _skeleton.get_bone_parent(idx) != -1:
-			continue
-		var rest := _skeleton.get_bone_global_rest(parent).affine_inverse() * _skeleton.get_bone_global_rest(idx)
-		_skeleton.set_bone_parent(idx, parent)
-		_skeleton.set_bone_rest(idx, rest)
-		_skeleton.set_bone_pose_position(idx, rest.origin)
-		_skeleton.set_bone_pose_rotation(idx, rest.basis.get_rotation_quaternion())
-		_skeleton.set_bone_pose_scale(idx, rest.basis.get_scale())
 
 
 func is_simulating() -> bool:

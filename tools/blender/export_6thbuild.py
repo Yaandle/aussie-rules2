@@ -54,6 +54,15 @@ BONE_RENAME = {
 	"foot.r": "RightFoot",
 }
 
+# Vertex groups skinned to a bone outside the deform chain -> the chain bone
+# that should carry that weight instead. pelvis.001 is a parentless, zero-
+# length leftover sitting at the pelvis; no clip moves it, so anything
+# skinned to it stays at standing height while Hips moves away and stretches
+# into a sliver (tackled/tackle_takedown). Merged on the duplicate only.
+STRAY_WEIGHT_MERGE = {
+	"pelvis.001": "pelvis",
+}
+
 # Blender action name -> the Godot clip name it should override. Name new
 # actions directly after their target clip and this map doesn't need a new
 # entry. The full locomotion set (PlayerAnimation.BLEND_POINTS) exists on
@@ -129,6 +138,45 @@ def _pick_wanted_clips(actions):
 	return by_clip, skipped
 
 
+def _merge_stray_weights(mesh_obj):
+	"""Fold each STRAY_WEIGHT_MERGE group's weights into its target group
+	(adding, so each vertex's total weight is unchanged) and drop the stray
+	group. Returns {stray group: vertices moved}."""
+	moved = {}
+	for stray_name, target_name in STRAY_WEIGHT_MERGE.items():
+		stray = mesh_obj.vertex_groups.get(stray_name)
+		if stray is None:
+			continue
+		target = mesh_obj.vertex_groups.get(target_name)
+		if target is None:
+			target = mesh_obj.vertex_groups.new(name=target_name)
+		count = 0
+		for v in mesh_obj.data.vertices:
+			for g in v.groups:
+				if g.group == stray.index and g.weight > 0.0:
+					target.add([v.index], g.weight, 'ADD')
+					count += 1
+					break
+		mesh_obj.vertex_groups.remove(stray)
+		moved[stray_name] = count
+	return moved
+
+
+def _weights_off_deform_chain(mesh_obj, armature_data):
+	"""Vertex groups that still carry weight but name a bone the export
+	drops (non-deform) — should always come back empty."""
+	deform = {b.name for b in armature_data.bones if b.use_deform}
+	bones = {b.name for b in armature_data.bones}
+	bad = {}
+	idx = {vg.index: vg.name for vg in mesh_obj.vertex_groups}
+	for v in mesh_obj.data.vertices:
+		for g in v.groups:
+			name = idx[g.group]
+			if g.weight > 0.0 and name in bones and name not in deform:
+				bad[name] = bad.get(name, 0) + 1
+	return bad
+
+
 def export_6thbuild():
 	src_arm_obj = bpy.data.objects[SOURCE_ARMATURE]
 	src_mesh_objs = [bpy.data.objects[n] for n in SOURCE_MESHES if n in bpy.data.objects]
@@ -164,6 +212,21 @@ def export_6thbuild():
 		scene_coll.objects.link(dup_obj)
 		dup_mesh_objs.append(dup_obj)
 		dup_mesh_datas.append(dup_data)
+
+	# Contract step 3 (humanoid_rig.gd): only the deform skeleton exports.
+	# Stray weights move onto their chain bone, the stray bones stop being
+	# deform bones, and export_def_bones below leaves them — and the
+	# ikpole/iktarget control bones, already non-deform — out of the glb.
+	# The IK constraints still evaluate on the duplicate, so the baked clips
+	# are unchanged.
+	merged = {dup_obj.name: _merge_stray_weights(dup_obj) for dup_obj in dup_mesh_objs}
+	for stray_name in STRAY_WEIGHT_MERGE:
+		bone = dup_arm_data.bones.get(stray_name)
+		if bone is not None:
+			bone.use_deform = False
+	off_chain = {dup_obj.name: _weights_off_deform_chain(dup_obj, dup_arm_data)
+		for dup_obj in dup_mesh_objs}
+	off_chain = {name: bad for name, bad in off_chain.items() if bad}
 
 	# Independent copies of only the wanted actions, stashed onto the
 	# duplicate under their final clip names — same shape as
@@ -218,6 +281,7 @@ def export_6thbuild():
 		export_bake_animation=True,
 		export_force_sampling=True,
 		export_skins=True,
+		export_def_bones=True,
 		# True: without this the Mirror modifier is never baked into the
 		# exported mesh (the exporter falls back to the un-mirrored base
 		# mesh data), so only the modelled half of the body ever reaches
@@ -240,6 +304,9 @@ def export_6thbuild():
 	print("export_6thbuild: wrote", EXPORT_PATH)
 	print("  meshes exported:", [o.name for o in src_mesh_objs])
 	print("  clips exported:", sorted(action_copies.keys()))
+	print("  stray weights merged (vertices per group):", merged)
+	if off_chain:
+		print("  WARNING: vertices still weighted to non-deform bones (dropped from the skin):", off_chain)
 	if missing_src_meshes:
 		print("  WARNING: expected mesh objects not found, skipped:", missing_src_meshes)
 	if skipped:
