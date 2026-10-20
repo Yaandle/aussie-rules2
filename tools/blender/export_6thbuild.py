@@ -80,6 +80,13 @@ CLIP_RENAME = {
 	"tackle_held": "tackle_held",
 	"tackle_takedown": "tackle_takedown",
 	"tackled": "tackled",
+	# Marking set, authored by author_6thbuild_clips.py (rest-relative poses
+	# on this rig; the procedural fallbacks overwrite its rests).
+	"mark_safe": "mark_safe",
+	"mark_running": "mark_running",
+	"mark_aggressive": "mark_aggressive",
+	"mark_safe_miss": "mark_safe_miss",
+	"mark_running_miss": "mark_running_miss",
 }
 
 
