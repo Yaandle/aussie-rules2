@@ -26,7 +26,7 @@ rules are simplified at this stage.
 ### Windows — Play the game
 
 1. Go to the [latest release](https://github.com/Yaandle/aussie-rules2/releases).
-2. Download **`Aussie-Rules-2-v0.1.0-Windows.zip`**.
+2. Download **`Aussie-Rules-2-v1.2.0-Windows.zip`**.
 3. Extract the ZIP.
 4. Open the extracted folder.
 5. Run **`Aussie Rules 2.exe`**.
