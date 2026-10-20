@@ -8,6 +8,7 @@
 [ext_resource type="PackedScene" path="res://scenes/ui/debug_hud.tscn" id="6_hud"]
 [ext_resource type="Environment" uid="uid://bswq6sjep4ekj" path="res://materials/broadcast_environment.tres" id="7_env"]
 [ext_resource type="PackedScene" uid="uid://dna2rbffrr6ua" path="res://assets/imported/bench.glb" id="8_jff13"]
+[ext_resource type="PackedScene" uid="uid://bk32u0pqvlabi" path="res://assets/imported/tree2.glb" id="9_lvg3t"]
 
 [node name="KickToKick" type="Node3D" unique_id=2005225079]
 script = ExtResource("1_kick_to_kick")
@@ -25,6 +26,7 @@ directional_shadow_blend_splits = true
 directional_shadow_max_distance = 120.0
 
 [node name="Field" parent="." unique_id=72479121 instance=ExtResource("2_field")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.09828758, 0.0055179596, -0.048480988)
 
 [node name="Ball" parent="." unique_id=1717741214 instance=ExtResource("3_ball")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
@@ -41,3 +43,6 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.977072, 0, -68.46657)
 
 [node name="bench2" parent="." unique_id=450059674 instance=ExtResource("8_jff13")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.836523, 0, -68.46657)
+
+[node name="tree2" parent="." unique_id=2042025336 instance=ExtResource("9_lvg3t")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9.731265, 0.0055179596, -69.71713)

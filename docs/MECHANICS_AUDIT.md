@@ -223,6 +223,97 @@ Where it wires in, following existing patterns:
 - New `Tuning` block for the numbers (dash distance/speed, i-frame window,
   spin arc, cooldown) with the usual "unplayed feel guess" caveat.
 
+### B4. Physics-driven animation / active ragdoll ("Physics Ragdoll Lab")
+
+**Scope note, written for whoever picks this up (handed to a separate
+animation-focused agent, not built in this pass):** this is "Priority 3"
+— a larger research problem, distinct from work that produces an asset
+usable directly in the game (B1/B2 above, plus whatever the animation
+agent's own 6thbuild/tackling-animation work lands). Don't start it
+expecting a quick win; it's multi-stage and needs real editor/GUI
+iteration to tune (joint limits, motor strength, collision shapes),
+which this environment couldn't provide for any of the dev-tooling work
+in this file either — same standing limitation.
+
+**The idea (self-preserving ragdoll / active ragdoll):** more than a
+conventional ragdoll. Godot already supports physical skeletons
+(`PhysicalBoneSimulator3D` / `PhysicalBone3D`), joint constraints and
+passive ragdoll simulation out of the box. An **active** ragdoll adds
+control forces on top — joint motors that try to maintain or recover a
+target pose — while physics still determines the actual outcome. The
+distinction that matters: animation supplies an *intention* (the target
+pose), physics decides what the body can actually do with it.
+
+How it's meant to work, end to end:
+1. **Normal animation** (running, kicking, jumping, contesting) sets the
+   target pose, same as today.
+2. **Collision and physical state** — measure impact direction, contact
+   location, relative velocity, body mass, and current balance at the
+   moment of a hit.
+3. **Joint motors respond** — apply torques that resist rotation, brace
+   the body, reposition limbs, or attempt to recover the target pose.
+4. **Physics solver determines the result** — the player may recover
+   balance, stumble, twist, fall, or go fully ragdoll. Not a predefined
+   hit-reaction clip and not a simple "collapse on hit" ragdoll — the
+   impact plus current body state decides the outcome, with the joint
+   motors trying to preserve posture throughout.
+
+**Build in stages (do not skip ahead — each stage needs the last
+working first):**
+1. **Passive ragdoll.** Skeleton, low-resolution collision shapes,
+   constrained joints. Confirm the character falls and collides
+   correctly before adding any control logic.
+2. **Animation-to-ragdoll transition.** Switch from the existing
+   animated skeleton to physical simulation during a tackle, then
+   restore animation control afterward.
+3. **Active joints.** Add motors that attempt to hold a target pose.
+   Test whether the player can resist *small* impacts without going
+   rigid or unstable.
+4. **Impact-aware responses.** Vary the response by contact location,
+   impulse, velocity and body orientation — e.g. a lateral impact
+   triggers bracing or a balance-recovery attempt specifically, not a
+   generic one.
+5. **Recovery and control.** Ways to regain a standing posture, protect
+   the head/limbs, or transition into a controlled fall rather than a
+   flat collapse.
+
+**Stage 1 status (2026-10-20): built.** `scenes/dev/physics_ragdoll_lab.tscn`
+(F6 in the editor; not on the main menu) — one passive 6thbuild ragdoll,
+knocked over by GO LIMP / PUSH / THROW with an impact bearing, strength and
+target part; builder in `scripts/dev/physics_ragdoll.gd`. 14 bodies, ~86 kg,
+6DOF ball joints + hinges. Headless sweep at 60 Hz (limp, pushes 150-700 N·s,
+balls 8-35 m/s, second hits on a fallen body): no explosions, every body comes
+to rest and sleeps in ~3.5-7.7 s, resting floor penetration ~1 cm. Known
+limits, all documented in that file's header: PhysicalBone3D's CONE joint is
+unstable under Jolt (hence 6DOF); hard landings sink a light link 4-15 cm for
+a tick or two; elbows can transiently hyperextend well past their limit on
+the hardest hits; a settle/sleep assist is needed because a jointed chain
+never quite stops buzzing on its own. 6thbuild used to skin 104 vertices to its
+stray `pelvis.001` control bone, which nothing animates (a sliver off the
+hips in tackled/tackle_takedown); `export_6thbuild.py` now merges those
+weights into Hips and exports only the deform bones, so the lab's re-parent
+workaround is gone.
+
+**Deliverable for the first pass:** a small, isolated physics prototype
+— a single player reacting to an external impact, not a 36-player match.
+Tune joint limits, collision shapes, motor strength and physics
+stability in that isolation first; integrating with live gameplay
+(tackle/bump contests, `_resolve_tackle_contact` et al.) is explicitly a
+later step, after the prototype itself is stable. Motors alone don't
+guarantee an intelligent-looking reaction — the control logic on top of
+them is real design work, and more advanced recovery behaviour may
+eventually be a genuine learned-policy candidate (same DQL direction as
+the ML Experiments page's Stage 4, see `docs/ML_AI_AUDIT.md`) rather
+than hand-tuned motor logic, once the physical rig itself is solid.
+
+**Parallel research direction (not blocking the above):** player
+scanning / automated game-footage analysis — i.e. extracting real
+movement or contact data from recorded footage to inform either the
+animation clips or the active-ragdoll tuning above, rather than hand-
+guessing motor strengths and recovery thresholds. Worth tracking
+alongside B2's motion-capture pipeline, not as a prerequisite for
+starting B4's stage 1.
+
 ---
 
 ## Part C — Conversations to resume

@@ -207,11 +207,151 @@ sweep list.
    than one that's 70/30 but correctly swings with speed/angle/stamina).
    Worth folding into whatever fitness function Stage 2 ends up with.
 
+## 6. Stage 2 — implemented
+
+Built on this audit's §5 readiness check:
+
+- **`scripts/dev/tackle_ga.gd`** (`TackleGA`) — the GA core. Genome is
+  `{w_speed, w_angle, w_stamina}` (bias held fixed at the model's
+  default), matching both planning docs' stated genome shape. Fitness
+  (`evaluate()`) scores a genome against the same 5-point scenario
+  ladder §1/§5 already use (`extreme_tackle`/`low`/`baseline`/`high`/
+  `extreme_break`) via the exact closed-form `p_break()`, not Monte
+  Carlo rolls — two terms: `balance_score` (how close the ladder's mean
+  tackle-success rate sits to a target, default 55%, per the kanban) and
+  `sensitivity_score` (spread between the two extreme corners, penalised
+  if the ladder ever runs backwards — "no dominant strategy"). `run()`
+  is a standard generational GA: tournament selection, elitism, uniform
+  crossover, Gaussian mutation scaled by a `mutation_rate` dial (the
+  "one variable to tune" the brief calls out) and a secondary
+  `mutation_strength`.
+- **`scripts/dev/tackle_ga_selftest.gd`** — headless CLI check (`godot
+  --headless --script res://scripts/dev/tackle_ga_selftest.gd
+  --quit-after 300`). Confirms a deliberately flat/zero-weight genome
+  collapses to near-zero spread (a textbook dominant strategy), and that
+  a default 40-genome/40-generation run recovers a genome hitting the
+  55% target almost exactly with a 0.99 spread and a correctly-ordered
+  ladder (extreme_tackle 0.4% → extreme_break 99.9%).
+- **`scripts/dev/ga_fitness_chart.gd`** — a small generation-vs-fitness
+  line chart (best + average per generation), separate from
+  `tackle_chart.gd` since that one's axes/illustrative line are specific
+  to the SWEEP page.
+- **ML Experiments page** (`scripts/dev/ml_experiment_viewer.gd`): the
+  old static "Stage 1/4 · Logistic regression" caption is now four real
+  bookmark buttons (LR / GA / MLP / DQL) that switch the whole page
+  content, not just a label — Stage 1's existing MODEL/SWEEP content
+  moved into `_build_lr_stage()` unchanged, and a new GA stage page
+  exposes every GA parameter above plus RUN, an APPLY TO MODEL button
+  (writes the winning genome straight into Stage 1's weight sliders for
+  a side-by-side look) and a VERIFY button (1,000 stochastic trials at
+  the "baseline" scenario, checked against the closed-form prediction —
+  the same sanity-check shape as the SWEEP page's own "10 SEEDS").
+- MLP and Deep Q-learning got real, reachable bookmark tabs too, each
+  showing a "QUEUED" placeholder listing its planned inputs/fixes (per
+  the kanban) and which `ai_brain.gd` gap it targets — infrastructure
+  only, no logic yet, as asked.
+- Along the way: fixed `tackle_selftest.gd` never calling `quit()` (a
+  `--script` run with no explicit quit hangs the process forever — hit
+  this firsthand while verifying this pass, confirmed the same mistake
+  in the new GA self-test before fixing it there too) and corrected its
+  two stale comments flagged in §2(a) to the real, now-verified values.
+
+Verified: headless boot of `scenes/dev/animation_viewer.tscn` (the whole
+new UI builds eagerly on scene `_ready()`, not lazily on first open, so
+this exercises every new page) and the full project smoke boot — both
+exit 0, no script errors. A real bug was found and fixed shortly after
+shipping this (see §7) when the user actually opened the panel: the
+per-stage container never got `SIZE_EXPAND_FILL`, so LR and GA rendered
+empty despite building without error. Confirmed fixed in the editor.
+
+Not done: the live-gameplay determinism question from §3 is still open
+and this pass doesn't touch it — the GA stays confined to the dev/ML
+sandbox, evolving a model nothing in live gameplay currently reads from.
+
+## 7. GA review: the fitness function underconstrained the problem
+
+Running the GA across six different seeds (same default parameters,
+`seed` the only thing varied) turned up a real gap, not just
+implementation noise:
+
+| seed | w_speed | w_angle | w_stamina | score | success |
+|---|---|---|---|---|---|
+| 1 | 4.49 | 3.36 | 3.38 | 0.997 | 55.0% |
+| 2 | 8.10 | 2.20 | 0.95 | 0.997 | 55.0% |
+| 3 | 8.27 | 0.75 | 3.53 | 0.998 | 55.0% |
+| 7 | 8.42 | 0.57 | 3.68 | 0.998 | 55.0% |
+| 11 | 5.04 | 2.18 | 4.89 | 0.998 | 55.0% |
+| 42 | 6.72 | 1.64 | 3.81 | 0.998 | 55.0% |
+
+Every seed hits essentially the same (near-perfect) fitness score, but
+the weights themselves are all over the place — `w_angle` alone ranges
+from 0.57 to 3.36, nearly 6×. **The maths explain why:** the original
+fitness only ever evaluated the 5-point *ladder*, where dspeed, angle
+and stamina all move together from one corner to the other. That
+rewards the *aggregate* swing from "tackler-favoured" to "breaker-
+favoured," but says nothing about whether each input individually
+matters — two strong weights can carry the whole swing while the third
+goes nearly to zero, and the ladder-only fitness can't tell the
+difference. "No dominant strategy" was only being enforced in aggregate,
+not per input, which isn't the same guarantee.
+
+**Fix applied:** `evaluate()` now also computes a per-axis term —
+holding the other two inputs at their midpoint, measure each input's
+own swing from its low extreme to its high extreme in isolation
+(`axis_spreads`), then score the *worst* of the three (not the average
+— an average would still let one axis collapse to ~0 as long as the
+other two compensate). `score` is now `0.5·balance + 0.25·ladder
+sensitivity + 0.25·axis sensitivity` (previously `0.6·balance +
+0.4·ladder sensitivity`). Re-running the same six seeds against the
+fixed fitness function:
+
+| seed | w_speed | w_angle | w_stamina | score | success |
+|---|---|---|---|---|---|
+| 1 | 4.49 | 3.37 | 3.36 | 0.919 | 55.0% |
+| 2 | 3.71 | 3.72 | 3.69 | 0.930 | 55.0% |
+| 3 | 4.15 | 3.52 | 3.51 | 0.924 | 55.0% |
+| 7 | 3.64 | 3.60 | 4.00 | 0.927 | 55.0% |
+| 11 | 3.51 | 3.87 | 3.65 | 0.924 | 55.0% |
+| 42 | 3.74 | 3.71 | 3.66 | 0.929 | 55.0% |
+
+All six seeds now converge to genuinely similar, tightly-clustered
+weights (roughly 3.5–4.5 on every axis) — a reproducible result rather
+than seed noise, and one where every input demonstrably matters, not
+just the aggregate. The max achievable score dropped from ~0.998 to
+~0.92-0.93, which is expected and correct: the old fitness was easier to
+max out precisely because it didn't check the thing that mattered.
+
+**Conclusion:** the GA itself (selection, crossover, mutation, elitism)
+was never the problem — it reliably found whatever the fitness function
+actually rewarded, which is exactly what it's supposed to do. The lesson
+is squarely about fitness design: a fitness function that only checks
+behaviour along one path through input space will happily find a genome
+that "games" that one path. Before trusting any future GA result
+(Stage 2 or otherwise) as "better than hand-tuned," check whether the
+fitness function tests what you actually meant, the same way this one
+needed a second pass.
+
+## 8. Applied in practice: the CONTESTS simulation now reads the dialled-in model
+
+Separately from the fitness fix: `scripts/dev/animation_viewer.gd`'s
+CONTESTS simulation (`_tackle_model_z_for_inputs`,
+`_tackle_model_p_for_inputs`, `_compute_tackle_model_prediction`) always
+built a *fresh default-weight* `TackleModel` of its own, regardless of
+what was dialled into the MODEL page's sliders. That meant Stage 2's
+APPLY TO MODEL button — the whole point of which is "see the evolved
+weights in action" — silently changed nothing the simulation actually
+used. Added `MLExperimentViewer.get_active_model()`, which builds a
+`TackleModel` from the MODEL page's live slider values (w1/w2/w3/bias),
+and pointed all three CONTESTS functions at it instead. Dialling a
+weight by hand, or running the GA and hitting APPLY TO MODEL, now
+genuinely changes what the two-body contest simulation predicts and
+rolls — this is the concrete "apply the stage to help the simulation"
+step, kept inside the dev/ML sandbox like everything else here (§3's
+live-gameplay question is still untouched).
+
 ## Scope note
 
-Nothing in `scripts/dev/*` or the files discussed above was changed by
-this pass — this is an audit only, per the brief that handed it over
-("before pushing now do an audit"). The stale-comment and `fit()`
-normalisation bugs in §2(a)/(b) are flagged, not fixed; the determinism
-question in §3 is flagged, not decided. No gameplay/mechanics files were
-modified.
+§1–§5 were an audit only, per the original brief ("before pushing now
+do an audit") — no code changed for those findings. §6–§8 are later,
+separate passes that did add code, entirely within `scripts/dev/*` (the
+ML sandbox) — no gameplay/mechanics files were touched by any of them.

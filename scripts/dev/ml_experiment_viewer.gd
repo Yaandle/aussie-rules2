@@ -13,7 +13,7 @@ extends RefCounted
 ## single-subject framing, camera moves, and floor/root-layout visibility.
 
 const STAGES := ["Logistic regression", "Genetic algorithm", "MLP", "Deep Q-learning"]
-const ACTIVE_STAGE := 0
+const STAGE_SHORT_NAMES := ["LR", "GA", "MLP", "DQL"]
 const SWEEP_VALUES := [0.0, 0.2, 0.4, 0.6, 0.8]
 
 const SWEEP_WEIGHTS := [
@@ -49,6 +49,8 @@ const COLOR_SIM_BG := Color(0.07, 0.07, 0.08)
 const TackleModelScript := preload("res://scripts/dev/tackle_model.gd")
 const TackleExperimentScript := preload("res://scripts/dev/tackle_experiment.gd")
 const TackleChartScript := preload("res://scripts/dev/tackle_chart.gd")
+const TackleGAScript := preload("res://scripts/dev/tackle_ga.gd")
+const GAFitnessChartScript := preload("res://scripts/dev/ga_fitness_chart.gd")
 
 ## Back-reference to the owning viewer.
 var _viewer: AnimationViewer
@@ -68,6 +70,8 @@ var _experiment_z_label: Label
 var _experiment_s2_label: Label
 var _experiment_sf_label: Label
 var _chart
+var _lr_sliders: Dictionary = {}   ## MODEL page's slider set — Stage 2's APPLY TO MODEL writes into this
+var _ga_last_result: Dictionary = {}
 
 var _sim_camera: Camera3D
 var _sim_yaw := 0.7
@@ -81,6 +85,27 @@ func _init(viewer: AnimationViewer) -> void:
 
 func is_open() -> bool:
 	return _experiment_open
+
+
+## The MODEL page's current dialled-in weights (w1/w2/w3/bias), as a
+## fresh TackleModel instance — read by AnimationViewer's CONTESTS
+## simulation (_tackle_model_z_for_inputs/_tackle_model_p_for_inputs/
+## _compute_tackle_model_prediction) so dialling a weight in, or hitting
+## Stage 2's APPLY TO MODEL after a GA run, actually changes what the
+## live two-body contest predicts and rolls — previously those always
+## built a fresh default-weight TackleModel of their own and silently
+## ignored this page entirely, so nothing dialled in here (by hand or by
+## the GA) ever reached the simulation it looked like it was feeding.
+## Falls back to class defaults if asked before build() has run.
+func get_active_model() -> TackleModel:
+	var m := TackleModelScript.new()
+	if _lr_sliders.is_empty():
+		return m
+	m.w_speed = _lr_sliders.w1.value
+	m.w_angle = _lr_sliders.w2.value
+	m.w_stamina = _lr_sliders.w3.value
+	m.bias = _lr_sliders.bias.value
+	return m
 
 
 # =============================================================================
@@ -145,12 +170,65 @@ func _build_menu() -> Control:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	header.add_child(title)
 
-	col.add_child(_muted_caption("Stage %d/%d · %s" % [ACTIVE_STAGE + 1, STAGES.size(), STAGES[ACTIVE_STAGE]]))
+	# Stage bookmarks — one per STAGES entry, switches which stage page
+	# below is visible. Previously a static "Stage 1/4 · Logistic
+	# regression" caption with ACTIVE_STAGE hardcoded to 0; now a real
+	# toggle so Stage 2's GA page (and the Stage 3/4 placeholders) are
+	# actually reachable, not just named.
+	var bookmarks := HBoxContainer.new()
+	bookmarks.add_theme_constant_override(&"separation", 4)
+	col.add_child(bookmarks)
+
+	var stage_container := VBoxContainer.new()
+	stage_container.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_child(stage_container)
+
+	var stage_pages: Array[Control] = [
+		_build_lr_stage(),
+		_build_ga_stage(),
+		_build_placeholder_stage("MLP", "marking-cue timing",
+			"Inputs: ball height, ball distance, player speed, time to arrival (+1 TBD).\nNet: 5 → 8 → 8 → 1 (jump timing).\nData: 200–500 recorded marking attempts, success/miss labelled.\n\nNot built yet — see docs/ML_AI_AUDIT.md §4: ai_brain.gd's marking stub\nonly ever attempts the Safe tier today; this is what would let it judge\nthe harder Running/Aggressive tiers too."),
+		_build_placeholder_stage("Deep Q-learning", "team positioning",
+			"State: ball, teammates, opponents, possession.\nReward: marks + territory.\nRisk: reward hacking — e.g. farming safe handballs forever instead of\nrisking a scoring chance.\n\nNot built yet — see docs/ML_AI_AUDIT.md §4: ai_brain.gd's\n_think_support/_think_defend still use one global pull scalar plus a\nnearest-teammate spacing nudge, no real zone/role awareness."),
+	]
+	for i in stage_pages.size():
+		stage_container.add_child(stage_pages[i])
+		stage_pages[i].visible = (i == 0)
+
+	var stage_group := ButtonGroup.new()
+	for i in STAGES.size():
+		var bm := _button(STAGE_SHORT_NAMES[i], true)
+		bm.button_group = stage_group
+		bm.button_pressed = (i == 0)
+		bm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		bm.tooltip_text = STAGES[i]
+		var idx := i
+		bm.pressed.connect(func() -> void:
+			for j in stage_pages.size():
+				stage_pages[j].visible = (j == idx)
+		)
+		bookmarks.add_child(bm)
+
+	return panel
+
+
+## Stage 1 (logistic regression) — unchanged behaviour from before the
+## bookmark rework, just in its own container now instead of living
+## directly in _build_menu().
+func _build_lr_stage() -> Control:
+	var stage := VBoxContainer.new()
+	stage.add_theme_constant_override(&"separation", 8)
+	# Without this, `stage` sizes to its own minimum inside stage_container
+	# — and a ScrollContainer's minimum height is deliberately tiny (that's
+	# the whole point of scrolling), so every slider row below it collapses
+	# to invisible. stage_container already expands; this is what lets the
+	# page actually use that space.
+	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
 
 	# Pinned live metrics
 	var metrics := HBoxContainer.new()
 	metrics.add_theme_constant_override(&"separation", 8)
-	col.add_child(metrics)
+	stage.add_child(metrics)
 
 	var pb_card := _metric_card("P(BREAK)")
 	_experiment_model_label = pb_card.value_label
@@ -165,7 +243,7 @@ func _build_menu() -> Control:
 	# Tabs
 	var tabs := HBoxContainer.new()
 	tabs.add_theme_constant_override(&"separation", 6)
-	col.add_child(tabs)
+	stage.add_child(tabs)
 
 	var group := ButtonGroup.new()
 	var model_tab := _button("MODEL", true)
@@ -183,7 +261,7 @@ func _build_menu() -> Control:
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	col.add_child(scroll)
+	stage.add_child(scroll)
 
 	var pages := VBoxContainer.new()
 	pages.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -207,10 +285,183 @@ func _build_menu() -> Control:
 		sweep_page.visible = true
 	)
 
-	var sliders := _build_model_page(model_page)
-	_build_sweep_page(sweep_page, sliders)
+	_lr_sliders = _build_model_page(model_page)
+	_build_sweep_page(sweep_page, _lr_sliders)
 
-	return panel
+	return stage
+
+
+## Stage 2 (genetic algorithm, docs/ML_AI_AUDIT.md §5) — evolves
+## TackleModel's w_speed/w_angle/w_stamina (bias held fixed) against the
+## fitness in scripts/dev/tackle_ga.gd: close to a target tackle-success
+## rate while staying meaningfully sensitive across the input range ("no
+## dominant strategy" per the brief). Fitness is the exact closed-form
+## P(BREAK) curve, not a stochastic sim — VERIFY below is the stochastic
+## sanity check on the winning genome, same "10 SEEDS" idea the SWEEP
+## page already uses.
+func _build_ga_stage() -> Control:
+	var stage := VBoxContainer.new()
+	stage.add_theme_constant_override(&"separation", 8)
+	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL   # see _build_lr_stage()'s comment
+
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	stage.add_child(scroll)
+
+	var page := VBoxContainer.new()
+	page.add_theme_constant_override(&"separation", 6)
+	page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(page)
+
+	page.add_child(_muted_caption("Genome: w_speed, w_angle, w_stamina (bias fixed). Scored against a fixed 5-point scenario ladder, not one input."))
+
+	page.add_child(_section_heading("Parameters"))
+	var pop_box := _spinbox_row(page, "Population", 10, 200, 10, 40)
+	var gen_box := _spinbox_row(page, "Generations", 10, 300, 10, 40)
+	var mutation_rate := _slider_row(page, "Mut. rate", 0.0, 1.0, 0.01, 0.15)
+	var mutation_strength := _slider_row(page, "Mut. size", 0.0, 0.5, 0.01, 0.12)
+	var elite_box := _spinbox_row(page, "Elites", 0, 10, 1, 2)
+	var target_success := _slider_row(page, "Target %", 0.0, 1.0, 0.01, 0.55)
+
+	var seed := OptionButton.new()
+	for n in range(1, 11):
+		seed.add_item("Seed %d" % n, n)
+	seed.select(0)
+	page.add_child(seed)
+
+	var run := _button("RUN GA")
+	page.add_child(run)
+
+	var status := _muted_caption("")
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	page.add_child(status)
+
+	var chart = GAFitnessChartScript.new()
+	page.add_child(chart)
+
+	page.add_child(_section_heading("Best genome"))
+	var genome_label := UIStyle.label("—", UIStyle.SIZE_LABEL, UIStyle.TEXT_PRIMARY)
+	page.add_child(genome_label)
+
+	var metrics_row := HBoxContainer.new()
+	metrics_row.add_theme_constant_override(&"separation", 8)
+	page.add_child(metrics_row)
+	var score_card := _metric_card("FITNESS")
+	score_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	metrics_row.add_child(score_card.node)
+	var success_card := _metric_card("SUCCESS")
+	success_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	metrics_row.add_child(success_card.node)
+
+	var ladder_label := UIStyle.label("—", UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
+	ladder_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	page.add_child(ladder_label)
+
+	var action_row := HBoxContainer.new()
+	action_row.add_theme_constant_override(&"separation", 8)
+	page.add_child(action_row)
+	var apply_button := _button("APPLY TO MODEL")
+	apply_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	apply_button.disabled = true
+	action_row.add_child(apply_button)
+	var verify_button := _button("VERIFY (1000)")
+	verify_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	verify_button.disabled = true
+	action_row.add_child(verify_button)
+
+	var verify_label := _muted_caption("")
+	verify_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	page.add_child(verify_label)
+
+	run.pressed.connect(func() -> void:
+		status.text = "Running..."
+		var params := {
+			"population_size": int(pop_box.value),
+			"generations": int(gen_box.value),
+			"mutation_rate": mutation_rate.value,
+			"mutation_strength": mutation_strength.value,
+			"elite_count": int(elite_box.value),
+			"target_success": target_success.value,
+			"seed": seed.get_selected_id(),
+		}
+		var result: Dictionary = TackleGAScript.run(params)
+		_ga_last_result = result
+		var best: Dictionary = result.best_genome
+		var f: Dictionary = result.best_fitness
+
+		genome_label.text = "w_speed=%.2f   w_angle=%.2f   w_stamina=%.2f" % [best.w_speed, best.w_angle, best.w_stamina]
+		score_card.value_label.text = "%.3f" % f.score
+		success_card.value_label.text = "%.1f%%" % (f.mean_success * 100.0)
+
+		var ladder_text := "LADDER (all 3 inputs move together): "
+		for i in TackleGAScript.LADDER.size():
+			ladder_text += "%s %.1f%%   " % [TackleGAScript.LADDER[i].name, f.p_breaks[i] * 100.0]
+		ladder_text += "\nPER-AXIS swing (other two held at midpoint): dspeed %.2f   angle %.2f   stamina %.2f" % [
+			f.axis_spreads.dspeed, f.axis_spreads.angle, f.axis_spreads.stamina]
+		ladder_label.text = ladder_text
+
+		status.text = "%d generations · pop %d · target %.0f%% success · balance %.2f · ladder sensitivity %.2f · axis sensitivity %.2f (worst of the 3)" % [
+			params.generations, params.population_size, params.target_success * 100.0,
+			f.balance_score, f.sensitivity_score, f.axis_sensitivity_score]
+
+		chart.set_history(result.history)
+		apply_button.disabled = false
+		verify_button.disabled = false
+		verify_label.text = ""
+	)
+
+	apply_button.pressed.connect(func() -> void:
+		if _ga_last_result.is_empty() or _lr_sliders.is_empty():
+			return
+		var best: Dictionary = _ga_last_result.best_genome
+		_lr_sliders.w1.value = best.w_speed
+		_lr_sliders.w2.value = best.w_angle
+		_lr_sliders.w3.value = best.w_stamina
+	)
+
+	verify_button.pressed.connect(func() -> void:
+		if _ga_last_result.is_empty():
+			return
+		var best: Dictionary = _ga_last_result.best_genome
+		var m = TackleModelScript.new()
+		m.w_speed = best.w_speed
+		m.w_angle = best.w_angle
+		m.w_stamina = best.w_stamina
+		m.bias = TackleGAScript.default_bias()
+		var scenario: Dictionary = TackleGAScript.LADDER[2]   # "baseline"
+		var rng := RandomNumberGenerator.new()
+		rng.seed = 1
+		var breaks := 0
+		for _i in 1000:
+			if m.roll_break(rng, scenario.dspeed, scenario.angle, scenario.stamina):
+				breaks += 1
+		var predicted := m.p_break(scenario.dspeed, scenario.angle, scenario.stamina) * 100.0
+		verify_label.text = "1000 stochastic trials at '%s': %.1f%% broke (formula predicts %.1f%%)" % [
+			scenario.name, breaks / 10.0, predicted]
+	)
+
+	return stage
+
+
+## Stub page for a not-yet-built stage (MLP / Deep Q-learning) —
+## scaffolding only, per the brief ("add in the rest of the ML stages
+## infrastructure and setup"): a reachable bookmark and a description of
+## what will go here, not a working experiment yet.
+func _build_placeholder_stage(stage_name: String, fixes: String, body: String) -> Control:
+	var stage := VBoxContainer.new()
+	stage.add_theme_constant_override(&"separation", 8)
+	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL   # see _build_lr_stage()'s comment
+
+	stage.add_child(_muted_caption("QUEUED"))
+	stage.add_child(_section_heading(stage_name))
+	stage.add_child(_muted_caption("Fixes: " + fixes))
+
+	var body_label := UIStyle.label(body, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
+	body_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	stage.add_child(body_label)
+
+	return stage
 
 
 ## Returns the slider set so the sweep page can read them.
