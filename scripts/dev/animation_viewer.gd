@@ -73,10 +73,17 @@ const CAMERA_SIDESTEP := 2.5
 
 ## Pulled back and raised from the single-subject framing above — a contest
 ## needs room for two bodies and a few metres of approach, not a portrait
-## crop of one standing figure.
-const CONTEST_CAMERA_DISTANCE := 8.0
-const CONTEST_CAMERA_HEIGHT := 1.6
-const CONTEST_CAMERA_SIDESTEP := 1.5
+## crop of one standing figure. Sized for APPROACH FROM's full circle: A
+## can spawn up to ~4m from B on any bearing, and the menu panel covers
+## the left ~half of the window, so the camera sits far enough back and
+## left that the whole ring lands in the right half — a 270° run-in no
+## longer starts hidden under the panel, nor a 135° one off-screen right.
+## Tilted down so the APPROACH FROM aim arrow on the ground (and the
+## angle the run-in takes) reads as a shape rather than an edge-on sliver.
+const CONTEST_CAMERA_DISTANCE := 12.0
+const CONTEST_CAMERA_HEIGHT := 4.5
+const CONTEST_CAMERA_SIDESTEP := 4.3
+const CONTEST_CAMERA_PITCH_DEG := -16.0
 
 ## Wireframe floor grid, drawn in code with ImmediateMesh (same technique
 ## as skeleton_wireframe.gd, which this scene also attaches to the rig —
@@ -167,11 +174,58 @@ const SEQUENCE_TIMEOUT := 4.5
 ## doc comment) — a scripted vignette has no device to generate one, so
 ## BUMP_CLEAN/BUMP_MISS below inject the dash fields directly instead, the
 ## same "assign the private fields, no headless device to fake" approach
-## this project's own scratch physics tests already use. This is the delay
-## (seconds before launch) before that injection fires, giving the carrier
-## time to close some real distance and speed first so the assist has
-## something genuine to correct rather than firing at point-blank range.
-const BUMP_CONTEST_TRIGGER_DELAY := 0.6
+## this project's own scratch physics tests already use. The injection
+## fires once the run-in brings the bumper this close (metres, measured
+## along the run line) — a range, not a fixed delay, because APPROACH SPEED
+## below changes how long the run-in takes. Inside BUMP_DASH_SPEED *
+## BUMP_DASH_DURATION's ~3.8m reach so a clean dash can actually land.
+const BUMP_CONTEST_TRIGGER_RANGE := 2.6
+
+## BUMP — MISS's trigger range: the whiff's dash starts this far short of
+## the carrier along the run line, so its half-length travel (below) ends
+## just past them rather than well before or well beyond.
+const BUMP_MISS_CONTEST_TRIGGER_RANGE := 1.0
+
+## Contest geometry. Every scenario now stages the same way, so APPROACH
+## FROM / APPROACH SPEED mean the same thing for all of them: B (the
+## carrier, or the kicker for SMOTHER, or the bystander for BUMP — MISS)
+## stands at CONTEST_TARGET_POS facing -Z, and A (the tackler/bumper/
+## smotherer) spawns CONTEST_RUN_IN[kind] metres out on APPROACH FROM's
+## bearing around B and runs straight at them at APPROACH SPEED.
+##
+## Bearing convention is the Physics Ragdoll Lab's IMPACT FROM, so both
+## screens agree: 0 = from in front of B, 90 = from B's right, 180 = from
+## behind. Run-in distances are each scenario's old fixed spacing,
+## stretched where a standing start used to cover the difference.
+const CONTEST_TARGET_POS := Vector3(0.0, 0.0, 0.5)
+const CONTEST_RUN_IN := {
+	ContestKind.TACKLE_SLIDE: 3.5,
+	ContestKind.TACKLE_LUNGE: 2.5,
+	ContestKind.BUMP_CLEAN: 4.0,
+	ContestKind.BUMP_MISS: 3.0,
+	ContestKind.SMOTHER: 4.0,
+}
+## BUMP — MISS only: the run line passes this far to B's side (B on the
+## runner's left) — comfortably past the 0.7m two
+## collision capsules need to touch, so A runs up close and whiffs wide.
+const BUMP_MISS_LATERAL_OFFSET := 0.85
+## BUMP — CLEAN only: the carrier walks forward along their own facing at
+## this gait (~1 m/s) while A comes in — _resolve_bump_contact grades timing
+## on the carrier moving toward the bumper (Tuning.BUMP_APPROACH_DOT_MIN), so
+## a carrier who stood still would make every bump read as mistimed. Slow on
+## purpose so even APPROACH_SPEED_MIN can run them down from behind; A leads
+## them to where they'll be (see _approach_meet_point), so the bearing is
+## measured at contact, not at B's starting spot. From in front the real
+## resolver grades it clean, from side-on or behind it grades it mistimed.
+const BUMP_CLEAN_CARRIER_GAIT := 0.2
+
+const APPROACH_ANGLE_DEFAULT := 0.0
+const APPROACH_SPEED_MIN := Tuning.WALK_SPEED
+const APPROACH_SPEED_MAX := Tuning.SPRINT_SPEED
+const APPROACH_SPEED_DEFAULT := 6.0
+
+## Same orange as the Physics Ragdoll Lab's AimIndicator.
+const APPROACH_AIM_COLOUR := Color(0.85, 0.3, 0.15)
 
 ## BUMP — MISS only: shortens the dash's own travel window for this
 ## vignette specifically (viewer-side only, does not touch Tuning.BUMP_
@@ -259,6 +313,20 @@ var _contest_kind := ContestKind.TACKLE_SLIDE
 var _contest_stage := ContestStage.NONE
 var _contest_timer := 0.0
 var _contest_bump_triggered := false
+## A's run direction for the current contest (world space, ground plane) —
+## BUMP — MISS's dash follows it and both bumps measure their trigger
+## range against it.
+var _contest_run_dir := Vector3.BACK
+
+## APPROACH FROM / APPROACH SPEED — see CONTEST_TARGET_POS. Read at launch,
+## so changing either and pressing a contest button re-stages from there.
+var _approach_angle_deg := APPROACH_ANGLE_DEFAULT
+var _approach_speed := APPROACH_SPEED_DEFAULT
+var _approach_angle_value: Label
+var _approach_speed_value: Label
+## Ground arrow showing where A will come from for the last-pressed (or
+## first) scenario; redrawn whenever either slider moves.
+var _approach_aim: MeshInstance3D
 
 ## SEQUENCES state — its own stage/timer so _step_contest's resolved-
 ## detection never trips on a sequence. The Umpire rig is built lazily on
@@ -446,6 +514,8 @@ func _show_free_move() -> void:
 		_contest_a.visible = false
 		_contest_b.visible = false
 		_contest_ball.visible = false
+	if _approach_aim != null:
+		_approach_aim.visible = false
 	if _umpire != null:
 		_umpire.visible = false
 	if _free_player_built:
@@ -819,6 +889,9 @@ func _build_contest_group() -> VBoxContainer:
 		group.add_child(button)
 
 	group.add_child(_make_spacer(MENU_SECTION_GAP - MENU_ROW_GAP))
+	group.add_child(_build_approach_panel())
+
+	group.add_child(_make_spacer(MENU_SECTION_GAP - MENU_ROW_GAP))
 	_tackle_model_panel = _build_tackle_model_panel()
 	group.add_child(_tackle_model_panel)
 
@@ -836,6 +909,76 @@ func _build_contest_group() -> VBoxContainer:
 	# _contest_status_label itself now lives under the metric cards in
 	# _build_ui(), not here — see that function's comment.
 	return group
+
+
+## APPROACH FROM / APPROACH SPEED — where A comes in from and how fast, for
+## every CONTESTS button. Same FROM slider range/step as the Physics Ragdoll
+## Lab's. Both only take effect on the next contest press.
+func _build_approach_panel() -> VBoxContainer:
+	var panel := VBoxContainer.new()
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_theme_constant_override(&"separation", 6)
+	panel.add_child(_section_heading("Approach"))
+
+	var angle_row := _make_slider_row("FROM", 0.0, 355.0, 5.0, _approach_angle_deg,
+		func(v: float) -> void: _approach_angle_deg = v)
+	_approach_angle_value = angle_row.value_label
+	panel.add_child(angle_row.node)
+	var speed_row := _make_slider_row("m/s", APPROACH_SPEED_MIN, APPROACH_SPEED_MAX, 0.1,
+		_approach_speed, func(v: float) -> void: _approach_speed = v)
+	_approach_speed_value = speed_row.value_label
+	panel.add_child(speed_row.node)
+
+	_update_approach_readouts()
+	return panel
+
+
+## Same 3-column shape as _make_tackle_model_input_row, but owning its own
+## value rather than writing into _tackle_model_manual_inputs.
+func _make_slider_row(label_text: String, min_value: float, max_value: float, step: float,
+		value: float, on_change: Callable) -> Dictionary:
+	var row := GridContainer.new()
+	row.columns = 3
+	row.add_theme_constant_override(&"h_separation", 8)
+
+	var label := UIStyle.label(label_text.to_upper(), UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
+	label.custom_minimum_size.x = 56.0
+	row.add_child(label)
+
+	var slider := HSlider.new()
+	slider.min_value = min_value
+	slider.max_value = max_value
+	slider.step = step
+	slider.value = value
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(slider)
+
+	var value_label := UIStyle.label("", UIStyle.SIZE_LABEL, UIStyle.TEXT_PRIMARY)
+	value_label.custom_minimum_size.x = 36.0
+	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(value_label)
+
+	slider.value_changed.connect(func(v: float) -> void:
+		on_change.call(v)
+		_update_approach_readouts()
+		_draw_approach_aim())
+	return {"node": row, "value_label": value_label}
+
+
+func _update_approach_readouts() -> void:
+	if _approach_angle_value == null:
+		return
+	_approach_angle_value.text = "%d° %s" % [roundi(_approach_angle_deg), _bearing_name(_approach_angle_deg)]
+	_approach_speed_value.text = "%.1f" % _approach_speed
+
+
+## Copy of PhysicsRagdollLab._bearing_name — same eight compass names for
+## the same bearing convention.
+func _bearing_name(deg: float) -> String:
+	const NAMES := ["FRONT", "FRONT-RIGHT", "RIGHT", "BEHIND-RIGHT",
+		"BEHIND", "BEHIND-LEFT", "LEFT", "FRONT-LEFT"]
+	return NAMES[roundi(deg / 45.0) % 8]
 
 
 func _build_tackle_model_panel() -> VBoxContainer:
@@ -1123,6 +1266,8 @@ func _show_single_subject() -> void:
 		_contest_a.visible = false
 		_contest_b.visible = false
 		_contest_ball.visible = false
+	if _approach_aim != null:
+		_approach_aim.visible = false
 	if _umpire != null:
 		_umpire.visible = false
 	if _free_player_built:
@@ -1145,6 +1290,8 @@ func _show_contest() -> void:
 	_contest_a.visible = true
 	_contest_b.visible = true
 	_contest_ball.visible = true
+	_draw_approach_aim()
+	_approach_aim.visible = true
 	if _umpire != null:
 		_umpire.visible = false
 	if _free_player_built:
@@ -1157,7 +1304,8 @@ func _show_contest() -> void:
 	_preview_columns.visible = true
 	_free_move_hints.visible = false
 	_move_camera_to(STAND_ON \
-		+ Vector3(-CONTEST_CAMERA_SIDESTEP, CONTEST_CAMERA_HEIGHT, CONTEST_CAMERA_DISTANCE))
+		+ Vector3(-CONTEST_CAMERA_SIDESTEP, CONTEST_CAMERA_HEIGHT, CONTEST_CAMERA_DISTANCE),
+		CONTEST_CAMERA_PITCH_DEG)
 
 
 ## Eases the camera to a framing rather than cutting. Only the two preview
@@ -1176,15 +1324,17 @@ func set_studio_floor_visible(visible_: bool) -> void:
 func set_root_layout_visible(visible_: bool) -> void:
 	_root_layout.visible = visible_
 
-func _move_camera_to(target: Vector3) -> void:
+func _move_camera_to(target: Vector3, pitch_deg := 0.0) -> void:
 	if _camera_tween != null and _camera_tween.is_valid():
 		_camera_tween.kill()
-	_camera.rotation = Vector3.ZERO
+	var goal_rotation := Vector3(deg_to_rad(pitch_deg), 0.0, 0.0)
 	if _camera.position.is_equal_approx(target):
+		_camera.rotation = goal_rotation
 		return
-	_camera_tween = create_tween()
+	_camera_tween = create_tween().set_parallel()
 	_camera_tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	_camera_tween.tween_property(_camera, "position", target, CAMERA_MOVE_TIME)
+	_camera_tween.tween_property(_camera, "rotation", goal_rotation, CAMERA_MOVE_TIME)
 
 
 ## Converts SUBJECT_SCREEN_FRACTION (0=left edge, 0.5=centre, 1=right edge)
@@ -1351,12 +1501,25 @@ func _reset_contest_state() -> void:
 ## scenario from scratch, the "generate another character and run the
 ## simulation" behaviour applying every time, not just the first.
 func _launch_contest(kind: ContestKind) -> void:
+	_contest_kind = kind
 	_ensure_contest_built()
 	_show_contest()
 	_reset_contest_state()
 
 	# Initialize tackle model RNG with a fixed seed for reproducibility.
 	_contest_rng.seed = 42
+
+	# Every scenario stages the same way — see CONTEST_TARGET_POS. A spawns
+	# on APPROACH FROM's bearing already moving at APPROACH SPEED (not from
+	# a standstill), so the speed it meets B at is the speed asked for, not
+	# whatever a few metres of acceleration happened to reach. That also
+	# makes the AUTO tackle-model dspeed read back APPROACH SPEED itself.
+	var run_dir := -_approach_source_dir()
+	_contest_run_dir = run_dir
+	_place_contest_body(_contest_b, CONTEST_TARGET_POS, Vector3.FORWARD, 0.0)
+	_place_contest_body(_contest_a, _approach_start(kind), run_dir, _approach_speed)
+	_brain_a.wish_dir = run_dir
+	_brain_a.gait_value = _gait_for_speed(_approach_speed)
 
 	match kind:
 		# TACKLE — SLIDE is the one to watch for the hold: once it
@@ -1367,61 +1530,130 @@ func _launch_contest(kind: ContestKind) -> void:
 		# arranges that — it comes from the real _try_tackle path this
 		# vignette already runs through.
 		ContestKind.TACKLE_SLIDE:
-			_contest_a.global_position = Vector3(0.0, 0.0, -3.0)
-			_contest_a.rotation.y = deg_to_rad(180.0)
-			_contest_b.global_position = Vector3(0.0, 0.0, 0.5)
-			_contest_b.rotation.y = 0.0
 			_contest_b.give_possession(_contest_ball)
-			_brain_a.wish_dir = Vector3(0.0, 0.0, 1.0)
-			_brain_a.gait_value = 1.0
 			_brain_a.tackle_wanted = true
 		ContestKind.TACKLE_LUNGE:
-			_contest_a.global_position = Vector3(0.0, 0.0, -1.5)
-			_contest_a.rotation.y = deg_to_rad(180.0)
-			_contest_b.global_position = Vector3(0.0, 0.0, 0.5)
-			_contest_b.rotation.y = 0.0
 			_contest_b.give_possession(_contest_ball)
-			_brain_a.wish_dir = Vector3(0.0, 0.0, 1.0)
-			_brain_a.gait_value = 0.6
 			_brain_a.lunge_wanted = true
 		ContestKind.BUMP_CLEAN:
-			_contest_a.global_position = Vector3(0.0, 0.0, -2.0)
-			_contest_a.rotation.y = deg_to_rad(180.0)
-			_contest_b.global_position = Vector3(0.0, 0.0, 3.0)
-			_contest_b.rotation.y = 0.0
+			# B runs on along their own facing — see BUMP_CLEAN_CARRIER_GAIT.
+			# Whether that counts as clean timing is the real resolver's call:
+			# from in front it does, from behind (B running away) it doesn't.
 			_contest_b.give_possession(_contest_ball)
-			_brain_b.wish_dir = Vector3(0.0, 0.0, -1.0)
-			_brain_b.gait_value = 1.0
+			_contest_b.velocity = Vector3.FORWARD * Tuning.speed_for_gait(BUMP_CLEAN_CARRIER_GAIT)
+			_brain_b.wish_dir = Vector3.FORWARD
+			_brain_b.gait_value = BUMP_CLEAN_CARRIER_GAIT
 		ContestKind.BUMP_MISS:
-			# Half-length dash (BUMP_MISS_CONTEST_DASH_SCALE, in _step_
-			# contest below) covers ~1.9m along +Z from here — B sits near
-			# the far end of that run, 0.85m to the side (comfortably past
-			# the 0.7m two collision capsules would need to actually touch)
-			# so A visibly runs up close, whiffs just wide, and its own
-			# follow-through carries it past B's position — all of it
-			# inside the floor grid's ±1.6m extent.
-			_contest_a.global_position = Vector3(0.0, 0.0, -1.0)
-			_contest_a.rotation.y = deg_to_rad(180.0)
-			_contest_b.global_position = Vector3(0.85, 0.0, 0.5)
-			_contest_b.rotation.y = 0.0
+			# B never carries the ball, so there's no valid _try_bump_contact()
+			# target however close the line runs — a genuine whiff.
+			pass
 		ContestKind.SMOTHER:
-			_contest_a.global_position = Vector3(0.0, 0.0, -2.5)
-			_contest_a.rotation.y = deg_to_rad(180.0)
-			_contest_b.global_position = Vector3(0.0, 0.0, 0.3)
-			_contest_b.rotation.y = 0.0
 			_contest_b.give_possession(_contest_ball)
 			_brain_a.smother_wanted = true
 			_brain_b.kick_wanted = true
 
-	_contest_kind = kind
 	_contest_stage = ContestStage.APPROACH
 	_contest_timer = 0.0
 	_contest_bump_triggered = false
 	_tackle_model_rolled = false
 
 
+## Teleports a contest body and points it along `facing` (ground plane),
+## already moving that way at `speed`. Sets the controller's own facing/
+## heading too, not just rotation.y — _update_facing() otherwise turns the
+## body back toward its stale _facing_yaw over the first few frames.
+func _place_contest_body(body: PlayerController, pos: Vector3, facing: Vector3, speed: float) -> void:
+	var yaw := atan2(-facing.x, -facing.z)
+	body.global_position = pos
+	body.rotation.y = yaw
+	body._facing_yaw = yaw
+	body._heading = facing
+	body.velocity = facing * speed
+
+
+## World-space unit vector from B toward where A comes in from — the Physics
+## Ragdoll Lab's _impact_source_dir with B's staging facing (-Z) as the
+## basis: player-local forward is -Z, right is +X.
+func _approach_source_dir() -> Vector3:
+	var a := deg_to_rad(_approach_angle_deg)
+	return Vector3(sin(a), 0.0, -cos(a))
+
+
+## Where A and B meet if neither changes course: B's staging spot, except
+## for BUMP — CLEAN, where B walks forward for the run-in's duration first.
+func _approach_meet_point(kind: ContestKind) -> Vector3:
+	if kind != ContestKind.BUMP_CLEAN:
+		return CONTEST_TARGET_POS
+	var run_in_time := float(CONTEST_RUN_IN[kind]) / _approach_speed
+	return CONTEST_TARGET_POS 		+ Vector3.FORWARD * Tuning.speed_for_gait(BUMP_CLEAN_CARRIER_GAIT) * run_in_time
+
+
+## Where A spawns for `kind`: CONTEST_RUN_IN out from the meet point along
+## the bearing, and for BUMP — MISS shifted sideways so the run line passes
+## beside B, not through them.
+func _approach_start(kind: ContestKind) -> Vector3:
+	var source := _approach_source_dir()
+	var start := _approach_meet_point(kind) + source * float(CONTEST_RUN_IN[kind])
+	if kind == ContestKind.BUMP_MISS:
+		start += (-source).cross(Vector3.UP) * BUMP_MISS_LATERAL_OFFSET
+	return start
+
+
+## Inverse of Tuning.speed_for_gait — the gait a brain has to ask for to
+## hold `speed` m/s.
+func _gait_for_speed(speed: float) -> float:
+	if speed <= 0.0:
+		return 0.0
+	if speed < Tuning.WALK_SPEED:
+		return remap(speed, 0.0, Tuning.WALK_SPEED, 0.0, Tuning.GAIT_WALK)
+	if speed < Tuning.JOG_SPEED:
+		return remap(speed, Tuning.WALK_SPEED, Tuning.JOG_SPEED, Tuning.GAIT_WALK, Tuning.GAIT_JOG)
+	return clampf(remap(speed, Tuning.JOG_SPEED, Tuning.SPRINT_SPEED, Tuning.GAIT_JOG, 1.0), 0.0, 1.0)
+
+
+## Ground arrow from A's spawn point into B for the current scenario —
+## same idea and colour as the Physics Ragdoll Lab's AimIndicator. Drawn
+## from the staged geometry, not B's live position, so it keeps showing
+## where this run came from after B has been tackled or knocked away.
+## Speed moves it too for BUMP — CLEAN (a faster A meets B sooner).
+func _draw_approach_aim() -> void:
+	if _approach_aim == null:
+		_approach_aim = MeshInstance3D.new()
+		_approach_aim.name = "ApproachAim"
+		_approach_aim.mesh = ImmediateMesh.new()
+		_approach_aim.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var material := StandardMaterial3D.new()
+		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		material.vertex_color_use_as_albedo = true
+		material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		_approach_aim.material_override = material
+		_approach_aim.visible = false
+		add_child(_approach_aim)
+
+	var mesh := _approach_aim.mesh as ImmediateMesh
+	mesh.clear_surfaces()
+	var source := _approach_source_dir()
+	var lift := Vector3(0.0, 0.01, 0.0)
+	var start := _approach_start(_contest_kind) + lift
+	# Tip stops just short of the meet point, outside B's capsule.
+	var tip := start - source * (float(CONTEST_RUN_IN[_contest_kind]) - 0.45)
+	var head_base := tip + source * 0.4
+	# Filled ribbon + head rather than the lab's 1px lines — this camera
+	# sits 12m back, where a single-pixel line all but disappears.
+	var side := source.cross(Vector3.UP).normalized()
+	var shaft := side * 0.05
+	var head := side * 0.2
+	mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	mesh.surface_set_color(APPROACH_AIM_COLOUR)
+	for v in [start - shaft, start + shaft, head_base + shaft,
+			start - shaft, head_base + shaft, head_base - shaft,
+			head_base - head, head_base + head, tip]:
+		mesh.surface_add_vertex(v)
+	mesh.surface_end()
+
+
 ## Drives the running scenario each frame. Bump's dash is injected directly
-## (see BUMP_CONTEST_TRIGGER_DELAY's own doc comment); everything else is
+## (see BUMP_CONTEST_TRIGGER_RANGE's own doc comment); everything else is
 ## fully brain-mediated — _update_smother/_try_tackle/_try_lunge_tackle all
 ## fire on their own the moment the scripted approach brings the bodies
 ## into real range, through the identical resolvers a real match uses.
@@ -1436,16 +1668,27 @@ func _step_contest(delta: float) -> void:
 
 	if _contest_stage == ContestStage.APPROACH:
 		if _contest_kind == ContestKind.BUMP_CLEAN or _contest_kind == ContestKind.BUMP_MISS:
-			if not _contest_bump_triggered and _contest_timer >= BUMP_CONTEST_TRIGGER_DELAY:
+			var to_b := _contest_b.global_position - _contest_a.global_position
+			to_b.y = 0.0
+			# CLEAN measures straight-line distance (B is running too);
+			# MISS measures along the run line, since the line never
+			# passes closer than BUMP_MISS_LATERAL_OFFSET to B anyway.
+			var closed := to_b.length() <= BUMP_CONTEST_TRIGGER_RANGE \
+				if _contest_kind == ContestKind.BUMP_CLEAN \
+				else to_b.dot(_contest_run_dir) <= BUMP_MISS_CONTEST_TRIGGER_RANGE
+			if not _contest_bump_triggered and closed:
 				_contest_bump_triggered = true
+				# The dash takes over from here — stop the run-in brain so
+				# A pulls up after it rather than jogging on off the floor.
+				_brain_a.wish_dir = Vector3.ZERO
 				var dir: Vector3
 				var dash_timer := Tuning.BUMP_DASH_DURATION
 				if _contest_kind == ContestKind.BUMP_CLEAN:
 					dir = _contest_b.global_position - _contest_a.global_position
 				else:
-					# Fixed forward, NOT aimed at B directly — B sits close
+					# Along the run line, NOT aimed at B directly — B sits close
 					# enough to this line to read as a deliberate near-miss
-					# (see ContestKind.BUMP_MISS's own setup below) but far
+					# (see _approach_start / BUMP_MISS_LATERAL_OFFSET) but far
 					# enough to the side that the two collision capsules
 					# (CapsuleShape3D radius 0.35 each, so 0.7m clears both)
 					# never actually touch — aiming straight at B would just
@@ -1454,7 +1697,7 @@ func _step_contest(delta: float) -> void:
 					# carries the ball either way, so there's no valid
 					# _try_bump_contact() target regardless of how close the
 					# geometry runs — a genuine whiff, not a swing at nothing.
-					dir = Vector3(0.0, 0.0, 1.0)
+					dir = _contest_run_dir
 					dash_timer *= BUMP_MISS_CONTEST_DASH_SCALE
 				dir.y = 0.0
 				_contest_a._bump_dash_direction = dir.normalized() if dir.length_squared() > 0.0001 \
