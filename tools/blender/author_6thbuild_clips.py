@@ -275,6 +275,10 @@ class Clip:
 	  "clav_l", "clav_r": clav(...)  ("clav" = both, right side mirrored)
 	  "hand_l", "hand_r": wrist target point (armature space, P(...))
 	  "elbow_l", "elbow_r": elbow pole direction (default out-down-back)
+	  "hands_in": "chest" -> hand targets are offsets from that arm's
+	              shoulder joint, and poles directions, both in the chest's
+	              own carried frame — for falls/dives, where a target fixed
+	              in armature space would leave the arms behind the torso
 	  "wrist_l", "wrist_r": lean(...) on the hand bone
 	  "foot_l", "foot_r": {"pos": P offset from the rest ankle, "pitch": deg
 	                       toe-down (negative = toe up), "turn": deg}
@@ -316,11 +320,17 @@ def build_basis(rig, base, spec):
 		basis["shoulder.r"] = (Vector(), base["shoulder.r"]["rot"] @ rig.rel_basis("shoulder.r", clav_r))
 
 	reached = {}
+	chest_frame = spec.get("hands_in") == "chest"
 	for side in ("l", "r"):
 		tgt = spec.get("hand_" + side)
 		if tgt is None:
 			continue
 		pole = spec.get("elbow_" + side, DEFAULT_ELBOW_L if side == "l" else mirror_v(DEFAULT_ELBOW_L))
+		if chest_frame:
+			pose = rig.fk(basis)
+			delta = pose["spine2"].to_quaternion() @ rig.rest_rot["spine2"].inverted()
+			tgt = pose["upperarm." + side].translation + delta @ tgt
+			pole = delta @ pole
 		reached[side] = solve_arm(rig, basis, side, tgt, pole)
 		w = spec.get("wrist_" + side)
 		if w is not None:
@@ -337,10 +347,10 @@ def build_basis(rig, base, spec):
 
 
 # iktarget rotation -> foot: the foot COPY_ROTATIONs iktarget in local space
-# with X/Y inverted, so a toe-down pitch on the foot is a NEGATIVE turn of
-# iktarget about X. Calibrated in calibrate_foot_pitch() at startup rather
-# than trusted from this comment.
-FOOT_PITCH_SIGN = -1.0
+# with X/Y inverted, which makes the sign of "toe down" non-obvious — so it
+# is measured in calibrate_foot_pitch() at startup (on this rig: +1, a
+# positive iktarget turn about X drops the toe) rather than assumed here.
+FOOT_PITCH_SIGN = 1.0
 
 
 def calibrate_foot_pitch(rig_obj):
@@ -661,7 +671,7 @@ def clip_mark_aggressive():
 			"clav": clav(lift=8),
 			"hand_l": P(0.20, 0.36, 1.86), "hand_r": P(-0.20, 0.36, 1.86),
 			"elbow_l": P(0.8, 0.2, -1.0), "elbow_r": P(-0.8, 0.2, -1.0),
-			"foot_l": {"pos": P(0, 0.06, 0.06), "pitch": 20}, "foot_r": {"pos": P(0, -0.04, 0.0), "pitch": 35},
+			"foot_l": {"pos": P(0, 0.06, 0.06), "pitch": 20}, "foot_r": {"pos": P(0, -0.04, 0.10), "pitch": 35},
 		}),
 		# climbing: lead (left) knee driven up — the pack-mark knee — trail
 		# leg long and toes pointed, arms going up past the head.
@@ -671,7 +681,7 @@ def clip_mark_aggressive():
 			"clav": clav(lift=16),
 			"hand_l": P(0.14, 0.20, 2.30), "hand_r": P(-0.14, 0.20, 2.30),
 			"elbow_l": P(1.0, 0.3, -0.4), "elbow_r": P(-1.0, 0.3, -0.4),
-			"foot_l": {"pos": P(0.02, 0.32, 0.50), "pitch": 25}, "foot_r": {"pos": P(0, -0.14, 0.04), "pitch": 45},
+			"foot_l": {"pos": P(0.02, 0.32, 0.50), "pitch": 25}, "foot_r": {"pos": P(0, -0.14, 0.16), "pitch": 45},
 		}),
 		# contact — hand-off: apex, full stretch, hands together on the ball
 		# above and just in front of the head.
@@ -681,7 +691,7 @@ def clip_mark_aggressive():
 			"clav": clav(lift=22),
 			"hand_l": P(0.07, 0.16, 2.48), "hand_r": P(-0.07, 0.16, 2.48),
 			"elbow_l": P(1.0, 0.2, -0.3), "elbow_r": P(-1.0, 0.2, -0.3),
-			"foot_l": {"pos": P(0.02, 0.30, 0.46), "pitch": 25}, "foot_r": {"pos": P(0, -0.16, 0.06), "pitch": 45},
+			"foot_l": {"pos": P(0.02, 0.30, 0.46), "pitch": 25}, "foot_r": {"pos": P(0, -0.16, 0.18), "pitch": 45},
 		}),
 		# pull it down in front of the face — keeps the hands on the ball's
 		# line instead of letting the joint-space blend swing them out wide.
@@ -691,7 +701,7 @@ def clip_mark_aggressive():
 			"clav": clav(lift=14, fwd=4),
 			"hand_l": P(0.09, 0.26, 2.06), "hand_r": P(-0.09, 0.26, 2.06),
 			"elbow_l": P(1.0, 0.0, -0.5), "elbow_r": P(-1.0, 0.0, -0.5),
-			"foot_l": {"pos": P(0.02, 0.24, 0.32), "pitch": 20}, "foot_r": {"pos": P(0, -0.08, 0.08), "pitch": 35},
+			"foot_l": {"pos": P(0.02, 0.24, 0.32), "pitch": 20}, "foot_r": {"pos": P(0, -0.08, 0.16), "pitch": 35},
 		}),
 		# bring it down to the chest; legs come down under the body.
 		(0.58, {
@@ -725,12 +735,338 @@ def clip_mark_aggressive():
 	])
 
 
+# ── Disposals and contest reactions ────────────────────────────────────
+# Same procedural timing as humanoid_animations.gd's _build_kick/_handball/
+# _bounce/_hit_out/_knocked_back/_smothered/_smother_dive. Sides follow the
+# gameplay markers rather than the procedural rig's naming: the procedural
+# rig has "Left" bones on the anatomical right, but BootPoint and CarryPoint
+# both sit on the player's right, so the kick is the right foot and the ball
+# rides in the right hand.
+
+def clip_kick():
+	length, contact = ACTION_TIMING["kick"]
+	# Right-foot drop punt: plant on the left, ball out in front in both
+	# hands, drop it, the right leg swings through on BootPoint's line
+	# (~0.5 m ahead, ~0.3 m up), follow through high with the body leaning
+	# back against it.
+	return Clip("kick", [
+		(0.0, {}),
+		# wind-up: right leg back and up, ball held out over the kicking foot.
+		(contact * 0.33, {
+			"pelvis": {"pos": P(0, 0.02, -0.04), "rot": lean(turn=-4)},
+			"spine1": lean(fwd=5), "spine2": lean(fwd=3), "head": lean(fwd=12),
+			"hand_l": P(0.04, 0.36, 1.18), "hand_r": P(-0.16, 0.36, 1.16),
+			"elbow_l": P(0.6, -0.2, -1.0), "elbow_r": P(-0.6, -0.2, -1.0),
+			"foot_l": {"pos": P(0, 0.14, 0)},
+			"foot_r": {"pos": P(0, -0.42, 0.24), "pitch": 35},
+		}),
+		# drop: hands let go and part for balance, kicking leg coming through
+		# knee-first.
+		(contact * 0.72, {
+			"pelvis": {"pos": P(0, 0.04, -0.03)},
+			"spine1": lean(fwd=2), "spine2": lean(fwd=0), "head": lean(fwd=16),
+			"hand_l": P(0.42, 0.26, 1.28), "hand_r": P(-0.40, -0.10, 1.16),
+			"elbow_l": P(1.0, 0.0, -0.6), "elbow_r": P(-1.0, 0.3, -0.6),
+			"foot_l": {"pos": P(0, 0.14, 0)},
+			"foot_r": {"pos": P(0, -0.20, 0.34), "pitch": 40},
+		}),
+		# contact: instep through the ball on BootPoint's line, leg long,
+		# torso leaning back over the plant foot, eyes on the ball.
+		(contact, {
+			"pelvis": {"pos": P(0, 0.06, 0.0), "rot": lean(fwd=-6, turn=4)},
+			"spine1": lean(fwd=-5), "spine2": lean(fwd=-2), "head": lean(fwd=18),
+			"hand_l": P(0.46, 0.30, 1.40), "hand_r": P(-0.36, -0.22, 1.20),
+			"elbow_l": P(1.0, -0.2, -0.6), "elbow_r": P(-1.0, 0.4, -0.5),
+			"foot_l": {"pos": P(0, 0.14, 0), "pitch": 5},
+			"foot_r": {"pos": P(0.02, 0.50, 0.28), "pitch": 45},
+		}),
+		# follow-through: boot finishes high, left heel lifting.
+		(contact + (length - contact) * 0.45, {
+			"pelvis": {"pos": P(0, 0.08, 0.02), "rot": lean(fwd=-10, turn=6)},
+			"spine1": lean(fwd=-6), "spine2": lean(fwd=-2), "head": lean(fwd=8),
+			"hand_l": P(0.40, 0.34, 1.52), "hand_r": P(-0.36, -0.18, 1.26),
+			"elbow_l": P(1.0, -0.2, -0.5), "elbow_r": P(-1.0, 0.4, -0.5),
+			"foot_l": {"pos": P(0, 0.14, 0.07), "pitch": 15},
+			"foot_r": {"pos": P(0.02, 0.66, 0.88), "pitch": 30},
+		}),
+		(length, {}),
+	])
+
+
+def clip_handball():
+	length, contact = ACTION_TIMING["handball"]
+	# Left hand is the platform holding the ball at the waist, right fist
+	# punches through it — the torso winds right then drives through.
+	return Clip("handball", [
+		(0.0, {}),
+		(contact * 0.5, {
+			"pelvis": {"pos": P(0, 0, -0.03), "rot": lean(turn=-6)},
+			"spine1": lean(fwd=6, turn=-6), "spine2": lean(fwd=3, turn=-4), "head": lean(fwd=10, turn=8),
+			"hand_l": P(0.08, 0.34, 1.24), "hand_r": P(-0.26, 0.02, 1.22),
+			"elbow_l": P(0.6, -0.2, -1.0), "elbow_r": P(-0.6, 0.8, -0.4),
+			"foot_l": {"pos": P(0, 0.12, 0)}, "foot_r": {"pos": P(0, -0.06, 0)},
+		}),
+		# contact: fist meets the ball on the platform.
+		(contact, {
+			"pelvis": {"pos": P(0, 0.01, -0.03), "rot": lean(turn=4)},
+			"spine1": lean(fwd=6, turn=5), "spine2": lean(fwd=3, turn=4), "head": lean(fwd=10, turn=-4),
+			"hand_l": P(0.06, 0.36, 1.22), "hand_r": P(-0.02, 0.40, 1.28),
+			"elbow_l": P(0.6, -0.2, -1.0), "elbow_r": P(-0.8, 0.0, -0.6),
+			"foot_l": {"pos": P(0, 0.12, 0)}, "foot_r": {"pos": P(0, -0.06, 0)},
+		}),
+		# punch carries through and up; platform hand drops away.
+		(contact + (length - contact) * 0.5, {
+			"pelvis": {"pos": P(0, 0.02, -0.02), "rot": lean(turn=8)},
+			"spine1": lean(fwd=4, turn=8), "spine2": lean(fwd=2, turn=5), "head": lean(fwd=4, turn=-8),
+			"hand_l": P(0.26, 0.20, 1.14), "hand_r": P(-0.04, 0.58, 1.46),
+			"elbow_l": P(1.0, 0.2, -0.6), "elbow_r": P(-0.8, -0.2, -0.6),
+			"foot_l": {"pos": P(0, 0.12, 0)}, "foot_r": {"pos": P(0, -0.04, 0.02), "pitch": 10},
+		}),
+		(length, {}),
+	])
+
+
+def clip_bounce():
+	length, contact = ACTION_TIMING["bounce"]
+	# Bounce on the run: legs keep the run cycle, the ball goes from the
+	# hands down into the turf in front and is taken back up — a shallow
+	# reach, not a crouch (see _build_bounce's own note).
+	return Clip("bounce", [
+		(0.0, {
+			"spine1": lean(fwd=6), "spine2": lean(fwd=3),
+			"hand_l": P(0.10, 0.32, 1.30), "hand_r": P(-0.10, 0.32, 1.30),
+		}),
+		(contact * 0.55, {
+			"spine1": lean(fwd=10), "spine2": lean(fwd=6), "head": lean(fwd=14),
+			"clav": clav(fwd=8),
+			"hand_l": P(0.10, 0.48, 1.12), "hand_r": P(-0.10, 0.48, 1.12),
+			"elbow_l": P(0.6, -0.1, -1.0), "elbow_r": P(-0.6, -0.1, -1.0),
+		}),
+		# release: driven down out of the right hand, left arm out.
+		(contact, {
+			"spine1": lean(fwd=13), "spine2": lean(fwd=8), "head": lean(fwd=18),
+			"clav": clav(fwd=10),
+			"hand_l": P(0.24, 0.42, 1.04), "hand_r": P(-0.08, 0.56, 0.92),
+			"elbow_l": P(0.8, 0.0, -0.8), "elbow_r": P(-0.5, -0.1, -1.0),
+		}),
+		# back up and running, hands taking it again.
+		(contact + (length - contact) * 0.35, {
+			"spine1": lean(fwd=7), "spine2": lean(fwd=3), "head": lean(fwd=4),
+			"hand_l": P(0.12, 0.34, 1.26), "hand_r": P(-0.12, 0.34, 1.24),
+		}),
+		(length, {}),
+	], legs_from=RUN_ACTION)
+
+
+def clip_hit_out():
+	length, contact = ACTION_TIMING["hit_out"]
+	# The ruck tap: mark_aggressive's identical leap (Tuning copies its
+	# timing row) palmed with the right hand; the left arm stays low with
+	# the elbow out for body-work on the opposing ruck, and the landing has
+	# nothing to gather.
+	return Clip("hit_out", [
+		(0.0, {
+			"pelvis": {"pos": P(0, 0.02, -0.09)},
+			"spine1": lean(fwd=10), "spine2": lean(fwd=4), "head": lean(fwd=-12),
+			"hand_l": P(0.32, -0.16, 1.10), "hand_r": P(-0.30, -0.22, 1.08),
+			"elbow_l": P(0.6, 0.6, -0.4), "elbow_r": P(-0.6, 0.6, -0.4),
+			"foot_l": {"pos": P(0, 0.04, 0)}, "foot_r": {"pos": P(0, -0.04, 0)},
+		}),
+		(contact * 0.6, {
+			"pelvis": {"pos": P(0, 0, 0.02), "rot": lean(left=3)},
+			"spine1": lean(left=3), "head": lean(fwd=-24),
+			"clav_l": clav(lift=6, fwd=6), "clav_r": mirror_q(clav(lift=18)),
+			"hand_l": P(0.36, 0.22, 1.62), "hand_r": P(-0.14, 0.16, 2.24),
+			"elbow_l": P(1.0, 0.0, -0.4), "elbow_r": P(-1.0, 0.3, -0.4),
+			"foot_l": {"pos": P(0.02, 0.30, 0.46), "pitch": 25}, "foot_r": {"pos": P(0, -0.12, 0.16), "pitch": 45},
+		}),
+		# contact: right palm at full stretch above the head.
+		(contact, {
+			"pelvis": {"pos": P(0, 0, 0.02), "rot": lean(fwd=-3, left=5)},
+			"spine1": lean(fwd=-2, left=5), "spine2": lean(left=3), "head": lean(fwd=-20, turn=-6),
+			"clav_l": clav(lift=6, fwd=8), "clav_r": mirror_q(clav(lift=24)),
+			"hand_l": P(0.38, 0.24, 1.66), "hand_r": P(-0.10, 0.18, 2.50),
+			"elbow_l": P(1.0, 0.0, -0.4), "elbow_r": P(-1.0, 0.2, -0.3),
+			"wrist_r": lean(fwd=-25),
+			"foot_l": {"pos": P(0.02, 0.30, 0.46), "pitch": 25}, "foot_r": {"pos": P(0, -0.16, 0.18), "pitch": 45},
+		}),
+		(contact + (length - contact) * 0.5, {
+			"pelvis": {"pos": P(0, 0, -0.04)},
+			"spine1": lean(fwd=5), "spine2": lean(fwd=2), "head": lean(fwd=2),
+			"hand_l": P(0.40, 0.10, 1.24), "hand_r": P(-0.36, 0.16, 1.40),
+			"elbow_l": P(1.0, 0.2, -0.6), "elbow_r": P(-1.0, 0.2, -0.6),
+			"foot_l": {"pos": P(0, 0.08, 0.03), "pitch": 5}, "foot_r": {"pos": P(0, -0.05, 0.03), "pitch": 5},
+		}),
+		# absorb the landing.
+		(0.88, {
+			"pelvis": {"pos": P(0, 0.02, -0.13)},
+			"spine1": lean(fwd=10), "spine2": lean(fwd=4), "head": lean(fwd=4),
+			"hand_l": P(0.40, 0.14, 1.12), "hand_r": P(-0.40, 0.14, 1.12),
+			"elbow_l": P(1.0, 0.2, -0.6), "elbow_r": P(-1.0, 0.2, -0.6),
+			"foot_l": {"pos": P(0, 0.08, 0)}, "foot_r": {"pos": P(0, -0.06, 0)},
+		}),
+		(length, {}),
+	])
+
+
+def clip_knocked_back():
+	length, contact = ACTION_TIMING["knocked_back"]
+	# A clean bump from the front: driven straight back onto the backside
+	# and then the back, still facing the way they were (KNOCKED_BACK skips
+	# _fall_toward's facing snap), a beat on the ground, then up through a
+	# crouch. Same beat structure as the hand-authored `tackled` fall on
+	# this rig (down by ~0.5 s, held, up by the end), mirrored onto the back
+	# without mirroring the knees. Arms ride the chest frame so they fall
+	# with the torso. Hand-off candidate for ragdoll stage 2: the 0.15 s
+	# key (airborne, balance gone, limbs clear of the body).
+	return Clip("knocked_back", [
+		# impact: hips knocked back under the torso, arms thrown forward,
+		# chin tucked.
+		(0.0, {
+			"pelvis": {"pos": P(0, -0.08, -0.05), "rot": lean(fwd=-12)},
+			"spine1": lean(fwd=6), "spine2": lean(fwd=4), "head": lean(fwd=14),
+			"hands_in": "chest",
+			"hand_l": P(0.30, 0.42, -0.10), "hand_r": P(-0.30, 0.42, -0.10),
+			"elbow_l": P(1.0, -0.2, -0.6), "elbow_r": P(-1.0, -0.2, -0.6),
+			"foot_l": {"pos": P(0, -0.10, 0.08)}, "foot_r": {"pos": P(0, 0.04, 0)},
+		}),
+		# going over backwards.
+		(0.15, {
+			"pelvis": {"pos": P(0, -0.26, -0.40), "rot": lean(fwd=-38)},
+			"spine1": lean(fwd=8), "spine2": lean(fwd=4), "head": lean(fwd=22),
+			"hands_in": "chest",
+			"hand_l": P(0.40, 0.40, 0.00), "hand_r": P(-0.40, 0.40, 0.00),
+			"elbow_l": P(1.0, -0.2, -0.4), "elbow_r": P(-1.0, -0.2, -0.4),
+			"foot_l": {"pos": P(0, 0.06, 0.12)}, "foot_r": {"pos": P(0, 0.10, 0.04)},
+		}),
+		# contact: backside hits the turf, knees up.
+		(contact, {
+			"pelvis": {"pos": P(0, -0.44, -0.86), "rot": lean(fwd=-62)},
+			"spine1": lean(fwd=10), "spine2": lean(fwd=6), "head": lean(fwd=26),
+			"hands_in": "chest",
+			"hand_l": P(0.42, 0.10, -0.22), "hand_r": P(-0.42, 0.10, -0.22),
+			"elbow_l": P(1.0, 0.0, -0.4), "elbow_r": P(-1.0, 0.0, -0.4),
+			"foot_l": {"pos": P(0, 0.16, 0)}, "foot_r": {"pos": P(0, 0.22, 0)},
+		}),
+		# flat on the back, head held up off the ground.
+		(contact + (length - contact) * 0.30, {
+			"pelvis": {"pos": P(0, -0.52, -0.99), "rot": lean(fwd=-92)},
+			"spine1": lean(fwd=4), "spine2": lean(fwd=2), "head": lean(fwd=24),
+			"hands_in": "chest",
+			"hand_l": P(0.48, -0.04, -0.10), "hand_r": P(-0.48, -0.04, -0.10),
+			"elbow_l": P(1.0, 0.4, 0.0), "elbow_r": P(-1.0, 0.4, 0.0),
+			"foot_l": {"pos": P(0, 0.10, 0)}, "foot_r": {"pos": P(0, 0.20, 0)},
+		}),
+		# sitting up, hands pushing off the ground behind.
+		(contact + (length - contact) * 0.55, {
+			"pelvis": {"pos": P(0, -0.50, -0.96), "rot": lean(fwd=-66)},
+			"spine1": lean(fwd=18), "spine2": lean(fwd=10), "head": lean(fwd=12),
+			"hands_in": "chest",
+			"hand_l": P(0.34, -0.10, -0.30), "hand_r": P(-0.34, -0.10, -0.30),
+			"elbow_l": P(0.6, -1.0, 0.0), "elbow_r": P(-0.6, -1.0, 0.0),
+			"foot_l": {"pos": P(0, 0.0, 0)}, "foot_r": {"pos": P(0, 0.06, 0)},
+		}),
+		# up through a crouch over the feet.
+		(contact + (length - contact) * 0.80, {
+			"pelvis": {"pos": P(0, -0.20, -0.50), "rot": lean(fwd=24)},
+			"spine1": lean(fwd=14), "spine2": lean(fwd=6), "head": lean(fwd=-6),
+			"hands_in": "chest",
+			"hand_l": P(0.10, 0.34, -0.42), "hand_r": P(-0.10, 0.34, -0.42),
+			"elbow_l": P(1.0, 0.0, -0.4), "elbow_r": P(-1.0, 0.0, -0.4),
+			"foot_l": {"pos": P(0, -0.12, 0)}, "foot_r": {"pos": P(0, -0.04, 0)},
+		}),
+		(contact + (length - contact) * 0.93, {
+			"pelvis": {"pos": P(0, -0.04, -0.10), "rot": lean(fwd=6)},
+			"spine1": lean(fwd=6), "spine2": lean(fwd=2),
+			"foot_l": {"pos": P(0, -0.04, 0)}, "foot_r": {"pos": P(0, 0.0, 0)},
+		}),
+		(length, {}),
+	])
+
+
+def clip_smothered():
+	length, contact = ACTION_TIMING["smothered"]
+	# The kicker whose kick was blocked: a flinch back off the boot, arms up
+	# in front of the face, half a step back on the kicking (right) foot.
+	return Clip("smothered", [
+		(0.0, {}),
+		(contact, {
+			"pelvis": {"pos": P(0, -0.06, -0.04), "rot": lean(fwd=-8)},
+			"spine1": lean(fwd=-6), "spine2": lean(fwd=-2), "head": lean(fwd=10, turn=10),
+			"clav": clav(lift=6, fwd=4),
+			"hand_l": P(0.16, 0.26, 1.72), "hand_r": P(-0.14, 0.24, 1.66),
+			"elbow_l": P(0.6, -0.2, -1.0), "elbow_r": P(-0.6, -0.2, -1.0),
+			"foot_l": {"pos": P(0, 0.06, 0)}, "foot_r": {"pos": P(0, -0.24, 0.04), "pitch": 10},
+		}),
+		(contact + (length - contact) * 0.55, {
+			"pelvis": {"pos": P(0, -0.05, -0.03), "rot": lean(fwd=-3)},
+			"spine1": lean(fwd=-2), "head": lean(fwd=6, turn=4),
+			"hand_l": P(0.30, 0.20, 1.36), "hand_r": P(-0.30, 0.18, 1.34),
+			"elbow_l": P(1.0, 0.0, -0.6), "elbow_r": P(-1.0, 0.0, -0.6),
+			"foot_l": {"pos": P(0, 0.04, 0)}, "foot_r": {"pos": P(0, -0.20, 0)},
+		}),
+		(length, {}),
+	])
+
+
+def clip_smother_dive():
+	length, contact = ACTION_TIMING["smother_dive"]
+	# Committed dive at the kicker's boot (the playtest ask: it has to go to
+	# ground): load on the left, launch, full stretch with both arms just off
+	# the turf at contact, held. The last key snaps back to the base pose
+	# because Tuning ends the action there (see the timing note in the
+	# checkpoint report — a real get-up needs a longer ACTION_DURATION).
+	return Clip("smother_dive", [
+		(0.0, {}),
+		(contact * 0.35, {
+			"pelvis": {"pos": P(0, 0.06, -0.14), "rot": lean(fwd=14)},
+			"spine1": lean(fwd=10), "spine2": lean(fwd=4), "head": lean(fwd=-6),
+			"hand_l": P(0.20, 0.56, 1.08), "hand_r": P(-0.20, 0.56, 1.08),
+			"elbow_l": P(0.8, -0.2, -1.0), "elbow_r": P(-0.8, -0.2, -1.0),
+			"foot_l": {"pos": P(0, 0.26, 0)}, "foot_r": {"pos": P(0, -0.16, 0.06), "pitch": 25},
+		}),
+		(contact * 0.7, {
+			"pelvis": {"pos": P(0, 0.30, -0.42), "rot": lean(fwd=42)},
+			"spine1": lean(fwd=8), "spine2": lean(fwd=2), "head": lean(fwd=-18),
+			"hands_in": "chest",
+			"hand_l": P(0.16, 0.56, 0.10), "hand_r": P(-0.16, 0.56, 0.10),
+			"elbow_l": P(1.0, 0.0, -0.6), "elbow_r": P(-1.0, 0.0, -0.6),
+			"foot_l": {"pos": P(0, 0.20, 0.08), "pitch": 20}, "foot_r": {"pos": P(0, -0.46, 0.34), "pitch": 40},
+		}),
+		# contact: body near the ground, arms full length at the boot.
+		(contact, {
+			"pelvis": {"pos": P(0, 0.56, -0.76), "rot": lean(fwd=66)},
+			"spine1": lean(fwd=6), "spine2": lean(fwd=0), "head": lean(fwd=-26),
+			"hands_in": "chest",
+			"hand_l": P(0.14, 0.50, 0.36), "hand_r": P(-0.14, 0.50, 0.36),
+			"elbow_l": P(1.0, 0.0, -0.4), "elbow_r": P(-1.0, 0.0, -0.4),
+			"foot_l": {"pos": P(0, 0.02, 0.13), "pitch": 30}, "foot_r": {"pos": P(0, -0.52, 0.30), "pitch": 45},
+		}),
+		(contact + (length - contact) * 0.75, {
+			"pelvis": {"pos": P(0, 0.54, -0.74), "rot": lean(fwd=62)},
+			"spine1": lean(fwd=6), "spine2": lean(fwd=0), "head": lean(fwd=-22),
+			"hands_in": "chest",
+			"hand_l": P(0.16, 0.48, 0.32), "hand_r": P(-0.16, 0.48, 0.32),
+			"elbow_l": P(1.0, 0.0, -0.4), "elbow_r": P(-1.0, 0.0, -0.4),
+			"foot_l": {"pos": P(0, 0.02, 0.13), "pitch": 30}, "foot_r": {"pos": P(0, -0.48, 0.26), "pitch": 40},
+		}),
+		(length, {}),
+	])
+
+
 CLIPS = {
 	"mark_safe": clip_mark_safe,
 	"mark_running": clip_mark_running,
 	"mark_aggressive": clip_mark_aggressive,
 	"mark_safe_miss": clip_mark_safe_miss,
 	"mark_running_miss": clip_mark_running_miss,
+	"kick": clip_kick,
+	"handball": clip_handball,
+	"bounce": clip_bounce,
+	"hit_out": clip_hit_out,
+	"knocked_back": clip_knocked_back,
+	"smothered": clip_smothered,
+	"smother_dive": clip_smother_dive,
 }
 
 

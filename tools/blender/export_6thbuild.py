@@ -87,6 +87,14 @@ CLIP_RENAME = {
 	"mark_aggressive": "mark_aggressive",
 	"mark_safe_miss": "mark_safe_miss",
 	"mark_running_miss": "mark_running_miss",
+	# Disposals and contest reactions, same script.
+	"kick": "kick",
+	"handball": "handball",
+	"bounce": "bounce",
+	"hit_out": "hit_out",
+	"knocked_back": "knocked_back",
+	"smothered": "smothered",
+	"smother_dive": "smother_dive",
 }
 
 
