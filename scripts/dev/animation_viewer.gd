@@ -851,7 +851,7 @@ func _build_tackle_model_panel() -> VBoxContainer:
 	mode_row.add_child(manual_button)
 	panel.add_child(mode_row)
 
-	var dspeed_row := _make_tackle_model_input_row("dspeed", -2.0, 4.0, "dspeed")
+	var dspeed_row := _make_tackle_model_input_row("Δ speed", -2.0, 4.0, "dspeed")
 	panel.add_child(dspeed_row)
 	var angle_row := _make_tackle_model_input_row("angle", -2.0, 2.0, "angle")
 	panel.add_child(angle_row)

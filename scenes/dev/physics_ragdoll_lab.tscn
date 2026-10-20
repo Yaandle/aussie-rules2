@@ -1,0 +1,37 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/dev/physics_ragdoll_lab.gd" id="1_lab"]
+[ext_resource type="Environment" path="res://materials/dev_studio_environment.tres" id="2_env"]
+
+; Dev-only Physics Ragdoll Lab (docs/MECHANICS_AUDIT.md §B4), stage 1:
+; one passive 6thbuild ragdoll in the animation viewer's white studio,
+; knocked over by a push or a thrown ball. Not reachable from the main
+; menu — open this directly in the editor and press F6. Everything except
+; the environment/light/camera shell is built in code by
+; physics_ragdoll_lab.gd (floor, rig, PhysicalBoneSimulator3D bodies, UI).
+
+[node name="PhysicsRagdollLab" type="Node3D"]
+script = ExtResource("1_lab")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = ExtResource("2_env")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.8993, 0.2622, -0.3499, 0, 0.8002, 0.5998, 0.4372, -0.5394, 0.7197, 0, 40, 0)
+light_energy = 0.85
+shadow_enabled = true
+shadow_blur = 2.0
+directional_shadow_max_distance = 20.0
+
+[node name="Camera3D" type="Camera3D" parent="."]
+fov = 55.0
+
+[node name="Overlay" type="CanvasLayer" parent="."]
+
+[node name="UI" type="Control" parent="Overlay"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2

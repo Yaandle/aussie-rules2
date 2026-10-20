@@ -277,6 +277,21 @@ working first):**
    the head/limbs, or transition into a controlled fall rather than a
    flat collapse.
 
+**Stage 1 status (2026-10-20): built.** `scenes/dev/physics_ragdoll_lab.tscn`
+(F6 in the editor; not on the main menu) — one passive 6thbuild ragdoll,
+knocked over by GO LIMP / PUSH / THROW with an impact bearing, strength and
+target part; builder in `scripts/dev/physics_ragdoll.gd`. 14 bodies, ~86 kg,
+6DOF ball joints + hinges. Headless sweep at 60 Hz (limp, pushes 150-700 N·s,
+balls 8-35 m/s, second hits on a fallen body): no explosions, every body comes
+to rest and sleeps in ~3.5-7.7 s, resting floor penetration ~1 cm. Known
+limits, all documented in that file's header: PhysicalBone3D's CONE joint is
+unstable under Jolt (hence 6DOF); hard landings sink a light link 4-15 cm for
+a tick or two; elbows can transiently hyperextend well past their limit on
+the hardest hits; a settle/sleep assist is needed because a jointed chain
+never quite stops buzzing on its own. 6thbuild skins 104 vertices to its
+stray `pelvis.001` control bone, which nothing animates — the lab re-parents
+it under Hips, but the asset itself still needs fixing.
+
 **Deliverable for the first pass:** a small, isolated physics prototype
 — a single player reacting to an external impact, not a 36-player match.
 Tune joint limits, collision shapes, motor strength and physics
