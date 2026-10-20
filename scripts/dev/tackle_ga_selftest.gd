@@ -25,8 +25,10 @@ func _init() -> void:
 	var f: Dictionary = result.best_fitness
 	print("best genome   w_speed=%.2f  w_angle=%.2f  w_stamina=%.2f" % [
 		best.w_speed, best.w_angle, best.w_stamina])
-	print("best fitness  score=%.3f  success=%.1f%% (target %.0f%%)  spread=%.3f  balance=%.3f  sensitivity=%.3f" % [
-		f.score, f.mean_success * 100.0, target * 100.0, f.spread, f.balance_score, f.sensitivity_score])
+	print("best fitness  score=%.3f  success=%.1f%% (target %.0f%%)  ladder spread=%.3f  balance=%.3f  ladder sensitivity=%.3f  axis sensitivity=%.3f" % [
+		f.score, f.mean_success * 100.0, target * 100.0, f.spread, f.balance_score, f.sensitivity_score, f.axis_sensitivity_score])
+	print("per-axis spread (holding the other two at their midpoint): dspeed=%.3f  angle=%.3f  stamina=%.3f" % [
+		f.axis_spreads.dspeed, f.axis_spreads.angle, f.axis_spreads.stamina])
 
 	var line := ""
 	for i in GA.LADDER.size():
@@ -36,9 +38,11 @@ func _init() -> void:
 	var improved: bool = f.score > flat_fitness.score
 	var balanced: bool = absf(f.mean_success - target) < 0.10
 	var sensitive: bool = f.spread > 0.3
+	var every_axis_used: bool = f.axis_sensitivity_score > 0.2
 	print("PASS improved over flat genome: %s" % improved)
 	print("PASS within 10pp of target success: %s" % balanced)
-	print("PASS spread > 0.3 (not a dominant strategy): %s" % sensitive)
+	print("PASS ladder spread > 0.3 (not a dominant strategy): %s" % sensitive)
+	print("PASS every axis spread > 0.2 (no neglected input): %s" % every_axis_used)
 
 	print("generations run: %d  final avg fitness: %.3f" % [
 		result.history.size(), result.history[-1].avg])

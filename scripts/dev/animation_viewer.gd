@@ -1049,8 +1049,18 @@ func _tackle_model_inputs_for_current_state() -> Dictionary:
 	return {"dspeed": dspeed, "angle": angle, "stamina": CONTEST_STAMINA_BASELINE}
 
 
+## `model` is whatever the ML Experiments page's MODEL tab currently has
+## dialled in (get_active_model()) — including a Stage 2 GA result after
+## APPLY TO MODEL — not a fresh default-weight instance. Previously these
+## three functions each built their own `TackleModelScript.new()` and
+## silently ignored that page entirely, so nothing dialled in there, by
+## hand or by the GA, ever reached this simulation.
 func _tackle_model_z_for_inputs(inputs: Dictionary) -> float:
-	var model := TackleModelScript.new()
+	# Explicitly typed: _experiment_ui itself has no static type (shared
+	# instance var used for many other things in this file), so without
+	# this `model` would resolve as Variant and every `:=` below would
+	# fail to infer a type at parse time.
+	var model: TackleModel = _experiment_ui.get_active_model()
 	var nd := model.normalise(inputs["dspeed"], model.NORM_MIN["dspeed"], model.NORM_MAX["dspeed"])
 	var na := model.normalise(inputs["angle"], model.NORM_MIN["angle"], model.NORM_MAX["angle"])
 	var ns := model.normalise(inputs["stamina"], model.NORM_MIN["stamina"], model.NORM_MAX["stamina"])
@@ -1058,13 +1068,13 @@ func _tackle_model_z_for_inputs(inputs: Dictionary) -> float:
 
 
 func _tackle_model_p_for_inputs(inputs: Dictionary) -> float:
-	var model := TackleModelScript.new()
+	var model: TackleModel = _experiment_ui.get_active_model()
 	return model.p_break(inputs["dspeed"], inputs["angle"], inputs["stamina"])
 
 
 func _compute_tackle_model_prediction() -> void:
 	var inputs := _tackle_model_inputs_for_current_state()
-	var model := TackleModelScript.new()
+	var model: TackleModel = _experiment_ui.get_active_model()
 	var broke := model.roll_break(_contest_rng, inputs["dspeed"], inputs["angle"], inputs["stamina"])
 	var p_break := model.p_break(inputs["dspeed"], inputs["angle"], inputs["stamina"])
 	var z := _tackle_model_z_for_inputs(inputs)

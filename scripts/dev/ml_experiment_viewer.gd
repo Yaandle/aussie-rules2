@@ -87,6 +87,27 @@ func is_open() -> bool:
 	return _experiment_open
 
 
+## The MODEL page's current dialled-in weights (w1/w2/w3/bias), as a
+## fresh TackleModel instance — read by AnimationViewer's CONTESTS
+## simulation (_tackle_model_z_for_inputs/_tackle_model_p_for_inputs/
+## _compute_tackle_model_prediction) so dialling a weight in, or hitting
+## Stage 2's APPLY TO MODEL after a GA run, actually changes what the
+## live two-body contest predicts and rolls — previously those always
+## built a fresh default-weight TackleModel of their own and silently
+## ignored this page entirely, so nothing dialled in here (by hand or by
+## the GA) ever reached the simulation it looked like it was feeding.
+## Falls back to class defaults if asked before build() has run.
+func get_active_model() -> TackleModel:
+	var m := TackleModelScript.new()
+	if _lr_sliders.is_empty():
+		return m
+	m.w_speed = _lr_sliders.w1.value
+	m.w_angle = _lr_sliders.w2.value
+	m.w_stamina = _lr_sliders.w3.value
+	m.bias = _lr_sliders.bias.value
+	return m
+
+
 # =============================================================================
 # BUILD
 # =============================================================================
@@ -373,14 +394,16 @@ func _build_ga_stage() -> Control:
 		score_card.value_label.text = "%.3f" % f.score
 		success_card.value_label.text = "%.1f%%" % (f.mean_success * 100.0)
 
-		var ladder_text := ""
+		var ladder_text := "LADDER (all 3 inputs move together): "
 		for i in TackleGAScript.LADDER.size():
 			ladder_text += "%s %.1f%%   " % [TackleGAScript.LADDER[i].name, f.p_breaks[i] * 100.0]
+		ladder_text += "\nPER-AXIS swing (other two held at midpoint): dspeed %.2f   angle %.2f   stamina %.2f" % [
+			f.axis_spreads.dspeed, f.axis_spreads.angle, f.axis_spreads.stamina]
 		ladder_label.text = ladder_text
 
-		status.text = "%d generations · pop %d · target %.0f%% success · spread %.2f (balance %.2f, sensitivity %.2f)" % [
+		status.text = "%d generations · pop %d · target %.0f%% success · balance %.2f · ladder sensitivity %.2f · axis sensitivity %.2f (worst of the 3)" % [
 			params.generations, params.population_size, params.target_success * 100.0,
-			f.spread, f.balance_score, f.sensitivity_score]
+			f.balance_score, f.sensitivity_score, f.axis_sensitivity_score]
 
 		chart.set_history(result.history)
 		apply_button.disabled = false

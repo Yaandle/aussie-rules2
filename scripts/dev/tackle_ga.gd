@@ -45,6 +45,20 @@ const LADDER := [
 	{"name": "extreme_break",  "dspeed":  4.0, "angle":  2.0, "stamina": 2.0},
 ]
 
+## Same raw ranges as TackleModel's own NORM_MIN/NORM_MAX — i.e. LADDER's
+## two extreme rows, one key at a time. Used by evaluate()'s per-axis
+## sensitivity term below.
+const INPUT_BOUNDS := {
+	"dspeed": Vector2(-2.0, 4.0),
+	"angle": Vector2(-2.0, 2.0),
+	"stamina": Vector2(0.0, 2.0),
+}
+const INPUT_MIDPOINT := {
+	"dspeed": 1.0,
+	"angle": 0.0,
+	"stamina": 1.0,
+}
+
 
 static func default_bias() -> float:
 	return ModelScript.new().bias
@@ -92,18 +106,31 @@ static func _model_for(genome: Dictionary, bias: float):
 
 
 ## {score, mean_success, mean_break, spread, balance_score,
-## sensitivity_score, p_breaks: Array[float] in LADDER order}.
+## sensitivity_score, axis_sensitivity_score, axis_spreads, p_breaks:
+## Array[float] in LADDER order}.
 ##
-## score = 0.6 * balance_score + 0.4 * sensitivity_score:
+## score = 0.5 * balance_score + 0.25 * sensitivity_score
+##       + 0.25 * axis_sensitivity_score:
 ##  - balance_score: how close the ladder's average tackle-success rate
 ##    sits to `target_success` (kanban: "success near 55%"). 0.5 (50
 ##    points) of error or more floors this at 0.
 ##  - sensitivity_score: rewards a wide, correctly-ordered spread from
-##    the tackler-favoured corner to the breaker-favoured one ("no
-##    dominant strategy" — a genome that's near-0% or near-100% break
-##    regardless of input scores 0 here even if its average happens to
-##    hit the target). `monotonic_penalty` punishes any step in the
-##    ladder that runs backwards.
+##    the tackler-favoured corner to the breaker-favoured one across the
+##    ladder, where all three inputs move together.
+##  - axis_sensitivity_score: the ladder term alone turned out to
+##    *underconstrain* the problem — multiple seeds converge on ~equal
+##    fitness (0.997-0.998) with wildly different weights (w_angle
+##    ranged 0.57 to 3.36 across six seeds in testing), because the
+##    ladder only ever varies all three inputs at once, so two strong
+##    weights can carry the whole spread while the third goes nearly to
+##    zero and the fitness function can't tell. This term isolates each
+##    weight: holds the other two inputs at their midpoint and measures
+##    P(BREAK) swing from that input's low extreme to its high extreme
+##    alone (`axis_spreads`), then scores the *worst* of the three
+##    (`min`, not `mean` — a mean would still let one axis collapse to
+##    zero as long as the other two are large) so a genome can't earn
+##    full marks by neglecting any single input ("no dominant strategy"
+##    applies per-input, not just in aggregate).
 static func evaluate(genome: Dictionary, bias: float, target_success: float) -> Dictionary:
 	var m = _model_for(genome, bias)
 	var p_breaks: Array[float] = []
@@ -125,13 +152,30 @@ static func evaluate(genome: Dictionary, bias: float, target_success: float) -> 
 			monotonic_penalty += p_breaks[i] - p_breaks[i + 1]
 	var sensitivity_score := clampf(spread - monotonic_penalty, 0.0, 1.0)
 
+	var axis_spreads: Dictionary = {}
+	var worst_axis_spread := 1.0
+	for key in INPUT_BOUNDS:
+		var bounds: Vector2 = INPUT_BOUNDS[key]
+		var lo := {"dspeed": INPUT_MIDPOINT.dspeed, "angle": INPUT_MIDPOINT.angle, "stamina": INPUT_MIDPOINT.stamina}
+		var hi := lo.duplicate()
+		lo[key] = bounds.x
+		hi[key] = bounds.y
+		var p_lo: float = m.p_break(lo.dspeed, lo.angle, lo.stamina)
+		var p_hi: float = m.p_break(hi.dspeed, hi.angle, hi.stamina)
+		var axis_spread: float = p_hi - p_lo
+		axis_spreads[key] = axis_spread
+		worst_axis_spread = minf(worst_axis_spread, axis_spread)
+	var axis_sensitivity_score := clampf(worst_axis_spread, 0.0, 1.0)
+
 	return {
-		"score": 0.6 * balance_score + 0.4 * sensitivity_score,
+		"score": 0.5 * balance_score + 0.25 * sensitivity_score + 0.25 * axis_sensitivity_score,
 		"mean_success": mean_success,
 		"mean_break": mean_break,
 		"spread": spread,
 		"balance_score": balance_score,
 		"sensitivity_score": sensitivity_score,
+		"axis_sensitivity_score": axis_sensitivity_score,
+		"axis_spreads": axis_spreads,
 		"p_breaks": p_breaks,
 	}
 
