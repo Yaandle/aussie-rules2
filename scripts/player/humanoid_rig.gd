@@ -376,6 +376,7 @@ func _try_build_from_import() -> bool:
 		add_child(imported)
 		_skeleton = found
 		_skeleton.name = "Skeleton3D"
+		_fix_imported_forward_axis([imported])
 		return true
 
 	# Move every child of the skeleton's own parent up to be a direct child
@@ -386,14 +387,40 @@ func _try_build_from_import() -> bool:
 	# other sibling (a stray light/camera Blender's exporter added) rides
 	# along too; harmless clutter, not a correctness problem.
 	var holder := found.get_parent()
+	var hoisted: Array = []
 	for child in holder.get_children():
 		holder.remove_child(child)
 		_clear_owner(child)  # must happen before add_child — Godot checks owner consistency as part of the call itself, not after
 		add_child(child)
+		hoisted.append(child)
 	_skeleton = found
 	_skeleton.name = "Skeleton3D"
 	imported.queue_free()
+	_fix_imported_forward_axis(hoisted)
 	return true
+
+
+## Blender's glTF export puts a model's forward-facing geometry at +Z (the
+## standard glTF convention), but this game's own forward convention is -Z
+## — see humanoid_animations.gd's _gait_pose() comment ("a positive rotation
+## about X swings its far end toward -Z, which is forward") and the
+## procedural rig's own Boot/Tread mesh placement (_build() above), both of
+## which put "forward" at -Z. Nothing elsewhere corrects for this, so every
+## imported character (fifthbuild, 6thbuild, ...) comes in facing exactly
+## backward without this turn.
+##
+## Applied to each hoisted child's own local rotation, never to this rig's
+## own `rotation` — that property is a public contract callers already use
+## for their own reasons (character_backdrop.gd sets rig.rotation.y = 180°
+## to turn a character toward its preview camera; adding another 180° here
+## on top of that would cancel it out for imported models specifically).
+## Rotating the Skeleton3D node itself only affects its whole-skeleton world
+## orientation, not bone-local pose data, so every bone track/animation and
+## every "Skeleton3D:BoneName" lookup elsewhere keeps working unchanged.
+func _fix_imported_forward_axis(nodes: Array) -> void:
+	for n: Node in nodes:
+		if n is Node3D:
+			(n as Node3D).rotation.y += PI
 
 
 ## Every node loaded from a PackedScene keeps `owner` pointing at that
@@ -444,6 +471,16 @@ func _extract_imported_animations(imported: Node) -> Dictionary:
 		for anim_name in lib.get_animation_list():
 			var anim := lib.get_animation(anim_name)
 			_retarget_tracks_to_skeleton(anim)
+			# Blender/glTF export never sets this, so an imported clip comes
+			# in as LOOP_NONE and simply freezes on its last frame once
+			# played through once — fine for a one-shot action (kick,
+			# handball, ...) but every locomotion gait (HumanoidAnimations.
+			# GAITS' own key list: idle, jog_fwd, run_fwd, ...) is meant to
+			# cycle continuously under the BlendSpace2D for as long as the
+			# player keeps moving, same as the procedural clip it replaces
+			# (_build_gait always assembles those with loop = true).
+			if HumanoidAnimations.GAITS.has(String(anim_name)):
+				anim.loop_mode = Animation.LOOP_LINEAR
 			out[String(anim_name)] = anim
 	var player_parent := player.get_parent()
 	if player_parent != null:

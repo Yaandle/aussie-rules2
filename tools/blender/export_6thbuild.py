@@ -56,10 +56,21 @@ BONE_RENAME = {
 
 # Blender action name -> the Godot clip name it should override. Name new
 # actions directly after their target clip and this map doesn't need a new
-# entry. Only "idle" exists on 6thbuild so far — add entries here as more
-# clips (jog_fwd, run_fwd, ...) get animated.
+# entry. The full locomotion set (PlayerAnimation.BLEND_POINTS) exists on
+# 6thbuild so far — add entries here as action clips get animated.
 CLIP_RENAME = {
 	"idle": "idle",
+	"jog_fwd": "jog_fwd",
+	"run_fwd": "run_fwd",
+	"run_back": "run_back",
+	"strafe_l": "strafe_l",
+	"strafe_r": "strafe_r",
+	"run_fwd_l": "run_fwd_l",
+	"run_fwd_r": "run_fwd_r",
+	"tackle_grab": "tackle_grab",
+	"tackle_held": "tackle_held",
+	"tackle_takedown": "tackle_takedown",
+	"tackled": "tackled",
 }
 
 
