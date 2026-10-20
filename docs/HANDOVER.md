@@ -6152,3 +6152,59 @@ session's start and whoever owns that file should know it's there.
 `scripts/ui/career_match_end_screen.gd`, `scripts/ui/career_pregame_
 screen.gd`, `scripts/ui/career_dashboard_screen.gd`, `docs/ui_audit.md`
 (new).
+
+
+## Handover — ML Stage 2 (genetic algorithm) implemented, ML Experiments page gets real stage tabs
+
+Follows `docs/ML_AI_AUDIT.md`'s audit (same session, later pass): built
+Stage 2 of the user's ML plan — a genetic algorithm that evolves
+`TackleModel`'s `w_speed`/`w_angle`/`w_stamina` weights (bias held
+fixed) toward a target tackle-success rate while staying sensitive
+across the input range ("no dominant strategy"). New files:
+`scripts/dev/tackle_ga.gd` (the GA itself — genome, fitness against a
+fixed 5-point scenario ladder, tournament selection + elitism + uniform
+crossover + Gaussian mutation), `scripts/dev/tackle_ga_selftest.gd`
+(headless check), `scripts/dev/ga_fitness_chart.gd` (generation-vs-
+fitness line chart). Self-test confirms a flat/zero-weight genome
+collapses to ~0 spread (dominant strategy) while a default 40×40 GA run
+recovers a genome hitting the 55% target almost exactly with 0.99
+spread and a correctly-ordered ladder.
+
+`scripts/dev/ml_experiment_viewer.gd`'s ML Experiments page previously
+showed its 4 ML stages as a static, non-interactive caption
+("Stage 1/4 · Logistic regression", hardcoded). Reworked into 4 real
+bookmark buttons (LR/GA/MLP/DQL) that switch the whole page: Stage 1's
+existing MODEL/SWEEP content moved into its own `_build_lr_stage()`
+unchanged, a new `_build_ga_stage()` exposes every GA parameter plus
+RUN/APPLY TO MODEL/VERIFY actions, and MLP/DQL got reachable
+`_build_placeholder_stage()` pages (QUEUED, listing their planned
+inputs and which `ai_brain.gd` gap each targets) — infrastructure only,
+no logic, per the brief ("add in the rest of the ML stages
+infrastructure and setup").
+
+Also fixed along the way: `tackle_selftest.gd` never called `quit()` —
+a `--script` run with no explicit quit hangs the headless process
+forever (hit this firsthand mid-session, a background command had to be
+killed), confirmed and fixed the same mistake in the new GA self-test
+before it shipped, and corrected `tackle_selftest.gd`'s two stale
+comments flagged in the audit's §2(a) to their real, now-verified
+values.
+
+Verified: headless boot of `scenes/dev/animation_viewer.tscn` (the ML
+Experiments page builds its entire UI eagerly on scene `_ready()`, not
+lazily on first open, so this exercises every new stage page) and the
+full project smoke boot — both exit 0. Visual/layout correctness (e.g.
+whether 4 bookmark buttons fit cleanly at the panel's 312px width) is
+not confirmed in a GUI — same standing limitation every dev-tooling pass
+in this file has shipped under.
+
+Scope: entirely within `scripts/dev/*` (the ML sandbox) — no gameplay/
+mechanics files touched. The live-gameplay determinism question
+`docs/ML_AI_AUDIT.md` §3 raises is still open and untouched; the GA
+evolves a model nothing in live gameplay currently reads from.
+
+Files changed: `scripts/dev/tackle_ga.gd` (new),
+`scripts/dev/tackle_ga_selftest.gd` (new),
+`scripts/dev/ga_fitness_chart.gd` (new),
+`scripts/dev/ml_experiment_viewer.gd`, `scripts/dev/tackle_selftest.gd`,
+`docs/ML_AI_AUDIT.md`.

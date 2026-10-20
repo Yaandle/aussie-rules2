@@ -207,11 +207,70 @@ sweep list.
    than one that's 70/30 but correctly swings with speed/angle/stamina).
    Worth folding into whatever fitness function Stage 2 ends up with.
 
+## 6. Stage 2 — implemented
+
+Built on this audit's §5 readiness check:
+
+- **`scripts/dev/tackle_ga.gd`** (`TackleGA`) — the GA core. Genome is
+  `{w_speed, w_angle, w_stamina}` (bias held fixed at the model's
+  default), matching both planning docs' stated genome shape. Fitness
+  (`evaluate()`) scores a genome against the same 5-point scenario
+  ladder §1/§5 already use (`extreme_tackle`/`low`/`baseline`/`high`/
+  `extreme_break`) via the exact closed-form `p_break()`, not Monte
+  Carlo rolls — two terms: `balance_score` (how close the ladder's mean
+  tackle-success rate sits to a target, default 55%, per the kanban) and
+  `sensitivity_score` (spread between the two extreme corners, penalised
+  if the ladder ever runs backwards — "no dominant strategy"). `run()`
+  is a standard generational GA: tournament selection, elitism, uniform
+  crossover, Gaussian mutation scaled by a `mutation_rate` dial (the
+  "one variable to tune" the brief calls out) and a secondary
+  `mutation_strength`.
+- **`scripts/dev/tackle_ga_selftest.gd`** — headless CLI check (`godot
+  --headless --script res://scripts/dev/tackle_ga_selftest.gd
+  --quit-after 300`). Confirms a deliberately flat/zero-weight genome
+  collapses to near-zero spread (a textbook dominant strategy), and that
+  a default 40-genome/40-generation run recovers a genome hitting the
+  55% target almost exactly with a 0.99 spread and a correctly-ordered
+  ladder (extreme_tackle 0.4% → extreme_break 99.9%).
+- **`scripts/dev/ga_fitness_chart.gd`** — a small generation-vs-fitness
+  line chart (best + average per generation), separate from
+  `tackle_chart.gd` since that one's axes/illustrative line are specific
+  to the SWEEP page.
+- **ML Experiments page** (`scripts/dev/ml_experiment_viewer.gd`): the
+  old static "Stage 1/4 · Logistic regression" caption is now four real
+  bookmark buttons (LR / GA / MLP / DQL) that switch the whole page
+  content, not just a label — Stage 1's existing MODEL/SWEEP content
+  moved into `_build_lr_stage()` unchanged, and a new GA stage page
+  exposes every GA parameter above plus RUN, an APPLY TO MODEL button
+  (writes the winning genome straight into Stage 1's weight sliders for
+  a side-by-side look) and a VERIFY button (1,000 stochastic trials at
+  the "baseline" scenario, checked against the closed-form prediction —
+  the same sanity-check shape as the SWEEP page's own "10 SEEDS").
+- MLP and Deep Q-learning got real, reachable bookmark tabs too, each
+  showing a "QUEUED" placeholder listing its planned inputs/fixes (per
+  the kanban) and which `ai_brain.gd` gap it targets — infrastructure
+  only, no logic yet, as asked.
+- Along the way: fixed `tackle_selftest.gd` never calling `quit()` (a
+  `--script` run with no explicit quit hangs the process forever — hit
+  this firsthand while verifying this pass, confirmed the same mistake
+  in the new GA self-test before fixing it there too) and corrected its
+  two stale comments flagged in §2(a) to the real, now-verified values.
+
+Verified: headless boot of `scenes/dev/animation_viewer.tscn` (the whole
+new UI builds eagerly on scene `_ready()`, not lazily on first open, so
+this exercises every new page) and the full project smoke boot — both
+exit 0, no script errors. Visual/layout correctness (button sizing at
+312px menu width, chart legibility) not confirmed in a GUI — same
+standing limitation as the 1.2 UI pass.
+
+Not done: the live-gameplay determinism question from §3 is still open
+and this pass doesn't touch it — the GA stays confined to the dev/ML
+sandbox, evolving a model nothing in live gameplay currently reads from.
+
 ## Scope note
 
-Nothing in `scripts/dev/*` or the files discussed above was changed by
-this pass — this is an audit only, per the brief that handed it over
-("before pushing now do an audit"). The stale-comment and `fit()`
-normalisation bugs in §2(a)/(b) are flagged, not fixed; the determinism
-question in §3 is flagged, not decided. No gameplay/mechanics files were
-modified.
+§1–§5 above were an audit only, per the original brief ("before pushing
+now do an audit") — no code was changed for those findings. §6 is a
+later, separate pass that *did* add code, entirely within
+`scripts/dev/*` (the ML sandbox) — no gameplay/mechanics files were
+touched by either pass.
