@@ -1,3 +1,4 @@
+@tool
 class_name Field
 extends Node3D
 
@@ -17,6 +18,8 @@ extends Node3D
 ## _build_score_zones). The scoring team is whichever side attacks this
 ## end — HOME attacks +X per Tuning.gd's documented axis convention.
 signal scored(team: Tuning.Team, is_goal: bool)
+
+const GOAL_POST_SCENE := preload("res://assets/imported/goal_post.glb")
 
 const MARKING_HEIGHT := 0.012      ## m above the turf, to beat z-fighting
 const ELLIPSE_SEGMENTS := 160
@@ -91,10 +94,12 @@ const COLOUR_CANOPY_B := Color("#6C8752")
 
 
 func _ready() -> void:
-	_size_ground()
+	if not Engine.is_editor_hint():
+		_size_ground()
 	_build_markings()
 	_build_goals()
-	_build_umpires()
+	if not Engine.is_editor_hint():
+		_build_umpires()
 	_build_fence()
 	_build_trees()
 
@@ -144,8 +149,8 @@ func _build_markings() -> void:
 	var surface := SurfaceTool.new()
 	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 
-	_stripe(surface, _ellipse(Tuning.FIELD_HALF_LENGTH, Tuning.FIELD_HALF_WIDTH,
-		ELLIPSE_SEGMENTS), true)
+	_stripe(surface, _oval_flat_ends(Tuning.FIELD_HALF_LENGTH, Tuning.FIELD_HALF_WIDTH,
+		ELLIPSE_SEGMENTS / 2, absf(goal_line_x(1))), true)
 
 	# Centre square (50m), centre circle (10m) and inner circle (3m).
 	var half_square := Tuning.CENTRE_SQUARE_SIZE * 0.5
@@ -229,6 +234,35 @@ func _ellipse(semi_x: float, semi_z: float, segments: int) -> PackedVector3Array
 	return _ellipse_at(Vector3.ZERO, semi_x, semi_z, segments)
 
 
+## Oval boundary with flat ends: follows the ellipse arc along the long sides
+## but replaces each pointed tip with a straight line at x = ±clip_x.
+## Used so the goal posts (which sit at x = ±clip_x) lie visibly on the
+## boundary line rather than inside a curved tip.
+func _oval_flat_ends(semi_x: float, semi_z: float, arc_segments: int,
+		clip_x: float) -> PackedVector3Array:
+	var points := PackedVector3Array()
+	# z value where the ellipse meets the clip line
+	var t_clip := acos(clampf(clip_x / semi_x, -1.0, 1.0))
+	var z_end  := sin(t_clip) * semi_z
+
+	# Top arc: sweep from +clip_x side to -clip_x side (t: t_clip → π-t_clip)
+	for i in range(arc_segments + 1):
+		var t := lerpf(t_clip, PI - t_clip, float(i) / float(arc_segments))
+		points.append(Vector3(cos(t) * semi_x, MARKING_HEIGHT, sin(t) * semi_z))
+
+	# Left flat end: straight down from (-clip_x, +z_end) to (-clip_x, -z_end)
+	points.append(Vector3(-clip_x, MARKING_HEIGHT, -z_end))
+
+	# Bottom arc: sweep from -clip_x side to +clip_x side (t: π+t_clip → 2π-t_clip)
+	for i in range(arc_segments + 1):
+		var t := lerpf(PI + t_clip, TAU - t_clip, float(i) / float(arc_segments))
+		points.append(Vector3(cos(t) * semi_x, MARKING_HEIGHT, sin(t) * semi_z))
+
+	# The right flat end closes implicitly: _stripe(closed=true) connects the
+	# last point (clip_x, -z_end) back to the first (clip_x, +z_end).
+	return points
+
+
 func _circle(centre_point: Vector3, radius: float, segments: int) -> PackedVector3Array:
 	return _ellipse_at(centre_point, radius, radius, segments)
 
@@ -275,31 +309,19 @@ func _build_goals() -> void:
 	goals.name = "Goals"
 	add_child(goals)
 
-	var post_material := StandardMaterial3D.new()
-	post_material.albedo_color = COLOUR_LINE
-	post_material.roughness = 0.6
-	var base_material := StandardMaterial3D.new()
-	base_material.albedo_color = COLOUR_POST_BASE
-	base_material.roughness = 0.7
-
 	var goal_z := Tuning.GOAL_POST_SEPARATION * 0.5
 	var behind_z := goal_z + Tuning.BEHIND_POST_OFFSET
 
 	for direction: int in [-1, 1]:
 		var x := goal_line_x(direction)
-		_post(goals, Vector3(x, 0.0, -goal_z), Tuning.GOAL_POST_HEIGHT,
-			post_material, base_material)
-		_post(goals, Vector3(x, 0.0, goal_z), Tuning.GOAL_POST_HEIGHT,
-			post_material, base_material)
-		_post(goals, Vector3(x, 0.0, -behind_z), Tuning.BEHIND_POST_HEIGHT,
-			post_material, base_material)
-		_post(goals, Vector3(x, 0.0, behind_z), Tuning.BEHIND_POST_HEIGHT,
-			post_material, base_material)
+		_post(goals, Vector3(x, 0.0, -goal_z), Tuning.GOAL_POST_HEIGHT)
+		_post(goals, Vector3(x, 0.0, goal_z), Tuning.GOAL_POST_HEIGHT)
+		_post(goals, Vector3(x, 0.0, -behind_z), Tuning.BEHIND_POST_HEIGHT)
+		_post(goals, Vector3(x, 0.0, behind_z), Tuning.BEHIND_POST_HEIGHT)
 		_build_score_zones(goals, direction, x, goal_z, behind_z)
 
 
-func _post(parent: Node3D, base: Vector3, height: float,
-		shaft_material: Material, base_material: Material) -> void:
+func _post(parent: Node3D, base: Vector3, height: float) -> void:
 	var body := StaticBody3D.new()
 	body.collision_layer = 1
 	body.collision_mask = 0
@@ -314,29 +336,11 @@ func _post(parent: Node3D, base: Vector3, height: float,
 	collision.position = Vector3(0.0, height * 0.5, 0.0)
 	body.add_child(collision)
 
-	var shaft := CylinderMesh.new()
-	shaft.top_radius = POST_RADIUS
-	shaft.bottom_radius = POST_RADIUS
-	shaft.height = height
-	shaft.radial_segments = 10
-	var shaft_node := MeshInstance3D.new()
-	shaft_node.mesh = shaft
-	shaft_node.material_override = shaft_material
-	shaft_node.position = Vector3(0.0, height * 0.5, 0.0)
-	body.add_child(shaft_node)
-
-	# Prototype 1 put a red band at the foot of every post. It reads well
-	# and it is a useful depth cue at ground level, so it stays.
-	var band := CylinderMesh.new()
-	band.top_radius = POST_RADIUS * 1.12
-	band.bottom_radius = POST_RADIUS * 1.12
-	band.height = 0.5
-	band.radial_segments = 10
-	var band_node := MeshInstance3D.new()
-	band_node.mesh = band
-	band_node.material_override = base_material
-	band_node.position = Vector3(0.0, 0.25, 0.0)
-	body.add_child(band_node)
+	# Imported mesh is modelled at GOAL_POST_HEIGHT (10 m), origin at base.
+	# Scale Y so behind posts (6 m) come out the right size.
+	var mesh: Node3D = GOAL_POST_SCENE.instantiate()
+	mesh.scale.y = height / Tuning.GOAL_POST_HEIGHT
+	body.add_child(mesh)
 
 
 # ── Scoring ──────────────────────────────────────────────────────────
