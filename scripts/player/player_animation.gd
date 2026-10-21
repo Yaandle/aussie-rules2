@@ -76,6 +76,35 @@ const ACTION_STATES := {
 	Tuning.Action.SMOTHER_DIVE: &"smother_dive",
 }
 
+## ── Situational marking variants (MarkVariants) ─────────────────────
+## Which variant of a mark clip plays is decided HERE, from the catch's
+## context, never in PlayerController: the catch itself is already resolved
+## (Safe/Running) or the leap already committed (Aggressive) by the time
+## play_action() runs, so these thresholds only ever change what the body
+## looks like, not whether it caught the ball. PlayerController hands over
+## the ball's state at that instant via note_mark_ball(), before the gather
+## snaps the ball into the hands. Presentation-only numbers, kept local for
+## the same reason MarkPrompt keeps its ring timings out of Tuning.
+## Unplaytested feel guesses.
+##
+## Ball height (above the player's feet) below which a Safe/Running take is
+## a low, knee-to-waist scoop, and above which it's taken overhead.
+## 6thbuild's base clips take the ball at ~1.4-1.5 m.
+const MARK_LOW_HEIGHT := 1.15
+const MARK_OVERHEAD_HEIGHT := 1.85
+## Over-the-shoulder (Running only): the flight is travelling the way the
+## player faces — the ball is coming from behind, Madden's catch running
+## with the flight — and hasn't got in front of them. Dot of the ball's
+## flat velocity with the facing, and the most it may be ahead of the chest.
+const MARK_SHOULDER_DOT := 0.35
+const MARK_SHOULDER_MAX_AHEAD := 0.30
+## The aggressive miss cross-fade: plays mark_aggressive_miss from the
+## contact instant on (see _build_state_machine), blending out of the leap.
+const MARK_MISS_BLEND := 0.08
+## Context older than this many physics frames is stale (a _begin() that
+## was blocked never consumed it).
+const MARK_CONTEXT_FRAMES := 2
+
 const LOCOMOTION_STATE := &"locomotion"
 const BLEND_SMOOTHING := 14.0     ## exponential rate; stops the blend snapping
 const ACTION_BLEND_IN := 0.10     ## s
@@ -108,6 +137,13 @@ var _playback: AnimationNodeStateMachinePlayback
 var _blend := Vector2.ZERO
 var _blend_parameter := ""
 
+## Snapshot from note_mark_ball() (ball relative to the player, its flight,
+## the nearest opponent's side), consumed by the next play_action().
+var _mark_context := {}
+## What the last mark selection picked and why — for the animation viewer's
+## readout and headless checks.
+var _last_mark_selection := {}
+
 
 func _ready() -> void:
 	_rig = get_node_or_null(rig_path) as Node3D
@@ -129,6 +165,10 @@ func _ready() -> void:
 	_tree.active = true
 	_playback = _tree.get("parameters/playback")
 	_blend_parameter = "parameters/%s/blend_position" % LOCOMOTION_STATE
+
+	var controller := get_parent() as PlayerController
+	if controller != null:
+		controller.mark_missed.connect(_on_mark_missed)
 
 
 ## Called every physics frame by the controller with the body-space
@@ -190,8 +230,142 @@ func play_action(action: Tuning.Action) -> void:
 	if _playback == null:
 		return
 	var state: StringName = ACTION_STATES.get(action, &"")
-	if state != &"":
-		_playback.travel(state)
+	if state == &"":
+		return
+	match action:
+		Tuning.Action.MARK_SAFE, Tuning.Action.MARK_RUNNING, Tuning.Action.MARK_AGGRESSIVE:
+			state = _select_mark_state(action, state)
+	_mark_context = {}
+	_playback.travel(state)
+
+
+## Plays any state by name if the graph has it (the animation viewer's
+## variant buttons). Returns whether it did.
+func play_state(state: StringName) -> bool:
+	if _playback == null or _player == null or not _player.has_animation(state):
+		return false
+	_playback.travel(state)
+	return true
+
+
+func has_state(state: StringName) -> bool:
+	return _player != null and _player.has_animation(state)
+
+
+func last_mark_selection() -> Dictionary:
+	return _last_mark_selection
+
+
+## Called by PlayerController the instant a mark is decided (Safe/Running,
+## before the gather moves the ball) or a leap is committed (Aggressive) —
+## see the "Situational marking variants" constants above. Cosmetic only.
+func note_mark_ball(ball: Ball) -> void:
+	var body := get_parent() as Node3D
+	if body == null or not is_instance_valid(ball):
+		_mark_context = {}
+		return
+	var to_local := body.global_basis.inverse()
+	var body_vel := Vector3.ZERO
+	if body is CharacterBody3D:
+		body_vel = (body as CharacterBody3D).velocity
+		body_vel.y = 0.0
+	var context := {
+		"frame": Engine.get_physics_frames(),
+		# Player-local: +X right, +Y up, -Z forward. Where the flight WOULD
+		# meet the player, not where the ball is now — see _flight_crossing.
+		"rel": to_local * _flight_crossing(ball.global_position - body.global_position,
+			ball.linear_velocity - body_vel),
+		"vel": to_local * ball.linear_velocity,
+		"opponent_side": 0,
+	}
+	var controller := body as PlayerController
+	if controller != null:
+		var opponent := SpatialQuery.nearest_opponent(controller, Tuning.MARK_CONTEST_RANGE)
+		if opponent != null:
+			var side := (to_local * (opponent.global_position - body.global_position)).x
+			context.opponent_side = 1 if side >= 0.0 else -1
+	_mark_context = context
+
+
+## The point (relative to the player's feet) where the ball's flight passes
+## closest to the player's vertical axis, from its relative position and
+## velocity now. A catch resolves the instant the ball enters the tier's
+## reach — up to ~2.9 m from the hands for Safe — and Ball.attach_to then
+## snaps it into the hands, so the ball's position AT resolution says little
+## about how the take should look (measured: a ball aimed to arrive at chest
+## height was caught ~2.4 m up, still well out in front). Gravity-only,
+## ~1 s look-ahead; good enough to tell a knee-high scoop from a chest mark
+## from an overhead grab.
+static func _flight_crossing(rel: Vector3, vel: Vector3) -> Vector3:
+	const STEP := 1.0 / 60.0
+	var best := rel
+	var best_d := Vector2(rel.x, rel.z).length()
+	for i in 60:
+		vel.y -= Tuning.GRAVITY * STEP
+		rel += vel * STEP
+		var d := Vector2(rel.x, rel.z).length()
+		if d < best_d:
+			best_d = d
+			best = rel
+		if rel.y < 0.0:
+			break
+	return best
+
+
+## Picks the mark state for `action` from _mark_context, falling back to
+## `base` whenever there's no fresh context or the variant isn't in the
+## library (procedural rigs have none).
+func _select_mark_state(action: Tuning.Action, base: StringName) -> StringName:
+	var pick := base
+	var reason := "no context"
+	var c := _mark_context
+	if not c.is_empty() and Engine.get_physics_frames() - int(c.frame) <= MARK_CONTEXT_FRAMES:
+		var rel: Vector3 = c.rel
+		var vel: Vector3 = c.vel
+		var contested: bool = int(c.opponent_side) != 0
+		var flat_vel := Vector2(vel.x, vel.z)
+		# Facing is -Z locally, so "travelling the way the player faces"
+		# is velocity.z < 0.
+		var with_flight := flat_vel.length() > 0.5 and -vel.z / flat_vel.length() > MARK_SHOULDER_DOT
+		reason = "height %.2f m, %s%s" % [rel.y, "contested" if contested else "uncontested",
+			", ball from behind" if with_flight else ""]
+		match action:
+			Tuning.Action.MARK_SAFE:
+				if rel.y < MARK_LOW_HEIGHT:
+					pick = &"mark_safe_low"
+				elif rel.y > MARK_OVERHEAD_HEIGHT:
+					pick = &"mark_safe_overhead"
+				elif contested:
+					pick = &"mark_safe_contested"
+			Tuning.Action.MARK_RUNNING:
+				if with_flight and -rel.z < MARK_SHOULDER_MAX_AHEAD:
+					pick = &"mark_running_shoulder_r" if rel.x >= 0.0 else &"mark_running_shoulder_l"
+				elif rel.y < MARK_LOW_HEIGHT:
+					pick = &"mark_running_low"
+				elif rel.y > MARK_OVERHEAD_HEIGHT:
+					pick = &"mark_running_overhead"
+			Tuning.Action.MARK_AGGRESSIVE:
+				if contested:
+					# Knocked away from the opponent: one on the right pushes
+					# from the right.
+					pick = &"mark_aggressive_offbalance_r" if int(c.opponent_side) > 0 \
+						else &"mark_aggressive_offbalance_l"
+	if pick != base and not has_state(pick):
+		reason += " (%s not built for this rig)" % pick
+		pick = base
+	_last_mark_selection = {"action": action, "state": pick, "reason": reason}
+	return pick
+
+
+## An Aggressive leap that came up empty: cross-fade from the leap into its
+## empty-handed landing, which starts from the leap's own contact pose (see
+## _build_state_machine), so there's no pop. A contested leap is already
+## in its off-balance variant and stays there.
+func _on_mark_missed(tier: Tuning.Action) -> void:
+	if tier != Tuning.Action.MARK_AGGRESSIVE or _playback == null:
+		return
+	if current_state() == ACTION_STATES[Tuning.Action.MARK_AGGRESSIVE] and has_state(&"mark_aggressive_miss"):
+		_playback.travel(&"mark_aggressive_miss")
 
 
 func current_state() -> StringName:
@@ -222,6 +396,13 @@ func _build_merged_library() -> AnimationLibrary:
 		if library.has_animation(clip_name):
 			library.remove_animation(clip_name)
 		library.add_animation(clip_name, anim)
+	# Situational mark variants, bent off the import's OWN mark clips only —
+	# a rig still on the procedural fallbacks gets none, and play_action()
+	# falls back to the base state.
+	if rig.is_imported():
+		var variants := MarkVariants.build(rig.skeleton(), rig.imported_animations())
+		for clip_name: String in variants:
+			library.add_animation(clip_name, variants[clip_name])
 	return library
 
 
@@ -252,6 +433,38 @@ func _build_state_machine() -> AnimationNodeStateMachine:
 			_transition(ACTION_BLEND_OUT,
 				AnimationNodeStateMachineTransition.SWITCH_MODE_AT_END,
 				AnimationNodeStateMachineTransition.ADVANCE_MODE_AUTO))
+
+	# Mark variants: same in/out wiring as the action states, for whichever
+	# ones MarkVariants built for this rig.
+	for variant in MarkVariants.variant_names():
+		if not _player.has_animation(variant):
+			continue
+		var clip := AnimationNodeAnimation.new()
+		clip.animation = variant
+		if variant == "mark_aggressive_miss":
+			# Entered mid-leap at the contact instant (_on_mark_missed), so it
+			# plays from there on — its first frame is the leap's own contact
+			# pose, which is what makes the cross-fade in seamless.
+			var contact := Tuning.action_contact_time(Tuning.Action.MARK_AGGRESSIVE)
+			clip.use_custom_timeline = true
+			clip.start_offset = contact
+			clip.timeline_length = _player.get_animation(variant).length - contact
+			clip.stretch_time_scale = false
+		machine.add_node(variant, clip, Vector2(860.0, 40.0 + 110.0 * row))
+		row += 1
+		machine.add_transition(LOCOMOTION_STATE, variant,
+			_transition(ACTION_BLEND_IN,
+				AnimationNodeStateMachineTransition.SWITCH_MODE_IMMEDIATE,
+				AnimationNodeStateMachineTransition.ADVANCE_MODE_ENABLED))
+		machine.add_transition(variant, LOCOMOTION_STATE,
+			_transition(ACTION_BLEND_OUT,
+				AnimationNodeStateMachineTransition.SWITCH_MODE_AT_END,
+				AnimationNodeStateMachineTransition.ADVANCE_MODE_AUTO))
+	if _player.has_animation(&"mark_aggressive_miss"):
+		machine.add_transition(ACTION_STATES[Tuning.Action.MARK_AGGRESSIVE], &"mark_aggressive_miss",
+			_transition(MARK_MISS_BLEND,
+				AnimationNodeStateMachineTransition.SWITCH_MODE_IMMEDIATE,
+				AnimationNodeStateMachineTransition.ADVANCE_MODE_ENABLED))
 	return machine
 
 

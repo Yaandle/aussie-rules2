@@ -1932,6 +1932,11 @@ func _update_ground_pickup(ball: Ball, _delta: float) -> void:
 ## the catch connects, so the "attempt" and the "outcome" are the same
 ## event. _begin() just plays the catch/cradle animation after the fact.
 func _complete_mark(ball: Ball, tier: Tuning.Action) -> void:
+	# Cosmetic: hands the animation layer the ball's state while it's still
+	# where it was caught (the gather below snaps it into the hands), so it
+	# can pick a low / overhead / over-the-shoulder / braced variant. The
+	# catch is already decided; nothing reads this back.
+	_animation.note_mark_ball(ball)
 	_finish_mark_catch(ball, tier)
 	_mark_readying = false
 	if tier == Tuning.Action.MARK_SAFE:
@@ -2043,6 +2048,9 @@ func _begin_aggressive_mark() -> void:
 	if _brain is HumanBrain:
 		InputManager.rumble(Tuning.RUMBLE_MARK_PRESS)
 	_pending_jump_speed = Tuning.MARK_AGGRESSIVE_JUMP_SPEED
+	# Cosmetic, like _complete_mark's: lets the animation layer pick the
+	# contested off-balance landing. The leap is already committed.
+	_animation.note_mark_ball(_live_ball())
 	_begin(Tuning.Action.MARK_AGGRESSIVE)
 
 

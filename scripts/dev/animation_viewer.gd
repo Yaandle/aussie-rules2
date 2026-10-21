@@ -48,6 +48,18 @@ extends Node3D
 ## release FullGame._begin_ruck_contest performs). All run through the real
 ## gameplay code, same as the contests.
 ##
+## MARK DELIVERY (CONTESTS tab, under APPROACH): a real kick-flight Ball
+## delivered to a real, scripted PlayerController (B) from a chosen bearing,
+## arriving at a chosen height, with B running at a chosen speed and an
+## optional opponent standing at B's shoulder — then the real marking code
+## (_update_aerial_contest, mark_timing_offset, the tier reach tests) decides
+## the catch, and PlayerAnimation picks the situational variant from it.
+## B's brain presses the way a human following the MarkPrompt cue would
+## (see MarkPreviewBrain), and is a HumanBrain so Safe is timing-graded the
+## human way too. VIEW orbits the camera around the catch, so every variant
+## can be watched from any side. The ACTIONS tab's MARK VARIANTS buttons
+## play each variant clip on its own.
+##
 ## A CONTROL group sits above the three preview columns with a FREE MOVE
 ## toggle: swaps the bare preview rig for a real, solo PlayerController
 ## under real input (see _ensure_free_player_built), roaming a bigger
@@ -158,6 +170,48 @@ const SEQUENCES := [
 	["MARK — RETREAT OFF MARK", SequenceKind.MARK_RETREAT],
 	["UMPIRE — BALL-UP", SequenceKind.UMPIRE_BALLUP],
 ]
+
+## MARK DELIVERY — which tier B goes for. AUTO follows PlayerController.
+## live_mark_prompt(), the (A)/(X)/(Y) badge a human would be shown.
+enum MarkPreviewTier { AUTO, SAFE, RUNNING, AGGRESSIVE }
+
+const MARK_PREVIEW_TIERS := [
+	["MARK — AUTO (PROMPT)", MarkPreviewTier.AUTO],
+	["MARK — SAFE", MarkPreviewTier.SAFE],
+	["MARK — RUNNING", MarkPreviewTier.RUNNING],
+	["MARK — AGGRESSIVE", MarkPreviewTier.AGGRESSIVE],
+]
+
+## The delivery: launched this far out on the FROM bearing from where B will
+## be when it arrives, timed to take this long — a 22 m kick in ~1.45 s is
+## an ordinary kick-to-a-lead. Long enough (> Tuning.MARK_STAND_MIN_DISTANCE)
+## that a catch is a legal mark. Dev-tool numbers, not gameplay ones.
+const MARK_DELIVERY_DISTANCE := 22.0
+const MARK_DELIVERY_FLIGHT_TIME := 1.45
+const MARK_DELIVERY_RELEASE_HEIGHT := 1.4
+## Aim point sits this far ahead of B's chest along its facing — where the
+## hands are, not the spine.
+const MARK_DELIVERY_AHEAD := 0.25
+const MARK_HEIGHT_MIN := 0.6
+const MARK_HEIGHT_MAX := 2.7
+const MARK_HEIGHT_DEFAULT := 1.45
+const MARK_RUN_DEFAULT := 0.0
+const MARK_VIEW_DEFAULT := 290.0
+## CONTESTED: the opponent stands this far to B's right at the catch —
+## well inside Tuning.MARK_CONTEST_RANGE, which is what the animation
+## layer's contested read checks.
+const MARK_OPPONENT_OFFSET := 1.3
+## Where the opponent is parked when CONTESTED is off — outside
+## MARK_CONTEST_RANGE of every catch spot, still on the floor.
+const MARK_OPPONENT_PARK := Vector3(9.0, 0.0, 9.0)
+## Camera orbit around the catch spot.
+const MARK_CAMERA_RADIUS := 6.0
+const MARK_CAMERA_HEIGHT := 2.2
+const MARK_PREVIEW_TIMEOUT := 4.0
+## Shooting-method step for the delivery solver — same gravity + quadratic
+## drag Ball._integrate_forces applies (MarkChallenge._predicted_range uses
+## the same stepping), spin-free so Magnus is zero.
+const MARK_FLIGHT_SIM_STEP := 1.0 / 120.0
 
 ## Seconds a BOUNCE_RUN / MARK_RETREAT carrier runs (or holds) before the
 ## scripted trigger fires, so the action has real motion behind it rather
@@ -360,6 +414,21 @@ var _tackle_model_panel: VBoxContainer
 ## bigger grid above. Built lazily on the first FREE MOVE press, same
 ## reasoning as _contest_built. See the "Free move" section near the
 ## bottom for the functions that drive this.
+var _mark_active := false
+var _mark_timer := 0.0
+var _mark_tier := MarkPreviewTier.AUTO
+var _mark_from_deg := APPROACH_ANGLE_DEFAULT
+var _mark_run_speed := MARK_RUN_DEFAULT
+var _mark_height := MARK_HEIGHT_DEFAULT
+var _mark_view_deg := MARK_VIEW_DEFAULT
+var _mark_contested := false
+var _mark_pressed := false
+var _mark_result := ""
+var _mark_catch_spot := Vector3.ZERO
+var _mark_brain: MarkPreviewBrain
+var _mark_hooks_connected := false
+var _mark_value_labels := {}
+
 var _free_player: PlayerController
 var _free_brain: PlayerBrain
 var _free_player_built := false
@@ -404,6 +473,74 @@ class ContestBrain extends PlayerBrain:
 
 	func wants_bounce() -> bool:
 		return bounce_wanted
+
+
+## MARK DELIVERY's marker brain. A HumanBrain on purpose — PlayerController
+## times Safe against the ball's arrival only for a HumanBrain (an AIBrain
+## gets the old unconditional reach), so this previews what a player
+## actually gets. Every input HumanBrain would read is overridden: the
+## viewer's own keyboard/mouse never reaches B. The presses themselves are
+## set each frame by _step_mark_preview, timed the way the MarkPrompt ring
+## tells a human to: Safe held once the ball is close, Running tapped as it
+## arrives, Aggressive tapped ACTION_CONTACT ahead of the arrival.
+class MarkPreviewBrain extends HumanBrain:
+	var wish_dir := Vector3.ZERO
+	var gait_value := 0.0
+	var safe_hold := false
+	var running_tap := false
+	var aggressive_tap := false
+
+	func wish_direction(_controller: PlayerController) -> Vector3:
+		return wish_dir
+
+	func gait() -> float:
+		return gait_value
+
+	func wants_kick() -> bool:
+		return false
+
+	func wants_kick_execute() -> bool:
+		return false
+
+	func wants_handball() -> bool:
+		return false
+
+	func wants_bounce() -> bool:
+		return false
+
+	func wants_tackle() -> bool:
+		return false
+
+	func wants_lunge_tackle() -> bool:
+		return false
+
+	func wants_mark_safe() -> bool:
+		return safe_hold
+
+	func wants_mark_running() -> bool:
+		var tap := running_tap
+		running_tap = false
+		return tap
+
+	func wants_mark_aggressive() -> bool:
+		var tap := aggressive_tap
+		aggressive_tap = false
+		return tap
+
+	func wants_spoil() -> bool:
+		return false
+
+	func wants_smother() -> bool:
+		return false
+
+	func wants_hit_out() -> bool:
+		return false
+
+	func wants_bump_stance() -> bool:
+		return false
+
+	func wants_goal_set_shot() -> bool:
+		return false
 
 
 func _ready() -> void:
@@ -571,6 +708,7 @@ func _process(delta: float) -> void:
 		_blend_label.text = "%.2f, %.2f" % [b.x, b.y]
 	_step_contest(delta)
 	_step_sequence(delta)
+	_step_mark_preview(delta)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -872,6 +1010,21 @@ func _build_action_group() -> VBoxContainer:
 			_show_single_subject()
 			_player_animation.play_action(action))
 		group.add_child(button)
+
+	# Every situational variant MarkVariants built for this rig, on its own
+	# (in a match PlayerAnimation picks one from the catch's context — MARK
+	# DELIVERY under CONTESTS shows that). Disabled for a rig with none.
+	group.add_child(_make_spacer(MENU_SECTION_GAP - MENU_ROW_GAP))
+	group.add_child(_section_heading("Mark variants"))
+	for variant in MarkVariants.variant_names():
+		var state := StringName(variant)
+		var button := _button(variant.replace("mark_", "").replace("_", " ").to_upper())
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.disabled = not _player_animation.has_state(state)
+		button.pressed.connect(func() -> void:
+			_show_single_subject()
+			_player_animation.play_state(state))
+		group.add_child(button)
 	return group
 
 
@@ -890,6 +1043,9 @@ func _build_contest_group() -> VBoxContainer:
 
 	group.add_child(_make_spacer(MENU_SECTION_GAP - MENU_ROW_GAP))
 	group.add_child(_build_approach_panel())
+
+	group.add_child(_make_spacer(MENU_SECTION_GAP - MENU_ROW_GAP))
+	group.add_child(_build_mark_delivery_panel())
 
 	group.add_child(_make_spacer(MENU_SECTION_GAP - MENU_ROW_GAP))
 	_tackle_model_panel = _build_tackle_model_panel()
@@ -971,6 +1127,243 @@ func _update_approach_readouts() -> void:
 		return
 	_approach_angle_value.text = "%d° %s" % [roundi(_approach_angle_deg), _bearing_name(_approach_angle_deg)]
 	_approach_speed_value.text = "%.1f" % _approach_speed
+
+
+## MARK DELIVERY controls — see the class doc. FROM uses APPROACH FROM's
+## bearing convention (0 = from in front of B, 90 = from B's right, 180 =
+## from behind), RUN is B's own speed along its facing, HEIGHT is where the
+## ball is aimed to arrive above B's feet, VIEW orbits the camera.
+func _build_mark_delivery_panel() -> VBoxContainer:
+	var panel := VBoxContainer.new()
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_theme_constant_override(&"separation", MENU_ROW_GAP)
+	panel.add_child(_section_heading("Mark delivery"))
+	for entry: Array in MARK_PREVIEW_TIERS:
+		var tier: MarkPreviewTier = entry[1]
+		var button := _button(entry[0])
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.pressed.connect(func() -> void: _launch_mark_preview(tier))
+		panel.add_child(button)
+
+	var rows := [
+		["FROM", 0.0, 355.0, 5.0, _mark_from_deg, "from"],
+		["RUN", 0.0, APPROACH_SPEED_MAX, 0.1, _mark_run_speed, "run"],
+		["HEIGHT", MARK_HEIGHT_MIN, MARK_HEIGHT_MAX, 0.05, _mark_height, "height"],
+		["VIEW", 0.0, 355.0, 5.0, _mark_view_deg, "view"],
+	]
+	for r: Array in rows:
+		var key: String = r[5]
+		var row := _make_slider_row(r[0], r[1], r[2], r[3], r[4],
+			func(v: float) -> void: _set_mark_param(key, v))
+		_mark_value_labels[key] = row.value_label
+		panel.add_child(row.node)
+	var contested := _button("CONTESTED", true)
+	contested.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	contested.toggled.connect(func(on: bool) -> void: _mark_contested = on)
+	panel.add_child(contested)
+	_update_mark_readouts()
+	return panel
+
+
+func _set_mark_param(key: String, v: float) -> void:
+	match key:
+		"from":
+			_mark_from_deg = v
+		"run":
+			_mark_run_speed = v
+		"height":
+			_mark_height = v
+		"view":
+			_mark_view_deg = v
+			# Live: re-orbit a delivery that's running or just finished.
+			if _contest_built and _contest_b.visible and _contest_b.brain() == _mark_brain:
+				_update_mark_camera()
+	_update_mark_readouts()
+
+
+func _update_mark_readouts() -> void:
+	if _mark_value_labels.is_empty():
+		return
+	(_mark_value_labels.from as Label).text = "%d° %s" % [roundi(_mark_from_deg), _bearing_name(_mark_from_deg)]
+	(_mark_value_labels.run as Label).text = "%.1f" % _mark_run_speed
+	(_mark_value_labels.height as Label).text = "%.2f" % _mark_height
+	(_mark_value_labels.view as Label).text = "%d°" % roundi(_mark_view_deg)
+
+
+## Stages one delivery: B placed so it reaches the catch spot (the contest
+## target) exactly as the ball does, already running at RUN; the opponent at
+## B's right shoulder or parked out of range; the ball launched as a real
+## kick flight (Ball.launch with is_kick_disposal, so it's markable) on the
+## velocity _mark_launch_velocity solves for. From then on it's all the real
+## marking code — _step_mark_preview only presses the buttons.
+func _launch_mark_preview(tier: MarkPreviewTier) -> void:
+	_ensure_contest_built()
+	_show_contest()
+	_reset_contest_state()
+	_approach_aim.visible = false
+	if _mark_brain == null:
+		_mark_brain = MarkPreviewBrain.new()
+	if not _mark_hooks_connected:
+		_mark_hooks_connected = true
+		_contest_b.mark_caught.connect(_on_mark_preview_caught)
+		_contest_b.mark_missed.connect(_on_mark_preview_missed)
+	_contest_b.set_brain(_mark_brain)
+	_mark_brain.safe_hold = false
+	_mark_brain.running_tap = false
+	_mark_brain.aggressive_tap = false
+
+	_contest_b._animation._last_mark_selection = {}
+	_mark_tier = tier
+	_mark_active = true
+	_mark_timer = 0.0
+	_mark_pressed = false
+	_mark_result = ""
+	var t := MARK_DELIVERY_FLIGHT_TIME
+	_mark_catch_spot = CONTEST_TARGET_POS
+	var run_start := _mark_catch_spot - Vector3.FORWARD * _mark_run_speed * t
+	_place_contest_body(_contest_b, run_start, Vector3.FORWARD, _mark_run_speed)
+	_mark_brain.wish_dir = Vector3.FORWARD if _mark_run_speed > 0.05 else Vector3.ZERO
+	_mark_brain.gait_value = _gait_for_speed(_mark_run_speed)
+
+	# B faces -Z, so its right is +X.
+	if _mark_contested:
+		_place_contest_body(_contest_a, _mark_catch_spot + Vector3.RIGHT * MARK_OPPONENT_OFFSET,
+			-_mark_source_dir(), 0.0)
+		_contest_a.visible = true
+	else:
+		_place_contest_body(_contest_a, MARK_OPPONENT_PARK, Vector3.FORWARD, 0.0)
+		_contest_a.visible = false
+
+	var target := _mark_catch_spot + Vector3.UP * _mark_height + Vector3.FORWARD * MARK_DELIVERY_AHEAD
+	var start := _mark_catch_spot + _mark_source_dir() * MARK_DELIVERY_DISTANCE \
+		+ Vector3.UP * MARK_DELIVERY_RELEASE_HEIGHT
+	var v := _mark_launch_velocity(start, target, t)
+	var dir := v.normalized()
+	var up_reference := Vector3.UP if absf(dir.y) < 0.98 else Vector3.FORWARD
+	_contest_ball.global_transform = Transform3D(Basis.looking_at(-dir, up_reference), start)
+	_contest_ball.launch(dir, v.length(), Vector3.ZERO, null, true)
+	_update_mark_camera()
+
+
+## World-space unit vector from the catch spot toward where the kick comes
+## from — APPROACH FROM's convention with B's facing (-Z) as front.
+func _mark_source_dir() -> Vector3:
+	var a := deg_to_rad(_mark_from_deg)
+	return Vector3(sin(a), 0.0, -cos(a))
+
+
+## Launch velocity that puts the ball at `to` after `t` seconds from `from`:
+## shooting method on the same gravity + quadratic drag the Ball itself
+## integrates, a few corrections from the drag-free guess. Lands within a
+## few cm; Ball's catch-gravity assist near the hands does the rest, as it
+## would for any kick.
+func _mark_launch_velocity(from: Vector3, to: Vector3, t: float) -> Vector3:
+	var v := (to - from) / t + Vector3.UP * 0.5 * Tuning.GRAVITY * t
+	for i in 8:
+		v += (to - _simulate_ball_flight(from, v, t)) / t
+	return v
+
+
+func _simulate_ball_flight(p: Vector3, v: Vector3, t: float) -> Vector3:
+	var elapsed := 0.0
+	while elapsed < t:
+		var dt := minf(MARK_FLIGHT_SIM_STEP, t - elapsed)
+		var drag := -v * v.length() * Tuning.BALL_DRAG_COEFF / Tuning.BALL_MASS
+		v += (drag + Vector3.DOWN * Tuning.GRAVITY) * dt
+		p += v * dt
+		elapsed += dt
+	return p
+
+
+## Orbits the camera around the catch spot at VIEW's bearing (same
+## convention again: 0 = in front of B).
+func _update_mark_camera() -> void:
+	if _camera_tween != null and _camera_tween.is_valid():
+		_camera_tween.kill()
+	var a := deg_to_rad(_mark_view_deg)
+	var focus := _mark_catch_spot + Vector3.UP * 1.3
+	_camera.position = focus + Vector3(sin(a), 0.0, -cos(a)) * MARK_CAMERA_RADIUS \
+		+ Vector3.UP * (MARK_CAMERA_HEIGHT - 1.3)
+	_camera.look_at(focus)
+	# Same 66%-across framing as the single subject, clear of the menu.
+	_camera.position -= _camera.global_basis.x * _screen_fraction_sidestep() \
+		* (MARK_CAMERA_RADIUS / CAMERA_DISTANCE)
+
+
+## Presses for B the way the MarkPrompt cue tells a human to — the same live
+## mark_timing_offset() the catch is graded against, never a re-derived
+## number: Safe held once the ball is near, Running tapped on arrival
+## (offset 0), Aggressive tapped ACTION_CONTACT ahead of it.
+func _step_mark_preview(delta: float) -> void:
+	if not _mark_active:
+		return
+	_mark_timer += delta
+	var ball := _contest_ball
+	var b := _contest_b
+	var tier := _mark_tier
+	if tier == MarkPreviewTier.AUTO:
+		match b.live_mark_prompt(ball):
+			Tuning.Action.MARK_SAFE:
+				tier = MarkPreviewTier.SAFE
+			Tuning.Action.MARK_RUNNING:
+				tier = MarkPreviewTier.RUNNING
+			Tuning.Action.MARK_AGGRESSIVE:
+				tier = MarkPreviewTier.AGGRESSIVE
+	if ball.is_airborne() and not ball.is_held:
+		match tier:
+			MarkPreviewTier.SAFE:
+				_mark_brain.safe_hold = ball.global_position.distance_to(b.catch_point_position()) < 8.0
+			MarkPreviewTier.RUNNING:
+				var offset := b.mark_timing_offset(ball, Tuning.Action.MARK_RUNNING)
+				if not _mark_pressed and offset > -0.02 and offset < Tuning.MARK_TIMING_PAST_PEAK_OFFSET:
+					_mark_brain.running_tap = true
+					_mark_pressed = true
+			MarkPreviewTier.AGGRESSIVE:
+				var offset := b.mark_timing_offset(ball, Tuning.Action.MARK_AGGRESSIVE)
+				var lead := Tuning.action_contact_time(Tuning.Action.MARK_AGGRESSIVE)
+				if not _mark_pressed and offset > -lead and offset < Tuning.MARK_TIMING_PAST_PEAK_OFFSET:
+					_mark_brain.aggressive_tap = true
+					_mark_pressed = true
+	else:
+		_mark_brain.safe_hold = false
+	if _mark_result == "":
+		_contest_status_label.text = "MARK DELIVERY   B: %s   offset %.2f s" % [
+			Tuning.Action.keys()[b._action], b.mark_timing_offset(ball, Tuning.Action.MARK_SAFE)]
+	if _mark_result != "" or _mark_timer > MARK_PREVIEW_TIMEOUT or ball.is_settled():
+		if _mark_result == "":
+			_mark_result = "no attempt — the ball was never in reach"
+			_contest_status_label.text = "MARK DELIVERY   " + _mark_result
+		_mark_active = false
+		_mark_brain.safe_hold = false
+		_mark_brain.wish_dir = Vector3.ZERO
+
+
+## mark_caught fires inside _finish_mark_catch, a beat BEFORE _begin() plays
+## the clip (which is when PlayerAnimation picks the variant) — so the
+## readout is finished deferred, once the pick for THIS catch exists.
+func _on_mark_preview_caught(tier: Tuning.Action, legal_mark: bool) -> void:
+	if not _mark_active:
+		return
+	_mark_result = "caught %s%s" % [Tuning.Action.keys()[tier], " (legal mark)" if legal_mark else ""]
+	_mark_brain.wish_dir = Vector3.ZERO
+	_finish_mark_readout.call_deferred(tier)
+
+
+func _on_mark_preview_missed(tier: Tuning.Action) -> void:
+	if not _mark_active:
+		return
+	_mark_result = "missed %s" % Tuning.Action.keys()[tier]
+	if tier == Tuning.Action.MARK_AGGRESSIVE:
+		_finish_mark_readout.call_deferred(tier)   # the leap's own pick, made at the press
+	else:
+		_contest_status_label.text = "MARK DELIVERY   " + _mark_result + " — miss clip"
+
+
+func _finish_mark_readout(tier: Tuning.Action) -> void:
+	var pick: Dictionary = _contest_b._animation.last_mark_selection()
+	if int(pick.get("action", -1)) == tier:
+		_mark_result += " — %s (%s)" % [pick.get("state", "?"), pick.get("reason", "")]
+	_contest_status_label.text = "MARK DELIVERY   " + _mark_result
 
 
 ## Copy of PhysicsRagdollLab._bearing_name — same eight compass names for
@@ -1276,6 +1669,7 @@ func _show_single_subject() -> void:
 		_free_move_floor.visible = false
 	_contest_stage = ContestStage.NONE
 	_sequence_stage = ContestStage.NONE
+	_mark_active = false
 
 	_free_move_active = false
 	_studio_floor.visible = true
@@ -1430,7 +1824,9 @@ func _build_contest_floor() -> StaticBody3D:
 	body.collision_mask = 0
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(20.0, 2.0, 20.0)
+	# 40 m, not 20: MARK DELIVERY's marker can run in from ~12 m out at a
+	# sprint, and the ball lands long when it isn't caught.
+	box.size = Vector3(40.0, 2.0, 40.0)
 	shape.shape = box
 	shape.position = Vector3(0.0, -1.0, 0.0)
 	body.add_child(shape)
@@ -1456,9 +1852,19 @@ func _ensure_umpire() -> void:
 func _reset_contest_state() -> void:
 	_contest_stage = ContestStage.NONE
 	_sequence_stage = ContestStage.NONE
+	_mark_active = false
 
 	if _contest_a == null or _contest_b == null:
 		return
+
+	# MARK DELIVERY swaps B onto its own brain and leaves it mid-walk-back
+	# off a mark — hand both back to the contests in a clean state.
+	if _contest_b.brain() != _brain_b:
+		_contest_b.set_brain(_brain_b)
+	_contest_b._end_mark_retreat()
+	_contest_b._mark_readying = false
+	_contest_b._gather_cooldown = 0.0
+	_contest_a.visible = true
 
 	_contest_a.velocity = Vector3.ZERO
 	_contest_b.velocity = Vector3.ZERO

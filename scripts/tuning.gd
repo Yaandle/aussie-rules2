@@ -38,7 +38,11 @@ enum Team { HOME, AWAY, NONE }
 ## resolves mid-clip (see ACTION_CONTACT's own comment below), and there is
 ## no cheap way to fork an already-playing AnimationNodeStateMachine state
 ## without a visible pop, so its miss stays feedback-only (rumble/SFX/ring),
-## same clip either way.
+## same clip either way. Later, animation-layer only: on a rig with
+## MarkVariants (6thbuild), PlayerAnimation cross-fades a missed leap into
+## mark_aggressive_miss at the contact instant — a state that plays from the
+## leap's own contact pose on (custom timeline start offset), so there's no
+## pop. Still no Action, no duration and no gameplay of its own.
 ##
 ## TACKLED: the cosmetic fall/recover reaction for anyone knocked flat by a
 ## contest (PlayerController._knockdown) — a Lunge tackle connecting

@@ -1,0 +1,11 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/dev/mark_landing_bake.gd" id="1_bake"]
+
+; Dev-only offline bake (not on any menu): drops a passive 6thbuild ragdoll
+; from leap height with a push at the chest and writes the trunk/leg
+; response to res://assets/animations/mark_offbalance_ragdoll.json for
+; MarkVariants' off-balance landing. See the script header.
+
+[node name="MarkLandingBake" type="Node3D"]
+script = ExtResource("1_bake")
