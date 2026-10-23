@@ -1210,6 +1210,22 @@ const RUMBLE_MARK_MISS := Vector3(0.30, 0.10, 0.20)
 ## pressed" (weak tick) vs "this is the moment" (strong tick).
 const RUMBLE_MARK_TIMING_CUE := Vector3(0.0, 0.10, 0.06)
 
+## Which countdown the MarkPrompt ring (and so RUMBLE_MARK_TIMING_CUE) runs
+## on in real matches — a MarkCueModel.CueSource, as an int so this file
+## needn't depend on that class: 0 ANALYTIC (the ring as it shipped),
+## 1 GATED (same countdown, but Aggressive's ring won't complete until a
+## press could actually register — the shipped ring cues a press the
+## controller ignores on fast run-ins from in front), 2 MLP (Aggressive on
+## the trained MarkCueModel countdown + the same gate). Only ever a cue —
+## catch resolution never reads it (RULES_REFERENCE.md §3).
+##
+## Left at 0 on purpose: changing what real matches cue is the user's call
+## (docs/NEXT_AGENT_MARKING_BRIEF.md Part 2.5). The ML page and MARK
+## DELIVERY switch their own cue without touching this. Headless evidence
+## for 1 and 2 is in docs/ML_AI_AUDIT.md §9; how either FEELS at match
+## speed is unplaytested.
+const MARK_CUE_SOURCE := 0
+
 # Madden-style contest prompt (polish-pass brief: an (A)/(X)/(Y) icon over
 # the receiver's head showing which mark tiers are live right now). Height
 # is above the player's own origin, not the chest-height CAM_FOCUS_HEIGHT —
@@ -1468,6 +1484,22 @@ const CHARACTER_TRANSITION_TIME := 0.3  # s, pixel-wipe cover/reveal duration
 const AI_KICK_RANGE := 45.0            # m from goal at which a carrier shoots
 const AI_PRESSURE_RADIUS := 4.0        # m opponent proximity that forces a quick disposal
 const AI_SUPPORT_PULL := 0.35          # 0..1, how far off-ball players drift toward the ball
+
+## Off by default, and not to be turned on in real matches without the
+## user's say-so (docs/NEXT_AGENT_MARKING_BRIEF.md Part 2.5). On, AIBrain
+## stops being Safe-only. It leaps (Aggressive) for a contested kick, on
+## the MarkCueModel countdown with its press gate. It taps Running in
+## stride when it's moving at pace and the ball is in Running's reach.
+## Otherwise it holds Safe as before. The model only times the press;
+## the tier choice is a fixed rule, and the catch is still decided by
+## reach + timing (RULES_REFERENCE.md §3). AIBrain.use_mark_cue_model
+## starts from this, so a dev check can flip it for one run.
+const AI_MARK_USE_CUE_MODEL := false
+## With the flag on: only take a ball in stride (Running) when its
+## straight-line closest approach comes this far inside Running's reach —
+## the prediction ignores gravity's curve, so not right at the edge.
+## Unplaytested feel guess.
+const AI_MARK_RUNNING_TAKE_FRACTION := 0.75
 
 ## Team Edit expansion (polish-pass brief: Ball Movement preference — see
 ## AIBrain._lateral_target_z()). How close to the actual boundary a fully

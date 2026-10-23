@@ -91,6 +91,12 @@ var player: PlayerController = null:
 
 var ball: Ball = null
 
+## Which countdown the ring sweeps on — a MarkCueModel.CueSource. Real
+## matches get Tuning.MARK_CUE_SOURCE (the shipped analytic ring unless the
+## user changes it); a dev page can set its own instance's without touching
+## matches. See MarkCueModel.cue_time_to_press.
+var cue_source: int = Tuning.MARK_CUE_SOURCE
+
 var _canvas: Control
 var _tier := Tuning.Action.NONE
 var _screen_pos := Vector2.ZERO
@@ -197,15 +203,19 @@ func _update_ring() -> void:
 	# call site does — see mark_timing_offset()'s own comment for why a
 	# generic/tier-agnostic radius drew the ring's own "press now" instant
 	# too early for Running.
-	var offset := player.mark_timing_offset(ball, _tier)
-	if offset >= Tuning.MARK_TIMING_PAST_PEAK_OFFSET:
+	#
+	# The countdown itself comes from MarkCueModel.cue_time_to_press. Under
+	# the ANALYTIC source that's this ring's original arithmetic, unchanged:
+	# _press_target_offset(_tier) - mark_timing_offset(), with NAN on the
+	# not-closing sentinel.
+	var to_press := MarkCueModel.cue_time_to_press(player, ball, _tier, cue_source)
+	if is_nan(to_press):
 		_ring_progress = 0.0   # nothing meaningful to count down yet — sweep hasn't started
 		return
-	var to_press := offset - _press_target_offset(_tier)
 	# 0 at the start of the countdown window, 1 (a full lap) right at the
 	# press-now instant — see this file's own header for why a sweep reads
 	# more directly as "go" than the old shrinking-ring version did.
-	_ring_progress = clampf(1.0 + to_press / RING_LEAD_TIME, 0.0, 1.0)
+	_ring_progress = clampf(1.0 - to_press / RING_LEAD_TIME, 0.0, 1.0)
 
 
 func _draw_badge(canvas: Control) -> void:

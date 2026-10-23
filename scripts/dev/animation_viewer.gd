@@ -57,7 +57,11 @@ extends Node3D
 ## B's brain presses the way a human following the MarkPrompt cue would
 ## (see MarkPreviewBrain), and is a HumanBrain so Safe is timing-graded the
 ## human way too. VIEW orbits the camera around the catch, so every variant
-## can be watched from any side. The ACTIONS tab's MARK VARIANTS buttons
+## can be watched from any side. CUE picks whose countdown the Aggressive
+## press and the real MarkPrompt ring over B follow — SHIPPED (the analytic
+## ring as in matches), GATED, or MLP (the ML page's trained marking-cue
+## model; see MarkCueModel) — and the readout gives how far the ball was
+## from B's hands on the leap's contact frame, which is what the cue is for. The ACTIONS tab's MARK VARIANTS buttons
 ## play each variant clip on its own.
 ##
 ## A CONTROL group sits above the three preview columns with a FREE MOVE
@@ -208,6 +212,8 @@ const MARK_OPPONENT_PARK := Vector3(9.0, 0.0, 9.0)
 const MARK_CAMERA_RADIUS := 6.0
 const MARK_CAMERA_HEIGHT := 2.2
 const MARK_PREVIEW_TIMEOUT := 4.0
+## CUE button labels, in MarkCueModel.CueSource order.
+const MARK_CUE_NAMES: Array[String] = ["SHIPPED", "GATED", "MLP"]
 ## Shooting-method step for the delivery solver — same gravity + quadratic
 ## drag Ball._integrate_forces applies (MarkChallenge._predicted_range uses
 ## the same stepping), spin-free so Magnus is zero.
@@ -426,6 +432,13 @@ var _mark_pressed := false
 var _mark_result := ""
 var _mark_catch_spot := Vector3.ZERO
 var _mark_brain: MarkPreviewBrain
+## CUE — whose countdown the scripted Aggressive press and the ring over B
+## follow (MarkCueModel.CueSource). Viewer-only: never touches
+## Tuning.MARK_CUE_SOURCE, so real matches keep the shipped cue.
+var _mark_cue_source := MarkCueModel.CueSource.ANALYTIC
+var _mark_prompt: MarkPrompt
+var _mark_contact_last := NAN   ## latest per-tick sample, see _sample_mark_contact
+var _mark_contact_dist := NAN   ## the contact frame's, frozen when the leap resolves
 var _mark_hooks_connected := false
 var _mark_value_labels := {}
 
@@ -1161,6 +1174,22 @@ func _build_mark_delivery_panel() -> VBoxContainer:
 	contested.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	contested.toggled.connect(func(on: bool) -> void: _mark_contested = on)
 	panel.add_child(contested)
+
+	# CUE: whose countdown the Aggressive press and B's ring follow — see
+	# MarkCueModel.CueSource. MLP needs trained weights (the ML page, or
+	# res://data/ml/mark_cue/weights_mark_aggressive.json); without them it
+	# reads exactly like GATED.
+	var cue_row := HBoxContainer.new()
+	cue_row.add_theme_constant_override(&"separation", 4)
+	var cue_group := ButtonGroup.new()
+	for source in MARK_CUE_NAMES.size():
+		var b := _button("CUE " + MARK_CUE_NAMES[source], true)
+		b.button_group = cue_group
+		b.button_pressed = source == _mark_cue_source
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.pressed.connect(func() -> void: _mark_cue_source = source as MarkCueModel.CueSource)
+		cue_row.add_child(b)
+	panel.add_child(cue_row)
 	_update_mark_readouts()
 	return panel
 
@@ -1205,6 +1234,7 @@ func _launch_mark_preview(tier: MarkPreviewTier) -> void:
 		_mark_brain = MarkPreviewBrain.new()
 	if not _mark_hooks_connected:
 		_mark_hooks_connected = true
+		get_tree().physics_frame.connect(_sample_mark_contact)
 		_contest_b.mark_caught.connect(_on_mark_preview_caught)
 		_contest_b.mark_missed.connect(_on_mark_preview_missed)
 	_contest_b.set_brain(_mark_brain)
@@ -1218,6 +1248,17 @@ func _launch_mark_preview(tier: MarkPreviewTier) -> void:
 	_mark_timer = 0.0
 	_mark_pressed = false
 	_mark_result = ""
+	_mark_contact_last = NAN
+	_mark_contact_dist = NAN
+	# The real MarkPrompt over B, on the CUE picked here — the ring a human
+	# would be shown, sweeping on the same countdown the scripted press uses.
+	if _mark_prompt == null:
+		_mark_prompt = MarkPrompt.new()
+		add_child(_mark_prompt)
+	_contest_b.camera = _camera
+	_mark_prompt.cue_source = _mark_cue_source
+	_mark_prompt.ball = _contest_ball
+	_mark_prompt.player = _contest_b
 	var t := MARK_DELIVERY_FLIGHT_TIME
 	_mark_catch_spot = CONTEST_TARGET_POS
 	var run_start := _mark_catch_spot - Vector3.FORWARD * _mark_run_speed * t
@@ -1319,9 +1360,11 @@ func _step_mark_preview(delta: float) -> void:
 					_mark_brain.running_tap = true
 					_mark_pressed = true
 			MarkPreviewTier.AGGRESSIVE:
-				var offset := b.mark_timing_offset(ball, Tuning.Action.MARK_AGGRESSIVE)
-				var lead := Tuning.action_contact_time(Tuning.Action.MARK_AGGRESSIVE)
-				if not _mark_pressed and offset > -lead and offset < Tuning.MARK_TIMING_PAST_PEAK_OFFSET:
+				# CUE picks whose countdown the press follows — the same
+				# MarkCueModel.cue_press_now the on-screen ring (and, behind
+				# its flag, AIBrain) uses. SHIPPED is the old inline test,
+				# offset reaching -ACTION_CONTACT, unchanged.
+				if not _mark_pressed and MarkCueModel.cue_press_now(b, ball, Tuning.Action.MARK_AGGRESSIVE, _mark_cue_source):
 					_mark_brain.aggressive_tap = true
 					_mark_pressed = true
 	else:
@@ -1338,6 +1381,19 @@ func _step_mark_preview(delta: float) -> void:
 		_mark_brain.wish_dir = Vector3.ZERO
 
 
+## Contact readout: how far the ball is from B's hands on the leap's contact
+## frame — the number the cue is trying to bring to its minimum. Sampled on
+## SceneTree.physics_frame, which fires before any node's _physics_process,
+## so each sample is the state that tick's resolution will grade; the
+## sample taken on the tick mark_caught / mark_missed fires is the contact
+## frame's (the harness measures it the same way). _process can't do this:
+## at a render rate below the physics rate it skips ticks.
+func _sample_mark_contact() -> void:
+	if _mark_active and _contest_b != null and _contest_b._action == Tuning.Action.MARK_AGGRESSIVE \
+			and not _contest_ball.is_held:
+		_mark_contact_last = _contest_ball.global_position.distance_to(_contest_b.catch_point_position())
+
+
 ## mark_caught fires inside _finish_mark_catch, a beat BEFORE _begin() plays
 ## the clip (which is when PlayerAnimation picks the variant) — so the
 ## readout is finished deferred, once the pick for THIS catch exists.
@@ -1345,6 +1401,8 @@ func _on_mark_preview_caught(tier: Tuning.Action, legal_mark: bool) -> void:
 	if not _mark_active:
 		return
 	_mark_result = "caught %s%s" % [Tuning.Action.keys()[tier], " (legal mark)" if legal_mark else ""]
+	if tier == Tuning.Action.MARK_AGGRESSIVE:
+		_mark_contact_dist = _mark_contact_last
 	_mark_brain.wish_dir = Vector3.ZERO
 	_finish_mark_readout.call_deferred(tier)
 
@@ -1354,6 +1412,7 @@ func _on_mark_preview_missed(tier: Tuning.Action) -> void:
 		return
 	_mark_result = "missed %s" % Tuning.Action.keys()[tier]
 	if tier == Tuning.Action.MARK_AGGRESSIVE:
+		_mark_contact_dist = _mark_contact_last
 		_finish_mark_readout.call_deferred(tier)   # the leap's own pick, made at the press
 	else:
 		_contest_status_label.text = "MARK DELIVERY   " + _mark_result + " — miss clip"
@@ -1363,6 +1422,9 @@ func _finish_mark_readout(tier: Tuning.Action) -> void:
 	var pick: Dictionary = _contest_b._animation.last_mark_selection()
 	if int(pick.get("action", -1)) == tier:
 		_mark_result += " — %s (%s)" % [pick.get("state", "?"), pick.get("reason", "")]
+	if tier == Tuning.Action.MARK_AGGRESSIVE:
+		_mark_result += "   cue %s, ball %.2f m from the hands at contact" % [
+			MARK_CUE_NAMES[_mark_cue_source], _mark_contact_dist]
 	_contest_status_label.text = "MARK DELIVERY   " + _mark_result
 
 
@@ -1868,6 +1930,11 @@ func _reset_contest_state() -> void:
 	_contest_b._end_mark_retreat()
 	_contest_b._mark_readying = false
 	_contest_b._gather_cooldown = 0.0
+	# MARK DELIVERY lends B the viewer camera so its MarkPrompt can project;
+	# the other contests never had one.
+	_contest_b.camera = null
+	if _mark_prompt != null:
+		_mark_prompt.player = null
 	_contest_a.visible = true
 
 	_contest_a.velocity = Vector3.ZERO

@@ -1840,9 +1840,9 @@ func _try_spoil(ball: Ball) -> void:
 ## AIBrain gets the exact original unconditional-reach check, byte for
 ## byte. Deliberate, not an oversight: AI marking is a documented, minimal
 ## stub (docs/FEATURE_AUDIT.md) that this feature isn't meant to touch, and
-## AI never taps Running/Aggressive at all (AIBrain never overrides
-## wants_mark_running()/wants_mark_aggressive()), so only Safe needs the
-## split.
+## AI never taps Running/Aggressive by default (AIBrain only does behind
+## Tuning.AI_MARK_USE_CUE_MODEL, off — and those two tiers are graded the
+## same for every brain anyway), so only Safe needs the split.
 func _update_aerial_contest(ball: Ball, _delta: float) -> void:
 	if _brain.wants_mark_safe():
 		if _brain is HumanBrain:
