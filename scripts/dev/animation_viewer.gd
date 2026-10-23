@@ -1555,6 +1555,10 @@ func _metric_card(caption: String) -> Dictionary:
 
 	col.add_child(UIStyle.label(caption, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED))
 	var value := UIStyle.label("—", UIStyle.SIZE_TITLE, UIStyle.TEXT_PRIMARY, UIStyle.WEIGHT_BOLD)
+	# Trim, don't grow: a long state name (MARK_AGGRESSIVE_OFFBALANCE_R) used
+	# to widen the card and push the whole menu panel across the subject.
+	value.clip_text = true
+	value.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	col.add_child(value)
 
 	return {"node": box, "value_label": value}
