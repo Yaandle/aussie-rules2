@@ -1,8 +1,9 @@
 class_name MLExperimentViewer
 extends RefCounted
 
-## Split out of animation_viewer.gd: the ML Experiments page
-## (tackle-break-probability model + sweep).
+## Split out of animation_viewer.gd: the ML Experiments page — stage tabs
+## LR (tackle-break-probability model + sweep), GA (evolving that model's
+## weights), MLP (marking-cue timing, MarkCueModel) and DQL (queued).
 ##
 ## Layout: a narrow control column on the left (pinned metrics + MODEL / SWEEP
 ## tabs) and a SIM window on the right showing the player inside an X/Y/Z
@@ -51,6 +52,7 @@ const TackleExperimentScript := preload("res://scripts/dev/tackle_experiment.gd"
 const TackleChartScript := preload("res://scripts/dev/tackle_chart.gd")
 const TackleGAScript := preload("res://scripts/dev/tackle_ga.gd")
 const GAFitnessChartScript := preload("res://scripts/dev/ga_fitness_chart.gd")
+const MLPLossChartScript := preload("res://scripts/dev/mlp_loss_chart.gd")
 
 ## Back-reference to the owning viewer.
 var _viewer: AnimationViewer
@@ -72,6 +74,7 @@ var _experiment_sf_label: Label
 var _chart
 var _lr_sliders: Dictionary = {}   ## MODEL page's slider set — Stage 2's APPLY TO MODEL writes into this
 var _ga_last_result: Dictionary = {}
+var _mlp_training := false   ## MLP stage TRAIN in progress (it spans frames)
 
 var _sim_camera: Camera3D
 var _sim_yaw := 0.7
@@ -186,8 +189,7 @@ func _build_menu() -> Control:
 	var stage_pages: Array[Control] = [
 		_build_lr_stage(),
 		_build_ga_stage(),
-		_build_placeholder_stage("MLP", "marking-cue timing",
-			"Inputs: ball height, ball distance, player speed, time to arrival (+1 TBD).\nNet: 5 → 8 → 8 → 1 (jump timing).\nData: 200–500 recorded marking attempts, success/miss labelled.\n\nNot built yet — see docs/ML_AI_AUDIT.md §4: ai_brain.gd's marking stub\nonly ever attempts the Safe tier today; this is what would let it judge\nthe harder Running/Aggressive tiers too."),
+		_build_mlp_stage(),
 		_build_placeholder_stage("Deep Q-learning", "team positioning",
 			"State: ball, teammates, opponents, possession.\nReward: marks + territory.\nRisk: reward hacking — e.g. farming safe handballs forever instead of\nrisking a scoring chance.\n\nNot built yet — see docs/ML_AI_AUDIT.md §4: ai_brain.gd's\n_think_support/_think_defend still use one global pull scalar plus a\nnearest-teammate spacing nudge, no real zone/role awareness."),
 	]
@@ -442,6 +444,213 @@ func _build_ga_stage() -> Control:
 	)
 
 	return stage
+
+
+## Stage 3 (MLP, docs/ML_AI_AUDIT.md §9) — MarkCueModel, a 5 → 8 → 8 → 1
+## net that predicts seconds until the best press of a mark (when, never
+## whether), trained on real attempts recorded by scenes/dev/
+## mark_cue_harness.tscn. TRAIN runs across frames so the loss chart fills
+## in live, and keeps the best-validation epoch's weights. The cards and
+## lines below compare the model against the analytic ring (as shipped) and
+## the analytic ring plus the press gate, on held-out deliveries and on the
+## 27-delivery probe grid that walks the whole input space. The probe
+## grid's closed-loop line is real presses and real signals from the
+## harness's last `probe` run. APPLY makes this run the cue MARK DELIVERY's
+## CUE MLP uses for the session. SAVE writes it to the weights file. Real
+## matches stay on Tuning.MARK_CUE_SOURCE either way.
+func _build_mlp_stage() -> Control:
+	var stage := VBoxContainer.new()
+	stage.add_theme_constant_override(&"separation", 8)
+	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL   # see _build_lr_stage()'s comment
+
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	stage.add_child(scroll)
+
+	var page := VBoxContainer.new()
+	page.add_theme_constant_override(&"separation", 6)
+	page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(page)
+
+	page.add_child(_wrapped_caption("Marking-cue timing. Output: seconds to the best press, the catching press whose contact frame finds the ball nearest the hands. It decides WHEN to press, never whether a mark succeeds. Inputs: ball height, ball distance, player speed, analytic time to arrival, approach cos (APPROACH FROM)."))
+
+	var trainer := MarkCueTrainer.new()
+	var have_data := trainer.load_data()
+	var data_label := _wrapped_caption("")
+	page.add_child(data_label)
+	if have_data:
+		var labelled := trainer.catchable_ids(Tuning.Action.MARK_AGGRESSIVE).size()
+		data_label.text = "DATA: %d deliveries, %d real attempts (%d caught). Aggressive labelled on %d; Running on %d. Probe grid: %d deliveries. Re-record: mark_cue_harness.tscn -- dataset / -- probe." % [
+			trainer.deliveries.size(), trainer.attempt_summary.attempts, trainer.attempt_summary.caught,
+			labelled, trainer.catchable_ids(Tuning.Action.MARK_RUNNING).size(), trainer.probe_deliveries.size()]
+	else:
+		data_label.text = "No dataset under %s. Run scenes/dev/mark_cue_harness.tscn -- dataset first." % MarkCueTrainer.DATA_DIR
+
+	page.add_child(_section_heading("Parameters"))
+	var tier_pick := OptionButton.new()
+	tier_pick.add_item("AGGRESSIVE (leap)", Tuning.Action.MARK_AGGRESSIVE)
+	tier_pick.add_item("RUNNING (tap)", Tuning.Action.MARK_RUNNING)
+	page.add_child(tier_pick)
+	var defaults := MarkCueTrainer.default_params()
+	var epochs_box := _spinbox_row(page, "Epochs", 10, 400, 10, int(defaults.epochs))
+	var lr_slider := _slider_row(page, "Learn rate", 0.001, 0.05, 0.001, float(defaults.learning_rate))
+	var batch_box := _spinbox_row(page, "Batch", 8, 128, 8, int(defaults.batch_size))
+	var near_slider := _slider_row(page, "Near wt", 0.0, 8.0, 0.5, float(defaults.near_weight))
+	var seed_pick := OptionButton.new()
+	for n in range(1, 11):
+		seed_pick.add_item("Seed %d" % n, n)
+	page.add_child(seed_pick)
+
+	var action_row := HBoxContainer.new()
+	action_row.add_theme_constant_override(&"separation", 8)
+	page.add_child(action_row)
+	var train_button := _button("TRAIN")
+	train_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	train_button.disabled = not have_data
+	action_row.add_child(train_button)
+	var selftest_button := _button("SELF-TEST")
+	selftest_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	action_row.add_child(selftest_button)
+
+	var status := _wrapped_caption("")
+	page.add_child(status)
+	var chart = MLPLossChartScript.new()
+	page.add_child(chart)
+	page.add_child(_legend_item("train loss", UIStyle.ACCENT))
+	page.add_child(_legend_item("validation loss (bar = kept epoch)", UIStyle.TEXT_MUTED))
+
+	page.add_child(_section_heading("Held-out cue vs analytic"))
+	var cards := HBoxContainer.new()
+	cards.add_theme_constant_override(&"separation", 8)
+	page.add_child(cards)
+	var mlp_card := _metric_card("MLP CUE ERR")
+	mlp_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cards.add_child(mlp_card.node)
+	var ana_card := _metric_card("ANALYTIC")
+	ana_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cards.add_child(ana_card.node)
+	var results := _wrapped_caption("")
+	page.add_child(results)
+
+	page.add_child(_section_heading("Probe grid (whole input space)"))
+	var probe_label := _wrapped_caption("")
+	page.add_child(probe_label)
+	var closed_loop := _wrapped_caption("")
+	page.add_child(closed_loop)
+
+	var apply_row := HBoxContainer.new()
+	apply_row.add_theme_constant_override(&"separation", 8)
+	page.add_child(apply_row)
+	var apply_button := _button("APPLY TO PREVIEW")
+	apply_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	apply_button.disabled = true
+	apply_row.add_child(apply_button)
+	var save_button := _button("SAVE WEIGHTS")
+	save_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	save_button.disabled = true
+	apply_row.add_child(save_button)
+	page.add_child(_wrapped_caption("Real matches use Tuning.MARK_CUE_SOURCE = %d (%s). AI tier choice: Tuning.AI_MARK_USE_CUE_MODEL = %s. Neither changes without the user's say-so." % [
+		Tuning.MARK_CUE_SOURCE, ["shipped ring", "gated ring", "MLP + gate"][Tuning.MARK_CUE_SOURCE],
+		Tuning.AI_MARK_USE_CUE_MODEL]))
+
+	var show_closed_loop := func(tier: Tuning.Action) -> void:
+		var summary := MarkCueTrainer.closed_loop_summary()
+		var key_tier: String = Tuning.Action.keys()[tier]
+		var text := "CLOSED LOOP (last harness probe run, saved weights, 1 real press per delivery per cue):"
+		for src in [["analytic", "shipped"], ["analytic_gated", "gated"], ["mlp", "mlp"]]:
+			var s: Dictionary = summary.get(key_tier + " " + src[0], {})
+			if s.is_empty():
+				continue
+			text += "\n  %-8s caught %d/%d, ball %.2f m from the hands at contact (mean of the %d that resolved)" % [
+				src[1], s.caught, s.n, s.contact, s.resolved]
+		closed_loop.text = text if not summary.is_empty() else "CLOSED LOOP: no probe_cues.csv yet (mark_cue_harness.tscn -- probe)."
+	show_closed_loop.call(Tuning.Action.MARK_AGGRESSIVE)
+	tier_pick.item_selected.connect(func(_i: int) -> void:
+		show_closed_loop.call(tier_pick.get_selected_id()))
+
+	var last := {}
+	train_button.pressed.connect(func() -> void:
+		if _mlp_training:
+			return
+		_mlp_training = true
+		train_button.disabled = true
+		apply_button.disabled = true
+		save_button.disabled = true
+		var params := {
+			"tier": tier_pick.get_selected_id(),
+			"epochs": int(epochs_box.value),
+			"learning_rate": lr_slider.value,
+			"batch_size": int(batch_box.value),
+			"near_weight": near_slider.value,
+			"seed": seed_pick.get_selected_id(),
+			"stride": int(defaults.stride),
+		}
+		var run := trainer.begin(params)
+		var t0 := Time.get_ticks_msec()
+		for e in int(params.epochs):
+			trainer.step_training(run)
+			if e % 3 == 2 or e == int(params.epochs) - 1:
+				chart.set_history(run.history, run.get("best_epoch", -1))
+				status.text = "Training %s: epoch %d/%d, %d train / %d val deliveries, val MSE %.4f" % [
+					Tuning.Action.keys()[params.tier], run.epoch, params.epochs, run.train_ids.size(),
+					run.val_ids.size(), run.history[-1].val]
+				await _viewer.get_tree().process_frame
+		var model := trainer.finish(run)
+		var ev := trainer.evaluate(model, run)
+		last.model = model
+		var vc: Dictionary = ev.val_cues
+		mlp_card.value_label.text = "%.3f s" % vc.mlp_mae
+		ana_card.value_label.text = "%.3f s" % vc.analytic_mae
+		var text := "Kept epoch %d (best val MSE %.4f), %.1f s. Validation cue, %d deliveries: in band mlp %d / shipped %d / gated %d. Error %.3f / %.3f / %.3f s, bias %+.3f / %+.3f / %+.3f." % [
+			model.meta.best_epoch, run.best_val, (Time.get_ticks_msec() - t0) / 1000.0, vc.n,
+			vc.mlp_in, vc.analytic_in, vc.gated_in, vc.mlp_mae, vc.analytic_mae, vc.gated_mae,
+			vc.mlp_bias, vc.analytic_bias, vc.gated_bias]
+		text += "\nCountdown error by time to press (mlp / analytic):"
+		for b in ev.val_leads:
+			text += "  %.2f–%.2f s %.3f / %.3f" % [b.from, b.to, b.mlp_mae, b.analytic_mae]
+		text += "\nAxis swing (s):"
+		for a in ev.axes:
+			text += "  %s %.2f" % [a.name, a.swing]
+		results.text = text
+		if ev.has("probe_cues"):
+			var pc: Dictionary = ev.probe_cues
+			var ptext := "THIS MODEL on the probe traces: in band %d / %d / %d of %d (mlp / shipped / gated), error %.3f / %.3f / %.3f s." % [
+				pc.mlp_in, pc.analytic_in, pc.gated_in, pc.n, pc.mlp_mae, pc.analytic_mae, pc.gated_mae]
+			for reg in ev.probe_regions:
+				ptext += "\n  %s: %d / %d / %d of %d" % [reg.name, reg.mlp_in, reg.analytic_in, reg.gated_in, reg.n]
+			probe_label.text = ptext
+		else:
+			probe_label.text = "No probe grid yet (mark_cue_harness.tscn -- probe)."
+		show_closed_loop.call(params.tier)
+		status.text = "Done: %s, %d epochs." % [Tuning.Action.keys()[params.tier], run.epoch]
+		train_button.disabled = false
+		apply_button.disabled = false
+		save_button.disabled = false
+		_mlp_training = false
+	)
+
+	apply_button.pressed.connect(func() -> void:
+		if last.has("model"):
+			MarkCueModel.set_active(last.model)
+			status.text = "Applied: MARK DELIVERY's CUE MLP now uses this run (until restart or SAVE)."
+	)
+	save_button.pressed.connect(func() -> void:
+		if last.has("model"):
+			var err: Error = last.model.save()
+			status.text = "Saved %s (%s)." % [MarkCueModel.weights_path(last.model.tier), error_string(err)]
+	)
+	selftest_button.pressed.connect(func() -> void:
+		var checks := MarkCueTrainer.self_checks()
+		status.text = "SELF-TEST %s\n%s" % ["PASS" if checks.failures == 0 else "FAIL", "\n".join(checks.lines)]
+	)
+	return stage
+
+
+func _wrapped_caption(text: String) -> Label:
+	var label := _muted_caption(text)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	return label
 
 
 ## Stub page for a not-yet-built stage (MLP / Deep Q-learning) —

@@ -936,6 +936,7 @@ func drop_ball() -> void:
 	_run_too_far_latched = false
 	_kick_charge = 0.0
 	_charging = false
+	_cancel_goal_set_shot()
 	# Otherwise a hip-fire windup broken by a tackle before it reaches
 	# _dispose() would leave this stuck true — the next kick to actually
 	# fire, possibly a properly-aimed one with a fresh ball, would wrongly
@@ -1379,16 +1380,11 @@ func _update_smother(delta: float) -> void:
 			if to_target.length_squared() > 0.0001:
 				_smother_dive_direction = to_target.normalized()
 		return
-	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE \
-			or _smother_dive_cooldown > 0.0:
+	if live_smother_target() == null:
 		return
 	if not _brain.wants_smother():
 		return
-	var target := _nearest_player(Tuning.SMOTHER_COMMIT_RANGE, func(other: PlayerController) -> bool:
-		return other.team != team and other.is_carrying() \
-			and (other.is_kick_aiming() or other.is_mid_kick_swing()))
-	if target == null:
-		return
+	var target := live_smother_target()
 
 	_smother_dive_target = target
 	var to_target := target.global_position - global_position
@@ -1398,6 +1394,20 @@ func _update_smother(delta: float) -> void:
 	_smother_dive_timer = Tuning.SMOTHER_DIVE_DURATION
 	_smother_dive_cooldown = Tuning.SMOTHER_DIVE_COOLDOWN
 	_begin(Tuning.Action.SMOTHER_DIVE)
+
+
+## Who a smother tap would dive at right now, or null: the nearest opponent
+## within SMOTHER_COMMIT_RANGE whose kick can still be blocked (in stance or
+## mid-swing), and only while this player is free to commit. The one filter
+## behind both _update_smother and MarkPrompt's SMOTHER badge, so the badge
+## shows exactly when the button would do something.
+func live_smother_target() -> PlayerController:
+	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE \
+			or _smother_dive_timer > 0.0 or _smother_dive_cooldown > 0.0:
+		return null
+	return _nearest_player(Tuning.SMOTHER_COMMIT_RANGE, func(other: PlayerController) -> bool:
+		return other.team != team and other.is_carrying() \
+			and (other.is_kick_aiming() or other.is_mid_kick_swing()))
 
 
 ## Runs every physics frame a smother dive is live, after the body has
@@ -1661,7 +1671,7 @@ func _apply_knockdown_hop() -> void:
 ## ground until this player disposes. Scoped to marks only, not free kicks/
 ## kick-ins: those already reuse _protected_timer for the taker's own
 ## immunity, but the broader "every other opponent retreats 10m" rule is a
-## separate, bigger piece of work (see docs/FEATURE_AUDIT.md) left for when
+## separate, bigger piece of work (see FEATURE_AUDIT.md (archived)) left for when
 ## the rest of the free-kick/set-shot apparatus gets built.
 func _apply_stand_the_mark() -> void:
 	var opponent := _nearest_opponent()
@@ -1839,10 +1849,10 @@ func _try_spoil(ball: Ball) -> void:
 ## by how well the hold's timing lines up — see mark_timing_offset), an
 ## AIBrain gets the exact original unconditional-reach check, byte for
 ## byte. Deliberate, not an oversight: AI marking is a documented, minimal
-## stub (docs/FEATURE_AUDIT.md) that this feature isn't meant to touch, and
-## AI never taps Running/Aggressive at all (AIBrain never overrides
-## wants_mark_running()/wants_mark_aggressive()), so only Safe needs the
-## split.
+## stub (FEATURE_AUDIT.md (archived)) that this feature isn't meant to touch, and
+## AI never taps Running/Aggressive by default (AIBrain only does behind
+## Tuning.AI_MARK_USE_CUE_MODEL, off — and those two tiers are graded the
+## same for every brain anyway), so only Safe needs the split.
 func _update_aerial_contest(ball: Ball, _delta: float) -> void:
 	if _brain.wants_mark_safe():
 		if _brain is HumanBrain:
@@ -1932,6 +1942,11 @@ func _update_ground_pickup(ball: Ball, _delta: float) -> void:
 ## the catch connects, so the "attempt" and the "outcome" are the same
 ## event. _begin() just plays the catch/cradle animation after the fact.
 func _complete_mark(ball: Ball, tier: Tuning.Action) -> void:
+	# Cosmetic: hands the animation layer the ball's state while it's still
+	# where it was caught (the gather below snaps it into the hands), so it
+	# can pick a low / overhead / over-the-shoulder / braced variant. The
+	# catch is already decided; nothing reads this back.
+	_animation.note_mark_ball(ball)
 	_finish_mark_catch(ball, tier)
 	_mark_readying = false
 	if tier == Tuning.Action.MARK_SAFE:
@@ -2009,6 +2024,40 @@ func can_take_goal_set_shot() -> bool:
 	return _can_take_goal_set_shot()
 
 
+## Lines the set shot up: latch the kick stance, snap aim to the goal, and
+## start the shot clock (Tuning.SET_SHOT_CLOCK). The clock re-grants the
+## same _protected_timer the mark did, so the kicker can't be tackled while
+## lining up, and re-freezes the man on the mark and the 10m crowd for as
+## long (stand_the_mark keeps an existing anchor when given none, so the
+## man on the mark stays on the mark).
+func _arm_goal_set_shot() -> void:
+	_goal_set_shot_locked = true
+	_charging = true
+	var aim_dir := _goal_aim_direction()
+	_kick_aim_yaw = atan2(-aim_dir.x, -aim_dir.z)
+	_heading = aim_dir
+	grant_protection(Tuning.SET_SHOT_CLOCK)
+	for opponent in _frozen_opponents:
+		if is_instance_valid(opponent):
+			opponent.stand_the_mark(Tuning.SET_SHOT_CLOCK)
+	# Borrow the normal behind-the-player Chase framing for the shot if
+	# the broadcast rig is on FULL_SIDE — a no-op there already if it
+	# isn't (see BroadcastCamera.enter_goal_set_shot).
+	if is_instance_valid(camera_rig):
+		camera_rig.enter_goal_set_shot()
+
+
+## Clears the set-shot latch and hands the camera back, on every way a set
+## shot ends: fired, cancelled, or the ball lost. drop_ball() calls this
+## too. It used to clear only _charging, so a set shot broken by a tackle
+## left the latch set and the camera stuck in its borrowed Chase framing
+## (playtest: stuck behind the player until a throw-in reset things).
+func _cancel_goal_set_shot() -> void:
+	if _goal_set_shot_locked and is_instance_valid(camera_rig):
+		camera_rig.exit_goal_set_shot()
+	_goal_set_shot_locked = false
+
+
 func _can_take_goal_set_shot() -> bool:
 	if _protected_timer <= 0.0:
 		return false
@@ -2043,6 +2092,9 @@ func _begin_aggressive_mark() -> void:
 	if _brain is HumanBrain:
 		InputManager.rumble(Tuning.RUMBLE_MARK_PRESS)
 	_pending_jump_speed = Tuning.MARK_AGGRESSIVE_JUMP_SPEED
+	# Cosmetic, like _complete_mark's: lets the animation layer pick the
+	# contested off-balance landing. The leap is already committed.
+	_animation.note_mark_ball(_live_ball())
 	_begin(Tuning.Action.MARK_AGGRESSIVE)
 
 
@@ -2240,7 +2292,15 @@ func live_mark_prompt(ball: Ball) -> Tuning.Action:
 	# and it says no to a handball for the same reason.
 	if not is_instance_valid(ball) or _mark_attempt_blocked(ball) or not ball.is_kick_flight():
 		return Tuning.Action.NONE
-	var running_live := _ball_in_catch_reach(ball, Tuning.MARK_RUNNING_REACH_SCALE)
+	# An opponent's kick still within MARK_STAND_MIN_DISTANCE of the boot is
+	# a smother chance, not a mark (playtest: the man on the mark saw A/X/Y
+	# light up the instant the kicker struck it). It couldn't be a legal mark
+	# anyway: that needs the same 15m. MarkPrompt shows the SMOTHER badge
+	# while the kicker is still lining up instead.
+	if ball.kick_team() != team and ball.kick_team() != Tuning.Team.NONE \
+			and ball.distance_since_launch() < Tuning.MARK_STAND_MIN_DISTANCE:
+		return Tuning.Action.NONE
+	var running_live :=_ball_in_catch_reach(ball, Tuning.MARK_RUNNING_REACH_SCALE)
 	if running_live and _speed > Tuning.JOG_SPEED:
 		return Tuning.Action.MARK_RUNNING
 	if _ball_in_catch_reach(ball, Tuning.MARK_SAFE_REACH_SCALE):
@@ -2323,19 +2383,30 @@ func _begin_hit_out() -> void:
 ## row verbatim, see Tuning's comment there). A palm, not a catch: knocks
 ## the ball away rather than gathering it, same knock() primitive spoil/
 ## smother already use for "an external hit that doesn't take control".
-## Directed by _hit_out_aim_dir — where Left stick was held on the RB press
-## (see _begin) — so a ruckman taps to a runner, not just straight off the
-## body; a neutral stick at the press falls back to body-forward.
+## Directed by _hit_out_aim_dir (captured on the RB press, see _begin), or
+## by the right stick if it's held right now at contact — so a ruckman taps
+## to a runner, not just straight off the body.
 func _resolve_hit_out() -> void:
 	var ball := _live_ball()
 	var connected := is_instance_valid(ball) and not ball.is_held \
 		and ball.global_position.distance_to(_carry_point.global_position) <= Tuning.RUCK_HIT_OUT_REACH
 	if connected:
-		var direction := _hit_out_aim_dir if _hit_out_aim_dir.length_squared() > 0.0001 \
-			else -global_transform.basis.z
+		var direction := _brain.hit_out_aim(self)
+		if direction.length_squared() < 0.0001:
+			direction = _hit_out_aim_dir if _hit_out_aim_dir.length_squared() > 0.0001 \
+				else -global_transform.basis.z
 		direction = direction.normalized()
 		ball.knock(direction * Tuning.RUCK_HIT_OUT_SPEED + Vector3.UP * Tuning.RUCK_HIT_OUT_UP_SPEED)
 	hit_out_resolved.emit(self, connected)
+
+
+## Right stick (brain), then left stick, then body-forward — see _begin's
+## HIT_OUT capture.
+func _hit_out_aim() -> Vector3:
+	var aim := _brain.hit_out_aim(self)
+	if aim.length_squared() > 0.0001:
+		return aim
+	return _wish_dir if _wish_dir.length_squared() > 0.0001 else -global_transform.basis.z
 
 
 ## The one ball in the scene, found by group rather than a wired reference —
@@ -2380,16 +2451,7 @@ func _update_charge(delta: float) -> void:
 	# this frame already not-carrying would.
 	if _brain.wants_goal_set_shot() and is_carrying() and not _charging \
 			and _can_take_goal_set_shot():
-		_goal_set_shot_locked = true
-		_charging = true
-		var aim_dir := _goal_aim_direction()
-		_kick_aim_yaw = atan2(-aim_dir.x, -aim_dir.z)
-		_heading = aim_dir
-		# Borrow the normal behind-the-player Chase framing for the shot if
-		# the broadcast rig is on FULL_SIDE — a no-op there already if it
-		# isn't (see BroadcastCamera.enter_goal_set_shot).
-		if is_instance_valid(camera_rig):
-			camera_rig.enter_goal_set_shot()
+		_arm_goal_set_shot()
 
 	if (_brain.wants_kick() or _goal_set_shot_locked) and is_carrying():
 		if not _charging:
@@ -2415,19 +2477,12 @@ func _update_charge(delta: float) -> void:
 		_update_kick_aim(delta)
 		if _brain.wants_kick_execute():
 			_charging = false
-			_goal_set_shot_locked = false
-			if is_instance_valid(camera_rig):
-				camera_rig.exit_goal_set_shot()
+			_cancel_goal_set_shot()
 			_begin(Tuning.Action.KICK)
 	elif _charging:
-		# LT released without RT — cancel, no kick. Also the natural exit
-		# for a set shot that never got fired (ball lost to a tackle, etc):
-		# is_carrying() above goes false, this branch catches it, and the
-		# latch clears with everything else.
-		if _goal_set_shot_locked and is_instance_valid(camera_rig):
-			camera_rig.exit_goal_set_shot()
+		# LT released without RT — cancel, no kick.
 		_charging = false
-		_goal_set_shot_locked = false
+		_cancel_goal_set_shot()
 		_kick_charge = 0.0
 	elif _brain.wants_kick_execute() and is_carrying():
 		_hip_fire_kick = true
@@ -2582,6 +2637,21 @@ func is_mark_readying() -> bool:
 	return _mark_readying
 
 
+## The mark tier this player has already committed to and that hasn't
+## resolved yet: MARK_SAFE while A is held, MARK_AGGRESSIVE from the Y jump
+## until its contact frame. NONE otherwise (Running resolves on its own
+## press frame, so there is nothing in between to report). MarkPrompt reads
+## this so the badge shows the button actually pressed, not whichever tier
+## live_mark_prompt() would recommend (playtest: "Y still comes up" while
+## holding A).
+func committed_mark_tier() -> Tuning.Action:
+	if _mark_readying:
+		return Tuning.Action.MARK_SAFE
+	if _action == Tuning.Action.MARK_AGGRESSIVE and not _action_fired:
+		return Tuning.Action.MARK_AGGRESSIVE
+	return Tuning.Action.NONE
+
+
 func protected_seconds() -> float:
 	return _protected_timer
 
@@ -2601,12 +2671,13 @@ func _begin(action: Tuning.Action) -> void:
 		_handball_aim_dir = _wish_dir if _wish_dir.length_squared() > 0.0001 \
 			else -global_transform.basis.z
 	elif action == Tuning.Action.HIT_OUT:
-		# Same capture-on-press as HANDBALL above: the ruck tap goes where
-		# Left stick is held at the moment RB is pressed, so a ruckman can
-		# palm it to a runner rather than only straight off the body. Neutral
-		# stick falls back to body-forward.
-		_hit_out_aim_dir = _wish_dir if _wish_dir.length_squared() > 0.0001 \
-			else -global_transform.basis.z
+		# Captured on the RB press so a ruckman can palm it to a runner
+		# rather than only straight off the body: the right stick for a
+		# human (PlayerBrain.hit_out_aim — playtest: RB + right stick, so
+		# the left stick stays free to move), else the left stick, else
+		# body-forward. _resolve_hit_out re-reads the right stick at
+		# contact, so a flick during the leap still counts.
+		_hit_out_aim_dir = _hit_out_aim()
 	_action = action
 	_action_elapsed = 0.0
 	_action_fired = false

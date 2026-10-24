@@ -51,7 +51,7 @@ Source files:
    **REBUILD**, or just run the game.
 
 6thbuild follows the exact same two steps with `export_6thbuild.py` instead
-— it has no `CLIP_RENAME`/animations yet, just `SOURCE_MESHES` (`Body`,
+(its `CLIP_RENAME` lists every clip it ships; `SOURCE_MESHES` is `Body`,
 `Shirt`, `Shorts`, `Shoes`). Once exported and reimported, it's already
 selectable in-game: `HumanoidRig.CHARACTER_MODELS` has a `"6thbuild"` entry,
 and the CHARACTER screen's MODEL row reads that dict directly, so no UI
@@ -66,6 +66,38 @@ code needs touching for a new entry there — just the export + an entry in
 art. Edit `TARGET_CLIP` at the top (`"jog_fwd"`, `"run_fwd"`, `"run_back"`
 are already in its `GAITS` dict) and run it from the Scripting tab the same
 way, then continue with the Sync steps above.
+
+## Authoring 6thbuild's action clips (`author_6thbuild_clips.py`)
+
+6thbuild's bone rests aren't identity, so the procedural fallbacks in
+`humanoid_animations.gd` twist it apart: they write absolute local rotations
+meant for the procedural rig, and every mark clip put both feet above the
+head. `tools/blender/author_6thbuild_clips.py` builds those clips as real
+actions on the .blend instead. It keeps the procedural clips' timing and
+intent but poses the rig relative to its rests:
+
+- Torso, head and clavicle rotations are written in the character's own
+  frame (`basis = G^-1 R G`).
+- Arms are placed by two-bone IK to wrist targets.
+- Feet go through the rig's own `iktarget`/`ikpole` leg IK.
+
+Each clip's length and contact time come from `ACTION_TIMING`, a copy of
+Tuning's `ACTION_DURATION`/`ACTION_CONTACT`. Lengths round to whole 24 fps
+frames.
+
+Back the .blend up first (it isn't version-controlled), then run:
+
+```powershell
+& "F:\blender\blender.exe" "F:\dev\learning-&-development\New Folder\6thbuild.blend" --background --python tools/blender/author_6thbuild_clips.py -- mark_safe mark_running
+& "F:\blender\blender.exe" "F:\dev\learning-&-development\New Folder\6thbuild.blend" --background --python tools/blender/export_6thbuild.py
+```
+
+With no clip names, the script builds every clip it defines. Re-running
+replaces an action (and its NLA stash track) rather than duplicating it.
+Then reimport in Godot as above. The authored actions are ordinary
+keyframed actions, so you can refine them by hand in the Action Editor, but
+a re-run of the script overwrites hand edits to any clip it's asked to
+build.
 
 ## Bone names
 

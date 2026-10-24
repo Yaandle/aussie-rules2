@@ -15,7 +15,7 @@ extends Node3D
 ## rid of the ball) — sharing one CoachKind-parameterised prompt/dialogue/
 ## challenge state machine rather than one copy per coach. kick_to_kick
 ## only for now — wiring any of this into Full Game is later work.
-## See docs/HANDOVER.md for the full writeup, including which pieces here
+## See HANDOVER.md (archived, see docs/LESSONS.md) for the full writeup, including which pieces here
 ## are rough placeholders standing in for UI this agent doesn't own.
 
 const BALL_RESET_AHEAD := 3.0
@@ -170,7 +170,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 ## Esc used to hard-cut straight to the main menu — PauseScreen already
 ## existed fully built and simply wasn't wired to anything (see
-## docs/FEATURE_AUDIT.md). Same paused-overlay shape full_game.gd now
+## FEATURE_AUDIT.md (archived)). Same paused-overlay shape full_game.gd now
 ## uses; the one difference here is the mouse capture this scene sets in
 ## _ready(), which has to be released while the (keyboard/gamepad-only)
 ## pause menu is up and re-captured on resume.

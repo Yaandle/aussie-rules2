@@ -43,7 +43,7 @@ extends CanvasLayer
 ## The board itself moves its own markers to reflect these three dials —
 ## a FIFA/NBA 2K-style tactics board — rather than the retired design of
 ## drawing all 18 named AFL slots and ringing whichever 4 the preset used
-## (see docs/HANDOVER.md for that design's own history).
+## (see HANDOVER.md (archived, see docs/LESSONS.md) for that design's own history).
 ##
 ## ── Layout ──────────────────────────────────────────────────────────
 ## One centred content column, not a full-width spread. The board is a

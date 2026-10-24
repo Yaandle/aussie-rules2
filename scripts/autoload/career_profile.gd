@@ -60,6 +60,14 @@ var roster: Array[Dictionary] = []
 var fixtures: Array[String] = []
 var games_played := 0
 
+## The most recent full-time result, for the full-time screen and the
+## Dashboard's VIEW STATS: {"opponent": String, "home_score": String,
+## "away_score": String, "goals": [{name, value}], "disposals": [{name,
+## value}]}. Persisted so the result can be reopened after the full-time
+## screen is gone (playtest: "still cannot see the stats page"). Empty
+## until a Career match has finished.
+var last_result: Dictionary = {}
+
 
 func _ready() -> void:
 	_load()
@@ -101,6 +109,7 @@ func start_season(created_roster: Array[Dictionary], opponent_names: Array[Strin
 	roster = created_roster
 	fixtures = opponent_names
 	games_played = 0
+	last_result = {}
 	save()
 
 
@@ -108,7 +117,9 @@ func start_season(created_roster: Array[Dictionary], opponent_names: Array[Strin
 ## text is whatever MatchState.scoreline() produced for each side — kept
 ## as display strings rather than re-deriving them later, since nothing
 ## past the full-time screen needs to recompute a ladder yet.
-func record_result() -> void:
+func record_result(result: Dictionary = {}) -> void:
+	if not result.is_empty():
+		last_result = result
 	games_played += 1
 	save()
 
@@ -133,6 +144,7 @@ func save() -> void:
 	config.set_value(SECTION, "roster", roster)
 	config.set_value(SECTION, "fixtures", fixtures)
 	config.set_value(SECTION, "games_played", games_played)
+	config.set_value(SECTION, "last_result", last_result)
 	config.save(CONFIG_PATH)
 
 
@@ -175,6 +187,8 @@ func _load() -> void:
 	fixtures.assign(loaded_fixtures)
 	games_played = clampi(config.get_value(SECTION, "games_played", games_played),
 		0, fixtures.size())
+	var loaded_result: Variant = config.get_value(SECTION, "last_result", {})
+	last_result = loaded_result if loaded_result is Dictionary else {}
 
 
 ## Guards against a hand-edited or stale config naming something that

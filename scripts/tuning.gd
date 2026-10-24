@@ -38,7 +38,11 @@ enum Team { HOME, AWAY, NONE }
 ## resolves mid-clip (see ACTION_CONTACT's own comment below), and there is
 ## no cheap way to fork an already-playing AnimationNodeStateMachine state
 ## without a visible pop, so its miss stays feedback-only (rumble/SFX/ring),
-## same clip either way.
+## same clip either way. Later, animation-layer only: on a rig with
+## MarkVariants (6thbuild), PlayerAnimation cross-fades a missed leap into
+## mark_aggressive_miss at the contact instant — a state that plays from the
+## leap's own contact pose on (custom timeline start offset), so there's no
+## pop. Still no Action, no duration and no gameplay of its own.
 ##
 ## TACKLED: the cosmetic fall/recover reaction for anyone knocked flat by a
 ## contest (PlayerController._knockdown) — a Lunge tackle connecting
@@ -668,6 +672,18 @@ const CAM_FULL_SIDE_FOLLOW_RATE := 2.2     # slower than CAM_FOLLOW_RATE — a d
 const CAM_SWITCH_PAN_DURATION := 0.35      # s the rig eases toward the new target's facing
 const CAM_SWITCH_YAW_RATE := 14.0          # brisk — a hard swing across, close to CAM_ROTATE_RATE
 
+# Ruck contest framing on the 3rd-person (Chase) camera. While the camera's
+# target is a nominated ruck contestant, the right stick aims the tap
+# (PlayerBrain.hit_out_aim), so the camera stops reading it and eases at a
+# constant rate to a side-on view instead of freezing wherever the user left
+# it (playtest: "move with constant easing to a side angle for ruck contest
+# so it isn't just paused"). Yaw 0 looks along -Z, from the same side of the
+# ground the FULL_SIDE rig is mounted on (+Z), so attack runs left/right on
+# screen. Unplaytested feel guesses.
+const CAM_RUCK_SIDE_YAW := 0.0             # rad
+const CAM_RUCK_SIDE_PITCH := -14.0         # deg — a touch flatter than CAM_PITCH_DEFAULT to see the leap
+const CAM_RUCK_SIDE_EASE_RATE := 3.0       # 1/s exponential ease, gentler than CAM_SWITCH_YAW_RATE
+
 
 # ── Input feel ───────────────────────────────────────────────────────
 # §4's per-action deadzones and response curves. Movement wants a
@@ -877,7 +893,7 @@ const PRIOR_OPPORTUNITY_GRACE := 0.5   # s
 # full free kick) must clear out to it. Simplified to a freeze rather than
 # an active retreat-and-return (see PlayerController.grant_protection) —
 # same MVP scope as everywhere else "possession + protection at the right
-# spot" has been the deliberate stopping point (see docs/HANDOVER.md). This
+# spot" has been the deliberate stopping point (see HANDOVER.md (archived, see docs/LESSONS.md)). This
 # is a real, well-known rule number, unlike Bump's dangerous-contact
 # threshold below, which genuinely has none to use.
 const FREE_KICK_RETREAT_DISTANCE := 10.0   # m
@@ -1064,6 +1080,15 @@ const MARK_RETREAT_SPEED := 3.4         # m/s — a deliberate walk back, ~1.5s 
 # happens to be looking. 55m is comfortably inside AFL kicking range.
 const GOAL_SET_SHOT_MAX_DISTANCE := 55.0   # m from the goal line
 
+# Shot clock for a set shot. Arming goal_set_shot re-grants protection for
+# this long (PlayerController._arm_goal_set_shot), so the kicker can't be
+# tackled while lining up. Before this the set shot only had whatever was
+# left of MARK_HOLD_DURATION after the 1.5s walk-back, about 3.5s, and the
+# playtest got tackled mid-routine ("I didn't have 20s to kick the goal
+# before play on"). Real AFL is 30s; 20s is the playtest's own number.
+# When it runs out protection lapses, which is this project's "play on".
+const SET_SHOT_CLOCK := 20.0   # s
+
 # The man on the mark (PlayerController._apply_stand_the_mark) is the
 # nearest opponent when the mark is taken, placed a metre goal-side of the
 # mark-taker so their capsules don't overlap. They JOG onto that spot
@@ -1205,6 +1230,26 @@ const RUMBLE_MARK_MISS := Vector3(0.30, 0.10, 0.20)
 ## one, so the two read as distinct even though both are subtle: "you
 ## pressed" (weak tick) vs "this is the moment" (strong tick).
 const RUMBLE_MARK_TIMING_CUE := Vector3(0.0, 0.10, 0.06)
+
+## Which countdown the MarkPrompt ring (and so RUMBLE_MARK_TIMING_CUE) runs
+## on in real matches — a MarkCueModel.CueSource, as an int so this file
+## needn't depend on that class: 0 ANALYTIC (the ring as it shipped),
+## 1 GATED (same countdown, but Aggressive's ring won't complete until a
+## press could actually register — the shipped ring cues a press the
+## controller ignores on fast run-ins from in front), 2 MLP (Aggressive on
+## the trained MarkCueModel countdown + the same gate). Only ever a cue —
+## catch resolution never reads it (RULES_REFERENCE.md §3).
+##
+## Set to 1 (GATED) by the user's call on 2026-10-24, closing the ML page's
+## MLP stage (docs/ML_AI_AUDIT.md §9). On the 27-delivery probe grid, real
+## presses on each cue caught 23/27 (shipped), 24/27 (GATED) and 25/27
+## (MLP). Every one of the shipped ring's misses was a press that expired
+## before the range gate opened. GATED fixes that with no model in the
+## loop. MLP stays a dev-page option.
+##
+## The ML page and MARK DELIVERY still switch their own cue without
+## touching this. How GATED FEELS at match speed is still unplaytested.
+const MARK_CUE_SOURCE := 1
 
 # Madden-style contest prompt (polish-pass brief: an (A)/(X)/(Y) icon over
 # the receiver's head showing which mark tiers are live right now). Height
@@ -1465,6 +1510,22 @@ const AI_KICK_RANGE := 45.0            # m from goal at which a carrier shoots
 const AI_PRESSURE_RADIUS := 4.0        # m opponent proximity that forces a quick disposal
 const AI_SUPPORT_PULL := 0.35          # 0..1, how far off-ball players drift toward the ball
 
+## Off by default, and not to be turned on in real matches without the
+## user's say-so (NEXT_AGENT_MARKING_BRIEF.md (archived) Part 2.5). On, AIBrain
+## stops being Safe-only. It leaps (Aggressive) for a contested kick, on
+## the MarkCueModel countdown with its press gate. It taps Running in
+## stride when it's moving at pace and the ball is in Running's reach.
+## Otherwise it holds Safe as before. The model only times the press;
+## the tier choice is a fixed rule, and the catch is still decided by
+## reach + timing (RULES_REFERENCE.md §3). AIBrain.use_mark_cue_model
+## starts from this, so a dev check can flip it for one run.
+const AI_MARK_USE_CUE_MODEL := false
+## With the flag on: only take a ball in stride (Running) when its
+## straight-line closest approach comes this far inside Running's reach —
+## the prediction ignores gravity's curve, so not right at the edge.
+## Unplaytested feel guess.
+const AI_MARK_RUNNING_TAKE_FRACTION := 0.75
+
 ## Team Edit expansion (polish-pass brief: Ball Movement preference — see
 ## AIBrain._lateral_target_z()). How close to the actual boundary a fully
 ## boundary-committed lateral target sits — short of 1.0 so "commits to the
@@ -1514,7 +1575,7 @@ const AI_LOOSE_BALL_CEDE_MARGIN := 2.0  # m — an opponent this much nearer the
 # AFL number — there's nothing to cite — just a placeholder distance long
 # enough to look like a real lead run and short enough to stay on-screen
 # from the follow cam. Expect this to move once someone actually plays the
-# mode; see docs/HANDOVER.md's control-mode entry.
+# mode; see HANDOVER.md (archived, see docs/LESSONS.md)'s control-mode entry.
 const COMMAND_LEAD_DISTANCE := 12.0     # m
 
 # Call for the ball (Settings.PlayerControlMode.SINGLE_PLAYER — see
