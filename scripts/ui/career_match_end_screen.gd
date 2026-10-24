@@ -178,7 +178,8 @@ func _build_return_button() -> Control:
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	panel.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	panel.gui_input.connect(func(event: InputEvent) -> void:
-		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT 				and _input_ready():
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT \
+				and _input_ready():
 			_return_to_dashboard())
 	# Hover feedback — this was a static Panel with no state change at all
 	# before (ui_audit.md finding #3), only reachable via the global
