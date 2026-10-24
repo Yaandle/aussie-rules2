@@ -54,6 +54,10 @@ mostly superseded history. The full text lives outside the repo, in
   data folders a `.gdignore`; FileAccess still reads them in the editor and
   headless runs. A `.gdignore`d folder isn't exported, so runtime data goes
   elsewhere.
+- **A plain `Panel` inside a container collapses to zero height.** It
+  doesn't size to its children, so its backing never draws and dark text
+  vanishes on a dark page. Use `PanelContainer` for any card built in a
+  `CenterContainer`/`VBoxContainer`. This hid the Career full-time screen.
 - **Kick aim/power coupling (open, unplaytested).** `get_look_vector()`
   shapes the stick's combined magnitude, so on the aim stick the x (aim) and
   y (power) axes aren't independent. A big diagonal push suppresses power.
@@ -73,6 +77,10 @@ mostly superseded history. The full text lives outside the repo, in
 - For visual checks, run windowed with
   `--write-movie <dir>/x.png --fixed-fps 30 --resolution 1280x720` and read
   the frames. This caught a skinning bug the numbers missed.
+- **A scratch scene that plays a Career match writes the real save**
+  (`user://career_profile.cfg`, `settings.cfg`, under
+  `%APPDATA%\Godot\app_userdata\Aussie Rules 2`). Back them up first, or
+  set state in memory and open the screen directly instead.
 - At render rates below the physics rate, `_process` skips physics ticks.
   Sample physics state on `SceneTree.physics_frame` instead.
 - Nobody in this project's history has had a live GUI session during an
