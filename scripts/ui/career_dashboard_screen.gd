@@ -254,7 +254,10 @@ func _build_action_button(text: String, icon_name: StringName, enabled: bool,
 				on_pressed.call())
 		panel.focus_mode = Control.FOCUS_ALL
 		panel.add_theme_stylebox_override(&"focus", StyleBoxEmpty.new())
-		var hover_style := CareerTheme.panel_style(fill.lightened(0.12), Color.BLACK, 2)
+		# Same green stroke as the NEXT GAME card's hover (_set_next_game_
+		# hover), so every live control on this screen highlights alike
+		# (playtest: VIEW ROSTER's black stroke didn't match).
+		var hover_style := CareerTheme.panel_style(fill.lightened(0.12), CareerTheme.POSITIVE, 2)
 		var idle_style := CareerTheme.panel_style(fill)
 		panel.mouse_entered.connect(func() -> void:
 			panel.add_theme_stylebox_override(&"panel", hover_style))
