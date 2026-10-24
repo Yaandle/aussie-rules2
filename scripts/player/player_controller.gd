@@ -1380,16 +1380,11 @@ func _update_smother(delta: float) -> void:
 			if to_target.length_squared() > 0.0001:
 				_smother_dive_direction = to_target.normalized()
 		return
-	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE \
-			or _smother_dive_cooldown > 0.0:
+	if live_smother_target() == null:
 		return
 	if not _brain.wants_smother():
 		return
-	var target := _nearest_player(Tuning.SMOTHER_COMMIT_RANGE, func(other: PlayerController) -> bool:
-		return other.team != team and other.is_carrying() \
-			and (other.is_kick_aiming() or other.is_mid_kick_swing()))
-	if target == null:
-		return
+	var target := live_smother_target()
 
 	_smother_dive_target = target
 	var to_target := target.global_position - global_position
@@ -1399,6 +1394,20 @@ func _update_smother(delta: float) -> void:
 	_smother_dive_timer = Tuning.SMOTHER_DIVE_DURATION
 	_smother_dive_cooldown = Tuning.SMOTHER_DIVE_COOLDOWN
 	_begin(Tuning.Action.SMOTHER_DIVE)
+
+
+## Who a smother tap would dive at right now, or null: the nearest opponent
+## within SMOTHER_COMMIT_RANGE whose kick can still be blocked (in stance or
+## mid-swing), and only while this player is free to commit. The one filter
+## behind both _update_smother and MarkPrompt's SMOTHER badge, so the badge
+## shows exactly when the button would do something.
+func live_smother_target() -> PlayerController:
+	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE \
+			or _smother_dive_timer > 0.0 or _smother_dive_cooldown > 0.0:
+		return null
+	return _nearest_player(Tuning.SMOTHER_COMMIT_RANGE, func(other: PlayerController) -> bool:
+		return other.team != team and other.is_carrying() \
+			and (other.is_kick_aiming() or other.is_mid_kick_swing()))
 
 
 ## Runs every physics frame a smother dive is live, after the body has
@@ -2283,7 +2292,15 @@ func live_mark_prompt(ball: Ball) -> Tuning.Action:
 	# and it says no to a handball for the same reason.
 	if not is_instance_valid(ball) or _mark_attempt_blocked(ball) or not ball.is_kick_flight():
 		return Tuning.Action.NONE
-	var running_live := _ball_in_catch_reach(ball, Tuning.MARK_RUNNING_REACH_SCALE)
+	# An opponent's kick still within MARK_STAND_MIN_DISTANCE of the boot is
+	# a smother chance, not a mark (playtest: the man on the mark saw A/X/Y
+	# light up the instant the kicker struck it). It couldn't be a legal mark
+	# anyway: that needs the same 15m. MarkPrompt shows the SMOTHER badge
+	# while the kicker is still lining up instead.
+	if ball.kick_team() != team and ball.kick_team() != Tuning.Team.NONE \
+			and ball.distance_since_launch() < Tuning.MARK_STAND_MIN_DISTANCE:
+		return Tuning.Action.NONE
+	var running_live :=_ball_in_catch_reach(ball, Tuning.MARK_RUNNING_REACH_SCALE)
 	if running_live and _speed > Tuning.JOG_SPEED:
 		return Tuning.Action.MARK_RUNNING
 	if _ball_in_catch_reach(ball, Tuning.MARK_SAFE_REACH_SCALE):
@@ -2607,6 +2624,21 @@ func is_mid_kick_swing() -> bool:
 
 func is_mark_readying() -> bool:
 	return _mark_readying
+
+
+## The mark tier this player has already committed to and that hasn't
+## resolved yet: MARK_SAFE while A is held, MARK_AGGRESSIVE from the Y jump
+## until its contact frame. NONE otherwise (Running resolves on its own
+## press frame, so there is nothing in between to report). MarkPrompt reads
+## this so the badge shows the button actually pressed, not whichever tier
+## live_mark_prompt() would recommend (playtest: "Y still comes up" while
+## holding A).
+func committed_mark_tier() -> Tuning.Action:
+	if _mark_readying:
+		return Tuning.Action.MARK_SAFE
+	if _action == Tuning.Action.MARK_AGGRESSIVE and not _action_fired:
+		return Tuning.Action.MARK_AGGRESSIVE
+	return Tuning.Action.NONE
 
 
 func protected_seconds() -> float:
