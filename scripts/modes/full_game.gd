@@ -265,7 +265,10 @@ func _spawn_teams() -> void:
 	var human_idx := clampi(Settings.home_human_slot, 0, _home_players.size() - 1)
 	_home_players[human_idx].set_brain(HumanBrain.new())
 	ControlMode.set_controlled_player(Tuning.Team.HOME, _home_players[human_idx])
-	_apply_character_profile(human_idx)
+	if GameState.career_active:
+		_apply_career_rosters()
+	else:
+		_apply_character_profile(human_idx)
 
 	for player in _home_players + _away_players:
 		player.field_ball_up_called.connect(_on_field_ball_up)
@@ -284,6 +287,7 @@ func _spawn_teams() -> void:
 		player.mark_caught.connect(_on_player_marked.bind(player))
 
 
+## Quick play only (a Career match uses _apply_career_rosters below).
 ## Push the CharacterProfile stats onto HOME. CharacterProfile.apply_all
 ## picks the scope: every HOME player, or (false) only the pregame
 ## start-position slot — deliberately fixed to that slot, it does NOT
@@ -294,12 +298,46 @@ func _apply_character_profile(start_idx: int) -> void:
 	for i in _home_players.size():
 		if not CharacterProfile.apply_all and i != start_idx:
 			continue
-		var p := _home_players[i]
-		p.speed_scale = CharacterProfile.speed_scale()
-		p.agility_scale = CharacterProfile.agility_scale()
-		p.kick_power_scale = CharacterProfile.kick_power
-		p.kick_accuracy = CharacterProfile.kick_accuracy
-		(p.get_node("Rig") as Node3D).scale = Vector3.ONE * CharacterProfile.height_scale()
+		_apply_stats(_home_players[i], CharacterProfile.speed, CharacterProfile.agility,
+			CharacterProfile.kick_power, CharacterProfile.kick_accuracy, CharacterProfile.height)
+
+
+## Career matches: every player plays to their own roster entry's
+## attributes (both teams — RosterGenerator gives every generated player
+## real speed/agility/kick/height values), and the Career player's slot
+## to CareerProfile's own stats. Before this a Career match ran
+## _apply_character_profile like quick play, so the quick-play profile's
+## stats went onto HOME (all 18 by default) and the created Career
+## player's stats were never used.
+func _apply_career_rosters() -> void:
+	for pair: Array in [[_home_players, CareerProfile.roster], [_away_players, _away_roster]]:
+		var players: Array[PlayerController] = pair[0]
+		var roster: Array[Dictionary] = pair[1]
+		for i in mini(players.size(), roster.size()):
+			var entry := roster[i]
+			_apply_stats(players[i],
+				float(entry.get("speed", Tuning.CHARACTER_SPEED_DEFAULT)),
+				float(entry.get("agility", Tuning.CHARACTER_AGILITY_DEFAULT)),
+				float(entry.get("kick_power", Tuning.CHARACTER_KICK_POWER_DEFAULT)),
+				float(entry.get("kick_accuracy", Tuning.CHARACTER_KICK_ACCURACY_DEFAULT)),
+				float(entry.get("height", Tuning.CHARACTER_HEIGHT_DEFAULT)))
+	# The roster copy of the Career player is a snapshot from creation;
+	# CareerProfile holds their current stats.
+	var slot := RosterGenerator.roster_index_for_role(CareerProfile.roster, CareerProfile.position)
+	if slot >= 0 and slot < _home_players.size():
+		_apply_stats(_home_players[slot], CareerProfile.speed, CareerProfile.agility,
+			CareerProfile.kick_power, CareerProfile.kick_accuracy, CareerProfile.height)
+
+
+## Raw stats (the same units CharacterProfile/CareerProfile/roster entries
+## store) onto one player, as the scales PlayerController reads.
+func _apply_stats(p: PlayerController, speed: float, agility: float, kick_power: float,
+		kick_accuracy: float, height: float) -> void:
+	p.speed_scale = speed / Tuning.CHARACTER_SPEED_DEFAULT
+	p.agility_scale = agility / Tuning.CHARACTER_AGILITY_DEFAULT
+	p.kick_power_scale = kick_power
+	p.kick_accuracy = kick_accuracy
+	(p.get_node("Rig") as Node3D).scale = Vector3.ONE * (height / Tuning.CHARACTER_HEIGHT_DEFAULT)
 
 
 func _spawn_team(team: Tuning.Team, attack_direction: float) -> Array[PlayerController]:
