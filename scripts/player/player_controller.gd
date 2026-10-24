@@ -2383,19 +2383,30 @@ func _begin_hit_out() -> void:
 ## row verbatim, see Tuning's comment there). A palm, not a catch: knocks
 ## the ball away rather than gathering it, same knock() primitive spoil/
 ## smother already use for "an external hit that doesn't take control".
-## Directed by _hit_out_aim_dir — where Left stick was held on the RB press
-## (see _begin) — so a ruckman taps to a runner, not just straight off the
-## body; a neutral stick at the press falls back to body-forward.
+## Directed by _hit_out_aim_dir (captured on the RB press, see _begin), or
+## by the right stick if it's held right now at contact — so a ruckman taps
+## to a runner, not just straight off the body.
 func _resolve_hit_out() -> void:
 	var ball := _live_ball()
 	var connected := is_instance_valid(ball) and not ball.is_held \
 		and ball.global_position.distance_to(_carry_point.global_position) <= Tuning.RUCK_HIT_OUT_REACH
 	if connected:
-		var direction := _hit_out_aim_dir if _hit_out_aim_dir.length_squared() > 0.0001 \
-			else -global_transform.basis.z
+		var direction := _brain.hit_out_aim(self)
+		if direction.length_squared() < 0.0001:
+			direction = _hit_out_aim_dir if _hit_out_aim_dir.length_squared() > 0.0001 \
+				else -global_transform.basis.z
 		direction = direction.normalized()
 		ball.knock(direction * Tuning.RUCK_HIT_OUT_SPEED + Vector3.UP * Tuning.RUCK_HIT_OUT_UP_SPEED)
 	hit_out_resolved.emit(self, connected)
+
+
+## Right stick (brain), then left stick, then body-forward — see _begin's
+## HIT_OUT capture.
+func _hit_out_aim() -> Vector3:
+	var aim := _brain.hit_out_aim(self)
+	if aim.length_squared() > 0.0001:
+		return aim
+	return _wish_dir if _wish_dir.length_squared() > 0.0001 else -global_transform.basis.z
 
 
 ## The one ball in the scene, found by group rather than a wired reference —
@@ -2660,12 +2671,13 @@ func _begin(action: Tuning.Action) -> void:
 		_handball_aim_dir = _wish_dir if _wish_dir.length_squared() > 0.0001 \
 			else -global_transform.basis.z
 	elif action == Tuning.Action.HIT_OUT:
-		# Same capture-on-press as HANDBALL above: the ruck tap goes where
-		# Left stick is held at the moment RB is pressed, so a ruckman can
-		# palm it to a runner rather than only straight off the body. Neutral
-		# stick falls back to body-forward.
-		_hit_out_aim_dir = _wish_dir if _wish_dir.length_squared() > 0.0001 \
-			else -global_transform.basis.z
+		# Captured on the RB press so a ruckman can palm it to a runner
+		# rather than only straight off the body: the right stick for a
+		# human (PlayerBrain.hit_out_aim — playtest: RB + right stick, so
+		# the left stick stays free to move), else the left stick, else
+		# body-forward. _resolve_hit_out re-reads the right stick at
+		# contact, so a flick during the leap still counts.
+		_hit_out_aim_dir = _hit_out_aim()
 	_action = action
 	_action_elapsed = 0.0
 	_action_fired = false

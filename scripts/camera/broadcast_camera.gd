@@ -273,6 +273,14 @@ func _update_rotation(delta: float) -> void:
 	if _is_target_aiming():
 		return
 
+	# Ruck contest: the right stick aims the tap, so ease to the side-on
+	# framing instead of reading it (see Tuning.CAM_RUCK_SIDE_*). Mouse look
+	# is drained so it doesn't bank up and jump the view afterwards.
+	if _is_target_ruck_contesting():
+		InputManager.take_mouse_look()
+		_ease_toward_ruck_side(delta)
+		return
+
 	if Input.is_action_just_pressed(&"camera_recenter"):
 		recenter()
 		return
@@ -311,6 +319,21 @@ func _ease_toward_switch_target(delta: float) -> void:
 
 func _is_target_aiming() -> bool:
 	return target is PlayerController and (target as PlayerController).is_kick_aiming()
+
+
+func _is_target_ruck_contesting() -> bool:
+	return target is PlayerController and (target as PlayerController).is_ruck_contestant()
+
+
+## Same exponential lerp shape as _ease_toward_switch_target, toward a fixed
+## side-on yaw/pitch at the gentler CAM_RUCK_SIDE_EASE_RATE, so the swing
+## round is one smooth constant ease whatever angle it starts from.
+func _ease_toward_ruck_side(delta: float) -> void:
+	var rate := 1.0 - exp(-Tuning.CAM_RUCK_SIDE_EASE_RATE * delta)
+	_yaw = lerp_angle(_yaw, Tuning.CAM_RUCK_SIDE_YAW, rate)
+	_pitch = lerpf(_pitch, deg_to_rad(Tuning.CAM_RUCK_SIDE_PITCH), rate)
+	_yaw_pivot.rotation.y = _yaw
+	_pitch_pivot.rotation.x = _pitch
 
 
 ## Positions the rig off to the side of the left<->right line, level with

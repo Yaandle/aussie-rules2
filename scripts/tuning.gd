@@ -672,6 +672,18 @@ const CAM_FULL_SIDE_FOLLOW_RATE := 2.2     # slower than CAM_FOLLOW_RATE — a d
 const CAM_SWITCH_PAN_DURATION := 0.35      # s the rig eases toward the new target's facing
 const CAM_SWITCH_YAW_RATE := 14.0          # brisk — a hard swing across, close to CAM_ROTATE_RATE
 
+# Ruck contest framing on the 3rd-person (Chase) camera. While the camera's
+# target is a nominated ruck contestant, the right stick aims the tap
+# (PlayerBrain.hit_out_aim), so the camera stops reading it and eases at a
+# constant rate to a side-on view instead of freezing wherever the user left
+# it (playtest: "move with constant easing to a side angle for ruck contest
+# so it isn't just paused"). Yaw 0 looks along -Z, from the same side of the
+# ground the FULL_SIDE rig is mounted on (+Z), so attack runs left/right on
+# screen. Unplaytested feel guesses.
+const CAM_RUCK_SIDE_YAW := 0.0             # rad
+const CAM_RUCK_SIDE_PITCH := -14.0         # deg — a touch flatter than CAM_PITCH_DEFAULT to see the leap
+const CAM_RUCK_SIDE_EASE_RATE := 3.0       # 1/s exponential ease, gentler than CAM_SWITCH_YAW_RATE
+
 
 # ── Input feel ───────────────────────────────────────────────────────
 # §4's per-action deadzones and response curves. Movement wants a

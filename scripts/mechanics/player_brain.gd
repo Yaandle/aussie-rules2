@@ -141,3 +141,12 @@ func wants_bump_stance() -> bool:
 ## false there same as every other human-only want above.
 func wants_goal_set_shot() -> bool:
 	return false
+
+
+## World-space direction to palm a ruck tap toward, or Vector3.ZERO for
+## "no opinion" — PlayerController then falls back to the move stick
+## (_wish_dir), then body-forward. A human aims it with the right stick
+## (playtest: RB + right stick, so moving and aiming the tap are separate
+## hands); AI has no second stick and keeps the move-direction fallback.
+func hit_out_aim(_controller: PlayerController) -> Vector3:
+	return Vector3.ZERO
