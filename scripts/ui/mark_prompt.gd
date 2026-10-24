@@ -92,9 +92,9 @@ var player: PlayerController = null:
 var ball: Ball = null
 
 ## Which countdown the ring sweeps on — a MarkCueModel.CueSource. Real
-## matches get Tuning.MARK_CUE_SOURCE (the shipped analytic ring unless the
-## user changes it); a dev page can set its own instance's without touching
-## matches. See MarkCueModel.cue_time_to_press.
+## matches get Tuning.MARK_CUE_SOURCE (GATED since 2026-10-24); a dev page
+## can set its own instance's without touching matches. See
+## MarkCueModel.cue_time_to_press.
 var cue_source: int = Tuning.MARK_CUE_SOURCE
 
 var _canvas: Control

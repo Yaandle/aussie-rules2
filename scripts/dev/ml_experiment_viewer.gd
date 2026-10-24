@@ -550,8 +550,9 @@ func _build_mlp_stage() -> Control:
 	save_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	save_button.disabled = true
 	apply_row.add_child(save_button)
-	page.add_child(_wrapped_caption("Real matches use Tuning.MARK_CUE_SOURCE = %d (0 = shipped ring). AI tier choice: Tuning.AI_MARK_USE_CUE_MODEL = %s. Neither changes without the user's say-so." % [
-		Tuning.MARK_CUE_SOURCE, Tuning.AI_MARK_USE_CUE_MODEL]))
+	page.add_child(_wrapped_caption("Real matches use Tuning.MARK_CUE_SOURCE = %d (%s). AI tier choice: Tuning.AI_MARK_USE_CUE_MODEL = %s. Neither changes without the user's say-so." % [
+		Tuning.MARK_CUE_SOURCE, ["shipped ring", "gated ring", "MLP + gate"][Tuning.MARK_CUE_SOURCE],
+		Tuning.AI_MARK_USE_CUE_MODEL]))
 
 	var show_closed_loop := func(tier: Tuning.Action) -> void:
 		var summary := MarkCueTrainer.closed_loop_summary()

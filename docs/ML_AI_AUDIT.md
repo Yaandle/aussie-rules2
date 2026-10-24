@@ -534,8 +534,9 @@ All of these go through one function, `MarkCueModel.cue_time_to_press()` /
 `cue_press_now()`, so the dev pages' numbers are the in-game cue's numbers.
 
 - **MarkPrompt ring and `RUMBLE_MARK_TIMING_CUE`.** `MarkPrompt.cue_source`
-  starts from `Tuning.MARK_CUE_SOURCE`, which is **0, the shipped ring**.
-  Under 0, the ring's arithmetic is unchanged.
+  starts from `Tuning.MARK_CUE_SOURCE`, which is **1, GATED** (the
+  user's call on 2026-10-24; see "Stage closed" below).
+  - 0 = the shipped ring, its arithmetic unchanged.
   - 1 = GATED.
   - 2 = MLP (Aggressive only) plus the gate.
 - **Clip start.** Aggressive's clip starts on the press, so the cue's press
@@ -591,9 +592,27 @@ up-weighted) was tried and didn't help either tier, so it defaults to 0.
 - **Catchability.** No "is this catchable" model exists. Choosing the AI's
   tier from one is the obvious next step: 13 of 48 dataset deliveries have
   no catching Aggressive press, so the data is already there.
-- **Default cue in matches.** Whether real matches should switch to GATED
-  (a non-ML fix for the expired-press misses) or MLP is the user's call.
 - **Feel.** None of this has been felt at match speed.
+
+### Stage closed (2026-10-24)
+
+Real matches now cue on **GATED** (`Tuning.MARK_CUE_SOURCE = 1`). It
+recovers the shipped ring's expired-press misses on fast run-ins from in
+front, with no model in the loop. On the probe it caught 24/27, against
+23/27 shipped and 25/27 for the MLP.
+
+What stays as it was:
+
+- The MLP is not in real matches. It's a dev-page option only: MARK
+  DELIVERY's CUE MLP, and source 2.
+- Running and Safe cue exactly as before. GATED only changes Aggressive.
+- The AI is unchanged (`AI_MARK_USE_CUE_MODEL = false`).
+- Catch resolution is untouched.
+
+Open:
+
+- A learned catchability model, before any AI tier choice.
+- Playtest notes on how the gated ring feels.
 
 ## Scope note
 
@@ -602,8 +621,8 @@ do an audit") — no code changed for those findings. §6–§8 are later,
 separate passes that did add code, entirely within `scripts/dev/*` (the
 ML sandbox) — no gameplay/mechanics files were touched by any of them.
 
-§9 does touch gameplay files, all behind switches that default to the
-shipped behaviour:
+§9 does touch gameplay files. All of it sits behind switches; since
+2026-10-24 the cue switch is on GATED, and the AI switch is still off:
 
 - `mark_prompt.gd`: the countdown now goes through
   `MarkCueModel.cue_time_to_press`, which under source 0 is the ring's

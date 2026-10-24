@@ -434,7 +434,7 @@ var _mark_catch_spot := Vector3.ZERO
 var _mark_brain: MarkPreviewBrain
 ## CUE — whose countdown the scripted Aggressive press and the ring over B
 ## follow (MarkCueModel.CueSource). Viewer-only: never touches
-## Tuning.MARK_CUE_SOURCE, so real matches keep the shipped cue.
+## Tuning.MARK_CUE_SOURCE, which is what real matches use.
 var _mark_cue_source := MarkCueModel.CueSource.ANALYTIC
 var _mark_prompt: MarkPrompt
 var _mark_contact_last := NAN   ## latest per-tick sample, see _sample_mark_contact

@@ -1219,12 +1219,16 @@ const RUMBLE_MARK_TIMING_CUE := Vector3(0.0, 0.10, 0.06)
 ## the trained MarkCueModel countdown + the same gate). Only ever a cue —
 ## catch resolution never reads it (RULES_REFERENCE.md §3).
 ##
-## Left at 0 on purpose: changing what real matches cue is the user's call
-## (docs/NEXT_AGENT_MARKING_BRIEF.md Part 2.5). The ML page and MARK
-## DELIVERY switch their own cue without touching this. Headless evidence
-## for 1 and 2 is in docs/ML_AI_AUDIT.md §9; how either FEELS at match
-## speed is unplaytested.
-const MARK_CUE_SOURCE := 0
+## Set to 1 (GATED) by the user's call on 2026-10-24, closing the ML page's
+## MLP stage (docs/ML_AI_AUDIT.md §9). On the 27-delivery probe grid, real
+## presses on each cue caught 23/27 (shipped), 24/27 (GATED) and 25/27
+## (MLP). Every one of the shipped ring's misses was a press that expired
+## before the range gate opened. GATED fixes that with no model in the
+## loop. MLP stays a dev-page option.
+##
+## The ML page and MARK DELIVERY still switch their own cue without
+## touching this. How GATED FEELS at match speed is still unplaytested.
+const MARK_CUE_SOURCE := 1
 
 # Madden-style contest prompt (polish-pass brief: an (A)/(X)/(Y) icon over
 # the receiver's head showing which mark tiers are live right now). Height
