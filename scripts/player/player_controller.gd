@@ -2605,8 +2605,12 @@ func _current_look_yaw() -> float:
 ## a yaw angle. Gamepad only, matching P1's controller-only gate — a
 ## mouse already points exactly where aimed, so assist would only fight
 ## it, and it's the stick's indirection this is actually compensating for.
+##
+## Off during a set shot: the target is the goal, and the assist was
+## dragging the aim toward whichever teammate drifted into the cone
+## (playtest: "it was following a player walk as I was in set shot mode").
 func _apply_aim_assist(delta: float) -> void:
-	if InputManager.device != InputManager.Device.GAMEPAD:
+	if InputManager.device != InputManager.Device.GAMEPAD or _goal_set_shot_locked:
 		return
 	var target := _nearest_teammate_for_assist()
 	if target == null:

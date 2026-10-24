@@ -234,14 +234,22 @@ var _in_goal_shot_override := false
 ## behind-the-player, nothing to borrow. Pans in over CAM_SWITCH_PAN_
 ## DURATION, the same cinematic sweep switch_target() uses, rather than
 ## cutting straight there.
+##
+## On CHASE too (2026-10-24 playtest, 3rd person: "the aim is off, I
+## couldn't line it up with goals... front on works better"): Chase freezes
+## its rotation while the target aims, so a set shot taken with the camera
+## off to the side stayed side-on for the whole routine. The override now
+## swings in behind the kicker on either mode; on CHASE there's no mode
+## to borrow, just the same follow-the-facing ease.
 func enter_goal_set_shot() -> void:
-	if _in_goal_shot_override or mode != Mode.FULL_SIDE or not is_instance_valid(target):
+	if _in_goal_shot_override or not is_instance_valid(target):
 		return
 	_in_goal_shot_override = true
 	_goal_shot_prev_mode = mode
-	mode = Mode.CHASE
-	_focus = _target_focus()
-	global_position = _focus
+	if mode == Mode.FULL_SIDE:
+		mode = Mode.CHASE
+		_focus = _target_focus()
+		global_position = _focus
 	_switch_timer = Tuning.CAM_SWITCH_PAN_DURATION
 
 
@@ -255,8 +263,11 @@ func exit_goal_set_shot() -> void:
 	if not _in_goal_shot_override:
 		return
 	_in_goal_shot_override = false
-	mode = _goal_shot_prev_mode
-	recenter()
+	# Only FULL_SIDE needs the cut back out; a Chase camera is already
+	# where it should be, behind the kicker.
+	if _goal_shot_prev_mode == Mode.FULL_SIDE:
+		mode = _goal_shot_prev_mode
+		recenter()
 
 
 func camera() -> Camera3D:
