@@ -48,6 +48,7 @@ const SCREEN_MARGIN_Y := SoftBrutalist.SPACE_4
 const BAND_GAP := SoftBrutalist.SPACE_4
 const ROW_HEIGHT := 44.0
 const ROW_PAD := 16.0
+const SUB_ROW_INDENT := 28.0
 const PREVIEW_SIZE := Vector2(380.0, 460.0)
 const CAMERA_FIELD_HEIGHT := 190.0
 ## A real camera's own aspect, not this panel's own wide/short rect — see
@@ -427,8 +428,12 @@ func _build_settings_column() -> Control:
 	column.custom_minimum_size = Vector2(380.0, 0.0)
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	for row in _settings:
-		column.add_child(_build_setting_row(row))
+	for i in _settings.size():
+		var row_panel := _build_setting_row(_settings[i])
+		if i == CAMERA_ZOOM_ROW:
+			column.add_child(_indent_sub_row(row_panel, i))
+		else:
+			column.add_child(row_panel)
 
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -496,6 +501,21 @@ func _build_setting_row(row: SettingsScreen.Row) -> Panel:
 	_row_title_labels.append(title_label)
 	_row_value_labels.append(value_label)
 	return panel
+
+
+## ZOOM reads as a sub-option of CAMERA (playtest: "an indented smaller
+## option under camera, like a smaller sub header... as large as the other
+## buttons"): same row height, inset by SUB_ROW_INDENT, with a smaller
+## title. Navigation is unchanged — it's still an ordinary row index.
+func _indent_sub_row(row_panel: Panel, index: int) -> Control:
+	var title := _row_title_labels[index]
+	title.text = "ZOOM"
+	title.add_theme_font_size_override(&"font_size", SoftBrutalist.SIZE_CAPTION)
+	var indent := MarginContainer.new()
+	indent.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	indent.add_theme_constant_override(&"margin_left", int(SUB_ROW_INDENT))
+	indent.add_child(row_panel)
+	return indent
 
 
 func _build_start_row() -> Panel:
