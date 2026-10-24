@@ -51,7 +51,12 @@ const HINT_GAP := 16.0
 const HINT_HEIGHT := 24.0
 const CARD_BOTTOM_MARGIN := 32.0
 
+## Same input grace as CareerMatchEndScreen.INPUT_GRACE (see that file):
+## a button still held from the last seconds of play mustn't skip this.
+const INPUT_GRACE := CareerMatchEndScreen.INPUT_GRACE
+
 var _busy := false
+var _elapsed := 0.0
 var _button_panel: Panel
 var _button_label: Label
 
@@ -189,8 +194,12 @@ func _build_stats(card: Panel) -> void:
 		card.add_child(away_number)
 
 
+func _process(delta: float) -> void:
+	_elapsed += delta
+
+
 func _unhandled_input(event: InputEvent) -> void:
-	if _busy:
+	if _busy or _elapsed < INPUT_GRACE:
 		return
 	if event.is_action_pressed(&"ui_accept") or event.is_action_pressed(&"pause") \
 			or event.is_action_pressed(&"ui_cancel"):

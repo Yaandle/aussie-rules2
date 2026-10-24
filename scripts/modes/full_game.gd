@@ -869,7 +869,16 @@ func _finish_match() -> void:
 ## note on why the clear lives there, not here.
 func _show_match_end_screen() -> void:
 	if GameState.career_active:
-		CareerProfile.record_result()
+		# Snapshot the result into the save before advancing the fixture, so
+		# the full-time screen and the Dashboard's VIEW STATS read the same
+		# persisted copy (current_fixture() still names this opponent here).
+		CareerProfile.record_result({
+			"opponent": CareerProfile.current_fixture(),
+			"home_score": MatchState.scoreline(Tuning.Team.HOME),
+			"away_score": MatchState.scoreline(Tuning.Team.AWAY),
+			"goals": MatchState.top_goalkickers(CareerMatchEndScreen.LEADERBOARD_SIZE),
+			"disposals": MatchState.top_disposals(CareerMatchEndScreen.LEADERBOARD_SIZE),
+		})
 		SceneWipe.change_scene("res://scenes/ui/career_match_end_screen.tscn")
 		return
 	SceneWipe.change_scene(MATCH_END_SCREEN_PATH)

@@ -11,7 +11,9 @@ extends CanvasLayer
 ##
 ## This pass only ships game 1: VIEW ROSTER is real (an overlay reading
 ## CareerProfile.roster, grouped by TeamFormation line same as team_list_
-## screen.gd's own legend), VIEW STATS is a locked stub, and once
+## screen.gd's own legend), VIEW STATS reopens the last full-time result
+## (career_match_end_screen.gd, reading CareerProfile.last_result; a lock
+## until a match has been played), and once
 ## CareerProfile.games_played >= 1 the whole dashboard renders behind a
 ## dimmed scrim with a lock glyph and a single MAIN MENU action — nothing
 ## past the first game exists yet (see _build_locked_overlay).
@@ -91,7 +93,7 @@ func _build() -> void:
 		_on_view_roster_pressed)
 	_view_roster_button = view_roster_button
 	button_row.add_child(view_roster_button)
-	button_row.add_child(_build_action_button("VIEW STATS", &"lock", false, Callable()))
+	button_row.add_child(_build_view_stats_button())
 
 	# Hint bar — no control legend existed on this screen at all
 	# (ui_audit.md finding #2, missed by the audit's own file list but the
@@ -224,8 +226,8 @@ func _set_next_game_hover(panel: Panel, hovering: bool) -> void:
 
 
 ## A flat tan tile with an icon + label, mouse-clickable only when
-## `enabled` (VIEW STATS stays a dimmed, inert lock glyph for now — see
-## the header note). Built with a fixed width rather than ActionButton's
+## `enabled` (VIEW STATS is a dimmed, inert lock glyph until a match has
+## been played — see the header note). Built with a fixed width rather than ActionButton's
 ## own measure-after-layout trick (character_screen.gd's PLAY button):
 ## these are short, known labels, and a fixed width keeps the row's
 ## spacing predictable.
@@ -453,14 +455,34 @@ func _build_locked_overlay() -> void:
 	message.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	centre.add_child(message)
 
+	# VIEW STATS sits beside MAIN MENU here too: the locked state is exactly
+	# where a player lands after full time, so it's where the result has
+	# to be reachable from.
+	var actions := HBoxContainer.new()
+	actions.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_4))
+	actions.alignment = BoxContainer.ALIGNMENT_CENTER
+	actions.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	centre.add_child(actions)
+	actions.add_child(_build_view_stats_button())
 	var menu_button := _build_action_button("MAIN MENU", &"exit", true, _on_main_menu_pressed)
-	menu_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	centre.add_child(menu_button)
+	actions.add_child(menu_button)
 	# The scrim's own MOUSE_FILTER_STOP already blocks every control
 	# underneath (see this function's own header note) — explicit default
 	# focus so a keyboard/gamepad player lands on the one live control here
 	# instead of on whatever the dashboard underneath last focused.
 	menu_button.grab_focus.call_deferred()
+
+
+## Live once a Career match has finished (CareerProfile.last_result), a
+## lock glyph before that.
+func _build_view_stats_button() -> Control:
+	var has_result := not CareerProfile.last_result.is_empty()
+	return _build_action_button("VIEW STATS", &"goalpost" if has_result else &"lock",
+		has_result, _on_view_stats_pressed)
+
+
+func _on_view_stats_pressed() -> void:
+	SceneWipe.change_scene("res://scenes/ui/career_match_end_screen.tscn")
 
 
 func _on_main_menu_pressed() -> void:
