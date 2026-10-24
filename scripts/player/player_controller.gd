@@ -936,6 +936,7 @@ func drop_ball() -> void:
 	_run_too_far_latched = false
 	_kick_charge = 0.0
 	_charging = false
+	_cancel_goal_set_shot()
 	# Otherwise a hip-fire windup broken by a tackle before it reaches
 	# _dispose() would leave this stuck true — the next kick to actually
 	# fire, possibly a properly-aimed one with a fresh ball, would wrongly
@@ -2014,6 +2015,40 @@ func can_take_goal_set_shot() -> bool:
 	return _can_take_goal_set_shot()
 
 
+## Lines the set shot up: latch the kick stance, snap aim to the goal, and
+## start the shot clock (Tuning.SET_SHOT_CLOCK). The clock re-grants the
+## same _protected_timer the mark did, so the kicker can't be tackled while
+## lining up, and re-freezes the man on the mark and the 10m crowd for as
+## long (stand_the_mark keeps an existing anchor when given none, so the
+## man on the mark stays on the mark).
+func _arm_goal_set_shot() -> void:
+	_goal_set_shot_locked = true
+	_charging = true
+	var aim_dir := _goal_aim_direction()
+	_kick_aim_yaw = atan2(-aim_dir.x, -aim_dir.z)
+	_heading = aim_dir
+	grant_protection(Tuning.SET_SHOT_CLOCK)
+	for opponent in _frozen_opponents:
+		if is_instance_valid(opponent):
+			opponent.stand_the_mark(Tuning.SET_SHOT_CLOCK)
+	# Borrow the normal behind-the-player Chase framing for the shot if
+	# the broadcast rig is on FULL_SIDE — a no-op there already if it
+	# isn't (see BroadcastCamera.enter_goal_set_shot).
+	if is_instance_valid(camera_rig):
+		camera_rig.enter_goal_set_shot()
+
+
+## Clears the set-shot latch and hands the camera back, on every way a set
+## shot ends: fired, cancelled, or the ball lost. drop_ball() calls this
+## too. It used to clear only _charging, so a set shot broken by a tackle
+## left the latch set and the camera stuck in its borrowed Chase framing
+## (playtest: stuck behind the player until a throw-in reset things).
+func _cancel_goal_set_shot() -> void:
+	if _goal_set_shot_locked and is_instance_valid(camera_rig):
+		camera_rig.exit_goal_set_shot()
+	_goal_set_shot_locked = false
+
+
 func _can_take_goal_set_shot() -> bool:
 	if _protected_timer <= 0.0:
 		return false
@@ -2388,16 +2423,7 @@ func _update_charge(delta: float) -> void:
 	# this frame already not-carrying would.
 	if _brain.wants_goal_set_shot() and is_carrying() and not _charging \
 			and _can_take_goal_set_shot():
-		_goal_set_shot_locked = true
-		_charging = true
-		var aim_dir := _goal_aim_direction()
-		_kick_aim_yaw = atan2(-aim_dir.x, -aim_dir.z)
-		_heading = aim_dir
-		# Borrow the normal behind-the-player Chase framing for the shot if
-		# the broadcast rig is on FULL_SIDE — a no-op there already if it
-		# isn't (see BroadcastCamera.enter_goal_set_shot).
-		if is_instance_valid(camera_rig):
-			camera_rig.enter_goal_set_shot()
+		_arm_goal_set_shot()
 
 	if (_brain.wants_kick() or _goal_set_shot_locked) and is_carrying():
 		if not _charging:
@@ -2423,19 +2449,12 @@ func _update_charge(delta: float) -> void:
 		_update_kick_aim(delta)
 		if _brain.wants_kick_execute():
 			_charging = false
-			_goal_set_shot_locked = false
-			if is_instance_valid(camera_rig):
-				camera_rig.exit_goal_set_shot()
+			_cancel_goal_set_shot()
 			_begin(Tuning.Action.KICK)
 	elif _charging:
-		# LT released without RT — cancel, no kick. Also the natural exit
-		# for a set shot that never got fired (ball lost to a tackle, etc):
-		# is_carrying() above goes false, this branch catches it, and the
-		# latch clears with everything else.
-		if _goal_set_shot_locked and is_instance_valid(camera_rig):
-			camera_rig.exit_goal_set_shot()
+		# LT released without RT — cancel, no kick.
 		_charging = false
-		_goal_set_shot_locked = false
+		_cancel_goal_set_shot()
 		_kick_charge = 0.0
 	elif _brain.wants_kick_execute() and is_carrying():
 		_hip_fire_kick = true

@@ -1068,6 +1068,15 @@ const MARK_RETREAT_SPEED := 3.4         # m/s — a deliberate walk back, ~1.5s 
 # happens to be looking. 55m is comfortably inside AFL kicking range.
 const GOAL_SET_SHOT_MAX_DISTANCE := 55.0   # m from the goal line
 
+# Shot clock for a set shot. Arming goal_set_shot re-grants protection for
+# this long (PlayerController._arm_goal_set_shot), so the kicker can't be
+# tackled while lining up. Before this the set shot only had whatever was
+# left of MARK_HOLD_DURATION after the 1.5s walk-back, about 3.5s, and the
+# playtest got tackled mid-routine ("I didn't have 20s to kick the goal
+# before play on"). Real AFL is 30s; 20s is the playtest's own number.
+# When it runs out protection lapses, which is this project's "play on".
+const SET_SHOT_CLOCK := 20.0   # s
+
 # The man on the mark (PlayerController._apply_stand_the_mark) is the
 # nearest opponent when the mark is taken, placed a metre goal-side of the
 # mark-taker so their capsules don't overlap. They JOG onto that spot

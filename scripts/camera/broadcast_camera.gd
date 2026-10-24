@@ -77,6 +77,14 @@ func _process(delta: float) -> void:
 	if not is_instance_valid(target):
 		return
 	_switch_timer = maxf(0.0, _switch_timer - delta)
+	# Safety net for the set-shot override: it only makes sense while its
+	# target is still lining the kick up. PlayerController hands it back on
+	# every path it knows about, but a full-team focus switch nulls the old
+	# player's camera_rig, and one missed exit used to leave the rig on
+	# Chase until something else recentred it (playtest: stuck behind the
+	# player until the next throw-in).
+	if _in_goal_shot_override and not _is_target_aiming():
+		exit_goal_set_shot()
 	if is_instance_valid(_dialogue_left) and is_instance_valid(_dialogue_right):
 		_update_dialogue_framing(delta)
 	elif _in_goal_shot_override:
