@@ -68,7 +68,7 @@ extends Node3D
 ##    custom import code needed on that side.
 ##
 ## NOT YET VERIFIED: axis convention. This rig's "-Y hangs down the limb"
-## local convention (docs/HANDOVER.md's own "Rest-pose axis convention for
+## local convention (HANDOVER.md (archived, see docs/LESSONS.md)'s own "Rest-pose axis convention for
 ## retargeting is also unverified" note) has never been checked against a
 ## real Blender/glTF import land correctly without a 90-degree twist per
 ## limb — if bone #2 above still looks wrong after a careful rest-pose

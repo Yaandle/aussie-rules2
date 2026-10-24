@@ -115,7 +115,7 @@ var _running_checked := 0
 
 func _ready() -> void:
 	add_child(_build_floor())
-	# Same-frame-construction race (docs/HANDOVER.md): throwaway players
+	# Same-frame-construction race (HANDOVER.md (archived, see docs/LESSONS.md)): throwaway players
 	# first, and a few physics frames before the real one is touched.
 	for i in 3:
 		var throwaway := PlayerScene.instantiate()

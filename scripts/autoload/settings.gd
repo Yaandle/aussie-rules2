@@ -190,7 +190,7 @@ var master_volume := 1.0:
 		master_volume = clampf(value, 0.0, 1.0)
 
 
-## Keyboard remaps (docs/FEATURE_AUDIT.md's control-remapping item, see
+## Keyboard remaps (FEATURE_AUDIT.md (archived)'s control-remapping item, see
 ## RemapScreen): action name -> physical keycode, holding only entries a
 ## player has actually changed — an action with no entry here keeps
 ## whatever project.godot's own [input] section already bound it to.

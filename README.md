@@ -15,10 +15,11 @@ with three training coaches (kicking, marking, tackling). Every model,
 animation, and sound effect is generated in code — there's no imported art
 or audio yet.
 
-See [docs/FEATURE_AUDIT.md](docs/FEATURE_AUDIT.md) for what's built vs.
-still missing, [docs/HANDOVER.md](docs/HANDOVER.md) for the build history,
-and [docs/RULES_REFERENCE.md](docs/RULES_REFERENCE.md) for how the real AFL
-rules are simplified at this stage.
+See [docs/RULES_REFERENCE.md](docs/RULES_REFERENCE.md) for how the real AFL
+rules are simplified at this stage, and [docs/LESSONS.md](docs/LESSONS.md)
+for the engineering notes that survived the build history. The old
+session-by-session log was archived out of the repo on 2026-10-24; git
+history has it.
 
 
 ## Run
@@ -117,9 +118,11 @@ scenes/                       mirrors scripts/ — see each script's header comm
 
 assets/shaders/              turf, boundary glow, backdrop scrims — no imported art yet
 docs/
-  FEATURE_AUDIT.md           current-state inventory + development roadmap — start here
-  HANDOVER.md                full session-by-session build log
   RULES_REFERENCE.md         Prototype 1's rule numbers translated to real metres
+  LESSONS.md                 design decisions, engine gotchas, how to verify
+  MECHANICS_AUDIT.md         mechanics audit + the 5-stage ragdoll plan (§B4)
+  ML_AI_AUDIT.md             the ML ladder: LR, GA, MLP marking cue (§9)
+  RELEASE_NOTES.md           per-release notes
 ```
 
 ## Controls

@@ -881,7 +881,7 @@ const PRIOR_OPPORTUNITY_GRACE := 0.5   # s
 # full free kick) must clear out to it. Simplified to a freeze rather than
 # an active retreat-and-return (see PlayerController.grant_protection) —
 # same MVP scope as everywhere else "possession + protection at the right
-# spot" has been the deliberate stopping point (see docs/HANDOVER.md). This
+# spot" has been the deliberate stopping point (see HANDOVER.md (archived, see docs/LESSONS.md)). This
 # is a real, well-known rule number, unlike Bump's dangerous-contact
 # threshold below, which genuinely has none to use.
 const FREE_KICK_RETREAT_DISTANCE := 10.0   # m
@@ -1490,7 +1490,7 @@ const AI_PRESSURE_RADIUS := 4.0        # m opponent proximity that forces a quic
 const AI_SUPPORT_PULL := 0.35          # 0..1, how far off-ball players drift toward the ball
 
 ## Off by default, and not to be turned on in real matches without the
-## user's say-so (docs/NEXT_AGENT_MARKING_BRIEF.md Part 2.5). On, AIBrain
+## user's say-so (NEXT_AGENT_MARKING_BRIEF.md (archived) Part 2.5). On, AIBrain
 ## stops being Safe-only. It leaps (Aggressive) for a contested kick, on
 ## the MarkCueModel countdown with its press gate. It taps Running in
 ## stride when it's moving at pace and the ball is in Running's reach.
@@ -1554,7 +1554,7 @@ const AI_LOOSE_BALL_CEDE_MARGIN := 2.0  # m — an opponent this much nearer the
 # AFL number — there's nothing to cite — just a placeholder distance long
 # enough to look like a real lead run and short enough to stay on-screen
 # from the follow cam. Expect this to move once someone actually plays the
-# mode; see docs/HANDOVER.md's control-mode entry.
+# mode; see HANDOVER.md (archived, see docs/LESSONS.md)'s control-mode entry.
 const COMMAND_LEAD_DISTANCE := 12.0     # m
 
 # Call for the ball (Settings.PlayerControlMode.SINGLE_PLAYER — see

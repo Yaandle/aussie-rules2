@@ -403,7 +403,7 @@ standing caveat on everything in this project.
 
 - Out on the full (§7) — **implemented**.
 - High contact or in-the-back during a tackle or bump — **not
-  implemented**. This is the same open item `docs/FEATURE_AUDIT.md`
+  implemented**. This is the same open item `FEATURE_AUDIT.md (archived)`
   records as deliberately blocked: there is no AFL rule *number* to judge
   dangerous contact by, so it stays unbuilt pending a real design decision
   rather than getting an invented default.

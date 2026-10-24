@@ -27,7 +27,7 @@ var behinds := {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
 
 ## Basic AFL box-score stats (design brief: "tally disposals/marks/tackles
 ## per team by counting the same signals already used for audio" — see
-## docs/HANDOVER.md). Recorded by full_game.gd only (Kick-to-Kick has no
+## HANDOVER.md (archived, see docs/LESSONS.md)). Recorded by full_game.gd only (Kick-to-Kick has no
 ## clock/scoring either, and never calls reset(), so it never touches
 ## these) via record_disposal/record_mark/record_tackle, read fresh by
 ## MatchEndScreen the same way it already reads goals/behinds through

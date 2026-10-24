@@ -215,7 +215,7 @@ func _on_focus_changed(team: Tuning.Team, previous: PlayerController, next: Play
 
 ## Esc used to hard-cut straight to the main menu, discarding a match in
 ## progress with zero confirmation — PauseScreen already existed fully
-## built and simply wasn't wired to anything (see docs/FEATURE_AUDIT.md).
+## built and simply wasn't wired to anything (see FEATURE_AUDIT.md (archived)).
 ## Pushed as a real paused overlay: PROCESS_MODE_ALWAYS is what lets it
 ## keep receiving input while get_tree().paused freezes everything else
 ## (players, ball, this node's own _physics_process) exactly where they are.
@@ -246,7 +246,7 @@ func _spawn_teams() -> void:
 	# attack direction), but which player is focused, and telling the
 	# camera/HUD/crosshair/mark-prompt about it, is centralised in
 	# _on_focus_changed() rather than repeated at every call site that
-	# used to hand-roll it (see docs/HANDOVER.md's control-mode entry).
+	# used to hand-roll it (see HANDOVER.md (archived, see docs/LESSONS.md)'s control-mode entry).
 	ControlMode.reset()
 	ControlMode.register_team(Tuning.Team.HOME, _home_players, ControlMode.Scheme.SINGLE_PLAYER)
 	# AWAY is registered with no human ever assigned (controlled_player
@@ -277,7 +277,7 @@ func _spawn_teams() -> void:
 		# routes through _complete_gather), so it's the one "now has it"
 		# hook. Bound with the player since the signal only carries the ball.
 		player.ball_gathered.connect(_on_home_gained_possession.bind(player))
-		# Box-score stats (docs/FEATURE_AUDIT.md) — bound with the player
+		# Box-score stats (FEATURE_AUDIT.md (archived)) — bound with the player
 		# itself since neither signal carries a reference to who disposed/
 		# marked, only what happened.
 		player.ball_disposed.connect(_on_player_disposed.bind(player))
@@ -621,7 +621,7 @@ func _on_hit_out_resolved(_player: PlayerController, connected: bool) -> void:
 ## behaviour — this signal previously had no listener at all), it becomes
 ## a real, brief stoppage at the tackle spot, contested by the two players
 ## who were already right there. The free-kick half (holding_the_ball_
-## called) is a separate, harder problem — see docs/HANDOVER.md.
+## called) is a separate, harder problem — see HANDOVER.md (archived, see docs/LESSONS.md).
 func _on_player_disposed(action: Tuning.Action, player: PlayerController) -> void:
 	MatchState.record_disposal(player.team, action)
 	MatchState.record_player_disposal(player.roster_name, action)
@@ -733,7 +733,7 @@ func _on_run_too_far(carrier: PlayerController) -> void:
 
 
 ## Shared tail of every "possession + immunity at a spot" restart (free
-## kick, protected kick-in, out on the full) — see docs/HANDOVER.md for why
+## kick, protected kick-in, out on the full) — see HANDOVER.md (archived, see docs/LESSONS.md) for why
 ## this exact give_possession()/grant_protection() triad is the one
 ## established pattern instead of a parallel state machine per restart type.
 ## MARK_HOLD_DURATION is reused rather than a new invented threshold: the
@@ -846,7 +846,7 @@ func _next_quarter() -> void:
 
 ## Used to flash "FULL TIME" forever with no way onward — MatchEndScreen
 ## already existed fully built and simply wasn't wired to anything (see
-## docs/FEATURE_AUDIT.md). Holds the scoreboard flash for a beat so the
+## FEATURE_AUDIT.md (archived)). Holds the scoreboard flash for a beat so the
 ## result actually registers, then hands off to the real screen, which
 ## reads the same MatchState.scoreline() fresh in its own _ready() — untouched
 ## by anything in between, since nothing resets MatchState until a new match
@@ -990,7 +990,7 @@ func _bisect_boundary_crossing(inside_pos: Vector3, outside_pos: Vector3) -> Vec
 ## the same give_possession()/grant_protection() triad the protected kick-in
 ## and the holding-the-ball free kick already reuse from each other, per
 ## this project's own established pattern for "possession + immunity at a
-## spot" (see docs/HANDOVER.md). `kicking_team` is read from Ball.kick_team()
+## spot" (see HANDOVER.md (archived, see docs/LESSONS.md)). `kicking_team` is read from Ball.kick_team()
 ## at the instant of crossing, since the ball's own _carrier reference has
 ## long since been cleared by RELEASE_GRACE for anything but a very short kick.
 func _trigger_out_on_the_full(pos: Vector3, kicking_team: Tuning.Team) -> void:

@@ -1,7 +1,7 @@
 # Mechanics ("skills") code audit + next-features brief
 
-**Date:** 2026-08-30 · **Branch:** `debug` · Companion to `docs/FEATURE_AUDIT.md`
-(feature inventory / roadmap) and `docs/HANDOVER.md` (session log).
+**Date:** 2026-08-30 · **Branch:** `debug` · Companion to `FEATURE_AUDIT.md (archived)`
+(feature inventory / roadmap) and `HANDOVER.md (archived, see docs/LESSONS.md)` (session log).
 
 ## Context
 
@@ -22,7 +22,7 @@ structural / performance / headroom findings.
 
 ## Part A — Code audit
 
-> **Progress (2026-08-30):** A1, A2, A6 done — see `docs/HANDOVER.md`.
+> **Progress (2026-08-30):** A1, A2, A6 done — see `HANDOVER.md (archived, see docs/LESSONS.md)`.
 > `PlayerRegistry` + `SpatialQuery` (`scripts/ai/`) replaced every
 > `get_nodes_in_group(&"players")` gameplay scan; the `&"players"` group is
 > gone. `ACTION_DURATION`/`ACTION_CONTACT` are now enum-keyed Dictionaries.

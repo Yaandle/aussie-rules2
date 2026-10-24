@@ -1661,7 +1661,7 @@ func _apply_knockdown_hop() -> void:
 ## ground until this player disposes. Scoped to marks only, not free kicks/
 ## kick-ins: those already reuse _protected_timer for the taker's own
 ## immunity, but the broader "every other opponent retreats 10m" rule is a
-## separate, bigger piece of work (see docs/FEATURE_AUDIT.md) left for when
+## separate, bigger piece of work (see FEATURE_AUDIT.md (archived)) left for when
 ## the rest of the free-kick/set-shot apparatus gets built.
 func _apply_stand_the_mark() -> void:
 	var opponent := _nearest_opponent()
@@ -1839,7 +1839,7 @@ func _try_spoil(ball: Ball) -> void:
 ## by how well the hold's timing lines up — see mark_timing_offset), an
 ## AIBrain gets the exact original unconditional-reach check, byte for
 ## byte. Deliberate, not an oversight: AI marking is a documented, minimal
-## stub (docs/FEATURE_AUDIT.md) that this feature isn't meant to touch, and
+## stub (FEATURE_AUDIT.md (archived)) that this feature isn't meant to touch, and
 ## AI never taps Running/Aggressive by default (AIBrain only does behind
 ## Tuning.AI_MARK_USE_CUE_MODEL, off — and those two tiers are graded the
 ## same for every brain anyway), so only Safe needs the split.

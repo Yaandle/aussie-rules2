@@ -494,7 +494,7 @@ def author_clip(rig, clip, base, fps):
 
 
 # ── Clip specs ─────────────────────────────────────────────────────────
-# Madden's catch types mapped to AFL (see docs/NEXT_AGENT_MARKING_BRIEF.md):
+# Madden's catch types mapped to AFL (see NEXT_AGENT_MARKING_BRIEF.md (archived)):
 #   Safe       = possession / chest mark: square up, gather into the chest.
 #   Running    = catch in stride: hands mark on the lead, legs keep running.
 #   Aggressive = high-point / pack mark: leap, lead knee up, take it overhead.

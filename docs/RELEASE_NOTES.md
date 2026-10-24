@@ -27,7 +27,7 @@ a consistency and completion pass on top of it, not a redesign:
   were wired up on only 2 of 11 player-facing screens, several controls
   were reachable by mouse only, one screen (`match_end_screen`) was a
   visually-orphaned placeholder, and one gamepad binding never fired. Full
-  detail in [`ui_audit.md`](ui_audit.md).
+  detail in `ui_audit.md` (archived).
 
 ### Accessibility fixes
 
@@ -98,5 +98,5 @@ the project in a GUI.
   using `DeviceHintBar`. Left alone — not worth the risk for consistency
   alone on a dev-only screen.
 
-See [`ui_audit.md`](ui_audit.md) and `HANDOVER.md`'s matching entry for
+See `ui_audit.md` (archived) and `HANDOVER.md`'s matching entry for
 full file-by-file detail.

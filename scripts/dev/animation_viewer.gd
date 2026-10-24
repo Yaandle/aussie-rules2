@@ -1,7 +1,7 @@
 class_name AnimationViewer
 extends Node3D
 
-## Dev-only viewer for the placeholder animation set (docs/FEATURE_AUDIT.md
+## Dev-only viewer for the placeholder animation set (FEATURE_AUDIT.md (archived)
 ## "unbuilt but planned" tooling): a bare HumanoidRig driven by the real
 ## AnimationTree, standing still, with buttons to force each locomotion
 ## blend point and fire each discrete action clip in isolation. Not reachable
@@ -1829,7 +1829,7 @@ func _ensure_contest_ball_built() -> void:
 	add_child(_contest_ball)
 
 
-## Same-frame-construction-race workaround (docs/HANDOVER.md, Tackle
+## Same-frame-construction-race workaround (HANDOVER.md (archived, see docs/LESSONS.md), Tackle
 ## Sandbox + TACKLED entries): a handful of throwaway PlayerControllers
 ## spawned and freed first, ahead of any PlayerController that actually
 ## matters. Split into its own guarded function so whichever of contests

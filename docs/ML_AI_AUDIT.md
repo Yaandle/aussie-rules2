@@ -4,7 +4,7 @@ Written against two source documents handed to this pass: an internal
 "AFL Game AI — Audit, ML Approaches and Stage 1 Progress" writeup (the
 "ML doc" below), and a set of ML-methods notes from Dakota Nugent (the
 "Dakota notes" below). Scope is gameplay/mechanics + the ML sandbox only
-— no UI files touched (see `docs/ui_audit.md` / `docs/RELEASE_NOTES.md`
+— no UI files touched (see `ui_audit.md (archived)` / `docs/RELEASE_NOTES.md`
 for the separate 1.2 UI pass this precedes).
 
 ## Correction to the Dakota notes: Stage 1 is logistic, not linear
@@ -351,7 +351,7 @@ live-gameplay question is still untouched).
 
 ## 9. Stage 3 (MLP): marking-cue timing
 
-Built from `docs/NEXT_AGENT_MARKING_BRIEF.md` Part 2. The MLP placeholder
+Built from `NEXT_AGENT_MARKING_BRIEF.md (archived)` Part 2. The MLP placeholder
 tab is now a working stage.
 
 ### What it predicts

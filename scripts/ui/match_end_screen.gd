@@ -6,7 +6,7 @@ extends CanvasLayer
 ## Reads the final score from MatchState.scoreline() — the same call
 ## full_game.gd's `_finish_match()` uses for the scoreboard flash — and the
 ## per-team disposal/mark/tackle tallies from MatchState's own stat
-## dictionaries (docs/FEATURE_AUDIT.md's post-match-stats item), both
+## dictionaries (FEATURE_AUDIT.md (archived)'s post-match-stats item), both
 ## fresh in _ready() rather than passed as scene-change parameters: nothing
 ## resets MatchState between full_game.gd's _finish_match() and this
 ## screen loading, so there's nothing to lose crossing the scene swap.
