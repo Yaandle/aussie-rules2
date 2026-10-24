@@ -68,6 +68,14 @@ var _ruck_contestants: Array[PlayerController] = []
 var _pause_timer := 0.0
 var _pause_callback := Callable()
 
+## Kick after the siren (playtest: "took a mark before the end of the
+## quarter but couldn't take the shot"). Set when the clock runs out while
+## someone holds the ball under mark/free-kick protection; the quarter then
+## waits for that one kick — see _update_after_siren.
+var _after_siren_kicker: PlayerController = null
+var _after_siren_kicked := false
+var _after_siren_flight := 0.0
+
 ## Last frame's ball position, tracked every frame the ball is live so the
 ## exact boundary crossing can be bisected out of it — see
 ## _check_out_of_bounds(). Reset to invalid across any stoppage, so a stale
@@ -137,8 +145,73 @@ func _physics_process(delta: float) -> void:
 			callback.call()
 		return
 
+	if is_instance_valid(_after_siren_kicker):
+		_update_after_siren(delta)
+		return
+
 	if MatchState.clock_running and MatchState.seconds_remaining <= 0.0:
-		_end_quarter()
+		var kicker := _after_siren_candidate()
+		if kicker != null:
+			_begin_after_siren(kicker)
+		else:
+			_end_quarter()
+
+
+# ── Kick after the siren ─────────────────────────────────────────────
+# Real AFL: a player who marked or was awarded a free kick before the
+# siren still takes the kick; the quarter ends once that kick is decided.
+# Everything else in play stops mattering — only this ball's outcome does.
+
+## Whoever is holding the ball under mark/free-kick protection at the
+## siren, or null.
+func _after_siren_candidate() -> PlayerController:
+	for player in _home_players + _away_players:
+		if player.is_carrying() and player.is_protected():
+			return player
+	return null
+
+
+## Clock stays at zero; the kicker gets the full shot clock (the 5s mark
+## window may be nearly spent by the siren) and play carries on in PLAY so
+## they can walk back, line up and kick.
+func _begin_after_siren(kicker: PlayerController) -> void:
+	MatchState.clock_running = false
+	_after_siren_kicker = kicker
+	_after_siren_kicked = false
+	_after_siren_flight = 0.0
+	kicker.grant_protection(Tuning.SET_SHOT_CLOCK)
+	AudioManager.play_whistle()
+	_scoreboard.flash("SIREN — KICK AFTER THE SIREN", Tuning.AFTER_SIREN_MAX_FLIGHT)
+
+
+## Ends the quarter once the kick is decided: the kicker plays on or runs
+## out the shot clock without kicking; or the kicked ball is gathered or
+## marked by anyone, lands, or has been live AFTER_SIREN_MAX_FLIGHT. A
+## score or the ball going out ends it through _on_scored /
+## _trigger_out_of_bounds / _trigger_out_on_the_full instead.
+func _update_after_siren(delta: float) -> void:
+	var kicker := _after_siren_kicker
+	if not _after_siren_kicked:
+		if kicker.is_carrying():
+			if not kicker.is_protected():
+				_finish_after_siren()
+			return
+		_after_siren_kicked = true
+		return
+	_after_siren_flight += delta
+	if _ball.is_held or not _ball.is_kick_flight() \
+			or _after_siren_flight >= Tuning.AFTER_SIREN_MAX_FLIGHT:
+		_finish_after_siren()
+
+
+func _after_siren_active() -> bool:
+	return is_instance_valid(_after_siren_kicker)
+
+
+func _finish_after_siren() -> void:
+	_after_siren_kicker = null
+	_after_siren_kicked = false
+	_end_quarter()
 
 
 func _apply_camera_mode(setting: Settings.FullGameCameraMode) -> void:
@@ -727,6 +800,8 @@ func _on_player_marked(_tier: Tuning.Action, _legal_mark: bool, player: PlayerCo
 func _on_field_ball_up(tackler: PlayerController, tackled: PlayerController) -> void:
 	if GameState.phase != GameState.Phase.PLAY:
 		return
+	if _after_siren_active():
+		return   # only the kick after the siren matters now
 	MatchState.record_tackle(tackler.team)
 	var spot := tackled.global_position
 	MatchState.clock_running = false
@@ -759,6 +834,8 @@ func _on_field_ball_up(tackler: PlayerController, tackled: PlayerController) -> 
 func _on_holding_the_ball(tackler: PlayerController) -> void:
 	if GameState.phase != GameState.Phase.PLAY:
 		return
+	if _after_siren_active():
+		return   # only the kick after the siren matters now
 	MatchState.record_tackle(tackler.team)
 	var spot := tackler.global_position
 	MatchState.clock_running = false
@@ -784,6 +861,8 @@ func _award_free_kick(spot: Vector3, tackler: PlayerController) -> void:
 func _on_run_too_far(carrier: PlayerController) -> void:
 	if GameState.phase != GameState.Phase.PLAY:
 		return
+	if _after_siren_active():
+		return   # only the kick after the siren matters now
 	var opponents := _away_players if carrier.team == Tuning.Team.HOME else _home_players
 	var receiver := _nearest_player(opponents, carrier.global_position)
 	if receiver == null:
@@ -859,6 +938,12 @@ func _on_scored(team: Tuning.Team, is_goal: bool) -> void:
 	var label := "GOAL" if is_goal else "BEHIND"
 	_scoreboard.flash("%s! %s" % [label, _team_name(team)], Tuning.SCORE_PAUSE_DURATION)
 	_camera.punch(Tuning.CAM_PUNCH_KICK)
+	# A kick after the siren: the score counts, then the quarter is over —
+	# no restart.
+	if _after_siren_active():
+		_after_siren_kicker = null
+		_start_pause(Tuning.SCORE_PAUSE_DURATION, _end_quarter)
+		return
 	# AFL restarts a GOAL with a centre bounce; a BEHIND restarts with a
 	# protected kick-in by the team that conceded it (design brief
 	# priority 5) — not another centre bounce, which is what every score
@@ -1067,6 +1152,9 @@ func _bisect_boundary_crossing(inside_pos: Vector3, outside_pos: Vector3) -> Vec
 ## at the instant of crossing, since the ball's own _carrier reference has
 ## long since been cleared by RELEASE_GRACE for anything but a very short kick.
 func _trigger_out_on_the_full(pos: Vector3, kicking_team: Tuning.Team) -> void:
+	if _after_siren_active():
+		_finish_after_siren()   # out after the siren: nothing to restart
+		return
 	if kicking_team == Tuning.Team.NONE:
 		# Shouldn't happen — _check_out_of_bounds only calls this while
 		# Ball.is_kick_flight() is true, which always sets a real team.
@@ -1110,6 +1198,9 @@ func _throw_in_point(pos: Vector3) -> Vector3:
 
 
 func _trigger_out_of_bounds(pos: Vector3) -> void:
+	if _after_siren_active():
+		_finish_after_siren()
+		return
 	var throw_in_point := _throw_in_point(pos)
 	# Brought back to the line and held there for the pause, the same
 	# "settle before the pause, not after" shape out on the full uses —

@@ -1089,6 +1089,12 @@ const GOAL_SET_SHOT_MAX_DISTANCE := 55.0   # m from the goal line
 # When it runs out protection lapses, which is this project's "play on".
 const SET_SHOT_CLOCK := 20.0   # s
 
+# Kick after the siren (FullGame._update_after_siren): the longest the
+# quarter waits on the ball once it has been kicked, in case it neither
+# lands, scores, goes out nor gets caught (a ball stuck on someone).
+# Comfortably longer than any kick's flight.
+const AFTER_SIREN_MAX_FLIGHT := 6.0   # s
+
 # The man on the mark (PlayerController._apply_stand_the_mark) is the
 # nearest opponent when the mark is taken, placed a metre goal-side of the
 # mark-taker so their capsules don't overlap. They JOG onto that spot
