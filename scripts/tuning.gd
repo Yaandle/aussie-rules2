@@ -1392,9 +1392,8 @@ const RUCK_CONTEST_JUMP_RANGE := 3.0    # m
 ## The palm itself — a physical velocity given to the ball on a successful
 ## hit-out, same "invented physics parameter, not an invented rule number"
 ## category as SPOIL_IMPULSE_SPEED/TACKLE_SPILL_SPEED elsewhere in this
-## file. Directed by _hit_out_aim_dir in _resolve_hit_out — where Left
-## stick was held on the RB press ("tap direction = pass direction", user
-## brief) — falling back to body-forward on a neutral stick.
+## file. Directed by the right stick (PlayerBrain.hit_out_aim), falling
+## back to the left stick and then body-forward — see _resolve_hit_out.
 const RUCK_HIT_OUT_SPEED := 6.0         # m/s, horizontal
 const RUCK_HIT_OUT_UP_SPEED := 1.5      # m/s of lift, so it reads as a palm, not a grounder
 ## How long a nominated contestant reads RB as a hit-out at all (see
@@ -1405,6 +1404,12 @@ const RUCK_HIT_OUT_UP_SPEED := 1.5      # m/s of lift, so it reads as a palm, no
 ## height, and a human reacting to the visible throw-up rather than a
 ## frame-perfect input still gets a genuine shot at it.
 const RUCK_CONTEST_WINDOW := 2.0        # s
+## An RB press made early (during the throw-up, or with the ball out of
+## RUCK_CONTEST_JUMP_RANGE) is latched rather than dropped, and leaps once
+## the ball is in range and rising slower than this — near the toss's peak
+## (BALL_UP_TOSS_SPEED 5 m/s), so the leap's contact lands around the top.
+## Unplaytested feel guess.
+const RUCK_ARMED_FIRE_MAX_RISE := 1.5   # m/s
 
 # The same A press that attempts a Safe Mark becomes this once the ball
 # isn't in the air (design brief: the action comes from "ball state +

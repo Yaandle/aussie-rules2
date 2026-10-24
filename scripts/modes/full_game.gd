@@ -551,9 +551,8 @@ func _bounce_off() -> void:
 	# shared contest every stoppage in this file goes through, see
 	# _begin_ruck_contest. This stays index 0 regardless of
 	# Settings.home_human_slot: pick a non-ruck position and index 0 keeps
-	# its AIBrain and rucks; pick slot 0 and the human rucks in person
-	# (HumanBrain can't actively palm a hit-out — a pre-existing AI-scope
-	# limit, not addressed here).
+	# its AIBrain and rucks; pick slot 0 (or play FULL TEAM, which hands
+	# the human the ruckman) and the human rucks in person with RB.
 	_begin_ruck_contest(_field.centre(), _home_players[0], _away_players[0])
 
 
@@ -588,6 +587,31 @@ func _begin_ruck_contest(spot: Vector3, contestant_a: PlayerController,
 	# hit-outs all refuse until it's released.
 	_ball.lock_at(spot + Vector3.UP * 0.4)
 
+	# Only ruckmen ruck (playtest: "if I am in single player control and NOT
+	# ruckman I shouldn't go into ruck if I am rover"). Every caller passes
+	# roster index 0 of each team, the RUCK slot (TeamFormation.ROSTER_
+	# ORDER), so a field ball-up or throw-in no longer drafts the tackler
+	# and tackled or whoever was nearest. They're placed either side of the
+	# spot the way _centre_bounce_slot places them for a centre bounce (a
+	# stoppage cut, like _reposition_kickoff), HOME on its defensive (-X)
+	# side.
+	contestant_a.global_position = spot + Vector3(-RUCK_CONTEST_OFFSET, 0.0, 0.0)
+	contestant_b.global_position = spot + Vector3(RUCK_CONTEST_OFFSET, 0.0, 0.0)
+	contestant_a.velocity = Vector3.ZERO
+	contestant_b.velocity = Vector3.ZERO
+	# Nominated now, at the start of the throw-up, with a window that still
+	# runs RUCK_CONTEST_WINDOW past the release: RB pressed during the toss
+	# latches (PlayerController._update_ruck_contest) and the Chase camera
+	# eases side-on while the umpire throws.
+	var release := Tuning.BALL_UP_THROW_DURATION * Umpire.THROW_RELEASE_END
+	contestant_a.set_ruck_contestant(true, release + Tuning.RUCK_CONTEST_WINDOW)
+	contestant_b.set_ruck_contestant(true, release + Tuning.RUCK_CONTEST_WINDOW)
+	_ruck_contestants = [contestant_a, contestant_b]
+	# FULL_TEAM: the human takes the HOME ruckman for the contest.
+	if Settings.player_control_mode == Settings.PlayerControlMode.FULL_TEAM \
+			and ControlMode.scheme_for(Tuning.Team.HOME) == ControlMode.Scheme.SINGLE_PLAYER:
+		_assign_human_to(contestant_a if contestant_a.team == Tuning.Team.HOME else contestant_b)
+
 	var umpire := _field.field_umpire()
 	if is_instance_valid(umpire):
 		# Beside the contest, facing it — not between the two ruckmen.
@@ -606,8 +630,7 @@ func _begin_ruck_contest(spot: Vector3, contestant_a: PlayerController,
 	# Released when the arms reach the top of the sweep, not at the end of
 	# the whole beat — the last stretch of the clip is him following through
 	# and settling back, which happens after the ball has already gone.
-	_start_pause(Tuning.BALL_UP_THROW_DURATION * Umpire.THROW_RELEASE_END,
-		_release_ruck_contest.bind(spot, contestant_a, contestant_b))
+	_start_pause(release, _release_ruck_contest.bind(spot, contestant_a, contestant_b))
 
 
 ## The ball actually leaving the umpire's hands — a gentle lob (see
@@ -717,7 +740,10 @@ func _on_field_ball_up(tackler: PlayerController, tackled: PlayerController) -> 
 	# to would have a scramble, not a ball-up. Rests on the turf, not
 	# hovering over the spot.
 	_rest_ball_at(spot)
-	_start_pause(Tuning.CENTRE_BOUNCE_DELAY, _begin_ruck_contest.bind(spot, tackler, tackled))
+	# Each team's ruckman contests it, not the tackler and tackled (see
+	# _begin_ruck_contest).
+	_start_pause(Tuning.CENTRE_BOUNCE_DELAY,
+		_begin_ruck_contest.bind(spot, _home_players[0], _away_players[0]))
 
 
 ## The free-kick half of holding-the-ball (RULES_REFERENCE.md §4, design
@@ -1105,9 +1131,7 @@ func _trigger_out_of_bounds(pos: Vector3) -> void:
 ## (see this project's memory of P1's contest_minigame.py approach).
 func _resume_after_out_of_bounds(throw_in_point: Vector3) -> void:
 	_drop_all_balls()
-	var home := _nearest_player(_home_players, throw_in_point)
-	var away := _nearest_player(_away_players, throw_in_point)
-	_begin_ruck_contest(throw_in_point, home, away)
+	_begin_ruck_contest(throw_in_point, _home_players[0], _away_players[0])
 
 
 ## Manual safety net (bound to "debug_reset", same key as the milestone-1

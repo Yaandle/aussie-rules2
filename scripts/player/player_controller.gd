@@ -213,6 +213,10 @@ var _spoil_cooldown := 0.0
 var _is_ruck_contestant := false
 var _ruck_contest_timer := 0.0
 
+## An RB press latched for this contest but not yet jumped on — see
+## _update_ruck_contest. Cleared with the contestant flag.
+var _hit_out_armed := false
+
 ## Seconds left before another Bump attempt can commit — a real hit-stick
 ## commitment, not spammable (see _update_bump).
 var _bump_cooldown := 0.0
@@ -447,6 +451,7 @@ func _physics_process(delta: float) -> void:
 		_ruck_contest_timer = maxf(0.0, _ruck_contest_timer - delta)
 		if _ruck_contest_timer <= 0.0:
 			_is_ruck_contestant = false
+			_hit_out_armed = false
 
 	_update_charge(delta)
 	_update_marking(delta)
@@ -2325,14 +2330,19 @@ func live_mark_prompt(ball: Ball) -> Tuning.Action:
 ## contest) on exactly the two nominated players. Self-expiring — see
 ## _ruck_contest_timer in _physics_process — so a ruckman can't hold RB's
 ## Hit-Out meaning past the one contest they were nominated into.
-func set_ruck_contestant(value: bool) -> void:
+##
+## `window` defaults to RUCK_CONTEST_WINDOW; FullGame passes a longer one
+## when it nominates at the start of the umpire's throw-up, so the window
+## still covers RUCK_CONTEST_WINDOW of live ball after the release.
+func set_ruck_contestant(value: bool, window: float = Tuning.RUCK_CONTEST_WINDOW) -> void:
 	if value:
-		# A ball-up nominates both players out of the tackle that caused it
-		# and places them at the contest — nothing may still be pulling
-		# them back toward where the wrestle happened.
+		# The nominated ruckmen are placed at the contest — nothing may
+		# still be pulling them back toward an earlier tackle.
 		_end_tackle_hold()
 	_is_ruck_contestant = value
-	_ruck_contest_timer = Tuning.RUCK_CONTEST_WINDOW if value else 0.0
+	_ruck_contest_timer = window if value else 0.0
+	if not value:
+		_hit_out_armed = false
 
 
 func is_ruck_contestant() -> bool:
@@ -2358,13 +2368,27 @@ func _update_ruck_contest(_delta: float) -> void:
 	if not _is_ruck_contestant or is_carrying() or _stun_timer > 0.0 \
 			or _action != Tuning.Action.NONE:
 		return
+	# The press is read (and latched) before any ball checks. It used to be
+	# read only once the ball was airborne, then dropped if the ball was
+	# still out of range — consumed and gone — and a press during the
+	# umpire's throw-up only waited INPUT_BUFFER_WINDOW (0.12 s), so RB
+	# often did nothing (playtest: "the ruck tap is not always activating").
+	var fresh := _brain.wants_hit_out()
+	if fresh:
+		_hit_out_armed = true
+	if not _hit_out_armed:
+		return
 	var ball := _live_ball()
 	if not is_instance_valid(ball) or ball.is_held or not ball.is_airborne():
 		return
-	if not _brain.wants_hit_out():
-		return
 	if ball.global_position.distance_to(_carry_point.global_position) > Tuning.RUCK_CONTEST_JUMP_RANGE:
 		return
+	# A press made with the ball already live and in range jumps now — the
+	# player's own timing. An early (latched) press waits for the toss to
+	# slow near its peak, so it can't leap under a ball still climbing.
+	if not fresh and ball.linear_velocity.y > Tuning.RUCK_ARMED_FIRE_MAX_RISE:
+		return
+	_hit_out_armed = false
 	_begin_hit_out()
 
 
