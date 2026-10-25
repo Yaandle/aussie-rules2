@@ -52,7 +52,10 @@ const BUTTON_TOP := 600.0
 const CARD_PAD := 24.0
 const CARD_LEFT := LEFT_MARGIN - CARD_PAD
 const CARD_TOP := HEADER_TOP - CARD_PAD
-const CARD_WIDTH := StatRow.WIDTH + CARD_PAD * 2.0
+## Includes the selected row's right-hand nudge arrow, which StatRow
+## draws past its own WIDTH (ARROW_RIGHT_X) — without it the arrow sat on
+## the card's 4px border.
+const CARD_WIDTH := StatRow.WIDTH + StatRow.ARROW_GAP + StatRow.ARROW_SIZE + CARD_PAD * 2.0
 const CARD_HEIGHT := BUTTON_TOP + ActionButton.HEIGHT - CARD_TOP + CARD_PAD
 
 const HINTS_TOP := CARD_TOP + CARD_HEIGHT + RetroWindow.SHADOW_OFFSET.y + 6.0

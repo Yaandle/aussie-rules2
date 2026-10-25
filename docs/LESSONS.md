@@ -82,7 +82,10 @@ mostly superseded history. The full text lives outside the repo, in
   doesn't size to its children, so its backing never draws and dark text
   vanishes on a dark page. Use `PanelContainer` for any card built in a
   `CenterContainer`/`VBoxContainer`. This hid the Career full-time screen.
-- **Kick aim/power coupling (open, unplaytested).** `get_look_vector()`
+- **`RetroWindow.card()` doesn't grow with its content.** The wrapper is a
+  plain Control sized only by `minimum`. Inside a ScrollContainer that gives
+  a scroll range of ~0; set the wrapper's minimum height from
+  `inner.get_combined_minimum_size()` after filling it (team_list_screen.gd).- **Kick aim/power coupling (open, unplaytested).** `get_look_vector()`
   shapes the stick's combined magnitude, so on the aim stick the x (aim) and
   y (power) axes aren't independent. A big diagonal push suppresses power.
   Worth checking if kicking off to the side feels inconsistent.
