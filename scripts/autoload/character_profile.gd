@@ -54,6 +54,7 @@ var skin_color := ""
 var jersey_color := ""
 var shorts_color := ""
 var boot_color := ""
+var socks_color := ""
 
 
 
@@ -88,6 +89,7 @@ func save() -> void:
 	config.set_value(SECTION, "jersey_color", jersey_color)
 	config.set_value(SECTION, "shorts_color", shorts_color)
 	config.set_value(SECTION, "boot_color", boot_color)
+	config.set_value(SECTION, "socks_color", socks_color)
 	config.save(CONFIG_PATH)
 
 
@@ -120,6 +122,7 @@ func _load() -> void:
 	jersey_color = _load_hex(config, "jersey_color")
 	shorts_color = _load_hex(config, "shorts_color")
 	boot_color = _load_hex(config, "boot_color")
+	socks_color = _load_hex(config, "socks_color")
 
 
 ## Guards against a hand-edited or stale config naming something that

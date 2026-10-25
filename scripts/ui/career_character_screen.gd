@@ -102,7 +102,7 @@ func _ready() -> void:
 	_backdrop.set_model(CareerProfile.model_id)
 	_backdrop.set_kit_colors(_resolved_hex(CareerProfile.skin_color),
 		_resolved_hex(CareerProfile.jersey_color), _resolved_hex(CareerProfile.shorts_color),
-		_resolved_hex(CareerProfile.boot_color))
+		_resolved_hex(CareerProfile.boot_color), _resolved_hex(CareerProfile.socks_color))
 	_refresh()
 
 

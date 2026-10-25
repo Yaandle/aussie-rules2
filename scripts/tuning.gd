@@ -1507,6 +1507,18 @@ const CHARACTER_AGILITY_MAX := 1.5
 const CHARACTER_AGILITY_STEP := 0.05
 const CHARACTER_AGILITY_DEFAULT := 1.0
 
+## TeamKit.contrast() score an AWAY preset's jersey must reach against
+## HOME's before it's used (see team_kit.gd). Default gold vs the red away
+## preset scores ~0.77; crimson vs that red ~0.1. Unplaytested feel guess.
+const AWAY_KIT_MIN_CONTRAST := 0.6
+## Radius of the sock tube added over an imported character's lower leg
+## (HumanoidRig._add_imported_socks) — the Blender models have bare legs and
+## no sock material. Slightly fatter than the procedural shin's 0.062 so it
+## sits over the skinned calf. Unplaytested feel guess, needs eyes.
+const IMPORTED_SOCK_RADIUS := 0.07
+## Fraction of the shin, measured up from the ankle, the sock covers.
+const IMPORTED_SOCK_COVERAGE := 0.7
+
 const KICK_ACCURACY_MAX_SPREAD_DEG := 12.0  # deg of random error at zero accuracy
 
 const CHARACTER_TRANSITION_TIME := 0.3  # s, pixel-wipe cover/reveal duration

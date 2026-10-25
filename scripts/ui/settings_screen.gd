@@ -101,6 +101,14 @@ func _ready() -> void:
 			1 if Settings.mouse_kick_swapped else 0,
 			_set_mouse_kick_swapped
 		),
+		# Appended last so the FULL GAME CAMERA row keeps index 2, which
+		# _refresh() keys the camera preview off.
+		Row.new(
+			"FIELD",
+			["CLASSIC", "OVAL 1"],
+			Settings.field_style,
+			_set_field_style
+		),
 	]
 
 	var root := Control.new()
@@ -321,6 +329,11 @@ func _set_camera_mode(index: int) -> void:
 
 func _set_mouse_kick_swapped(index: int) -> void:
 	Settings.mouse_kick_swapped = index == 1
+
+
+## Takes effect from the next match/practice load (see Settings.field_style).
+func _set_field_style(index: int) -> void:
+	Settings.field_style = index as Settings.FieldStyle
 
 
 func _create_camera_preview(

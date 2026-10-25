@@ -25,6 +25,14 @@ mostly superseded history. The full text lives outside the repo, in
   probability roll** (`RULES_REFERENCE.md` §3). The ML models in
   `scripts/dev` are a sandbox. The one model-adjacent thing in gameplay is
   the mark cue, and it's only a cue (`docs/ML_AI_AUDIT.md` §9).
+- **Kits resolve in one place.** `TeamKit` gives HOME the CHARACTER
+  screen's kit and AWAY a preset picked to contrast with it. Imported
+  models are recoloured by Blender material name (`Shirt`/`Jersey`, `Short`,
+  `Shoe`/`Boot`, `Sock`, `Skin`), so keep those words in new exports.
+- **Field dressing is a setting, not a scene edit.** `Settings.field_style`
+  picks classic or Oval 1 (`scenes/field/oval1_environment.tscn`, trees as
+  MultiMesh) on Field instances with `follow_field_style`. Lines, posts and
+  collision never change with it.
 - **One context-sensitive tap.** Keyboard Q / gamepad X is Handball when
   carrying, Running Mark when the ball is airborne and reachable, Lunge
   tackle against a carrier, and Smother against a kicker already in stance.

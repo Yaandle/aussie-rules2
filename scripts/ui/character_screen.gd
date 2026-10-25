@@ -69,13 +69,14 @@ const CUSTOMISE_ROWS := [
 	{"key": "skin_color", "icon": &"swatch", "name": "SKIN", "kind": "swatch", "bar": false},
 	{"key": "jersey_color", "icon": &"swatch", "name": "JERSEY", "kind": "swatch", "bar": false},
 	{"key": "shorts_color", "icon": &"swatch", "name": "SHORTS", "kind": "swatch", "bar": false},
+	{"key": "socks_color", "icon": &"swatch", "name": "SOCKS", "kind": "swatch", "bar": false},
 	{"key": "boot_color", "icon": &"foot", "name": "SHOES", "kind": "swatch", "bar": false},
 ]
 
-## Fixed swatch palettes for the "swatch"-kind CUSTOMISE_ROWS, by key. Only
-## ever visible on the procedural body — an imported model brings its own
-## baked materials (see humanoid_rig.gd's kit_* header note) and a swatch
-## here previews no change on one, same existing limitation kit_torso has.
+## Fixed swatch palettes for the "swatch"-kind CUSTOMISE_ROWS, by key. The
+## kit rows (jersey/shorts/socks/shoes) become HOME's team kit in every mode
+## (TeamKit) and recolour imported models too, by material name; AWAY picks
+## its own contrasting kit. SKIN shows on this preview only.
 const SWATCHES := {
 	"skin_color": [
 		{"name": "FAIR", "color": Color("#ecc9a0")},
@@ -99,6 +100,14 @@ const SWATCHES := {
 		{"name": "WHITE", "color": Color("#f0ece0")},
 		{"name": "NAVY", "color": Color("#1f2d4a")},
 		{"name": "CRIMSON", "color": Color("#c0392b")},
+	],
+	"socks_color": [
+		{"name": "WHITE", "color": Color("#f0ece0")},
+		{"name": "BLACK", "color": Color("#1c1a17")},
+		{"name": "GOLD", "color": Color("#e9c95e")},
+		{"name": "CRIMSON", "color": Color("#c0392b")},
+		{"name": "BLUE", "color": Color("#2e5fa3")},
+		{"name": "GREEN", "color": Color("#2e7d4f")},
 	],
 	"boot_color": [
 		{"name": "BLACK", "color": Color("#22241d")},
@@ -190,6 +199,7 @@ func _ready() -> void:
 		"jersey_color": CharacterProfile.jersey_color,
 		"shorts_color": CharacterProfile.shorts_color,
 		"boot_color": CharacterProfile.boot_color,
+		"socks_color": CharacterProfile.socks_color,
 	}
 	_build()
 	_backdrop.set_height_scale(_draft["height"] / Tuning.CHARACTER_HEIGHT_DEFAULT)
@@ -328,7 +338,8 @@ func _apply_kit_preview() -> void:
 		_resolved_kit_color("skin_color"),
 		_resolved_kit_color("jersey_color"),
 		_resolved_kit_color("shorts_color"),
-		_resolved_kit_color("boot_color"))
+		_resolved_kit_color("boot_color"),
+		_resolved_kit_color("socks_color"))
 
 
 ## Copy the whole draft onto CharacterProfile and persist it. Shared by
@@ -346,6 +357,7 @@ func _commit_draft() -> void:
 	CharacterProfile.jersey_color = _draft["jersey_color"]
 	CharacterProfile.shorts_color = _draft["shorts_color"]
 	CharacterProfile.boot_color = _draft["boot_color"]
+	CharacterProfile.socks_color = _draft["socks_color"]
 	CharacterProfile.save()
 
 

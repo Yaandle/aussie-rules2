@@ -45,6 +45,7 @@ var skin_color := ""
 var jersey_color := ""
 var shorts_color := ""
 var boot_color := ""
+var socks_color := ""
 
 var team_name := DEFAULT_TEAM_NAME
 
@@ -140,6 +141,7 @@ func save() -> void:
 	config.set_value(SECTION, "jersey_color", jersey_color)
 	config.set_value(SECTION, "shorts_color", shorts_color)
 	config.set_value(SECTION, "boot_color", boot_color)
+	config.set_value(SECTION, "socks_color", socks_color)
 	config.set_value(SECTION, "team_name", team_name)
 	config.set_value(SECTION, "roster", roster)
 	config.set_value(SECTION, "fixtures", fixtures)
@@ -180,6 +182,7 @@ func _load() -> void:
 	jersey_color = _load_hex(config, "jersey_color")
 	shorts_color = _load_hex(config, "shorts_color")
 	boot_color = _load_hex(config, "boot_color")
+	socks_color = _load_hex(config, "socks_color")
 	team_name = config.get_value(SECTION, "team_name", team_name)
 	var loaded_roster: Array = config.get_value(SECTION, "roster", [])
 	roster.assign(loaded_roster)

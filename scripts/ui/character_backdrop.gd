@@ -76,6 +76,7 @@ var _kit_skin := Color(0.0, 0.0, 0.0, 0.0)
 var _kit_jersey := Color(0.0, 0.0, 0.0, 0.0)
 var _kit_shorts := Color(0.0, 0.0, 0.0, 0.0)
 var _kit_boot := Color(0.0, 0.0, 0.0, 0.0)
+var _kit_socks := Color(0.0, 0.0, 0.0, 0.0)
 
 
 func _ready() -> void:
@@ -114,17 +115,18 @@ func set_model(model_id: String) -> void:
 
 ## Live-preview the Customise draft's colour rows. Alpha 0 (the default)
 ## means "unset" and falls through to HumanoidRig's own constants, same as
-## kit_torso/kit_shorts always have. Only visible on the procedural body —
-## an imported model brings its own baked materials (see humanoid_rig.gd's
-## header note) and ignores these, same existing limitation kit_torso has.
+## kit_torso/kit_shorts always have. Kit slots recolour imported models too
+## (HumanoidRig._recolour_imported); skin only does once it's set.
 ## Rebuilds the rig outright rather than mutating it in place, since
 ## HumanoidRig only reads its kit_* exports at build time (set_model()
 ## already pays this same cost for a model change).
-func set_kit_colors(skin: Color, jersey: Color, shorts: Color, boot: Color) -> void:
+func set_kit_colors(skin: Color, jersey: Color, shorts: Color, boot: Color,
+		socks := Color(0.0, 0.0, 0.0, 0.0)) -> void:
 	_kit_skin = skin
 	_kit_jersey = jersey
 	_kit_shorts = shorts
 	_kit_boot = boot
+	_kit_socks = socks
 	set_model(_current_model_id)
 
 
@@ -156,6 +158,7 @@ func _build_rig(model_id: String, scale := Vector3.ONE) -> void:
 	rig.kit_torso = _kit_jersey
 	rig.kit_shorts = _kit_shorts
 	rig.kit_boot = _kit_boot
+	rig.kit_socks = _kit_socks
 	rig.position = STAND_ON
 	rig.rotation.y = deg_to_rad(180.0)   # face the camera
 	rig.scale = scale

@@ -92,6 +92,20 @@ const COLOUR_TRUNK := Color("#6B5B4A")
 const COLOUR_CANOPY_A := Color("#4F6B45")
 const COLOUR_CANOPY_B := Color("#6C8752")
 
+## Off when a scene supplies its own Blender-modelled fence / tree ring
+## instead of these generated ones. follow_field_style sets both for you.
+@export var build_fence := true
+@export var build_trees := true
+
+## Set on the match/practice instances (full_game.tscn, kick_to_kick.tscn)
+## so they dress the ground per Settings.field_style; off by default so the
+## menu/character/camera-preview backdrops stay the cheap generated field.
+## OVAL_1 hides the generated turf mesh (its collision stays, on Ground),
+## skips the generated fence and trees, and adds OVAL1_SCENE. Runtime only:
+## the editor always shows the classic field.
+@export var follow_field_style := false
+const OVAL1_SCENE_PATH := "res://scenes/field/oval1_environment.tscn"
+
 
 func _ready() -> void:
 	if not Engine.is_editor_hint():
@@ -100,8 +114,22 @@ func _ready() -> void:
 	_build_goals()
 	if not Engine.is_editor_hint():
 		_build_umpires()
-	_build_fence()
-	_build_trees()
+		if follow_field_style and Settings.field_style == Settings.FieldStyle.OVAL_1:
+			_apply_oval1()
+	if build_fence:
+		_build_fence()
+	if build_trees:
+		_build_trees()
+
+
+## load() rather than preload: the backdrop fields never pay for the
+## Oval 1 glbs.
+func _apply_oval1() -> void:
+	build_fence = false
+	build_trees = false
+	($Ground/Turf as MeshInstance3D).visible = false
+	var environment := (load(OVAL1_SCENE_PATH) as PackedScene).instantiate()
+	add_child(environment)
 
 
 ## The ground slab and its shader both take their extents from Tuning, so
