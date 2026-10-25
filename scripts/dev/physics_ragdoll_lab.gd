@@ -108,7 +108,12 @@ const MENU_POSITION := Vector2(8.0, 8.0)
 const MENU_WIDTH := 320.0
 const MENU_PADDING := 12.0
 const MENU_ROW_GAP := 4
-const MENU_SECTION_GAP := 8
+## Tight on purpose: with the TACKLE rows added the menu has to fit a
+## 720-pixel-tall window above the key-hint bar.
+const MENU_SECTION_GAP := 5
+## Room left under the menu for the key-hint bar along the bottom.
+const MENU_BOTTOM_CLEARANCE := 56.0
+const READOUT_WIDTH := 340.0
 const HARD_SHADOW := 4.0
 
 enum State { POSED, FALLING, SETTLED }
@@ -161,6 +166,9 @@ var _speed_label: Label
 var _floor_label: Label
 var _joint_label: Label
 var _status_label: Label
+var _menu_panel: PanelContainer
+var _menu_scroll: ScrollContainer
+var _menu_root: VBoxContainer
 var _angle_value: Label
 
 
@@ -614,16 +622,23 @@ func _build_ui() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_theme_constant_override(&"separation", MENU_SECTION_GAP)
 
-	var panel := PanelContainer.new()
-	panel.position = MENU_POSITION
-	panel.custom_minimum_size.x = MENU_WIDTH
-	panel.add_theme_stylebox_override(&"panel", _box(Color(RetroWindow.PANEL), 2, HARD_SHADOW, MENU_PADDING))
-	panel.add_child(root)
-	_ui.add_child(panel)
+	# The menu scrolls rather than running off the bottom of a short window
+	# (see _fit_menu); the run's text readout lives in its own panel on the
+	# right (_build_readout_panel) so the menu is only controls and cards.
+	_menu_panel = PanelContainer.new()
+	_menu_panel.position = MENU_POSITION
+	_menu_panel.custom_minimum_size.x = MENU_WIDTH
+	_menu_panel.add_theme_stylebox_override(&"panel", _box(Color(RetroWindow.PANEL), 2, HARD_SHADOW, MENU_PADDING))
+	_menu_scroll = ScrollContainer.new()
+	_menu_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_menu_scroll.add_child(root)
+	_menu_panel.add_child(_menu_scroll)
+	_ui.add_child(_menu_panel)
+	_menu_root = root
 
 	root.add_child(UIStyle.label("PHYSICS RAGDOLL LAB", UIStyle.SIZE_TITLE,
 		UIStyle.TEXT_PRIMARY, UIStyle.WEIGHT_HEAVY, UIStyle.TRACK_TITLE))
-	root.add_child(_muted_caption("ACTIVE RAGDOLL (§B4 STAGES 1-5) · %s" % MODEL_ID.to_upper()))
 
 	var metrics := GridContainer.new()
 	metrics.columns = 2
@@ -635,15 +650,11 @@ func _build_ui() -> void:
 	_floor_label = _add_metric(metrics, "LOWEST POINT")
 	_joint_label = _add_metric(metrics, "JOINT OVERSHOOT")
 
-	_status_label = _muted_caption("")
-	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	root.add_child(_status_label)
-
 	root.add_child(_section_heading("IMPACT"))
 	var impacts := HBoxContainer.new()
 	impacts.add_theme_constant_override(&"separation", 6)
 	root.add_child(impacts)
-	for entry: Array in [["GO LIMP", go_limp], ["PUSH", push], ["THROW", throw_ball]]:
+	for entry: Array in [["LIMP", go_limp], ["PUSH", push], ["THROW", throw_ball], ["TACKLE", tackle]]:
 		var b := _button(entry[0])
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.pressed.connect(entry[1])
@@ -674,10 +685,7 @@ func _build_ui() -> void:
 	root.add_child(_slider_row("MUSCLE %", 0.0, 100.0, 5.0, muscle * 100.0,
 		func(v: float) -> void: muscle = v / 100.0).node)
 
-	root.add_child(_section_heading("TACKLE (live Lunge numbers, FROM = tackler's bearing)"))
-	var tackle_button := _button("TACKLE")
-	tackle_button.pressed.connect(tackle)
-	root.add_child(tackle_button)
+	root.add_child(_section_heading("TACKLE · FROM = TACKLER'S BEARING"))
 	root.add_child(_slider_row("CLOSING m/s", CLOSING_MIN, CLOSING_MAX, 0.5, closing_speed,
 		func(v: float) -> void: closing_speed = v).node)
 	root.add_child(_slider_row("RUNNING m/s", 0.0, CARRIER_SPEED_MAX, 0.5, carrier_speed,
@@ -687,7 +695,6 @@ func _build_ui() -> void:
 	root.add_child(_slider_row("TACKLER kg", MASS_MIN, MASS_MAX, 1.0, tackler_mass,
 		func(v: float) -> void: tackler_mass = v).node)
 
-	root.add_child(_section_heading("VIEW"))
 	var view := HBoxContainer.new()
 	view.add_theme_constant_override(&"separation", 6)
 	root.add_child(view)
@@ -717,7 +724,43 @@ func _build_ui() -> void:
 		{"keys": "Esc / C", "label": "Back to viewer"},
 	])
 	_ui.add_child(hints)
+	_build_readout_panel()
+	get_viewport().size_changed.connect(_fit_menu)
+	_fit_menu.call_deferred()
 	_update_readouts()
+
+
+## Top-right card holding the run's text readout — the status line that
+## used to sit between the metric cards and IMPACT, one fact per line.
+func _build_readout_panel() -> void:
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override(&"panel", _box(Color(RetroWindow.PANEL), 2, HARD_SHADOW, MENU_PADDING))
+	panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	panel.offset_left = -READOUT_WIDTH - MENU_POSITION.x
+	panel.offset_right = -MENU_POSITION.x
+	panel.offset_top = MENU_POSITION.y
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override(&"separation", MENU_ROW_GAP)
+	panel.add_child(col)
+	col.add_child(_section_heading("READOUT · ACTIVE RAGDOLL (§B4 1-5) · %s" % MODEL_ID))
+	_status_label = UIStyle.label("", UIStyle.SIZE_LABEL, UIStyle.TEXT_PRIMARY)
+	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_status_label.custom_minimum_size.x = READOUT_WIDTH - MENU_PADDING * 2.0
+	col.add_child(_status_label)
+	_ui.add_child(panel)
+
+
+## Caps the menu at the space above the key-hint bar; past that it scrolls.
+func _fit_menu() -> void:
+	if _menu_scroll == null:
+		return
+	var available := get_viewport().get_visible_rect().size.y - MENU_POSITION.y - MENU_BOTTOM_CLEARANCE \
+		- MENU_PADDING * 2.0
+	var wanted := _menu_root.get_combined_minimum_size().y
+	_menu_scroll.custom_minimum_size.y = minf(wanted, maxf(available, 120.0))
+	_menu_panel.reset_size()
 
 
 func _update_readouts() -> void:
@@ -733,24 +776,32 @@ func _update_readouts() -> void:
 		_speed_label.text = "—"
 		_floor_label.text = "—"
 		_joint_label.text = "—"
-		_status_label.text = "%d bodies · %.0f kg · posed (rest pose, kinematic)" % [
+		_status_label.text = "%d bodies · %.0f kg\nPosed (rest pose, kinematic)" % [
 			_ragdoll.bodies.size(), _ragdoll.total_mass()]
 		return
 	_speed_label.text = "%.1f m/s" % _peak_speed
 	_floor_label.text = "%+.0f mm" % (_lowest * 1000.0)
 	_joint_label.text = "%.1f°" % _worst_joint.over
-	_status_label.text = "t %.1fs · worst joint %s (%.0f°) · settle damping %d%% · muscle %d%%%s" % [
-		_sim_time, _worst_joint.bone, _worst_joint.angle, roundi(_ragdoll.settle_blend() * 100.0),
-		roundi(_ragdoll.strength * 100.0), " · bracing" if _ragdoll.is_falling() else ""]
+	var lines: Array[String] = [
+		"Time  %.1f s" % _sim_time,
+		"Worst joint  %s (%.0f°)" % [_worst_joint.bone, _worst_joint.angle],
+		"Settle damping  %d%%" % roundi(_ragdoll.settle_blend() * 100.0),
+		"Muscle  %d%%%s" % [roundi(_ragdoll.strength * 100.0), "  · bracing" if _ragdoll.is_falling() else ""],
+	]
 	if not _tackle.is_empty():
 		var landing := _landing()
-		_status_label.text += "\nTACKLE b %.2f (closing %.1f m/s, %.0f° off square, mass ×%.2f) · push %.0f N·s at %s · tackler %s\nhips %.2f m %s, %.2f m %s · %s" % [
-			_tackle.b, _tackle.closing_speed, _tackle.approach_angle, _tackle.mass_ratio,
-			(_tackle.impulse as Vector3).length(), _tackle.bone,
-			"down too (b %.2f)" % _tackle.tackler_b if float(_tackle.tackler_b) > 0.0 else "stays up",
-			absf(landing.left), "left" if landing.left >= 0.0 else "right",
-			absf(landing.forward), "forward" if landing.forward >= 0.0 else "back",
-			"DOWN" if landing.down else "on feet"]
+		lines.append_array([
+			"",
+			"TACKLE  b %.2f" % _tackle.b,
+			"Closing  %.1f m/s · %.0f° off square" % [_tackle.closing_speed, _tackle.approach_angle],
+			"Mass ratio  ×%.2f" % _tackle.mass_ratio,
+			"Push  %.0f N·s at %s" % [(_tackle.impulse as Vector3).length(), _tackle.bone],
+			"Tackler  %s" % ("down too (b %.2f)" % _tackle.tackler_b if float(_tackle.tackler_b) > 0.0 else "stays up"),
+			"Hips  %.2f m %s, %.2f m %s" % [absf(landing.left), "left" if landing.left >= 0.0 else "right",
+				absf(landing.forward), "forward" if landing.forward >= 0.0 else "back"],
+			"Carrier  %s" % ("DOWN" if landing.down else "on feet"),
+		])
+	_status_label.text = "\n".join(lines)
 
 
 func _bearing_name(deg: float) -> String:
@@ -821,7 +872,7 @@ func _button(text: String, toggle := false) -> Button:
 	b.text = text
 	b.toggle_mode = toggle
 	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size.y = 30.0
+	b.custom_minimum_size.y = 26.0
 	var base := Color(RetroWindow.PANEL)
 	b.add_theme_stylebox_override(&"normal", _box(base.lightened(0.08), 2, 3.0, 8.0))
 	b.add_theme_stylebox_override(&"hover", _box(base.lightened(0.18), 2, 3.0, 8.0))
@@ -838,12 +889,12 @@ func _button(text: String, toggle := false) -> Button:
 
 func _metric_card(caption: String) -> Dictionary:
 	var box := PanelContainer.new()
-	box.add_theme_stylebox_override(&"panel", _box(Color(RetroWindow.PANEL).darkened(0.18), 2, 0.0, 8.0))
+	box.add_theme_stylebox_override(&"panel", _box(Color(RetroWindow.PANEL).darkened(0.18), 2, 0.0, 6.0))
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override(&"separation", 0)
 	box.add_child(col)
 	col.add_child(UIStyle.label(caption, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED))
-	var value := UIStyle.label("—", UIStyle.SIZE_TITLE, UIStyle.TEXT_PRIMARY, UIStyle.WEIGHT_BOLD)
+	var value := UIStyle.label("—", SoftBrutalist.SIZE_HEADING, UIStyle.TEXT_PRIMARY, UIStyle.WEIGHT_BOLD)
 	col.add_child(value)
 	return {"node": box, "value_label": value}
 
