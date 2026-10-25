@@ -316,7 +316,7 @@ func _build_ga_stage() -> Control:
 	page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(page)
 
-	page.add_child(_muted_caption("Genome: w_speed, w_angle, w_stamina (bias fixed). Scored against a fixed 5-point scenario ladder, not one input."))
+	page.add_child(_muted_caption("Genome: w_speed, w_angle, w_weight (bias fixed). Scored against a fixed 5-point scenario ladder, not one input. APPLY TO MODEL, then the MODEL page's SAVE TO MATCHES, to use a result in matches."))
 
 	page.add_child(_section_heading("Parameters"))
 	var pop_box := _spinbox_row(page, "Population", 10, 200, 10, 40)
@@ -392,14 +392,14 @@ func _build_ga_stage() -> Control:
 		var best: Dictionary = result.best_genome
 		var f: Dictionary = result.best_fitness
 
-		genome_label.text = "w_speed=%.2f   w_angle=%.2f   w_stamina=%.2f" % [best.w_speed, best.w_angle, best.w_stamina]
+		genome_label.text = "w_speed=%.2f   w_angle=%.2f   w_weight=%.2f" % [best.w_speed, best.w_angle, best.w_stamina]
 		score_card.value_label.text = "%.3f" % f.score
 		success_card.value_label.text = "%.1f%%" % (f.mean_success * 100.0)
 
 		var ladder_text := "LADDER (all 3 inputs move together): "
 		for i in TackleGAScript.LADDER.size():
 			ladder_text += "%s %.1f%%   " % [TackleGAScript.LADDER[i].name, f.p_breaks[i] * 100.0]
-		ladder_text += "\nPER-AXIS swing (other two held at midpoint): dspeed %.2f   angle %.2f   stamina %.2f" % [
+		ladder_text += "\nPER-AXIS swing (other two held at midpoint): dspeed %.2f   angle %.2f   weight %.2f" % [
 			f.axis_spreads.dspeed, f.axis_spreads.angle, f.axis_spreads.stamina]
 		ladder_label.text = ladder_text
 
@@ -675,7 +675,11 @@ func _build_placeholder_stage(stage_name: String, fixes: String, body: String) -
 
 ## Returns the slider set so the sweep page can read them.
 func _build_model_page(page: VBoxContainer) -> Dictionary:
-	page.add_child(_muted_caption("P(break) = σ(w₁·Δspeed + w₂·angle + w₃·stamina + b)\nSuccess = 1 − P(break)"))
+	# The third input used to be stamina, which nothing in a match has; it's
+	# the tackler ÷ carrier weight ratio now (1.0 = even), the slot matches
+	# feed it from (TackleBalance). The weights start at whatever matches
+	# currently use — SAVE TO MATCHES below writes them back.
+	page.add_child(_muted_caption("P(break) = σ(w₁·Δspeed + w₂·angle + w₃·weight + b)\nSuccess = 1 − P(break)"))
 
 	_experiment_z_label = _muted_caption("")
 	page.add_child(_experiment_z_label)
@@ -683,13 +687,32 @@ func _build_model_page(page: VBoxContainer) -> Dictionary:
 	page.add_child(_section_heading("Inputs"))
 	var dspeed := _slider_row(page, "Δspeed", -2.0, 4.0, 0.1, 0.7)
 	var angle := _slider_row(page, "Angle", -2.0, 2.0, 0.1, 0.7)
-	var stamina := _slider_row(page, "Stamina", 0.0, 2.0, 0.1, 0.7)
+	var stamina := _slider_row(page, "Weight ratio", 0.0, 2.0, 0.1, 1.0)
 
+	var live: Dictionary = TackleBalance.weights()
 	page.add_child(_section_heading("Weights"))
-	var w1 := _slider_row(page, "w₁ speed", 0.0, 12.0, 0.5, 6.0)
-	var w2 := _slider_row(page, "w₂ angle", 0.0, 8.0, 0.2, 4.0)
-	var w3 := _slider_row(page, "w₃ stamina", 0.0, 6.0, 0.2, 2.0)
-	var bias := _slider_row(page, "b bias", -10.0, 2.0, 0.2, -5.6)
+	var w1 := _slider_row(page, "w₁ speed", 0.0, 12.0, 0.5, live.w_speed)
+	var w2 := _slider_row(page, "w₂ angle", 0.0, 8.0, 0.2, live.w_angle)
+	var w3 := _slider_row(page, "w₃ weight", 0.0, 6.0, 0.2, live.w_stamina)
+	var bias := _slider_row(page, "b bias", -10.0, 2.0, 0.2, live.bias)
+
+	# Matches don't roll this — they evaluate the same σ on the real hit's
+	# closing speed, squareness and weight ratio as the active ragdoll's
+	# balance loss b (docs/MECHANICS_AUDIT.md §B4, TackleBalance).
+	var save_row := HBoxContainer.new()
+	save_row.add_theme_constant_override(&"separation", 8)
+	page.add_child(save_row)
+	var save_button := _button("SAVE TO MATCHES")
+	save_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	save_row.add_child(save_button)
+	var save_status := _muted_caption("Matches use these weights for a tackle's balance loss (the ragdoll's fall). %s" %
+		TackleBalance.WEIGHTS_PATH)
+	save_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	page.add_child(save_status)
+	save_button.pressed.connect(func() -> void:
+		var err := TackleBalance.save_weights(w1.value, w2.value, w3.value, bias.value, "ML page, MODEL sliders")
+		save_status.text = "Saved %s (%s): w₁ %.2f · w₂ %.2f · w₃ %.2f · b %.2f" % [
+			TackleBalance.WEIGHTS_PATH, error_string(err), w1.value, w2.value, w3.value, bias.value])
 
 	var m = TackleModelScript.new()
 	var recompute := func() -> void:

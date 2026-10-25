@@ -105,6 +105,17 @@ const MARK_MISS_BLEND := 0.08
 ## was blocked never consumed it).
 const MARK_CONTEXT_FRAMES := 2
 
+## ── Ragdoll get-ups (PlayerRagdoll) ─────────────────────────────────
+## The second half of the two canned falls, entered straight from a landed
+## ragdoll: state -> source clip. TACKLED lands face down, KNOCKED_BACK face
+## up. Each starts where its clip stops lying still — the last frame the
+## Hips are within GETUP_LYING_TOLERANCE of their lowest — found from the
+## clip's own Hips track at build time, so a re-authored clip moves it.
+const GETUP_STATES := {&"getup_face_down": &"tackled", &"getup_face_up": &"knocked_back"}
+const GETUP_LYING_TOLERANCE := 0.04
+const GETUP_SAMPLE_STEP := 1.0 / 60.0
+const HIPS_TRACK := ^"Skeleton3D:Hips"
+
 const LOCOMOTION_STATE := &"locomotion"
 const BLEND_SMOOTHING := 14.0     ## exponential rate; stops the blend snapping
 const ACTION_BLEND_IN := 0.10     ## s
@@ -143,6 +154,14 @@ var _mark_context := {}
 ## What the last mark selection picked and why — for the animation viewer's
 ## readout and headless checks.
 var _last_mark_selection := {}
+
+## state -> {"time", "remaining", "hips_position", "hips_up"} (skeleton
+## space) for each GETUP_STATES entry this rig's library could build.
+var _getups := {}
+
+## True while a ragdoll owns the skeleton (PlayerRagdoll sets it): the foot
+## clamp below would otherwise lift the hips of a body lying on the turf.
+var ragdoll_active := false
 
 
 func _ready() -> void:
@@ -205,7 +224,7 @@ func _process(_delta: float) -> void:
 ## can't independently re-plant one foot while the other stays put, so it
 ## stops clipping rather than fully locking a stance foot to the ground.
 func _clamp_feet_to_ground() -> void:
-	if _rig == null:
+	if _rig == null or ragdoll_active:
 		return
 	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
 	if skeleton == null:
@@ -374,6 +393,56 @@ func current_state() -> StringName:
 	return _playback.get_current_node()
 
 
+## The get-up states this rig has (see GETUP_STATES), and for one of them
+## where its clip picks up: {"time", "remaining" (s left to play),
+## "hips_position", "hips_up"} — the Hips bone's pose at that instant in
+## skeleton space, which PlayerRagdoll lines the player up against.
+func getup_info(state: StringName) -> Dictionary:
+	return _getups.get(state, {})
+
+
+## Jumps straight into a get-up state, no cross-fade — the blend out of the
+## ragdoll is the simulator's influence ramp, not the state machine's.
+func play_getup(state: StringName) -> bool:
+	if _playback == null or not _getups.has(state):
+		return false
+	_playback.start(state)
+	return true
+
+
+## Back to locomotion at once (a ragdoll that never went down).
+func play_locomotion() -> void:
+	if _playback != null:
+		_playback.start(LOCOMOTION_STATE)
+
+
+## Finds where a fall clip stops lying still — see GETUP_STATES.
+static func _getup_point(anim: Animation) -> Dictionary:
+	var pos_track := anim.find_track(HIPS_TRACK, Animation.TYPE_POSITION_3D)
+	var rot_track := anim.find_track(HIPS_TRACK, Animation.TYPE_ROTATION_3D)
+	if pos_track < 0 or rot_track < 0:
+		return {}
+	var lowest := INF
+	var lowest_t := 0.0
+	var t := 0.0
+	while t <= anim.length:
+		var y := anim.position_track_interpolate(pos_track, t).y
+		if y < lowest:
+			lowest = y
+			lowest_t = t
+		t += GETUP_SAMPLE_STEP
+	t = lowest_t
+	while t + GETUP_SAMPLE_STEP <= anim.length \
+			and anim.position_track_interpolate(pos_track, t + GETUP_SAMPLE_STEP).y <= lowest + GETUP_LYING_TOLERANCE:
+		t += GETUP_SAMPLE_STEP
+	return {
+		"time": t,
+		"remaining": anim.length - t,
+		"hips_position": anim.position_track_interpolate(pos_track, t),
+		"hips_up": Basis(anim.rotation_track_interpolate(rot_track, t)).y,
+	}
+
+
 func blend_position() -> Vector2:
 	return _blend
 
@@ -465,6 +534,32 @@ func _build_state_machine() -> AnimationNodeStateMachine:
 			_transition(MARK_MISS_BLEND,
 				AnimationNodeStateMachineTransition.SWITCH_MODE_IMMEDIATE,
 				AnimationNodeStateMachineTransition.ADVANCE_MODE_ENABLED))
+
+	# Ragdoll get-ups: the source clip from its lying point on (the same
+	# custom-timeline trick as mark_aggressive_miss), entered with
+	# play_getup() and leaving to locomotion when it ends. Imported rigs
+	# only — they're the only ones that ragdoll.
+	var rig := _rig as HumanoidRig
+	for state: StringName in GETUP_STATES:
+		var source: StringName = GETUP_STATES[state]
+		if rig == null or not rig.is_imported() or not _player.has_animation(source):
+			continue
+		var info := _getup_point(_player.get_animation(source))
+		if info.is_empty() or float(info.remaining) <= 0.0:
+			continue
+		_getups[state] = info
+		var clip := AnimationNodeAnimation.new()
+		clip.animation = source
+		clip.use_custom_timeline = true
+		clip.start_offset = info.time
+		clip.timeline_length = info.remaining
+		clip.stretch_time_scale = false
+		machine.add_node(state, clip, Vector2(1160.0, 40.0 + 110.0 * row))
+		row += 1
+		machine.add_transition(state, LOCOMOTION_STATE,
+			_transition(ACTION_BLEND_OUT,
+				AnimationNodeStateMachineTransition.SWITCH_MODE_AT_END,
+				AnimationNodeStateMachineTransition.ADVANCE_MODE_AUTO))
 	return machine
 
 

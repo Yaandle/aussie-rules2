@@ -114,6 +114,13 @@ var agility_scale := 1.0
 ## is actually rolled.
 var kick_accuracy := 1.0
 
+## Body mass, kg. Not the CharacterBody3D's (kinematic bodies have none) —
+## it's what a tackle weighs the two players by (TackleBalance's mass
+## ratio, the push's size) and what this player's ragdoll is built at.
+## Career sets it from the roster's weight (FullGame._apply_career_rosters);
+## everywhere else every player is the same Tuning.PLAYER_DEFAULT_MASS_KG.
+var body_mass := Tuning.PLAYER_DEFAULT_MASS_KG
+
 ## Set by whatever owns the view — movement is camera-relative, as every
 ## third-person game's is. Left null the player still works, just in
 ## world axes, which keeps this node testable headless.
@@ -285,6 +292,12 @@ var _tackle_hold_timer := 0.0
 var _tackle_hold_partner: PlayerController = null
 var _tackle_hold_is_tackler := false
 
+## This player's active ragdoll (Tuning's "Active ragdoll tackles"), made
+## on their first ragdoll tackle and kept (parked) after — see
+## _begin_ragdoll. While it's active the ragdoll owns the body: the player
+## can't act, and _update_locomotion just follows the hips.
+var _ragdoll: PlayerRagdoll = null
+
 ## Seconds this player personally has held the ball since their own last
 ## gather/mark. Distinct from MatchState.possession_seconds(), which
 ## tracks the whole TEAM's unbroken hold and does not reset on a same-team
@@ -453,6 +466,13 @@ func _physics_process(delta: float) -> void:
 			_is_ruck_contestant = false
 			_hit_out_armed = false
 
+	if is_ragdolled():
+		_ragdoll.step(delta)
+		# Down (or about to be) for as long as physics has the body; the
+		# get-up sets its own stun in on_ragdoll_getup.
+		if is_ragdolled() and _ragdoll.phase() != PlayerRagdoll.Phase.GETTING_UP:
+			_stun_timer = maxf(_stun_timer, 0.1)
+
 	_update_charge(delta)
 	_update_marking(delta)
 	_update_ruck_contest(delta)
@@ -497,12 +517,30 @@ func _physics_process(delta: float) -> void:
 	_try_bump_contact()
 	_try_smother_contact()
 
-	_animation.drive(locomotion_blend(), delta)
+	_animation.drive(Vector2.ZERO if is_ragdolled() else locomotion_blend(), delta)
 
 
 # ── Locomotion ───────────────────────────────────────────────────────
 
 func _update_locomotion(delta: float) -> void:
+	# A ragdoll owns the body outright: while it falls the capsule just
+	# follows its hips along the ground, so where the body lands is where
+	# the player is; while it waits to go rigid or blends into the get-up,
+	# the capsule holds still. Through velocity, like the tackle hold below,
+	# so move_and_slide still keeps it out of other players and the fence.
+	if is_ragdolled():
+		_speed = 0.0
+		velocity.x = 0.0
+		velocity.z = 0.0
+		if _ragdoll.is_falling():
+			var follow := (_ragdoll.hips_ground_position() - global_position) / delta
+			follow.y = 0.0
+			if follow.length() > Tuning.TACKLE_SLIDE_DIVE_SPEED * 2.0:
+				follow = follow.normalized() * Tuning.TACKLE_SLIDE_DIVE_SPEED * 2.0
+			velocity.x = follow.x
+			velocity.z = follow.z
+		return
+
 	# A bump's knockback overrides normal input-driven movement entirely
 	# while it's still decaying — the hit is what's moving this body right
 	# now, not the stick (see receive_bump()). Applied here, before
@@ -786,6 +824,10 @@ func _update_facing(delta: float) -> void:
 	# doesn't move — see _update_locomotion for where the feet do.
 	if _backpedaling:
 		return
+	# A ragdoll's get-up has placed the body to match the clip's lying
+	# pose; turning it now would spin the clip on the turf.
+	if is_ragdolled():
+		return
 	var desired := _heading
 	if _speed <= Tuning.PIVOT_SPEED_THRESHOLD and _wish_dir != Vector3.ZERO:
 		desired = _wish_dir
@@ -1055,7 +1097,10 @@ func _complete_gather(ball: Ball) -> void:
 	# Whoever has the ball is no longer wrestling for it — covers both a
 	# free kick/kick-in placement (give_possession) and the tackler simply
 	# picking up what they just stripped while the grab is still playing.
+	# Same for a ragdoll: a free kick awarded to a tackler still on the
+	# ground puts them on their feet with the ball.
 	_end_tackle_hold()
+	_cancel_ragdoll()
 	ball.attach_to(_carry_point, self)
 	_carried_ball = ball
 	_carry_distance = 0.0
@@ -1093,22 +1138,18 @@ func _complete_gather(ball: Ball) -> void:
 ## Slide and Lunge feed the same three numbers into different thresholds
 ## (see Tuning's TACKLE_SLIDE_*/TACKLE_LUNGE_TAP_* constants) rather than
 ## being two separate contest mechanics.
+## The three numbers themselves come from TackleBalance.contact_metrics, the
+## same ones the ragdoll's balance loss is worked out from.
 func _resolve_tackle_contact(tackler: PlayerController, target: PlayerController, is_slide: bool) -> bool:
 	var to_target := target.global_position - tackler.global_position
 	to_target.y = 0.0
 	if to_target.length_squared() < 0.0001:
 		return true
-	var dir_t2c := to_target.normalized()
-
-	var rel_velocity := tackler.velocity - target.velocity
-	rel_velocity.y = 0.0
-	var closing_speed := rel_velocity.dot(dir_t2c)
-
-	var carrier_horizontal := Vector3(target.velocity.x, 0.0, target.velocity.z)
-	var carrier_speed := carrier_horizontal.length()
-	var approach_angle := 0.0
-	if carrier_speed > Tuning.PIVOT_SPEED_THRESHOLD:
-		approach_angle = rad_to_deg((-dir_t2c).angle_to(carrier_horizontal / carrier_speed))
+	var m := TackleBalance.contact_metrics(tackler.global_position, tackler.velocity,
+		target.global_position, target.velocity)
+	var closing_speed: float = m.closing_speed
+	var carrier_speed: float = m.carrier_speed
+	var approach_angle: float = m.approach_angle
 
 	if is_slide:
 		var required := Tuning.TACKLE_SLIDE_MIN_CLOSING_SPEED \
@@ -1236,8 +1277,25 @@ func _try_lunge_tackle() -> void:
 	if target == null:
 		return
 	if _resolve_tackle_contact(self, target, false):
-		target._get_tackled(self, false)
-		_begin(Tuning.Action.TACKLE_TAKEDOWN)
+		# Worked out once, before either body changes, so both players react
+		# to the same hit.
+		var impact := TackleBalance.resolve(global_position, velocity, body_mass,
+			target.global_position, target.velocity, target.body_mass,
+			Tuning.TACKLE_RAGDOLL_MIN_BALANCE_LOSS, -target.global_transform.basis.z)
+		target._get_tackled(self, false, impact)
+		# A big enough hit takes the tackler off their feet too (Tuning's
+		# TACKLE_RAGDOLL_TACKLER_*), carried on into the carrier by their
+		# own momentum; otherwise the takedown beat on their feet as before.
+		var tackler_b: float = impact.tackler_b
+		if tackler_b <= 0.0 or not _begin_ragdoll({
+				"strength": 1.0 - tackler_b,
+				"impulse": impact.tackler_impulse,
+				"bone": &"Chest",
+				"contact_offset": Vector3.ZERO,
+				"velocity": velocity,
+				"mass_kg": body_mass,
+			}):
+			_begin(Tuning.Action.TACKLE_TAKEDOWN)
 		tackle_committed.emit(false)
 	else:
 		_lunge_tap_cooldown = Tuning.TACKLE_LUNGE_TAP_COOLDOWN
@@ -1257,7 +1315,14 @@ func _try_lunge_tackle() -> void:
 ## down from wherever it was carried (drop_ball()'s own detach(), no
 ## impulse at all), landing at the target's feet rather than scattering
 ## away from them.
-func _get_tackled(by: PlayerController, is_slide: bool) -> void:
+##
+## On a 6thbuild rig a Lunge connect goes to the active ragdoll instead of
+## the TACKLED clip (Tuning's "Active ragdoll tackles"): `impact` is
+## TackleBalance.resolve's read of the hit, and the body falls however that
+## push and its own momentum take it. The ball spills exactly as before —
+## the ragdoll changes how the player goes down, never what the tackle
+## decided.
+func _get_tackled(by: PlayerController, is_slide: bool, impact := {}) -> void:
 	var ball := _carried_ball
 	# Captured before drop_ball() resets anything, though drop_ball() itself
 	# doesn't touch this timer — is_carrying() going false next frame is what
@@ -1271,7 +1336,16 @@ func _get_tackled(by: PlayerController, is_slide: bool) -> void:
 		_action = Tuning.Action.NONE
 		_begin(Tuning.Action.TACKLE_HELD)
 	else:
-		_knockdown(scatter, Tuning.TACKLE_STUN_DURATION)
+		var ragdolled := not impact.is_empty() and _begin_ragdoll({
+			"strength": 1.0 - float(impact.b),
+			"impulse": impact.impulse,
+			"bone": impact.bone,
+			"contact_offset": impact.contact_offset,
+			"velocity": velocity,
+			"mass_kg": body_mass,
+		})
+		if not ragdolled:
+			_knockdown(scatter, Tuning.TACKLE_STUN_DURATION)
 		if is_instance_valid(ball):
 			ball.apply_central_impulse(scatter * Tuning.TACKLE_SPILL_SPEED * ball.mass)
 	if holding_the_ball:
@@ -1361,6 +1435,62 @@ func _fall_toward(direction: Vector3) -> void:
 	_heading = direction.normalized()
 	_facing_yaw = atan2(-_heading.x, -_heading.z)
 	rotation.y = _facing_yaw
+
+
+## Hands the body to the active ragdoll (PlayerRagdoll) for a tackle — see
+## its header for the phases. `hit` is PlayerRagdoll.begin's. Returns false
+## when this player can't ragdoll (procedural rig, feature off), so the
+## caller plays its canned clip instead. Whatever action was playing is cut
+## — physics has the skeleton now.
+func _begin_ragdoll(hit: Dictionary) -> bool:
+	var rig := get_node_or_null(^"Rig") as HumanoidRig
+	if not PlayerRagdoll.supported(rig):
+		return false
+	if _ragdoll == null:
+		_ragdoll = PlayerRagdoll.new(self, rig, _animation)
+	if not _ragdoll.begin(hit):
+		return false
+	_action = Tuning.Action.NONE
+	_charging = false
+	_end_tackle_hold()
+	_slide_dive_timer = 0.0
+	_bump_dash_timer = 0.0
+	_smother_dive_timer = 0.0
+	_knockback = Vector3.ZERO
+	_stun_timer = maxf(_stun_timer, 0.1)
+	return true
+
+
+func _cancel_ragdoll() -> void:
+	if is_ragdolled():
+		_ragdoll.cancel()
+
+
+## True from a ragdoll tackle connecting until its get-up blend finishes —
+## physics owns this player's body for all of it.
+func is_ragdolled() -> bool:
+	return _ragdoll != null and _ragdoll.is_active()
+
+
+## For headless checks: the active ragdoll, or null if this player has
+## never been ragdoll-tackled.
+func ragdoll_controller() -> PlayerRagdoll:
+	return _ragdoll
+
+
+## PlayerRagdoll's hand-back: the get-up clip is about to start from its
+## lying frame, so put the player where that frame lines up with the landed
+## body and keep them down until the clip ends.
+func on_ragdoll_getup(origin: Vector3, yaw: float, stun: float) -> void:
+	global_position = origin
+	velocity = Vector3.ZERO
+	_speed = 0.0
+	_facing_yaw = yaw
+	rotation.y = yaw
+	_heading = -global_transform.basis.z
+	_heading.y = 0.0
+	_heading = _heading.normalized()
+	_stun_timer = maxf(_stun_timer, stun)
 
 
 ## Smother (X tap, not carrying): a real committed dive at a kicker (design
@@ -2339,6 +2469,7 @@ func set_ruck_contestant(value: bool, window: float = Tuning.RUCK_CONTEST_WINDOW
 		# The nominated ruckmen are placed at the contest — nothing may
 		# still be pulling them back toward an earlier tackle.
 		_end_tackle_hold()
+		_cancel_ragdoll()
 	_is_ruck_contestant = value
 	_ruck_contest_timer = window if value else 0.0
 	if not value:

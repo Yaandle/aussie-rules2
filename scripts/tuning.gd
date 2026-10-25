@@ -867,6 +867,75 @@ const TACKLE_SLIDE_DIVE_DURATION := 0.35    # s the dash overrides normal locomo
 const TACKLE_SLIDE_DIVE_COOLDOWN := 1.1     # s between attempts — a real commitment, not spammable
 const TACKLE_SLIDE_DIVE_MIN_DOT := 0.5      # facing . to-carrier must clear this — no diving sideways/backward
 
+# ── Active ragdoll tackles (docs/MECHANICS_AUDIT.md §B4 stages 2-5) ────
+# A Lunge connect no longer plays the canned TACKLED fall: the target's
+# 6thbuild skeleton goes physical (PlayerRagdoll / PhysicsRagdoll) and the
+# hit decides the fall. _resolve_tackle_contact still decides WHETHER the
+# tackle holds, exactly as before — the ragdoll only decides HOW you go
+# down (user decision, 2026-10-25). Slide's held-up wrap and every bump
+# knockdown stay on their clips for now, and so does any player on the
+# procedural rig (no 6thbuild skeleton to build bodies on).
+#
+# Balance loss b (TackleBalance.balance_loss) is the tackle model's own
+# formula, σ(w_speed·speed + w_angle·angle + w_stamina·mass + bias), with
+# the trained weights from data/ml/tackle_weights.json and each input
+# normalised 0-1 from the real contact: closing speed over
+# TACKLE_BALANCE_CLOSING_SPEED_MAX, how square the hit is (1 at 0°, in the
+# carrier's path; 0 at 180°, chasing), and the tackler÷carrier mass ratio
+# over 0..2 (1.0 = even, the slot the model used to call stamina). A
+# formula, never a roll (RULES_REFERENCE.md §3). Muscle strength is 1 - b.
+const TACKLE_RAGDOLL_ENABLED := true
+const TACKLE_BALANCE_CLOSING_SPEED_MAX := 10.0  # m/s — the fastest closing speed the formula tells apart; unplaytested feel guess
+# A connected tackle holds (the rule above), so b never drops below this on
+# one: the ragdoll's strength is at most 1 - this, which in the lab always
+# went down. Lower b (staggers that recover) is the lab's to explore.
+const TACKLE_RAGDOLL_MIN_BALANCE_LOSS := 0.6    # unplaytested feel guess
+# The push: the pair's reduced mass (m₁m₂/(m₁+m₂) — an inelastic wrap-up)
+# × closing speed × b × SCALE N·s, along the
+# tackler's momentum relative to the carrier (hit from the right, pushed
+# left), tipped DRAG_DOWN toward the ground (a tackle drives you down, it
+# doesn't just shove), delivered over PUSH_DURATION at the chest — or the
+# hips when the hit comes from further behind than HIPS_FROM_BEHIND_DEG
+# (a chase-down tackle wraps low) — on the side that was hit. Capped at
+# the hardest push the lab ever ran clean.
+# Over 1 because a tackler drives on through the wrap with their legs —
+# and because at 1.0 a b ≈ 0.6 hit (strength 0.4) was too small to beat the
+# body sagging under its own weight, so it crumpled in place, sometimes
+# toward the tackler, instead of going down away from the hit.
+const TACKLE_RAGDOLL_IMPULSE_SCALE := 1.6       # unplaytested feel guess
+const TACKLE_RAGDOLL_IMPULSE_MAX := 700.0       # N·s
+const TACKLE_RAGDOLL_DRAG_DOWN := 0.25          # unplaytested feel guess
+const TACKLE_RAGDOLL_PUSH_DURATION := 0.12      # s, same as the lab's PUSH
+const TACKLE_RAGDOLL_HIPS_FROM_BEHIND_DEG := 120.0
+const TACKLE_RAGDOLL_CONTACT_SIDE_OFFSET := 0.12  # m from the body centre toward the tackler
+# The tackler: on a hit with b past TACKLER_MIN_B they lose balance too, by
+# b × TACKLER_SHARE, and take TACKLER_RECOIL of the push back the other way
+# — enough, with their own momentum still carrying them on into the
+# carrier, for the pair to go down together. Below it the tackler plays
+# TACKLE_TAKEDOWN on their feet as before.
+const TACKLE_RAGDOLL_TACKLER_MIN_B := 0.8       # unplaytested feel guess
+const TACKLE_RAGDOLL_TACKLER_SHARE := 0.6       # unplaytested feel guess
+const TACKLE_RAGDOLL_TACKLER_RECOIL := 0.3      # unplaytested feel guess
+# Getting up: once the ragdoll's been down GETUP_MIN_TIME and is moving
+# slower than GETUP_SETTLED_SPEED — or GETUP_MAX_TIME regardless — the
+# body blends from where it lies into the get-up half of TACKLED (face
+# down) or KNOCKED_BACK (face up) over GETUP_BLEND, and the player's
+# position is already where the hips landed. A ragdoll that never went
+# down (a stagger) blends straight back to locomotion. Total time out is
+# GETUP time + the clip's get-up half (~0.45-0.55 s) — a little longer
+# than TACKLE_STUN_DURATION's old 1.3 s on a hard hit.
+const TACKLE_RAGDOLL_GETUP_MIN_TIME := 0.8      # s, unplaytested feel guess
+const TACKLE_RAGDOLL_GETUP_MAX_TIME := 1.3      # s, unplaytested feel guess — the headless sweep rarely settled before it
+const TACKLE_RAGDOLL_GETUP_SETTLED_SPEED := 0.8 # m/s, peak body speed
+const TACKLE_RAGDOLL_GETUP_BLEND := 0.3         # s
+# Physics frames between building a player's ragdoll (first tackle only)
+# and switching it on — LESSONS.md's same-frame construction race.
+const TACKLE_RAGDOLL_BUILD_FRAMES := 2
+# Every PlayerController's body mass when nothing sets it — Career sets it
+# from the roster's weight (RosterGenerator 58-92 kg). The ragdoll's
+# segment masses scale from PhysicsRagdoll's ~86 kg build.
+const PLAYER_DEFAULT_MASS_KG := 80.0
+
 # Punch/Spoil (LT tap, not carrying, near an aerial contest): knocking a
 # high ball away is easier than controlling it, so the reach is more
 # generous than a catch's MARK_CATCH_RADIUS. Like tackle, this has no

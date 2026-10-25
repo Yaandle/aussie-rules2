@@ -394,6 +394,9 @@ func _apply_career_rosters() -> void:
 				float(entry.get("kick_power", Tuning.CHARACTER_KICK_POWER_DEFAULT)),
 				float(entry.get("kick_accuracy", Tuning.CHARACTER_KICK_ACCURACY_DEFAULT)),
 				float(entry.get("height", Tuning.CHARACTER_HEIGHT_DEFAULT)))
+			# Weight was flavour only until tackles weighed the two players
+			# (TackleBalance's mass ratio, the ragdoll's segment masses).
+			players[i].body_mass = float(entry.get("weight", Tuning.PLAYER_DEFAULT_MASS_KG))
 	# The roster copy of the Career player is a snapshot from creation;
 	# CareerProfile holds their current stats.
 	var slot := RosterGenerator.roster_index_for_role(CareerProfile.roster, CareerProfile.position)

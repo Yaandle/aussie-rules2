@@ -52,7 +52,23 @@ mostly superseded history. The full text lives outside the repo, in
   Normal match flow never hits it. Synthetic tests do.
 - **Use 6DOF joints for PhysicalBone3D under Jolt, not CONE** (CONE
   explodes). A jointed chain needs a settle and sleep assist, and the feet
-  must be capsules. See `scripts/dev/physics_ragdoll.gd`.
+  must be capsules. See `scripts/player/physics_ragdoll.gd`.
+- **Ragdoll bodies can't carry scale.** Match rigs are scaled by height, so
+  `PhysicsRagdoll.build` bakes the scale into shapes, joint anchors and an
+  inverse-scaled `body_offset`. They live on their own physics layer 5
+  ("ragdoll"), because player capsules shove light limbs about.
+- **Joint motors alone can't hold a ragdoll up.** Servos sized by each
+  link's inertia are about 10× too weak for a stance knee. Standing needs
+  the balance assist's weight support, and its tilt correction must be
+  weak at low strength, or it soaks up the hit and the body crumples in
+  place instead of falling away.
+- **Read a ragdoll's position from its bodies, not the skeleton.** In
+  physics frames `get_bone_global_pose` didn't track the simulated bodies
+  (1-3 m off after a fall), though the rendered skin did.
+- **Python edits on Windows corrupt files.** `open()` defaults to cp1252
+  and CRLF: an em dash came out as a raw 0x97 byte, which stopped
+  `tuning.gd` loading at all. Use the Edit tool, or
+  `encoding="utf-8", newline=""`.
 - **Bit-identical physics replays need the ball pinned in the air**
   (`Ball.lock_at`) before launch. Launching from a ground contact drifts by
   about 1e-4 m through Jolt's contact warm-start.

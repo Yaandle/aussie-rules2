@@ -12,13 +12,21 @@ extends Node3D
 ## lowest shape point (floor contact, no tunnelling), worst joint-limit
 ## overshoot, and whether it settles.
 ##
-## Deliberately not wired into anything in gameplay — no PlayerController,
-## no tackle resolution (that stays deterministic per docs/RULES_REFERENCE.md
-## §3 until a later stage decides otherwise), no animation hand-off. The
-## posed body is the 6thbuild skeleton's rest pose (arms in an A-pose);
-## animation -> ragdoll is stage 2's job. Stages 3-5 (motors, impact-aware
-## responses, recovery) are meant to land here too, which is why this is a
-## lab scene and not a one-off test.
+## Stages 2-5 now run in live tackles (PlayerRagdoll); this is where their
+## numbers get tuned. MUSCLE is the ragdoll's strength for PUSH / THROW
+## (stage 3: at 1 a small push staggers and recovers, near 0 it's the old
+## passive fall; GO LIMP is always 0). TACKLE mode (stage 4) adds a second
+## body, the tackler, at IMPACT FROM's bearing and runs the exact numbers a
+## live Lunge connect does — TackleBalance.resolve on CLOSING / CARRIER
+## speeds and the two masses, with the ML page's saved weights — except b
+## isn't floored at Tuning.TACKLE_RAGDOLL_MIN_BALANCE_LOSS, so the staggers
+## a match never shows can be explored. The tackler goes physical too when
+## b clears Tuning.TACKLE_RAGDOLL_TACKLER_MIN_B, as in a match; below it
+## they stay posed, as a match plays their takedown clip on their feet.
+## The posed body is the 6thbuild skeleton's rest pose (arms in an A-pose),
+## which is also the motors' target here; in a match it's whatever the
+## animation was doing at contact. No get-up — that needs the AnimationTree
+## and is a playtest item.
 ##
 ## Not reachable from the main menu. Open it from the animation viewer's
 ## CONTROL row (RAGDOLL), or open scenes/dev/physics_ragdoll_lab.tscn directly
@@ -38,6 +46,20 @@ const PUSH_DEFAULT := 260.0
 const BALL_SPEED_MIN := 5.0
 const BALL_SPEED_MAX := 35.0
 const BALL_SPEED_DEFAULT := 18.0
+
+## TACKLE mode ranges: closing speed (the tackler's into the carrier),
+## the carrier's own running speed (straight ahead), and both masses
+## (RosterGenerator's 58-92 kg plus some headroom).
+const CLOSING_MIN := 1.0
+const CLOSING_MAX := 10.0
+const CLOSING_DEFAULT := 6.0
+const CARRIER_SPEED_MAX := 8.0
+const MASS_MIN := 55.0
+const MASS_MAX := 110.0
+const MASS_DEFAULT := 80.0
+## How far the tackler stands from the carrier at contact — inside
+## TACKLE_RADIUS, where a Lunge connects.
+const TACKLER_DISTANCE := 0.9
 
 ## A PUSH is delivered as a constant force over this long rather than one
 ## instantaneous impulse — a real shove lasts about this long, and dumping
@@ -98,6 +120,18 @@ var impact_angle_deg := ANGLE_DEFAULT
 var push_impulse := PUSH_DEFAULT
 var ball_speed := BALL_SPEED_DEFAULT
 var target_bone: StringName = &"Chest"
+var muscle := 1.0
+var closing_speed := CLOSING_DEFAULT
+var carrier_speed := 0.0
+var carrier_mass := MASS_DEFAULT
+var tackler_mass := MASS_DEFAULT
+
+## The tackler's own rig and ragdoll (TACKLE mode), built on first use.
+var _tackler_subject: Node3D
+var _tackler_ragdoll: PhysicsRagdoll
+var _tackler_push := Vector3.ZERO
+var _tackle := {}
+var _contact_origin := Vector3.ZERO
 
 var _subject: Node3D
 var _rig: HumanoidRig
@@ -157,6 +191,8 @@ func stats() -> Dictionary:
 		"peak_speed": _peak_speed,
 		"lowest": _lowest,
 		"worst_joint": _worst_joint,
+		"tackle": _tackle,
+		"landing": _landing(),
 	}
 
 
@@ -187,7 +223,8 @@ func _build_subject() -> void:
 		if child is MeshInstance3D:
 			_skin_meshes.append(child)
 	_ragdoll = PhysicsRagdoll.new()
-	if not _ragdoll.build(skeleton):
+	# THROW's ball has to hit it — a match ragdoll ignores the ball.
+	if not _ragdoll.build(skeleton, 1.0, PhysicsRagdoll.BALL_LAYER):
 		_ragdoll = null
 		return
 	_debug_shapes = _ragdoll.build_debug_meshes()
@@ -199,7 +236,80 @@ func _build_subject() -> void:
 func go_limp() -> void:
 	if _ragdoll == null or _state != State.POSED:
 		return
-	_begin_simulation()
+	_begin_simulation(0.0)
+
+
+## TACKLE mode: a Lunge connect from IMPACT FROM's bearing, worked out the
+## way PlayerController._try_lunge_tackle does it (see the header).
+func tackle() -> void:
+	if _ragdoll == null:
+		return
+	reset_pose()
+	_ensure_tackler()
+	if _tackler_ragdoll == null:
+		return
+	var source := _impact_source_dir()
+	var forward := -_subject.global_basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	var carrier_vel := forward * carrier_speed
+	var tackler_vel := carrier_vel - source * closing_speed
+	var carrier_pos := _subject.global_position
+	_tackler_subject.global_position = carrier_pos + source * TACKLER_DISTANCE
+	# A rig faces -Z (HumanoidRig turns the import's +Z round), look_at's
+	# own convention.
+	_tackler_subject.look_at(carrier_pos, Vector3.UP)
+	_tackler_ragdoll.snap_to_pose()
+	_tackle = TackleBalance.resolve(_tackler_subject.global_position, tackler_vel, tackler_mass,
+		carrier_pos, carrier_vel, carrier_mass, 0.0, forward)
+	_contact_origin = carrier_pos
+	_ragdoll.set_mass_scale(carrier_mass / _rest_mass())
+	_tackler_ragdoll.set_mass_scale(tackler_mass / _rest_mass())
+	target_bone = _tackle.bone
+	_begin_simulation(1.0 - float(_tackle.b), carrier_vel)
+	_push_force = (_tackle.impulse as Vector3) / PUSH_DURATION
+	_push_remaining = PUSH_DURATION
+	if float(_tackle.tackler_b) > 0.0:
+		_tackler_ragdoll.capture_target_pose()
+		_tackler_ragdoll.strength = 1.0 - float(_tackle.tackler_b)
+		_tackler_ragdoll.start(tackler_vel)
+		_tackler_push = (_tackle.tackler_impulse as Vector3) / PUSH_DURATION
+
+
+func _rest_mass() -> float:
+	var m := 0.0
+	for spec: Dictionary in PhysicsRagdoll.BODIES:
+		m += float(spec.mass)
+	return m
+
+
+func _ensure_tackler() -> void:
+	if _tackler_subject != null:
+		return
+	_tackler_subject = Node3D.new()
+	_tackler_subject.name = "Tackler"
+	add_child(_tackler_subject)
+	var rig := HumanoidRig.new()
+	rig.character_model_override = MODEL_ID
+	rig.away_kit = true
+	_tackler_subject.add_child(rig)
+	if not rig.is_imported():
+		return
+	rig.skeleton().reset_bone_poses()
+	_tackler_ragdoll = PhysicsRagdoll.new()
+	if not _tackler_ragdoll.build(rig.skeleton(), 1.0, PhysicsRagdoll.BALL_LAYER):
+		_tackler_ragdoll = null
+
+
+## Where the carrier's hips ended up relative to where they were hit, in
+## their own frame — {"left", "forward"} metres — plus whether they're down.
+func _landing() -> Dictionary:
+	if _ragdoll == null or _state == State.POSED or _tackle.is_empty():
+		return {}
+	var moved := _ragdoll.body(&"Hips").global_position - _contact_origin
+	var forward := -_subject.global_basis.z
+	var right := _subject.global_basis.x
+	return {"left": -moved.dot(right), "forward": moved.dot(forward), "down": _ragdoll.is_down()}
 
 
 ## PUSH and THROW also work on a body that's already down — a second hit
@@ -210,6 +320,7 @@ func push() -> void:
 		return
 	if _state == State.POSED:
 		_begin_simulation()
+	_tackle = {}   # a plain push from here on, even onto a tackled body
 	_push_force = -_impact_source_dir() * push_impulse / PUSH_DURATION
 	_push_remaining = PUSH_DURATION
 
@@ -232,8 +343,12 @@ func throw_ball() -> void:
 func reset_pose() -> void:
 	_clear_ball()
 	_push_remaining = 0.0
+	_tackle = {}
+	_tackler_push = Vector3.ZERO
 	if _ragdoll != null and _ragdoll.is_simulating():
 		_ragdoll.stop()
+	if _tackler_ragdoll != null and _tackler_ragdoll.is_simulating():
+		_tackler_ragdoll.stop()
 	_state = State.POSED
 	_sim_time = 0.0
 	_settle_timer = 0.0
@@ -243,8 +358,12 @@ func reset_pose() -> void:
 	_update_readouts()
 
 
-func _begin_simulation() -> void:
-	_ragdoll.start()
+## `strength` < 0 = the MUSCLE slider. The motors hold the rest pose the
+## body is posed in.
+func _begin_simulation(strength := -1.0, velocity := Vector3.ZERO) -> void:
+	_ragdoll.capture_target_pose()
+	_ragdoll.strength = muscle if strength < 0.0 else strength
+	_ragdoll.start(velocity)
 	_state = State.FALLING
 	_sim_time = 0.0
 	_settle_timer = 0.0
@@ -311,9 +430,17 @@ func _physics_process(delta: float) -> void:
 
 	if _push_remaining > 0.0:
 		var dt := minf(delta, _push_remaining)
-		_ragdoll.apply_impact(target_bone, _push_force * dt)
+		if _tackle.is_empty():
+			_ragdoll.apply_impact(target_bone, _push_force * dt)
+		else:
+			_ragdoll.apply_impact_at(target_bone, _push_force * dt,
+				_ragdoll.body(target_bone).global_position + (_tackle.contact_offset as Vector3))
+			if _tackler_ragdoll.is_simulating():
+				_tackler_ragdoll.apply_impact(&"Chest", _tackler_push * dt)
 		_push_remaining -= dt
 
+	if _tackler_ragdoll != null and _tackler_ragdoll.is_simulating():
+		_tackler_ragdoll.step(delta)
 	_ragdoll.step(delta)
 	_sim_time += delta
 	var speed := _ragdoll.peak_speed()
@@ -360,6 +487,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventKey and event.pressed and not event.echo:
 		match (event as InputEventKey).physical_keycode:
 			KEY_SPACE: push()
+			KEY_K: tackle()
 			KEY_T: throw_ball()
 			KEY_L: go_limp()
 			KEY_R: reset_pose()
@@ -495,7 +623,7 @@ func _build_ui() -> void:
 
 	root.add_child(UIStyle.label("PHYSICS RAGDOLL LAB", UIStyle.SIZE_TITLE,
 		UIStyle.TEXT_PRIMARY, UIStyle.WEIGHT_HEAVY, UIStyle.TRACK_TITLE))
-	root.add_child(_muted_caption("STAGE 1 — PASSIVE RAGDOLL · %s" % MODEL_ID.to_upper()))
+	root.add_child(_muted_caption("ACTIVE RAGDOLL (§B4 STAGES 1-5) · %s" % MODEL_ID.to_upper()))
 
 	var metrics := GridContainer.new()
 	metrics.columns = 2
@@ -543,6 +671,21 @@ func _build_ui() -> void:
 		func(v: float) -> void: push_impulse = v).node)
 	root.add_child(_slider_row("BALL m/s", BALL_SPEED_MIN, BALL_SPEED_MAX, 1.0, ball_speed,
 		func(v: float) -> void: ball_speed = v).node)
+	root.add_child(_slider_row("MUSCLE %", 0.0, 100.0, 5.0, muscle * 100.0,
+		func(v: float) -> void: muscle = v / 100.0).node)
+
+	root.add_child(_section_heading("TACKLE (live Lunge numbers, FROM = tackler's bearing)"))
+	var tackle_button := _button("TACKLE")
+	tackle_button.pressed.connect(tackle)
+	root.add_child(tackle_button)
+	root.add_child(_slider_row("CLOSING m/s", CLOSING_MIN, CLOSING_MAX, 0.5, closing_speed,
+		func(v: float) -> void: closing_speed = v).node)
+	root.add_child(_slider_row("RUNNING m/s", 0.0, CARRIER_SPEED_MAX, 0.5, carrier_speed,
+		func(v: float) -> void: carrier_speed = v).node)
+	root.add_child(_slider_row("CARRIER kg", MASS_MIN, MASS_MAX, 1.0, carrier_mass,
+		func(v: float) -> void: carrier_mass = v).node)
+	root.add_child(_slider_row("TACKLER kg", MASS_MIN, MASS_MAX, 1.0, tackler_mass,
+		func(v: float) -> void: tackler_mass = v).node)
 
 	root.add_child(_section_heading("VIEW"))
 	var view := HBoxContainer.new()
@@ -566,6 +709,7 @@ func _build_ui() -> void:
 	hints.position = Vector2(24.0, 674.0)
 	hints.set_hints([
 		{"keys": "Space", "label": "Push"},
+		{"keys": "K", "label": "Tackle"},
 		{"keys": "T", "label": "Throw"},
 		{"keys": "L", "label": "Go limp"},
 		{"keys": "R", "label": "Reset"},
@@ -595,8 +739,18 @@ func _update_readouts() -> void:
 	_speed_label.text = "%.1f m/s" % _peak_speed
 	_floor_label.text = "%+.0f mm" % (_lowest * 1000.0)
 	_joint_label.text = "%.1f°" % _worst_joint.over
-	_status_label.text = "t %.1fs · worst joint %s (%.0f°) · settle damping %d%%" % [
-		_sim_time, _worst_joint.bone, _worst_joint.angle, roundi(_ragdoll.settle_blend() * 100.0)]
+	_status_label.text = "t %.1fs · worst joint %s (%.0f°) · settle damping %d%% · muscle %d%%%s" % [
+		_sim_time, _worst_joint.bone, _worst_joint.angle, roundi(_ragdoll.settle_blend() * 100.0),
+		roundi(_ragdoll.strength * 100.0), " · bracing" if _ragdoll.is_falling() else ""]
+	if not _tackle.is_empty():
+		var landing := _landing()
+		_status_label.text += "\nTACKLE b %.2f (closing %.1f m/s, %.0f° off square, mass ×%.2f) · push %.0f N·s at %s · tackler %s\nhips %.2f m %s, %.2f m %s · %s" % [
+			_tackle.b, _tackle.closing_speed, _tackle.approach_angle, _tackle.mass_ratio,
+			(_tackle.impulse as Vector3).length(), _tackle.bone,
+			"down too (b %.2f)" % _tackle.tackler_b if float(_tackle.tackler_b) > 0.0 else "stays up",
+			absf(landing.left), "left" if landing.left >= 0.0 else "right",
+			absf(landing.forward), "forward" if landing.forward >= 0.0 else "back",
+			"DOWN" if landing.down else "on feet"]
 
 
 func _bearing_name(deg: float) -> String:

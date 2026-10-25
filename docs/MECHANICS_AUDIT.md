@@ -277,6 +277,16 @@ working first):**
    the head/limbs, or transition into a controlled fall rather than a
    flat collapse.
 
+**Stages 2-5 status (2026-10-25): built, unplaytested.** A Lunge connect on
+a 6thbuild rig now ragdolls instead of playing TACKLED (`PlayerRagdoll`,
+`scripts/player/player_ragdoll.gd`). The tackle check still decides whether
+it holds. `TackleBalance` turns the hit into balance loss b with the ML
+page's saved weights (`data/ml/tackle_weights.json`), and motor strength is
+1 − b. Big hits take the tackler down too, then a face-up or face-down
+get-up blends in where the hips landed. The lab has a MUSCLE slider and a
+two-player TACKLE mode. Tunables are in Tuning's "Active ragdoll tackles".
+Slide (AI's only tackle) and bumps still use their clips.
+
 **Stage 1 status (2026-10-20): built.** `scenes/dev/physics_ragdoll_lab.tscn`
 (F6 in the editor; not on the main menu) — one passive 6thbuild ragdoll,
 knocked over by GO LIMP / PUSH / THROW with an impact bearing, strength and
