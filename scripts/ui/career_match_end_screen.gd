@@ -13,7 +13,7 @@ extends CanvasLayer
 ## RETURN TO MENU clears GameState.career_active — the one place that
 ## actually happens (see GameState.gd's own header note on why it isn't
 ## cleared any earlier) — then goes back to the Dashboard, which by now
-## sees CareerProfile.games_played >= 1 and renders its locked state.
+## shows the next round (or SEASON COMPLETE) and the updated ladder.
 ##
 ## 2026-10-24 playtest ("still cannot see the stats page at end of career
 ## or game"): the screen worked, but it closed on the first A/Enter/B with

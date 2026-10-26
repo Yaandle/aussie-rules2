@@ -30,6 +30,17 @@ extends Node
 ##   new teammates and opponents (the old fixed seeds gave every career the
 ##   same 12 opponents in the same order). 0 is the version-1 seeding.
 ## A version-1 file loads and converts in place (_load()).
+##
+## Seasons (docs/CAREER_AUDIT.md Phase 1): you play in a 12-team league
+## (league_teams + you) on CareerSeason's round-robin fixture. Recording
+## your result also scores that round's other five games, so the ladder
+## is always complete. After round 12, start_next_season() files the
+## season in season_history and either promotes you — top
+## Tuning.CAREER_PROMOTION_PLACES, to a new club in the next league of
+## CareerSeason.LEAGUES, with new teammates and opponents — or starts
+## another season in the same league with the same club. Your player (and
+## player_id) carries over either way. A save from before leagues existed
+## gets its season rebuilt into one (_rebuild_legacy_season()).
 
 const CONFIG_PATH := "user://career_profile.cfg"
 const SECTION := "career"
@@ -44,6 +55,11 @@ const ROSTER_SIZE := Tuning.TEAM_SIZE
 
 const DEFAULT_TEAM_NAME := "YOUR JUNIORS U18s"
 const SEASON_LENGTH := 12
+
+## season_outcome() values.
+const OUTCOME_PROMOTED := "promoted"
+const OUTCOME_CHAMPIONS := "champions"
+const OUTCOME_STAY := "stay"
 
 ## The four trainable attributes and the Tuning range each level maps
 ## across — the same ranges the quick-play CHARACTER screen drafts within,
@@ -79,6 +95,19 @@ var socks_color := ""
 
 var team_name := DEFAULT_TEAM_NAME
 var career_seed := 0
+
+## Tier in CareerSeason.LEAGUES, and seasons played before this one.
+var league_index := 0
+var season_index := 0
+## The 11 other teams in this season's league.
+var league_teams: Array[String] = []
+## Finished seasons, oldest first: {season, league, team, position, played,
+## won, lost, drawn, outcome}.
+var season_history: Array[Dictionary] = []
+
+## Team name -> average OVERALL for the sim, rebuilt on demand (generating
+## a roster is cheap, but the sim asks for 10 of them a round).
+var _ovr_cache := {}
 
 ## 18 {id, name, role, number, height, weight, speed, kick_power,
 ## kick_accuracy, agility} dicts in roster-spawn order (index i's role ==
@@ -210,6 +239,11 @@ func set_position(role: TeamFormation.Role) -> void:
 ## Takes `value` as your number; a teammate already wearing it gets your
 ## old one, so two players never share a jumper.
 func set_number(value: int) -> void:
+	_take_number(value)
+	save()
+
+
+func _take_number(value: int) -> void:
 	value = clampi(value, 1, 99)
 	var mine := player_roster_index()
 	var old_number := number if mine < 0 else int(roster[mine]["number"])
@@ -217,7 +251,6 @@ func set_number(value: int) -> void:
 		if i != mine and int(roster[i]["number"]) == value:
 			roster[i]["number"] = old_number
 	number = value
-	save()
 
 
 ## Writes your current identity and attributes into your roster entry.
@@ -236,7 +269,47 @@ func _sync_player_entry() -> void:
 
 
 func opponent_roster() -> Array[Dictionary]:
-	return RosterGenerator.generate_team(current_fixture(), career_seed)
+	return _league_roster(current_fixture())
+
+
+## Any team in the current league, as RosterGenerator rebuilds it.
+func _league_roster(team: String) -> Array[Dictionary]:
+	return RosterGenerator.generate_team(team, _league_salt(), CareerSeason.league_band(league_index))
+
+
+## Salt for this league's generated names and squads. League 0 uses
+## career_seed itself, so a version-1 save (seed 0) keeps its names.
+func _league_salt() -> int:
+	return career_seed if league_index == 0 else hash("%d#league%d" % [career_seed, league_index])
+
+
+## Joins `club` in the current league: its generated squad with you
+## spliced into your position's slot. Ids carry on from the last club's,
+## so a player id never repeats within a career; you keep player_id (or
+## take your slot's id on a brand-new career), your number (swapping with
+## whoever had it) and your weight.
+func _join_club(club: String) -> void:
+	var first_id := 1
+	var carried_weight := -1.0
+	var mine := player_roster_index()
+	if mine >= 0:
+		carried_weight = float(roster[mine].get("weight", -1.0))
+	for entry in roster:
+		first_id = maxi(first_id, int(entry.get("id", 0)) + 1)
+
+	team_name = club
+	roster = _league_roster(club)
+	for i in roster.size():
+		roster[i]["id"] = first_id + i
+	var slot := RosterGenerator.roster_index_for_role(roster, position)
+	if player_id <= 0:
+		player_id = int(roster[slot]["id"])
+	roster[slot]["id"] = player_id
+	if carried_weight > 0.0:
+		roster[slot]["weight"] = carried_weight
+	var wanted_number := number
+	number = int(roster[slot]["number"])
+	_take_number(wanted_number)
 
 
 # ── Season ───────────────────────────────────────────────────────────
@@ -258,44 +331,149 @@ func current_fixture() -> String:
 
 
 ## Called once, on character creation, after the identity/attribute fields
-## are set: a fresh seed, an 18-player roster with you spliced into your
-## position's slot, and a season of fixtures. Overwrites any career in
-## progress — the Dashboard's New Career asks before getting here.
+## are set: a fresh seed, a club and league in the first tier, an
+## 18-player roster with you spliced into your position's slot, and the
+## season's fixture. Overwrites any career in progress — the Dashboard's
+## New Career asks before getting here. WEIGHT has no draft row (same
+## "flavour only" status it has on the quick-play CHARACTER screen), so
+## you keep your slot's generated weight.
 func start_career() -> void:
 	career_seed = _new_seed()
-	team_name = DEFAULT_TEAM_NAME
-	roster = RosterGenerator.generate_team(team_name, career_seed)
-	for i in roster.size():
-		roster[i]["id"] = i + 1
-	var slot := RosterGenerator.roster_index_for_role(roster, position)
-	player_id = int(roster[slot]["id"])
-	# WEIGHT has no draft row (same "flavour only" status it has on the
-	# quick-play CHARACTER screen), so you keep the slot's generated weight.
-	var wanted_number := number
-	number = int(roster[slot]["number"])
-	set_number(wanted_number)
-
-	rounds.clear()
-	for opponent in RosterGenerator.generate_team_names(SEASON_LENGTH, career_seed):
-		rounds.append({"opponent": opponent, "played": false})
+	league_index = 0
+	season_index = 0
+	season_history.clear()
+	roster.clear()
+	player_id = 0
+	_ovr_cache.clear()
+	_enter_league()
+	_start_season()
 	last_result = {}
 	save()
 
 
+## A club and 11 opponents for the current league, all drawn from that
+## league's own name list so they never repeat within it.
+func _enter_league() -> void:
+	var names := RosterGenerator.generate_team_names(CareerSeason.LEAGUE_SIZE, _league_salt())
+	league_teams.assign(names.slice(1))
+	_join_club(names[0])
+
+
+## This season's fixture: the league's teams in a per-season order, so a
+## repeat season in the same league isn't the same draw again.
+func _start_season() -> void:
+	var order: Array[String] = league_teams.duplicate()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash("%d#season%d#%d" % [career_seed, league_index, season_index])
+	for i in range(order.size() - 1, 0, -1):
+		var j := rng.randi_range(0, i)
+		var tmp := order[i]
+		order[i] = order[j]
+		order[j] = tmp
+	rounds = CareerSeason.build_rounds(order, SEASON_LENGTH)
+
+
 ## Records the current round's result and advances to the next one. Score
 ## text is whatever MatchState.scoreline() produced for each side, kept as
-## display strings; the points are kept as numbers for the ladder.
+## display strings; the points are kept as numbers for the ladder. The
+## round's other games are scored here too (_sim_other_games()).
 func record_result(result: Dictionary = {}) -> void:
 	var index := games_played
 	if index >= rounds.size():
 		return
 	var round_entry := rounds[index]
 	round_entry["played"] = true
-	for key in ["home_score", "away_score", "home_points", "away_points"]:
+	for key in ["home_score", "away_score", "home_points", "away_points", "simulated"]:
 		if result.has(key):
 			round_entry[key] = result[key]
+	_sim_other_games(index)
 	if not result.is_empty():
 		last_result = result
+	save()
+
+
+## Dev-only (the Dashboard's debug key): scores your own game with the
+## same off-screen sim as everyone else's and records it, so seasons can be
+## run through without playing them. Marked "simulated" on the round.
+func sim_current_round() -> void:
+	if season_complete():
+		return
+	var opponent := current_fixture()
+	var result := CareerSeason.sim_match(_game_key(games_played, team_name, opponent),
+		CareerSeason.team_ovr(roster), _team_ovr(opponent))
+	result["opponent"] = opponent
+	result["simulated"] = true
+	record_result(result)
+
+
+func _sim_other_games(index: int) -> void:
+	for game: Dictionary in rounds[index].get("others", []):
+		var home := String(game["home"])
+		var away := String(game["away"])
+		game.merge(CareerSeason.sim_match(_game_key(index, home, away),
+			_team_ovr(home), _team_ovr(away)), true)
+
+
+func _game_key(index: int, home: String, away: String) -> String:
+	return "%d|%d|%d|%d|%s|%s" % [career_seed, league_index, season_index, index, home, away]
+
+
+func _team_ovr(team: String) -> float:
+	var key := "%d|%d|%s" % [career_seed, league_index, team]
+	if not _ovr_cache.has(key):
+		_ovr_cache[key] = CareerSeason.team_ovr(_league_roster(team))
+	return _ovr_cache[key]
+
+
+func ladder() -> Array[Dictionary]:
+	return CareerSeason.ladder(team_name, league_teams, rounds)
+
+
+## Your place on the ladder, 1-based.
+func ladder_position() -> int:
+	var table := ladder()
+	for i in table.size():
+		if table[i]["you"]:
+			return i + 1
+	return table.size()
+
+
+## What finishing where you are now means, once the season is over.
+func season_outcome() -> String:
+	var place := ladder_position()
+	if CareerSeason.is_top_league(league_index):
+		return OUTCOME_CHAMPIONS if place == 1 else OUTCOME_STAY
+	return OUTCOME_PROMOTED if place <= Tuning.CAREER_PROMOTION_PLACES else OUTCOME_STAY
+
+
+## season_outcome() in words, for the Dashboard and the Season Summary.
+func season_outcome_text() -> String:
+	match season_outcome():
+		OUTCOME_PROMOTED:
+			return "Promoted to %s" % CareerSeason.league_name(league_index + 1)
+		OUTCOME_CHAMPIONS:
+			return "Champions of %s" % CareerSeason.league_name(league_index)
+	return "Another season in %s" % CareerSeason.league_name(league_index)
+
+
+## Files the finished season and starts the next one: up a league with a
+## new club if promoted, else the same league and club again.
+func start_next_season() -> void:
+	if not season_complete():
+		return
+	var outcome := season_outcome()
+	var row: Dictionary = ladder()[ladder_position() - 1]
+	season_history.append({
+		"season": season_index + 1, "league": CareerSeason.league_name(league_index),
+		"team": team_name, "position": ladder_position(), "played": row["played"],
+		"won": row["won"], "lost": row["lost"], "drawn": row["drawn"], "outcome": outcome,
+	})
+	season_index += 1
+	if outcome == OUTCOME_PROMOTED:
+		league_index += 1
+		_enter_league()
+	_start_season()
+	last_result = {}
 	save()
 
 
@@ -325,6 +503,10 @@ func save() -> void:
 	config.set_value(SECTION, "socks_color", socks_color)
 	config.set_value(SECTION, "team_name", team_name)
 	config.set_value(SECTION, "career_seed", career_seed)
+	config.set_value(SECTION, "league_index", league_index)
+	config.set_value(SECTION, "season_index", season_index)
+	config.set_value(SECTION, "league_teams", league_teams)
+	config.set_value(SECTION, "season_history", season_history)
 	config.set_value(SECTION, "roster", roster)
 	config.set_value(SECTION, "player_id", player_id)
 	config.set_value(SECTION, "rounds", rounds)
@@ -366,6 +548,11 @@ func _load() -> void:
 	socks_color = _load_hex(config, "socks_color")
 	team_name = config.get_value(SECTION, "team_name", team_name)
 	career_seed = int(config.get_value(SECTION, "career_seed", 0))
+	league_index = clampi(int(config.get_value(SECTION, "league_index", 0)),
+		0, CareerSeason.LEAGUES.size() - 1)
+	season_index = maxi(int(config.get_value(SECTION, "season_index", 0)), 0)
+	league_teams.assign(config.get_value(SECTION, "league_teams", []))
+	season_history.assign(config.get_value(SECTION, "season_history", []))
 
 	var loaded_roster: Array = config.get_value(SECTION, "roster", [])
 	roster.assign(loaded_roster)
@@ -385,7 +572,50 @@ func _load() -> void:
 		rounds.assign(config.get_value(SECTION, "rounds"))
 	else:
 		_rounds_from_version_1(config)
+	if league_teams.is_empty() and not rounds.is_empty():
+		_rebuild_legacy_season()
 	_sync_player_entry()
+
+
+## A save from before leagues (version 1, or version 2 before Phase 1) has
+## 12 rounds against 12 different opponents and no other games, so there's
+## no ladder to build. It becomes a 12-team league of the first 11
+## opponents, rounds already played kept in order at the front of your
+## fixture (with their results), and those rounds' other games scored.
+## Those saves could only ever have played round 1 (the Dashboard locked
+## after it), so nothing past that needs keeping.
+func _rebuild_legacy_season() -> void:
+	var played: Array[Dictionary] = []
+	for round_entry in rounds:
+		if not bool(round_entry.get("played", false)):
+			break
+		played.append(round_entry)
+	var sequence: Array[String] = []
+	for round_entry in played + rounds:
+		var opponent := String(round_entry["opponent"])
+		if not opponent in sequence and sequence.size() < CareerSeason.LEAGUE_SIZE - 1:
+			sequence.append(opponent)
+	league_teams.assign(sequence)
+	rounds = CareerSeason.build_rounds(sequence, SEASON_LENGTH)
+	for i in mini(played.size(), sequence.size()):
+		rounds[i]["played"] = true
+		for key in ["home_score", "away_score", "home_points", "away_points"]:
+			if played[i].has(key):
+				rounds[i][key] = played[i][key]
+		# Version 1 kept only the "G.B (P)" text.
+		for side in ["home", "away"]:
+			if not rounds[i].has(side + "_points"):
+				rounds[i][side + "_points"] = _points_in(String(rounds[i].get(side + "_score", "")))
+		_sim_other_games(i)
+
+
+## The P out of a "G.B (P)" scoreline, 0 if there isn't one.
+static func _points_in(scoreline: String) -> int:
+	var open := scoreline.find("(")
+	var close := scoreline.find(")", open)
+	if open < 0 or close < 0:
+		return 0
+	return scoreline.substr(open + 1, close - open - 1).to_int()
 
 
 ## Version 1 kept only the opponent names and a played count; the only

@@ -1668,6 +1668,26 @@ const CAREER_HEIGHT_KEY := 193.0       # cm — FB/CHB/CHF/FF, unplaytested feel
 const CAREER_HEIGHT_MEDIUM := 185.0    # cm — flanks, wings, centre, ruck rover; unplaytested feel guess
 const CAREER_HEIGHT_SMALL := 178.0     # cm — pockets, rover; unplaytested feel guess
 
+## Generated players in league tier N (CareerSeason.LEAGUES) get attributes
+## between level N and N + this, so Juniors sides sit near the bottom of
+## the range and each promotion meets a stronger league. Unplaytested feel
+## guess.
+const CAREER_LEAGUE_BAND_WIDTH := 4
+## Ladder places promoted at the end of a season (out of a 12-team league).
+const CAREER_PROMOTION_PLACES := 2
+
+## Off-screen results for the league games you don't play (CareerSeason.
+## sim_match) — goals and behinds drawn around these per side, nudged by
+## the two teams' average OVERALL. Never used inside a match: RULES_
+## REFERENCE §3's no-dice rule is about contests, and these games have no
+## contests to decide. Aimed at what 4 × QUARTER_LENGTH of play produces;
+## unplaytested feel guess, re-aim once there are real Career scorelines.
+const CAREER_SIM_GOALS := 4.0            # mean goals per side
+const CAREER_SIM_GOALS_SD := 1.8
+const CAREER_SIM_GOALS_PER_OVR := 0.12   # extra goals per point of OVERALL advantage
+const CAREER_SIM_BEHINDS := 3.0          # mean behinds per side
+const CAREER_SIM_BEHINDS_SD := 1.5
+
 ## TeamKit.contrast() score an AWAY preset's jersey must reach against
 ## HOME's before it's used (see team_kit.gd). Default gold vs the red away
 ## preset scores ~0.77; crimson vs that red ~0.1. Unplaytested feel guess.

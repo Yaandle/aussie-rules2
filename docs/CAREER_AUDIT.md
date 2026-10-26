@@ -169,7 +169,14 @@ Phase 7 moves it into Edit Player.
   fixtures and the roster get a per-career seed; picking a taken number
   swaps it with that teammate.
 
-### Phase 1: season loop, ladder, leagues
+### Phase 1: season loop, ladder, leagues (done 2026-10-26)
+
+Landed as below. Extras: a `season_history` of finished seasons (shown
+on the Season Summary as CAREER SO FAR), the ladder as a panel on the
+Dashboard, and generated club names in place of "YOUR JUNIORS U18s" for
+new careers. An older save's season is rebuilt into a 12-team league,
+keeping any round already played. Its opponents keep their names but now
+have Juniors-strength squads. F8 is the dev sim key (debug builds only).
 
 - 12 rounds against a 12-team league (you plus 11 opponents: a round robin
   over 11 rounds, then a round-12 rematch). Win 4 points, draw 2, and

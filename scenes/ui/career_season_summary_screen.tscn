@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/career_season_summary_screen.gd" id="1_summary"]
+
+[node name="CareerSeasonSummaryScreen" type="CanvasLayer"]
+script = ExtResource("1_summary")

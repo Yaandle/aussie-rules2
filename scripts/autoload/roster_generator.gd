@@ -59,8 +59,12 @@ const WEIGHT_MAX := 92.0
 ## four attribute fields are random within the same Tuning ranges the
 ## Career/quick-play character screens draft from, so a generated
 ## teammate's OVERALL (see overall()) sits on the same scale a created
-## player's does.
-static func generate_team(team_name: String, salt := 0) -> Array[Dictionary]:
+## player's does. `band` narrows them to a span of Career attribute levels
+## (CareerSeason.league_band() — a Juniors side is weaker than a State
+## one); the default is the whole range.
+const FULL_BAND := Vector2i(0, Tuning.CAREER_ATTRIBUTE_LEVELS)
+
+static func generate_team(team_name: String, salt := 0, band := FULL_BAND) -> Array[Dictionary]:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = _seed(team_name, salt)
 
@@ -76,14 +80,21 @@ static func generate_team(team_name: String, salt := 0) -> Array[Dictionary]:
 			"number": numbers[i],
 			"height": rng.randf_range(HEIGHT_MIN, HEIGHT_MAX),
 			"weight": rng.randf_range(WEIGHT_MIN, WEIGHT_MAX),
-			"speed": rng.randf_range(Tuning.CHARACTER_SPEED_MIN, Tuning.CHARACTER_SPEED_MAX),
-			"kick_power": rng.randf_range(Tuning.CHARACTER_KICK_POWER_MIN,
-				Tuning.CHARACTER_KICK_POWER_MAX),
-			"kick_accuracy": rng.randf_range(Tuning.CHARACTER_KICK_ACCURACY_MIN,
-				Tuning.CHARACTER_KICK_ACCURACY_MAX),
-			"agility": rng.randf_range(Tuning.CHARACTER_AGILITY_MIN, Tuning.CHARACTER_AGILITY_MAX),
+			"speed": _banded(rng, Tuning.CHARACTER_SPEED_MIN, Tuning.CHARACTER_SPEED_MAX, band),
+			"kick_power": _banded(rng, Tuning.CHARACTER_KICK_POWER_MIN,
+				Tuning.CHARACTER_KICK_POWER_MAX, band),
+			"kick_accuracy": _banded(rng, Tuning.CHARACTER_KICK_ACCURACY_MIN,
+				Tuning.CHARACTER_KICK_ACCURACY_MAX, band),
+			"agility": _banded(rng, Tuning.CHARACTER_AGILITY_MIN, Tuning.CHARACTER_AGILITY_MAX, band),
 		})
 	return roster
+
+
+## One random draw between `band`'s two levels, as a value in vmin..vmax.
+## With FULL_BAND this is the same single draw randf_range(vmin, vmax) was.
+static func _banded(rng: RandomNumberGenerator, vmin: float, vmax: float, band: Vector2i) -> float:
+	var t := rng.randf_range(float(band.x), float(band.y)) / Tuning.CAREER_ATTRIBUTE_LEVELS
+	return lerpf(vmin, vmax, t)
 
 
 ## 0..100 rating from a roster entry's four performance attributes
