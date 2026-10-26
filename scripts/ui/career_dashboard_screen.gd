@@ -32,9 +32,10 @@ extends CanvasLayer
 ## Roster | View Stats | View Fixture sharing the same width — so the
 ## controls read as one block; New Career sits up by the team name, away
 ## from the things you press every week. Button labels are Title Case with
-## no letter tracking (playtest: "not all capitalised"). Edit Player shows
-## a lock until its page exists (Phases 6-7); View Fixture opens the
-## fixture carousel (career_fixture_screen.gd).
+## no letter tracking (playtest: "not all capitalised"). Edit Player opens
+## the Edit Player page (career_character_screen.gd in edit mode) and says
+## how many upgrades are waiting; View Fixture opens the fixture carousel
+## (career_fixture_screen.gd).
 ## Focus neighbours are set by hand (_link_focus()) so a pad walks the
 ## stack as a grid.
 
@@ -162,8 +163,13 @@ func _build() -> void:
 	_next_game_card = _build_next_game_card()
 	left.add_child(_next_game_card)
 
-	# Not built yet (Phases 6-7): a lock, like any screen that isn't there.
-	var edit_button := _build_action_button("Edit Player", &"lock", false, Callable(),
+	# The upgrades waiting to be spent ride on the label, so a finished match
+	# reads as "go and spend these" without a separate badge widget.
+	var upgrades := CareerProfile.upgrades_available
+	var edit_text := "Edit Player" if upgrades == 0 \
+		else "Edit Player  ·  %d upgrade%s to spend" % [upgrades, "" if upgrades == 1 else "s"]
+	var edit_button := _build_action_button(edit_text, &"figure", true,
+		func() -> void: SceneWipe.change_scene("res://scenes/ui/career_edit_player_screen.tscn"),
 		Vector2(STACK_WIDTH, STACK_BUTTON_HEIGHT))
 	left.add_child(edit_button)
 

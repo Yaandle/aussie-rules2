@@ -4,7 +4,7 @@ extends CanvasLayer
 ## Career mode's pregame screen — reached from the Dashboard's NEXT GAME
 ## card. A trimmed, re-skinned relative of full_game_pregame_screen.gd:
 ## the same match-feel settings (CAMERA, FORMATION, BALL MOVEMENT,
-## DEFENSIVE PRESSURE) plus YOUR POSITION, reusing the exact same Settings
+## DEFENSIVE PRESSURE), reusing the exact same Settings
 ## fields and SettingsScreen.Row cycling class that screen already uses —
 ## a Career match is still just a Full Game match underneath, so there's
 ## no reason to invent a second settings surface for the same dials. No
@@ -27,13 +27,10 @@ extends CanvasLayer
 ## normal row in the list (left/right steps it, clamped, no wrap); the
 ## chevrons stay for the mouse.
 ##
-## YOUR POSITION is CareerProfile.position, not Settings.home_human_slot:
-## changing it moves your own roster entry to that slot
-## (CareerProfile.set_position()), and full_game.gd puts the human on your
-## entry. It used to write the quick-play slot setting, which put the
-## human on a generated teammate (their name and stats) while your Career
-## player ran as AI in the old slot — and changed quick play's slot too.
-## Moves to the Edit Player page (docs/CAREER_AUDIT.md Phase 7).
+## No YOUR POSITION either: your position is part of your player now, set
+## on the Edit Player page (docs/CAREER_AUDIT.md Phase 7), and full_game.gd
+## puts the human on your own roster entry. The whiteboard still rings
+## your slot.
 ##
 ## START MATCH sets GameState.career_active so full_game.gd knows to pull
 ## rosters from CareerProfile/the generated opponent instead of the
@@ -87,8 +84,6 @@ func _ready() -> void:
 			Settings.home_ball_movement, _set_ball_movement),
 		SettingsScreen.Row.new("DEFENSIVE PRESSURE", ["LOOSE", "BALANCED", "TIGHT"],
 			Settings.home_defensive_pressure, _set_defensive_pressure),
-		SettingsScreen.Row.new("YOUR POSITION", _your_position_options(),
-			maxi(CareerProfile.player_roster_index(), 0), _set_your_position),
 	]
 
 	_build()
@@ -100,15 +95,6 @@ func _formation_options() -> Array[String]:
 	var options: Array[String] = []
 	for preset: Dictionary in Settings.FORMATION_PRESETS:
 		options.append(String(preset["name"]))
-	return options
-
-
-## Same "<n> <label>" form full_game_pregame_screen.gd's own card uses —
-## see that file's header comment on why it's a static 18-entry list.
-func _your_position_options() -> Array[String]:
-	var options: Array[String] = []
-	for i in Tuning.TEAM_SIZE:
-		options.append("%d %s" % [i + 1, String(TeamFormation.roster_slot(i)["label"])])
 	return options
 
 
@@ -194,11 +180,6 @@ func _set_ball_movement(index: int) -> void:
 func _set_defensive_pressure(index: int) -> void:
 	Settings.home_defensive_pressure = index as Settings.DefensivePressure
 	Settings.save()
-
-
-## `index` is a roster slot (the option list's order).
-func _set_your_position(index: int) -> void:
-	CareerProfile.set_position(TeamFormation.roster_slot(index)["role"])
 
 
 func _start_match() -> void:

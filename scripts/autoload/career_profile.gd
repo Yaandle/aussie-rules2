@@ -94,6 +94,11 @@ var foot := FOOT_RIGHT
 ## level nearest each Tuning default.
 var levels := {}
 
+## Squares earned and not yet spent (Edit Player) — upgrades_per_game() for
+## every real match recorded, banked without limit; spending is capped per
+## attribute by attribute_cap().
+var upgrades_available := 0
+
 var model_id := "procedural"
 var skin_color := ""
 var jersey_color := ""
@@ -225,6 +230,16 @@ func player_height() -> float:
 func _reset_levels() -> void:
 	for key: String in ATTRIBUTE_RANGES:
 		levels[key] = level_for(key, float(ATTRIBUTE_DEFAULTS[key]))
+
+
+func upgrades_per_game() -> int:
+	return Tuning.CAREER_UPGRADES_PER_GAME_HARD if difficulty == DIFFICULTY_HARD \
+		else Tuning.CAREER_UPGRADES_PER_GAME_EASY
+
+
+## The highest level an upgrade can take an attribute to in this league.
+func attribute_cap() -> int:
+	return mini(Tuning.CAREER_ATTRIBUTE_CAP_START + league_index, Tuning.CAREER_ATTRIBUTE_LEVELS)
 
 
 ## Where every trainable attribute starts for `for_difficulty`.
@@ -364,6 +379,7 @@ func current_fixture() -> String:
 func start_career() -> void:
 	for key: String in ATTRIBUTE_RANGES:
 		set_level(key, start_level(difficulty))
+	upgrades_available = 0
 	career_seed = _new_seed()
 	league_index = 0
 	season_index = 0
@@ -415,8 +431,12 @@ func record_result(result: Dictionary = {}) -> void:
 		if result.has(key):
 			round_entry[key] = result[key]
 	_sim_other_games(index)
+	# A real match (it carries the box score; a dev-simmed round doesn't)
+	# earns upgrades. The count rides on the result for the full-time card.
 	if result.get("player_stats") is Dictionary:
 		_add_player_stats(result["player_stats"])
+		upgrades_available += upgrades_per_game()
+		result["upgrades"] = upgrades_per_game()
 	if not result.is_empty():
 		last_result = result
 		last_result.erase("player_stats")   # folded in above; the card doesn't need it
@@ -559,6 +579,7 @@ func save() -> void:
 	config.set_value(SECTION, "number", number)
 	config.set_value(SECTION, "foot", foot)
 	config.set_value(SECTION, "levels", levels)
+	config.set_value(SECTION, "upgrades_available", upgrades_available)
 	config.set_value(SECTION, "model_id", model_id)
 	config.set_value(SECTION, "skin_color", skin_color)
 	config.set_value(SECTION, "jersey_color", jersey_color)
@@ -605,6 +626,8 @@ func _load() -> void:
 			set_level(key, int(loaded_levels[key]))
 		elif config.has_section_key(SECTION, key):
 			set_level(key, level_for(key, float(config.get_value(SECTION, key))))
+
+	upgrades_available = maxi(int(config.get_value(SECTION, "upgrades_available", 0)), 0)
 
 	var loaded_model: String = config.get_value(SECTION, "model_id", model_id)
 	if loaded_model == "procedural" or HumanoidRig.CHARACTER_MODELS.has(loaded_model):

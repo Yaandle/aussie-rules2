@@ -299,7 +299,11 @@ height ("RUCK · 200 cm"). Edit mode is Phase 7.
 - One script, two scenes: `career_character_screen.gd` gets
   `@export var edit_mode`. Create and Edit then can't drift apart.
 
-### Phase 7: Edit Player and upgrades
+### Phase 7: Edit Player and upgrades (done 2026-10-27)
+
+Landed as below: same script as Create (`edit_mode`) on
+`career_edit_player_screen.tscn`. The Dashboard's Edit Player says how
+many upgrades are waiting. A dev-simmed round earns none.
 
 - EDIT YOUR PLAYER has the same rows (NAME, POSITION, NUMBER, FOOT,
   Customise), plus an ATTRIBUTES section headed "5 upgrades to spend".

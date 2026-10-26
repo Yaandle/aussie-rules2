@@ -1674,6 +1674,18 @@ const CAREER_HEIGHT_SMALL := 178.0     # cm — pockets, rover; unplaytested fee
 const CAREER_START_LEVEL_EASY := 1
 const CAREER_START_LEVEL_HARD := 0
 
+## Upgrades earned per real (played, not dev-simmed) Career match, each one
+## a square on any attribute (Edit Player). User's numbers; the plan's
+## earlier "3 for now" came before difficulty existed.
+const CAREER_UPGRADES_PER_GAME_EASY := 5
+const CAREER_UPGRADES_PER_GAME_HARD := 2
+## Highest level an attribute can reach in league tier 0 (Juniors); each
+## league up allows one more, to CAREER_ATTRIBUTE_LEVELS at the top.
+## Unspent upgrades bank, so promotion is what unlocks growth — without a
+## cap Easy maxed everything inside the first season. Unplaytested feel
+## guess.
+const CAREER_ATTRIBUTE_CAP_START := 4
+
 ## Generated players in league tier N (CareerSeason.LEAGUES) get attributes
 ## between level N and N + this, so Juniors sides sit near the bottom of
 ## the range and each promotion meets a stronger league. Unplaytested feel
