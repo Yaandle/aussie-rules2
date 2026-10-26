@@ -105,7 +105,7 @@ func _ready() -> void:
 		# _refresh() keys the camera preview off.
 		Row.new(
 			"FIELD",
-			["CLASSIC", "OVAL 1"],
+			["FIELD 1 · PARK", "FIELD 2 · BUSH"],
 			Settings.field_style,
 			_set_field_style
 		),

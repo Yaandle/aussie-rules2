@@ -49,9 +49,11 @@ var camera_zoom := Tuning.CAM_ZOOM_DEFAULT:
 		camera_zoom_changed.emit(value)
 
 ## Which ground dressing Full Game, Career and Kick-to-Kick build (task
-## board 4B "stadium/field options"). CLASSIC is the generated turf, fence
-## and tree ring field.gd always built; OVAL_1 is the Blender "Oval 1" look
-## (scenes/field/oval1_environment.tscn). Only the dressing changes — lines,
+## board 4B "stadium/field options"). CLASSIC is "Field 1", the park oval
+## (scenes/field/park_environment.tscn); it used to mean field.gd's generated
+## turf, fence and tree ring, which only the menu backdrops still show.
+## OVAL_1 is "Field 2", the bush oval (scenes/field/oval1_environment.tscn).
+## The enum names stay as they were. Only the dressing changes — lines,
 ## goal posts, collision and every Tuning dimension stay identical, so this
 ## is purely visual. Read at Field._ready(), so it applies from the next
 ## scene load (the pregame screens are always one load away from a match).

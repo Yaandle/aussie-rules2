@@ -100,10 +100,12 @@ const COLOUR_CANOPY_B := Color("#6C8752")
 ## Set on the match/practice instances (full_game.tscn, kick_to_kick.tscn)
 ## so they dress the ground per Settings.field_style; off by default so the
 ## menu/character/camera-preview backdrops stay the cheap generated field.
-## OVAL_1 hides the generated turf mesh (its collision stays, on Ground),
-## skips the generated fence and trees, and adds OVAL1_SCENE. Runtime only:
-## the editor always shows the classic field.
+## Either style hides the generated turf mesh (its collision stays, on
+## Ground), skips the generated fence and trees, and adds that style's
+## environment scene: Field 1 (CLASSIC) the park, Field 2 (OVAL_1) the bush.
+## Runtime only: the editor always shows the generated field.
 @export var follow_field_style := false
+const PARK_SCENE_PATH := "res://scenes/field/park_environment.tscn"
 const OVAL1_SCENE_PATH := "res://scenes/field/oval1_environment.tscn"
 
 
@@ -114,8 +116,8 @@ func _ready() -> void:
 	_build_goals()
 	if not Engine.is_editor_hint():
 		_build_umpires()
-		if follow_field_style and Settings.field_style == Settings.FieldStyle.OVAL_1:
-			_apply_oval1()
+		if follow_field_style:
+			_apply_environment()
 	if build_fence:
 		_build_fence()
 	if build_trees:
@@ -123,12 +125,14 @@ func _ready() -> void:
 
 
 ## load() rather than preload: the backdrop fields never pay for the
-## Oval 1 glbs.
-func _apply_oval1() -> void:
+## environment glbs.
+func _apply_environment() -> void:
+	var path := OVAL1_SCENE_PATH if Settings.field_style == Settings.FieldStyle.OVAL_1 \
+		else PARK_SCENE_PATH
 	build_fence = false
 	build_trees = false
 	($Ground/Turf as MeshInstance3D).visible = false
-	var environment := (load(OVAL1_SCENE_PATH) as PackedScene).instantiate()
+	var environment := (load(path) as PackedScene).instantiate()
 	add_child(environment)
 
 

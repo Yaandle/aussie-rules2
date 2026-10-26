@@ -33,9 +33,16 @@ mostly superseded history. The full text lives outside the repo, in
   models are recoloured by Blender material name (`Shirt`/`Jersey`, `Short`,
   `Shoe`/`Boot`, `Sock`, `Skin`), so keep those words in new exports.
 - **Field dressing is a setting, not a scene edit.** `Settings.field_style`
-  picks classic or Oval 1 (`scenes/field/oval1_environment.tscn`, trees as
-  MultiMesh) on Field instances with `follow_field_style`. Lines, posts and
-  collision never change with it.
+  picks Field 1, the park (`scenes/field/park_environment.tscn`), or Field 2,
+  the bush oval (`oval1_environment.tscn`), on Field instances with
+  `follow_field_style`. Lines, posts and collision never change with it.
+  Menu backdrops still build `field.gd`'s generated field.
+- **Field props are generated in Blender and batched in Godot.** The scripts
+  in `assets/blender/scripts/` build `park_props.blend` (run it first), then
+  the layouts link its meshes. Godot's glTF importer gives every node that
+  shares a glTF mesh the same `ArrayMesh`, so `OvalEnvironment` turns a
+  layout of ~500 linked copies into ~14 MultiMeshes. Don't commit `.blend1`
+  backups.
 - **One context-sensitive tap.** Keyboard Q / gamepad X is Handball when
   carrying, Running Mark when the ball is airborne and reachable, Lunge
   tackle against a carrier, and Smother against a kicker already in stance.
