@@ -1034,6 +1034,11 @@ const FREE_KICK_RETREAT_DISTANCE := 10.0   # m
 # attacks — the real AFL distance — stopping this short of the goal line.
 const FIFTY_METRE_PENALTY := 50.0          # m
 const FIFTY_METRE_GOAL_LINE_SETBACK := 1.0 # m
+# How long play stays dead before an infringement is awarded — longer than
+# a ball-up's CENTRE_BOUNCE_DELAY because the hit still plays out
+# (PlayerController._commit_foul): a ragdoll fall and get-up take ~1.8 s,
+# and the award puts the fouled player on their feet at the spot.
+const INFRINGEMENT_PAUSE_DURATION := 2.6  # s, unplaytested feel guess
 
 # Smother (RB tap, not carrying — moved off X, which now always tackles;
 # RB is shared with the ruck Hit-Out): closing down an opponent before their kick

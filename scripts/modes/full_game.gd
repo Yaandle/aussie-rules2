@@ -929,12 +929,13 @@ func _on_infringed(fouled: PlayerController, fifty: bool, offender: PlayerContro
 	MatchState.clock_running = false
 	GameState.phase = GameState.Phase.STOPPAGE
 	_scoreboard.flash("50 METRE PENALTY" if fifty else "FREE KICK — OFF THE BALL",
-		Tuning.CENTRE_BOUNCE_DELAY)
+		Tuning.INFRINGEMENT_PAUSE_DURATION)
 	AudioManager.play_whistle()
-	# Dead ball for the pause, resting where the kick will be taken.
+	# Dead ball for the pause, resting where the kick will be taken, while
+	# the hit itself plays out (the fouled player may be ragdolling).
 	_drop_all_balls()
 	_rest_ball_at(spot)
-	_start_pause(Tuning.CENTRE_BOUNCE_DELAY, _award_infringement.bind(spot, fouled))
+	_start_pause(Tuning.INFRINGEMENT_PAUSE_DURATION, _award_infringement.bind(spot, fouled))
 
 
 func _award_infringement(spot: Vector3, fouled: PlayerController) -> void:
