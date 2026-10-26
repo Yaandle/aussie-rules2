@@ -390,6 +390,15 @@ var _mark_retreat_dir := Vector3.ZERO
 ## would. See _update_charge.
 var _goal_set_shot_locked := false
 
+## The set shot's run-up (Tuning.SET_SHOT_RUN_UP_*): metres still to walk in
+## along the aim before the kick begins, and which way. Like the mark
+## walk-back it owns the body while it runs; the kick charge and aim are
+## the ones the stance had when the kick button went. _set_shot_kick is the
+## kick at its end, which flies without the run-up's momentum (_dispose).
+var _set_shot_run_up_remaining := 0.0
+var _set_shot_run_up_dir := Vector3.ZERO
+var _set_shot_kick := false
+
 ## Seconds left of the acceleration spike that fires the instant a
 ## backpedal resolves into a real direction (Tuning.TURN_BURST_*) — see
 ## _update_locomotion.
@@ -667,6 +676,21 @@ func _update_locomotion(delta: float) -> void:
 			velocity.x = 0.0
 			velocity.z = 0.0
 			_speed = 0.0
+		return
+
+	# A set shot's run-up owns the body the same way: a walk into a jog
+	# along the aim, and the kick the moment it's covered the distance.
+	if _set_shot_run_up_remaining > 0.0:
+		var progress := 1.0 - _set_shot_run_up_remaining / Tuning.SET_SHOT_RUN_UP_DISTANCE
+		_speed = lerpf(Tuning.SET_SHOT_RUN_UP_SPEED.x, Tuning.SET_SHOT_RUN_UP_SPEED.y, progress)
+		_set_shot_run_up_remaining = maxf(0.0, _set_shot_run_up_remaining - _speed * delta)
+		_heading = _set_shot_run_up_dir
+		velocity.x = _heading.x * _speed
+		velocity.z = _heading.z * _speed
+		if _set_shot_run_up_remaining <= 0.0:
+			_cancel_goal_set_shot()
+			_set_shot_kick = true
+			_begin(Tuning.Action.KICK)
 		return
 
 	# Slide's dive-in owns the body the same way knockback does above, just
@@ -1051,7 +1075,10 @@ func drop_ball() -> void:
 	_hip_fire_kick = false
 	# No ball, no mark to walk back off — covers disposing early, being
 	# stripped, and every stoppage reset, all of which come through here.
+	# Same for a set shot's run-up and the kick it was walking into.
 	_end_mark_retreat()
+	_set_shot_run_up_remaining = 0.0
+	_set_shot_kick = false
 	_gather_cooldown = Tuning.GATHER_COOLDOWN
 	_protected_timer = 0.0
 	_release_frozen_opponents()
@@ -2481,6 +2508,12 @@ func _arm_goal_set_shot() -> void:
 	var aim_dir := _goal_aim_direction()
 	_kick_aim_yaw = atan2(-aim_dir.x, -aim_dir.z)
 	_heading = aim_dir
+	# Pacing out the run-up: a few metres further back along the line from
+	# goal (Tuning.SET_SHOT_RETREAT_EXTRA), on the mark walk-back's own
+	# machinery, still facing goal. The stance waits for it like it waits
+	# for the walk-back off the mark.
+	_mark_retreat_dir = -aim_dir
+	_mark_retreat_remaining = Tuning.SET_SHOT_RETREAT_EXTRA
 	grant_protection(Tuning.SET_SHOT_CLOCK)
 	for opponent in _frozen_opponents:
 		if is_instance_valid(opponent):
@@ -2902,8 +2935,9 @@ func _update_charge(delta: float) -> void:
 	# Handball and simply running are untouched, so "play on" stays
 	# available the moment the retreat finishes; it's the set shot that has
 	# to wait for it (Tuning.MARK_RETREAT_DISTANCE).
+	# The same for a set shot's run-up: the kick's already been called for.
 	if _action != Tuning.Action.NONE or _stun_timer > 0.0 \
-			or _mark_retreat_remaining > 0.0:
+			or _mark_retreat_remaining > 0.0 or _set_shot_run_up_remaining > 0.0:
 		_kick_trajectory.update_preview(false, Vector3.ZERO, Vector3.ZERO)
 		return
 
@@ -2942,8 +2976,15 @@ func _update_charge(delta: float) -> void:
 		_update_kick_aim(delta)
 		if _brain.wants_kick_execute():
 			_charging = false
-			_cancel_goal_set_shot()
-			_begin(Tuning.Action.KICK)
+			if _goal_set_shot_locked:
+				# A set shot walks in first (Tuning.SET_SHOT_RUN_UP_*): the
+				# run-up in _update_locomotion begins the kick at its end and
+				# hands the camera back then. Charge and aim stay as set now.
+				_set_shot_run_up_remaining = Tuning.SET_SHOT_RUN_UP_DISTANCE
+				_set_shot_run_up_dir = _yaw_direction(_kick_aim_yaw)
+			else:
+				_cancel_goal_set_shot()
+				_begin(Tuning.Action.KICK)
 	elif _charging:
 		# LT released without RT — cancel, no kick.
 		_charging = false
@@ -3196,14 +3237,16 @@ func _update_action(delta: float) -> void:
 ## can't quietly default to the wrong source for whichever action is
 ## calling it.
 func _launch_from(origin: Vector3, horizontal_dir: Vector3, elevation_deg: float,
-		speed_out: float) -> Dictionary:
+		speed_out: float, carry_momentum := true) -> Dictionary:
 	var elevation := deg_to_rad(elevation_deg)
 	var direction := (horizontal_dir * cos(elevation) + Vector3.UP * sin(elevation)).normalized()
 
 	# Carry the player's own momentum into the ball, the way it actually
 	# works — a kick on the run goes further than the same kick standing.
+	# Not a set shot's: its run-up is the routine, and the kick goes where
+	# the standing stance's cue showed (Tuning.SET_SHOT_RUN_UP_*).
 	var carried_momentum := Vector3(velocity.x, 0.0, velocity.z) \
-		* Tuning.DISPOSAL_MOMENTUM_TRANSFER
+		* Tuning.DISPOSAL_MOMENTUM_TRANSFER if carry_momentum else Vector3.ZERO
 	return {
 		"origin": origin,
 		"launch_velocity": direction * speed_out + carried_momentum,
@@ -3216,11 +3259,11 @@ func _launch_from(origin: Vector3, horizontal_dir: Vector3, elevation_deg: float
 ## _update_charge) and by _dispose() (once, at execute) so the two can
 ## never disagree about what "the aim" actually is. Direction comes from
 ## _kick_aim_yaw, not body facing — see _update_kick_aim.
-func _kick_parameters(charge: float) -> Dictionary:
+func _kick_parameters(charge: float, carry_momentum := true) -> Dictionary:
 	var elevation_deg := lerpf(Tuning.KICK_MIN_ANGLE, Tuning.KICK_MAX_ANGLE, charge)
 	var speed_out := lerpf(Tuning.KICK_MIN_SPEED, Tuning.KICK_MAX_SPEED, charge) * kick_power_scale
 	return _launch_from(_boot_point.global_position, _yaw_direction(_kick_aim_yaw),
-		elevation_deg, speed_out)
+		elevation_deg, speed_out, carry_momentum)
 
 
 ## Rotates the whole resultant launch vector (aim + carried momentum
@@ -3263,7 +3306,8 @@ func _dispose() -> void:
 
 	match _action:
 		Tuning.Action.KICK:
-			launch = _kick_parameters(_kick_charge)
+			launch = _kick_parameters(_kick_charge, not _set_shot_kick)
+			_set_shot_kick = false
 			# Backspin: the top of the ball travels backwards, which for a
 			# ball moving along `forward` is a positive spin about `right`.
 			spin = right * Tuning.KICK_BACKSPIN

@@ -715,7 +715,8 @@ const CAM_SWITCH_YAW_RATE := 14.0          # brisk — a hard swing across, clos
 const CAM_RUCK_SIDE_YAW := 0.0             # rad
 const CAM_RUCK_SIDE_PITCH := -14.0         # deg — a touch flatter than CAM_PITCH_DEFAULT to see the leap
 const CAM_RUCK_SIDE_EASE_RATE := 3.0       # 1/s exponential ease, gentler than CAM_SWITCH_YAW_RATE
-const CAM_RUCK_SIDE_DISTANCE_MULT := 1.4   # × the arm length — pulled back to fit both ruckmen and the leap; unplaytested feel guess
+# 1.4 -> 1.8 (playtest 2026-10-27: "move ruck contests back a little more").
+const CAM_RUCK_SIDE_DISTANCE_MULT := 1.8   # × the arm length — pulled back to fit both ruckmen and the leap; unplaytested feel guess
 
 
 # ── Input feel ───────────────────────────────────────────────────────
@@ -1244,8 +1245,27 @@ const MARK_HOLD_DURATION := 5.0         # s
 # being attacked), which is what "backwards" means from a kicker's point
 # of view. Comfortably inside MARK_HOLD_DURATION above, so the protection
 # outlasts the walk-back with time left to actually use it.
-const MARK_RETREAT_DISTANCE := 5.0      # m
-const MARK_RETREAT_SPEED := 3.4         # m/s — a deliberate walk back, ~1.5s for the 5m
+#
+# Raised 5 -> 7.5 m, a touch brisker (3.4 -> 4.0 m/s, ~1.9 s): playtest
+# 2026-10-27, "make player come back a bit further so they don't kick into
+# player on mark".
+const MARK_RETREAT_DISTANCE := 7.5      # m, unplaytested feel guess
+const MARK_RETREAT_SPEED := 4.0         # m/s — a deliberate walk back
+
+# The set shot routine (playtest 2026-10-27): "the player should come back
+# a little bit further from the mark and ... do a small walk up before
+# kicking it ... so I aim, trigger the kick and kick but before it kicks
+# make the player walk a few steps." Lining the shot up
+# (_arm_goal_set_shot) walks the kicker RETREAT_EXTRA further back along
+# the line from goal, the way a kicker paces out their run-up. The kick
+# button then starts the run-up instead of the kick: RUN_UP_DISTANCE along
+# the aim, from a walk to a jog (RUN_UP_SPEED, start and end), and the kick
+# begins at its end. The kick doesn't take the run-up's momentum: what
+# flies is the path the stance's trajectory cue showed. Unplaytested feel
+# guesses.
+const SET_SHOT_RETREAT_EXTRA := 3.0             # m
+const SET_SHOT_RUN_UP_DISTANCE := 3.0           # m, ~1 s
+const SET_SHOT_RUN_UP_SPEED := Vector2(2.0, 4.4)  # m/s at its start and end
 
 # Set shot for goal: pressing goal_set_shot while still under mark/free-kick
 # protection (_protected_timer > 0) and within this distance of the goal

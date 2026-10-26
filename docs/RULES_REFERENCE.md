@@ -250,14 +250,21 @@ icon/ring itself).
 `MARK_STAND_MIN_DISTANCE`, the same test that grants protection and
 stand-the-mark) now pushes its taker back before they can go at goal:
 `PlayerController._begin_mark_retreat()` drives them
-`Tuning.MARK_RETREAT_DISTANCE` (5 m) along their own defensive direction
+`Tuning.MARK_RETREAT_DISTANCE` (7.5 m, raised from 5 so the kick clears
+the player on the mark) along their own defensive direction
 at `MARK_RETREAT_SPEED`, and the kick is blocked until it finishes. Facing
 is deliberately untouched, so they walk back still looking downfield the
 way a real kicker does. Handball and simply running are untouched —
 "play on" stays available; it is the set shot that has to wait. A
 scrambled catch in general play isn't a mark and gets none of this.
-Measured: 4.99 m of the 5.0 m target over 1.47s, kick refusing to charge
+Measured at the old 5 m: 4.99 m over 1.47s, kick refusing to charge
 throughout and charging normally afterwards.
+
+**Set shot routine.** Lining up a set shot for goal walks the kicker a
+further `SET_SHOT_RETREAT_EXTRA` back along the line from goal, and the
+kick button then starts a short run-up (`SET_SHOT_RUN_UP_*`, a walk into
+a jog along the aim) with the kick at its end. The kick ignores the
+run-up's momentum, so it flies the path the aiming cue showed.
 
 **Fixed.** `live_mark_prompt()` gated on `ball.is_airborne()`, true of any
 ball off the ground — so an opponent's handball, or a teammate's handball
