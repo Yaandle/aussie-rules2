@@ -17,6 +17,12 @@ extends CanvasLayer
 ## CareerProfile.games_played >= 1 the whole dashboard renders behind a
 ## dimmed scrim with a lock glyph and a single MAIN MENU action — nothing
 ## past the first game exists yet (see _build_locked_overlay).
+##
+## The main menu's CAREER card lands here whenever a career is in progress
+## (CareerProfile.has_career()), so NEW CAREER — beside VIEW STATS, and on
+## the locked overlay too — is the only way to start over. It asks first
+## (_build_new_career_confirm()); nothing is replaced until CONFIRM on the
+## creation screen, and backing out of that screen comes back here.
 
 const SCREEN_MARGIN_X := SoftBrutalist.SPACE_6
 const SCREEN_MARGIN_Y := SoftBrutalist.SPACE_4
@@ -30,6 +36,9 @@ var _locked := false
 var _roster_overlay: Control
 var _roster_back_button: Control
 var _view_roster_button: Control
+var _new_career_button: Control
+var _confirm_overlay: Control
+var _confirm_cancel_button: Control
 
 
 func _ready() -> void:
@@ -39,6 +48,9 @@ func _ready() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not (event.is_action_pressed(&"pause") or event.is_action_pressed(&"decline")):
+		return
+	if is_instance_valid(_confirm_overlay) and _confirm_overlay.visible:
+		_close_new_career_confirm()
 		return
 	# The roster table is its own page with its own BACK control (see
 	# _build_roster_table()) — Esc/B closing it straight to the main menu
@@ -94,6 +106,8 @@ func _build() -> void:
 	_view_roster_button = view_roster_button
 	button_row.add_child(view_roster_button)
 	button_row.add_child(_build_view_stats_button())
+	_new_career_button = _build_new_career_button()
+	button_row.add_child(_new_career_button)
 
 	# Hint bar — no control legend existed on this screen at all
 	# (ui_audit.md finding #2, missed by the audit's own file list but the
@@ -467,6 +481,8 @@ func _build_locked_overlay() -> void:
 	actions.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	centre.add_child(actions)
 	actions.add_child(_build_view_stats_button())
+	_new_career_button = _build_new_career_button()
+	actions.add_child(_new_career_button)
 	var menu_button := _build_action_button("MAIN MENU", &"exit", true, _on_main_menu_pressed)
 	actions.add_child(menu_button)
 	# The scrim's own MOUSE_FILTER_STOP already blocks every control
@@ -482,6 +498,97 @@ func _build_view_stats_button() -> Control:
 	var has_result := not CareerProfile.last_result.is_empty()
 	return _build_action_button("VIEW STATS", &"goalpost" if has_result else &"lock",
 		has_result, _on_view_stats_pressed)
+
+
+func _build_new_career_button() -> Control:
+	return _build_action_button("NEW CAREER", &"figure", true, _open_new_career_confirm)
+
+
+func _open_new_career_confirm() -> void:
+	if _confirm_overlay == null:
+		_confirm_overlay = _build_new_career_confirm()
+		add_child(_confirm_overlay)
+	# Re-added last so it draws over the locked overlay's scrim as well.
+	move_child(_confirm_overlay, get_child_count() - 1)
+	_confirm_overlay.visible = true
+	_confirm_cancel_button.grab_focus.call_deferred()
+
+
+func _close_new_career_confirm() -> void:
+	_confirm_overlay.visible = false
+	if is_instance_valid(_new_career_button):
+		_new_career_button.grab_focus.call_deferred()
+
+
+## "Start a new career?" over a near-opaque scrim, CANCEL focused by
+## default so a stray A press can't throw a season away. Focus neighbours
+## are pinned to the two buttons: Control focus traversal ignores the
+## scrim's mouse filter, so a D-pad press would otherwise walk off onto the
+## dashboard underneath.
+func _build_new_career_confirm() -> Control:
+	var scrim := Panel.new()
+	scrim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	scrim.add_theme_stylebox_override(&"panel",
+		CareerTheme.panel_style(Color(CareerTheme.BACKGROUND, 0.92)))
+	scrim.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var centre := CenterContainer.new()
+	centre.set_anchors_preset(Control.PRESET_FULL_RECT)
+	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	scrim.add_child(centre)
+
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override(&"panel",
+		CareerTheme.panel_style(CareerTheme.BACKGROUND, CareerTheme.PANEL, 2))
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	centre.add_child(card)
+
+	var inner := MarginContainer.new()
+	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for side in ["left", "right", "top", "bottom"]:
+		inner.add_theme_constant_override(StringName("margin_" + side), int(CARD_PAD + 8.0))
+	card.add_child(inner)
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override(&"separation", 16)
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	inner.add_child(column)
+
+	column.add_child(CareerTheme.label("START A NEW CAREER?", SoftBrutalist.SIZE_LABEL,
+		CareerTheme.TEXT, SoftBrutalist.WEIGHT_BOLD, 1))
+	var body := CareerTheme.label(
+		"This replaces %s's career: the roster, the fixture and every result so far." \
+			% CareerProfile.player_name,
+		SoftBrutalist.SIZE_BODY, CareerTheme.TEXT_MUTED)
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.custom_minimum_size.x = BUTTON_WIDTH * 2.0 + SoftBrutalist.SPACE_4
+	column.add_child(body)
+
+	var actions := HBoxContainer.new()
+	actions.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_4))
+	actions.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(actions)
+	_confirm_cancel_button = _build_action_button("CANCEL", &"arrow_left", true,
+		_close_new_career_confirm)
+	actions.add_child(_confirm_cancel_button)
+	var start_button := _build_action_button("START NEW", &"figure", true, _on_start_new_career)
+	actions.add_child(start_button)
+
+	for pair: Array in [[_confirm_cancel_button, start_button], [start_button, _confirm_cancel_button]]:
+		var button: Control = pair[0]
+		var other: NodePath = button.get_path_to(pair[1])
+		var own: NodePath = button.get_path_to(button)
+		button.focus_neighbor_left = other
+		button.focus_neighbor_right = other
+		button.focus_neighbor_top = own
+		button.focus_neighbor_bottom = own
+		button.focus_next = other
+		button.focus_previous = other
+	return scrim
+
+
+func _on_start_new_career() -> void:
+	SceneWipe.change_scene("res://scenes/ui/career_character_screen.tscn")
 
 
 func _on_view_stats_pressed() -> void:

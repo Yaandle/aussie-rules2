@@ -53,7 +53,7 @@ var _away_roster: Array[Dictionary] = []
 ## kick and whatever next touches it, and if that's a goal this is still
 ## the right attribution. Tracked for every match since the cost is one
 ## dictionary write per kick, but only ever read when GameState.
-## career_active (roster_name is empty otherwise, see _on_scored).
+## career_active (roster_id is empty otherwise, see _on_scored).
 var _last_kicker := {Tuning.Team.HOME: null, Tuning.Team.AWAY: null}
 var _crosshair: KickCrosshair
 var _mark_prompt: MarkPrompt
@@ -214,6 +214,16 @@ func _finish_after_siren() -> void:
 	_end_quarter()
 
 
+## FULL_TEAM control (Settings.player_control_mode, the quick-play pregame's
+## choice) — never in Career, which is single-player by design: you are
+## your created player for the whole match. Every FULL_TEAM-only behaviour
+## in this file asks here rather than reading the setting, so a Career
+## match can't inherit whatever the quick-play pregame last saved.
+func _full_team_control() -> bool:
+	return not GameState.career_active \
+		and Settings.player_control_mode == Settings.PlayerControlMode.FULL_TEAM
+
+
 func _apply_camera_mode(setting: Settings.FullGameCameraMode) -> void:
 	var full_side := setting == Settings.FullGameCameraMode.FULL_SIDE
 	_camera.set_mode(BroadcastCamera.Mode.FULL_SIDE if full_side else BroadcastCamera.Mode.CHASE)
@@ -233,13 +243,15 @@ func _apply_camera_mode(setting: Settings.FullGameCameraMode) -> void:
 ## exactly as before this pass.
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"switch_player"):
-		if Settings.player_control_mode == Settings.PlayerControlMode.FULL_TEAM:
+		if _full_team_control():
 			_switch_human_player()
 	elif event.is_action_pressed(&"call_for_ball"):
-		if Settings.player_control_mode == Settings.PlayerControlMode.SINGLE_PLAYER:
+		if not _full_team_control():
 			_call_for_ball()
 	elif event.is_action_pressed(&"toggle_control_scheme"):
-		_toggle_control_scheme()
+		# TEAM_COMMAND drives the whole side; Career is one player.
+		if not GameState.career_active:
+			_toggle_control_scheme()
 	elif event.is_action_pressed(&"issue_command"):
 		_issue_team_command()
 	elif event.is_action_pressed(&"pause"):
@@ -303,13 +315,12 @@ func _open_pause_menu() -> void:
 
 func _spawn_teams() -> void:
 	# Career's own HOME roster is already generated and persisted
-	# (CareerProfile.roster, built by career_character_screen.gd); the
-	# opponent's isn't — generated here, lazily, from the current
-	# fixture's name (RosterGenerator.generate_team() is seeded off that
-	# name, so this is reproducible but never persisted, see roster_
-	# generator.gd's own header).
+	# (CareerProfile.roster); the opponent's isn't — generated here,
+	# lazily, from the current fixture's name (seeded off that name and the
+	# career's seed, so this is reproducible but never persisted, see
+	# roster_generator.gd's own header).
 	if GameState.career_active:
-		_away_roster = RosterGenerator.generate_team(CareerProfile.current_fixture())
+		_away_roster = CareerProfile.opponent_roster()
 	_home_players = _spawn_team(Tuning.Team.HOME, 1.0)
 	_away_players = _spawn_team(Tuning.Team.AWAY, -1.0)
 
@@ -332,10 +343,14 @@ func _spawn_teams() -> void:
 
 	_camera.ball = _ball
 	# SINGLE_PLAYER position pick (Settings.home_human_slot, chosen on the
-	# pregame screen; default 1 = centre). Re-clamped to the live roster so
-	# a stale save can't index past the spawned team. _bounce_off() still
-	# rucks _home_players[0] regardless — see its comment.
-	var human_idx := clampi(Settings.home_human_slot, 0, _home_players.size() - 1)
+	# pregame screen; default 1 = centre) — or in Career, your created
+	# player's own slot, so the human is always the body carrying your name
+	# and stats. Re-clamped to the live roster so a stale save can't index
+	# past the spawned team. _bounce_off() still rucks _home_players[0]
+	# regardless — see its comment.
+	var human_idx := CareerProfile.player_roster_index() if GameState.career_active \
+		else Settings.home_human_slot
+	human_idx = clampi(human_idx, 0, _home_players.size() - 1)
 	_home_players[human_idx].set_brain(HumanBrain.new())
 	ControlMode.set_controlled_player(Tuning.Team.HOME, _home_players[human_idx])
 	if GameState.career_active:
@@ -378,8 +393,9 @@ func _apply_character_profile(start_idx: int) -> void:
 
 ## Career matches: every player plays to their own roster entry's
 ## attributes (both teams — RosterGenerator gives every generated player
-## real speed/agility/kick/height values), and the Career player's slot
-## to CareerProfile's own stats. Before this a Career match ran
+## real speed/agility/kick/height values). That includes the Career
+## player: CareerProfile keeps its roster entry in sync with its current
+## levels and position on every save. Before this a Career match ran
 ## _apply_character_profile like quick play, so the quick-play profile's
 ## stats went onto HOME (all 18 by default) and the created Career
 ## player's stats were never used.
@@ -398,12 +414,6 @@ func _apply_career_rosters() -> void:
 			# Weight was flavour only until tackles weighed the two players
 			# (TackleBalance's mass ratio, the ragdoll's segment masses).
 			players[i].body_mass = float(entry.get("weight", Tuning.PLAYER_DEFAULT_MASS_KG))
-	# The roster copy of the Career player is a snapshot from creation;
-	# CareerProfile holds their current stats.
-	var slot := RosterGenerator.roster_index_for_role(CareerProfile.roster, CareerProfile.position)
-	if slot >= 0 and slot < _home_players.size():
-		_apply_stats(_home_players[slot], CareerProfile.speed, CareerProfile.agility,
-			CareerProfile.kick_power, CareerProfile.kick_accuracy, CareerProfile.height)
 
 
 ## Raw stats (the same units CharacterProfile/CareerProfile/roster entries
@@ -455,6 +465,8 @@ func _spawn_team(team: Tuning.Team, attack_direction: float) -> Array[PlayerCont
 		if GameState.career_active:
 			var roster := CareerProfile.roster if team == Tuning.Team.HOME else _away_roster
 			instance.roster_name = roster[i]["name"]
+			instance.roster_id = "H%d" % int(roster[i].get("id", i)) if team == Tuning.Team.HOME \
+				else "A%d" % i
 		add_child(instance)
 		AudioManager.register_player(instance)
 
@@ -747,7 +759,7 @@ func _release_ruck_contest(spot: Vector3, contestant_a: PlayerController,
 ## stays on the player I have". The whole reset is then watched from the
 ## ruckman, and RB is live for the contest from its first frame.
 func _hand_human_the_ruck(ruckman: PlayerController = null) -> void:
-	if Settings.player_control_mode != Settings.PlayerControlMode.FULL_TEAM \
+	if not _full_team_control() \
 			or ControlMode.scheme_for(Tuning.Team.HOME) != ControlMode.Scheme.SINGLE_PLAYER:
 		return
 	if ruckman == null and not _home_players.is_empty():
@@ -777,7 +789,7 @@ func _on_hit_out_resolved(_player: PlayerController, connected: bool) -> void:
 ## called) is a separate, harder problem — see HANDOVER.md (archived, see docs/LESSONS.md).
 func _on_player_disposed(action: Tuning.Action, player: PlayerController) -> void:
 	MatchState.record_disposal(player.team, action)
-	MatchState.record_player_disposal(player.roster_name, action)
+	MatchState.record_player_disposal(player.roster_id, player.roster_name, action)
 	if action == Tuning.Action.KICK:
 		_last_kicker[player.team] = player
 	if action == Tuning.Action.KICK:
@@ -802,7 +814,7 @@ func _on_player_disposed(action: Tuning.Action, player: PlayerController) -> voi
 func _on_home_kick_disposed(kicker: PlayerController) -> void:
 	if GameState.phase != GameState.Phase.PLAY:
 		return
-	if Settings.player_control_mode != Settings.PlayerControlMode.FULL_TEAM:
+	if not _full_team_control():
 		return
 	if ControlMode.scheme_for(Tuning.Team.HOME) != ControlMode.Scheme.SINGLE_PLAYER:
 		return
@@ -1009,7 +1021,7 @@ func _on_scored(team: Tuning.Team, is_goal: bool) -> void:
 	if is_goal:
 		var kicker: PlayerController = _last_kicker.get(team)
 		if is_instance_valid(kicker):
-			MatchState.record_player_goal(kicker.roster_name)
+			MatchState.record_player_goal(kicker.roster_id, kicker.roster_name)
 	GameState.phase = GameState.Phase.SCORE
 	# Dead from the moment it's a score — nobody may gather it during the
 	# celebration — but NOT frozen where it is: a hard lock_at() here
@@ -1110,6 +1122,8 @@ func _show_match_end_screen() -> void:
 			"opponent": CareerProfile.current_fixture(),
 			"home_score": MatchState.scoreline(Tuning.Team.HOME),
 			"away_score": MatchState.scoreline(Tuning.Team.AWAY),
+			"home_points": MatchState.points(Tuning.Team.HOME),
+			"away_points": MatchState.points(Tuning.Team.AWAY),
 			"goals": MatchState.top_goalkickers(CareerMatchEndScreen.LEADERBOARD_SIZE),
 			"disposals": MatchState.top_disposals(CareerMatchEndScreen.LEADERBOARD_SIZE),
 		})
@@ -1383,7 +1397,7 @@ func _assign_human_to(next: PlayerController) -> void:
 ## to the ball" now, so there is no deliberate off-ball pick to protect.
 ## Only in SINGLE_PLAYER scheme — TEAM_COMMAND has its own selection model.
 func _on_home_gained_possession(_ball_ref: Ball, carrier: PlayerController) -> void:
-	if Settings.player_control_mode != Settings.PlayerControlMode.FULL_TEAM:
+	if not _full_team_control():
 		return
 	if ControlMode.scheme_for(Tuning.Team.HOME) != ControlMode.Scheme.SINGLE_PLAYER:
 		return

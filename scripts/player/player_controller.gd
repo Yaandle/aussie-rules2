@@ -95,13 +95,15 @@ signal infringed(fouled: PlayerController, fifty: bool)
 @export var team: Tuning.Team = Tuning.Team.HOME
 
 ## Identity only, not gameplay — Career mode's per-player goal/disposal
-## stats (MatchState's player-keyed dictionary, see match_state.gd) are
-## keyed by this. Empty for every non-Career spawn (Kick-to-Kick, a
-## quick-play Full Game), so nothing outside Career ever reads or writes
-## a per-player stat row. Set by full_game.gd's _spawn_team() from
-## CareerProfile.roster/the generated opponent roster, only when
-## GameState.career_active is true.
+## stats (MatchState's player-keyed dictionaries, see match_state.gd) are
+## keyed by roster_id and shown under roster_name. The id is unique across
+## both teams ("H<roster id>" / "A<index>"); the name isn't. Both empty for
+## every non-Career spawn (Kick-to-Kick, a quick-play Full Game), so
+## nothing outside Career ever reads or writes a per-player stat row. Set
+## by full_game.gd's _spawn_team() from CareerProfile.roster/the generated
+## opponent roster, only when GameState.career_active is true.
 var roster_name := ""
+var roster_id := ""
 
 ## Uniform multiplier over WALK/JOG/SPRINT_SPEED — 1.0 leaves Full Game
 ## and the sandbox exactly as tuned. The character screen's SPEED stat

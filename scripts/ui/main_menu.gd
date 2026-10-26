@@ -285,7 +285,20 @@ func _select() -> void:
 	var entry := _entries[_index]
 	if not entry.unlocked:
 		return
-	SceneWipe.change_scene(entry.scene_path)
+	SceneWipe.change_scene(_scene_for(entry))
+
+
+## CAREER continues a career in progress (its Dashboard) and only creates a
+## player when there isn't one. It used to open creation every time, and
+## CONFIRM there silently replaced the season — New Career on the
+## Dashboard is now the only way to start over.
+const CAREER_CREATE_SCENE := "res://scenes/ui/career_character_screen.tscn"
+const CAREER_DASHBOARD_SCENE := "res://scenes/ui/career_dashboard_screen.tscn"
+
+func _scene_for(entry: Entry) -> String:
+	if entry.scene_path == CAREER_CREATE_SCENE and CareerProfile.has_career():
+		return CAREER_DASHBOARD_SCENE
+	return entry.scene_path
 
 
 func _util_move(step: int) -> void:

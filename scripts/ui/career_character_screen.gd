@@ -7,21 +7,23 @@ extends Node
 ## ActionButton/KeyHintBar/UIStyle directly, no duplication of those), but
 ## its own script/scene: the draft here binds to CareerProfile instead of
 ## CharacterProfile, and the row list is different — NAME/POSITION/NUMBER/
-## FOOT ahead of the same five adjustable attributes CHARACTER has.
+## FOOT ahead of the attribute rows.
 ##
-## CONFIRM generates the player's own 18-player roster (RosterGenerator,
-## with this created character spliced into the slot matching their
-## chosen POSITION), a 12-fixture season, writes it all to CareerProfile,
-## persists it, and launches the Career Dashboard. There is no Customise
-## panel here (model/kit colours) — CareerProfile carries those fields for
-## when that's added, but this pass only asks for what the brief asked
-## for: name, position, number, foot, attributes.
+## CONFIRM writes the draft to CareerProfile and calls its start_career()
+## (an 18-player roster with this character spliced into their POSITION's
+## slot, a 12-round season, persisted), then launches the Career
+## Dashboard. There is no Customise panel here (model/kit colours) yet —
+## CareerProfile carries those fields for when that's added.
+##
+## Attributes move one square at a time: CareerProfile stores them as
+## levels (one per StatRow square), not free floats. HEIGHT isn't
+## adjustable — it follows POSITION (CareerProfile.height_for_role()).
 
 ## `kind` picks how _nudge()/_activate()/_row_value_text() treat the row:
 ## "text" (NAME, edited via a hidden LineEdit — see _build_name_edit),
 ## "role" (cycles TeamFormation.Role), "int" (NUMBER, ±1 clamped 1..99),
-## "foot" (two-value LEFT/RIGHT toggle), "stat" (the same numeric nudge
-## character_screen.gd's attribute rows use).
+## "foot" (two-value LEFT/RIGHT toggle), "stat" (±1 level of a
+## CareerProfile attribute), "height" (read-only, follows POSITION).
 const CAREER_ROWS := [
 	{"key": "player_name", "icon": &"figure", "name": "NAME", "kind": "text", "bar": false},
 	{"key": "position", "icon": &"gear", "name": "POSITION", "kind": "role", "bar": false},
@@ -31,7 +33,7 @@ const CAREER_ROWS := [
 	{"key": "kick_power", "icon": &"kick", "name": "KICKING POWER", "kind": "stat"},
 	{"key": "kick_accuracy", "icon": &"accuracy", "name": "KICKING ACCURACY", "kind": "stat"},
 	{"key": "agility", "icon": &"agility", "name": "AGILITY", "kind": "stat"},
-	{"key": "height", "icon": &"height", "name": "HEIGHT", "kind": "stat"},
+	{"key": "height", "icon": &"height", "name": "HEIGHT", "kind": "height"},
 ]
 
 const TITLE := "CREATE YOUR PLAYER"
@@ -64,7 +66,7 @@ const HINTS_TOP := CARD_TOP + CARD_HEIGHT + RetroWindow.SHADOW_OFFSET.y + 6.0
 @onready var _ui: Control = $Overlay/UI
 @onready var _backdrop: CharacterBackdrop = $CharacterBackdrop
 
-var _stat_config := {}
+var _stat_formats := {}
 var _draft := {}
 var _rows: Array[StatRow] = []
 var _play: ActionButton
@@ -76,37 +78,36 @@ var _editing_name := false   ## true while _name_edit holds keyboard focus
 
 
 func _ready() -> void:
-	_stat_config = {
-		"speed": {"min": Tuning.CHARACTER_SPEED_MIN, "max": Tuning.CHARACTER_SPEED_MAX,
-			"step": Tuning.CHARACTER_SPEED_STEP, "format": "%.2f m/s"},
-		"height": {"min": Tuning.CHARACTER_HEIGHT_MIN, "max": Tuning.CHARACTER_HEIGHT_MAX,
-			"step": Tuning.CHARACTER_HEIGHT_STEP, "format": "%.0f cm"},
-		"kick_power": {"min": Tuning.CHARACTER_KICK_POWER_MIN, "max": Tuning.CHARACTER_KICK_POWER_MAX,
-			"step": Tuning.CHARACTER_KICK_POWER_STEP, "format": "%.2fx"},
-		"kick_accuracy": {"min": Tuning.CHARACTER_KICK_ACCURACY_MIN,
-			"max": Tuning.CHARACTER_KICK_ACCURACY_MAX,
-			"step": Tuning.CHARACTER_KICK_ACCURACY_STEP, "format": "%.0f%%"},
-		"agility": {"min": Tuning.CHARACTER_AGILITY_MIN, "max": Tuning.CHARACTER_AGILITY_MAX,
-			"step": Tuning.CHARACTER_AGILITY_STEP, "format": "%.2fx"},
+	_stat_formats = {
+		"speed": "%.2f m/s",
+		"kick_power": "%.2fx",
+		"kick_accuracy": "%.0f%%",
+		"agility": "%.2fx",
 	}
+	# Stat rows hold levels in the draft, not values.
 	_draft = {
 		"player_name": CareerProfile.player_name,
 		"position": int(CareerProfile.position),
 		"number": CareerProfile.number,
 		"foot": CareerProfile.foot,
-		"speed": CareerProfile.speed,
-		"height": CareerProfile.height,
-		"kick_power": CareerProfile.kick_power,
-		"kick_accuracy": CareerProfile.kick_accuracy,
-		"agility": CareerProfile.agility,
 	}
+	for key: String in CareerProfile.ATTRIBUTE_RANGES:
+		_draft[key] = CareerProfile.level(key)
 	_build()
-	_backdrop.set_height_scale(_draft["height"] / Tuning.CHARACTER_HEIGHT_DEFAULT)
+	_sync_backdrop_height()
 	_backdrop.set_model(CareerProfile.model_id)
 	_backdrop.set_kit_colors(_resolved_hex(CareerProfile.skin_color),
 		_resolved_hex(CareerProfile.jersey_color), _resolved_hex(CareerProfile.shorts_color),
 		_resolved_hex(CareerProfile.boot_color), _resolved_hex(CareerProfile.socks_color))
 	_refresh()
+
+
+func _draft_height() -> float:
+	return CareerProfile.height_for_role(_draft["position"])
+
+
+func _sync_backdrop_height() -> void:
+	_backdrop.set_height_scale(_draft_height() / Tuning.CHARACTER_HEIGHT_DEFAULT)
 
 
 func _resolved_hex(hex: String) -> Color:
@@ -154,6 +155,7 @@ func _nudge(direction: int) -> void:
 		"role":
 			var count: int = TeamFormation.Role.size()
 			_draft["position"] = (_draft["position"] + direction + count) % count
+			_sync_backdrop_height()   # HEIGHT follows POSITION
 			_refresh()
 		"int":
 			_draft["number"] = clampi(_draft["number"] + direction, 1, 99)
@@ -162,13 +164,9 @@ func _nudge(direction: int) -> void:
 			_draft["foot"] = CareerProfile.FOOT_LEFT if _draft["foot"] == CareerProfile.FOOT_RIGHT \
 				else CareerProfile.FOOT_RIGHT
 			_refresh()
-		_:
+		"stat":
 			var key: String = row["key"]
-			var config: Dictionary = _stat_config[key]
-			_draft[key] = clampf(_draft[key] + direction * float(config["step"]),
-				float(config["min"]), float(config["max"]))
-			if key == "height":
-				_backdrop.set_height_scale(_draft["height"] / Tuning.CHARACTER_HEIGHT_DEFAULT)
+			_draft[key] = clampi(_draft[key] + direction, 0, Tuning.CAREER_ATTRIBUTE_LEVELS)
 			_refresh()
 
 
@@ -181,9 +179,8 @@ func _activate() -> void:
 		_name_edit.grab_focus()
 
 
-## Builds the 18-player roster (the created character spliced into the
-## slot matching their chosen POSITION) and the 12-fixture season, writes
-## everything to CareerProfile, persists it, and launches the Dashboard.
+## Writes the draft to CareerProfile, starts the career (roster, season,
+## save — see CareerProfile.start_career()), and launches the Dashboard.
 ## An empty NAME falls back to DEFAULT_NAME rather than blocking — no
 ## validation-dialog machinery exists on this screen, and a lean fallback
 ## beats building one just for this.
@@ -195,43 +192,27 @@ func _confirm_and_create() -> void:
 	var player_name: String = _draft["player_name"]
 	if player_name.strip_edges().is_empty():
 		player_name = DEFAULT_NAME
-	var role: TeamFormation.Role = _draft["position"]
-
-	var roster := RosterGenerator.generate_team(CareerProfile.DEFAULT_TEAM_NAME)
-	var slot_index := RosterGenerator.roster_index_for_role(roster, role)
-	# Carries the real drafted attributes (not a generated teammate's
-	# random ones) so the roster table's OVERALL and HEIGHT columns read
-	# true for the player's own slot — WEIGHT has no draft value to carry
-	# (no WEIGHT row on this screen, same as the quick-play CHARACTER
-	# screen), so it gets the same one-off random fill a teammate's does.
-	roster[slot_index] = {
-		"name": player_name, "role": role, "number": _draft["number"],
-		"height": _draft["height"], "weight": RosterGenerator.random_weight(),
-		"speed": _draft["speed"], "kick_power": _draft["kick_power"],
-		"kick_accuracy": _draft["kick_accuracy"], "agility": _draft["agility"],
-	}
-	var fixtures := RosterGenerator.generate_team_names(CareerProfile.SEASON_LENGTH)
 
 	CareerProfile.player_name = player_name
-	CareerProfile.position = role
+	CareerProfile.position = _draft["position"]
 	CareerProfile.number = _draft["number"]
 	CareerProfile.foot = _draft["foot"]
-	CareerProfile.speed = _draft["speed"]
-	CareerProfile.height = _draft["height"]
-	CareerProfile.kick_power = _draft["kick_power"]
-	CareerProfile.kick_accuracy = _draft["kick_accuracy"]
-	CareerProfile.agility = _draft["agility"]
-	CareerProfile.team_name = CareerProfile.DEFAULT_TEAM_NAME
-	CareerProfile.start_season(roster, fixtures)
+	for key: String in CareerProfile.ATTRIBUTE_RANGES:
+		CareerProfile.set_level(key, _draft[key])
+	CareerProfile.start_career()
 
 	SceneWipe.change_scene("res://scenes/ui/career_dashboard_screen.tscn")
 
 
+## Back to the Dashboard when a career is already in progress (you came
+## here from its New Career, and backing out keeps that career), else the
+## main menu.
 func _exit_to_menu() -> void:
 	if _busy:
 		return
 	_busy = true
-	SceneWipe.change_scene("res://scenes/ui/main_menu.tscn")
+	SceneWipe.change_scene("res://scenes/ui/career_dashboard_screen.tscn" if CareerProfile.has_career()
+		else "res://scenes/ui/main_menu.tscn")
 
 
 # ── Build ────────────────────────────────────────────────────────────
@@ -267,10 +248,11 @@ func _build() -> void:
 	for entry: Dictionary in CAREER_ROWS:
 		var row := StatRow.new()
 		list.add_child(row)
-		# NAME is edited via Enter (grabs _name_edit), not A/D — the arrow
-		# cue would say "left/right changes this" for a row that A/D does
-		# nothing on, so it's the one row configured non-adjustable.
-		var adjustable: bool = entry.get("kind", "stat") != "text"
+		# NAME is edited via Enter (grabs _name_edit), not A/D, and HEIGHT
+		# follows POSITION — the arrow cue would say "left/right changes
+		# this" for a row that A/D does nothing on, so those two are
+		# configured non-adjustable.
+		var adjustable: bool = not (entry.get("kind", "stat") in ["text", "height"])
 		row.configure(entry["icon"], entry["name"], false, entry.get("bar", true), adjustable)
 		_rows.append(row)
 
@@ -349,16 +331,14 @@ func _refresh() -> void:
 
 
 func _filled_segments(entry: Dictionary) -> int:
-	if entry.get("kind", "stat") != "stat":
-		return 0
-	var key: String = entry["key"]
-	var config: Dictionary = _stat_config[key]
-	var vmin := float(config["min"])
-	var vmax := float(config["max"])
-	if vmax <= vmin:
-		return 0
-	var fraction := clampf((float(_draft[key]) - vmin) / (vmax - vmin), 0.0, 1.0)
-	return int(round(fraction * StatRow.SEGMENTS))
+	match entry.get("kind", "stat"):
+		"stat":
+			return _draft[entry["key"]]
+		"height":
+			var fraction := inverse_lerp(Tuning.CHARACTER_HEIGHT_MIN, Tuning.CHARACTER_HEIGHT_MAX,
+				_draft_height())
+			return roundi(clampf(fraction, 0.0, 1.0) * StatRow.SEGMENTS)
+	return 0
 
 
 func _row_value_text(entry: Dictionary) -> String:
@@ -374,8 +354,9 @@ func _row_value_text(entry: Dictionary) -> String:
 			return "#%d" % _draft[key]
 		"foot":
 			return _draft[key]
+		"height":
+			return "%.0f cm" % _draft_height()
 		_:
-			var config: Dictionary = _stat_config[key]
-			var value: float = _draft[key]
+			var value := CareerProfile.level_value(key, _draft[key])
 			var display_value := value * 100.0 if key == "kick_accuracy" else value
-			return (config["format"] as String) % display_value
+			return (_stat_formats[key] as String) % display_value

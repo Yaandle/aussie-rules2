@@ -1650,6 +1650,24 @@ const CHARACTER_AGILITY_MAX := 1.5
 const CHARACTER_AGILITY_STEP := 0.05
 const CHARACTER_AGILITY_DEFAULT := 1.0
 
+# ── Career ───────────────────────────────────────────────────────────
+## A Career player's trainable attributes (speed, kick power, kick
+## accuracy, agility) are stored as levels, one per square of the stat bar,
+## not as free floats: the upgrade system hands out whole squares (see
+## docs/CAREER_AUDIT.md), so a value between two squares has nowhere to
+## come from. Level 0 is the CHARACTER_*_MIN above, this many is the MAX,
+## linear between. Must match StatRow.SEGMENTS so a level is a square.
+const CAREER_ATTRIBUTE_LEVELS := 9
+
+## Career HEIGHT comes from position, not a slider or an upgrade: under the
+## "every attribute starts on one square" rule a ruckman would be 169 cm.
+## Changing position re-sets it. Inside CHARACTER_HEIGHT_MIN..MAX; the
+## groupings are CareerProfile.height_for_role()'s.
+const CAREER_HEIGHT_RUCK := 200.0      # cm, unplaytested feel guess
+const CAREER_HEIGHT_KEY := 193.0       # cm — FB/CHB/CHF/FF, unplaytested feel guess
+const CAREER_HEIGHT_MEDIUM := 185.0    # cm — flanks, wings, centre, ruck rover; unplaytested feel guess
+const CAREER_HEIGHT_SMALL := 178.0     # cm — pockets, rover; unplaytested feel guess
+
 ## TeamKit.contrast() score an AWAY preset's jersey must reach against
 ## HOME's before it's used (see team_kit.gd). Default gold vs the red away
 ## preset scores ~0.77; crimson vs that red ~0.1. Unplaytested feel guess.

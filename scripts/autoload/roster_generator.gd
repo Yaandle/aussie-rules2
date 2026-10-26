@@ -5,12 +5,16 @@ extends RefCounted
 ## helper class" shape as TeamFormation/RetroWindow/SoftBrutalist (no
 ## autoload needed, nothing here holds state between calls).
 ##
-## Every generated team is seeded off a hash of its own name
+## Every generated team is seeded off a hash of its own name plus a salt
 ## (RandomNumberGenerator.seed), so calling generate_team("ST KILDA
-## HAWKS") twice always produces the same roster without persisting every
-## opponent's 18 players up front — only the player's own team (Career
-## Profile.roster) is actually saved; an opponent's roster is rebuilt from
-## its fixture name right before that match, see career_pregame_screen.gd.
+## HAWKS", salt) twice always produces the same roster without persisting
+## every opponent's 18 players up front — only the player's own team
+## (CareerProfile.roster) is actually saved; an opponent's roster is
+## rebuilt from its fixture name right before that match, see
+## CareerProfile.opponent_roster(). The salt is CareerProfile.career_seed,
+## so each career gets its own teams; 0 hashes the name alone, which is how
+## every career was seeded before salts existed (a version-1 save keeps its
+## opponents that way).
 
 const FIRST_NAMES := [
 	"Jack", "Noah", "Oliver", "Lachlan", "Ethan", "Cooper", "Mason", "Will",
@@ -56,9 +60,9 @@ const WEIGHT_MAX := 92.0
 ## Career/quick-play character screens draft from, so a generated
 ## teammate's OVERALL (see overall()) sits on the same scale a created
 ## player's does.
-static func generate_team(team_name: String) -> Array[Dictionary]:
+static func generate_team(team_name: String, salt := 0) -> Array[Dictionary]:
 	var rng := RandomNumberGenerator.new()
-	rng.seed = hash(team_name)
+	rng.seed = _seed(team_name, salt)
 
 	var numbers := range(1, TeamFormation.SLOTS.size() + 1)
 	_shuffle(rng, numbers)
@@ -80,17 +84,6 @@ static func generate_team(team_name: String) -> Array[Dictionary]:
 			"agility": rng.randf_range(Tuning.CHARACTER_AGILITY_MIN, Tuning.CHARACTER_AGILITY_MAX),
 		})
 	return roster
-
-
-## A one-off WEIGHT_MIN..WEIGHT_MAX value for the Career player's own
-## created character — career_character_screen.gd has no WEIGHT row to
-## draft from (same "flavour only" status it has on the quick-play
-## CHARACTER screen), so this fills the roster table's column the same
-## way a generated teammate's weight does. Not seeded — called once at
-## character creation and the result is persisted straight into
-## CareerProfile.roster, so there's nothing to reproduce later.
-static func random_weight() -> float:
-	return randf_range(WEIGHT_MIN, WEIGHT_MAX)
 
 
 ## 0..100 rating from a roster entry's four performance attributes
@@ -131,13 +124,11 @@ static func roster_index_for_role(roster: Array[Dictionary], role: TeamFormation
 	return -1
 
 
-## `count` unique "{Suburb} {Mascot}" fixture names, order shuffled off a
-## fixed seed so the season's opponent list is stable across loads
-## without persisting anything beyond the names themselves (see
-## CareerProfile.fixtures).
-static func generate_team_names(count: int) -> Array[String]:
+## `count` unique "{Suburb} {Mascot}" fixture names, order shuffled off
+## `salt` (see the header) — CareerProfile saves the names it gets.
+static func generate_team_names(count: int, salt := 0) -> Array[String]:
 	var rng := RandomNumberGenerator.new()
-	rng.seed = hash("career_fixtures")
+	rng.seed = _seed("career_fixtures", salt)
 
 	var combos: Array[String] = []
 	for suburb in SUBURBS:
@@ -145,6 +136,10 @@ static func generate_team_names(count: int) -> Array[String]:
 			combos.append("%s %s" % [suburb, mascot])
 	_shuffle(rng, combos)
 	return combos.slice(0, mini(count, combos.size()))
+
+
+static func _seed(key: String, salt: int) -> int:
+	return hash(key) if salt == 0 else hash("%s#%d" % [key, salt])
 
 
 static func _generate_name(rng: RandomNumberGenerator) -> String:
