@@ -56,6 +56,13 @@ const ROSTER_SIZE := Tuning.TEAM_SIZE
 const DEFAULT_TEAM_NAME := "YOUR JUNIORS U18s"
 const SEASON_LENGTH := 12
 
+## CAREER SETTINGS on the Create screen, fixed for the career once it
+## starts. Sets where attributes start (start_level()); later phases of
+## docs/CAREER_AUDIT.md hang upgrades and opponent strength off it too.
+const DIFFICULTY_EASY := 0
+const DIFFICULTY_HARD := 1
+const DIFFICULTY_NAMES := ["EASY", "HARD"]
+
 ## season_outcome() values.
 const OUTCOME_PROMOTED := "promoted"
 const OUTCOME_CHAMPIONS := "champions"
@@ -78,6 +85,7 @@ const ATTRIBUTE_DEFAULTS := {
 }
 
 var player_name := ""
+var difficulty := DIFFICULTY_EASY
 var position: TeamFormation.Role = TeamFormation.Role.CENTRE
 var number := 1
 var foot := FOOT_RIGHT
@@ -219,6 +227,12 @@ func _reset_levels() -> void:
 		levels[key] = level_for(key, float(ATTRIBUTE_DEFAULTS[key]))
 
 
+## Where every trainable attribute starts for `for_difficulty`.
+static func start_level(for_difficulty: int) -> int:
+	return Tuning.CAREER_START_LEVEL_HARD if for_difficulty == DIFFICULTY_HARD \
+		else Tuning.CAREER_START_LEVEL_EASY
+
+
 # ── Roster ───────────────────────────────────────────────────────────
 
 ## Your index in `roster` (= your roster-spawn slot), or -1 with no career.
@@ -339,14 +353,17 @@ func current_fixture() -> String:
 	return String(rounds[index]["opponent"])
 
 
-## Called once, on character creation, after the identity/attribute fields
-## are set: a fresh seed, a club and league in the first tier, an
+## Called once, on character creation, after the identity fields and
+## `difficulty` are set: every attribute on difficulty's start_level(), a
+## fresh seed, a club and league in the first tier, an
 ## 18-player roster with you spliced into your position's slot, and the
 ## season's fixture. Overwrites any career in progress — the Dashboard's
 ## New Career asks before getting here. WEIGHT has no draft row (same
 ## "flavour only" status it has on the quick-play CHARACTER screen), so
 ## you keep your slot's generated weight.
 func start_career() -> void:
+	for key: String in ATTRIBUTE_RANGES:
+		set_level(key, start_level(difficulty))
 	career_seed = _new_seed()
 	league_index = 0
 	season_index = 0
@@ -537,6 +554,7 @@ func save() -> void:
 	var config := ConfigFile.new()
 	config.set_value(SECTION, "save_version", SAVE_VERSION)
 	config.set_value(SECTION, "player_name", player_name)
+	config.set_value(SECTION, "difficulty", difficulty)
 	config.set_value(SECTION, "position", int(position))
 	config.set_value(SECTION, "number", number)
 	config.set_value(SECTION, "foot", foot)
@@ -572,6 +590,8 @@ func _load() -> void:
 	if config.load(CONFIG_PATH) != OK:
 		return
 	player_name = config.get_value(SECTION, "player_name", player_name)
+	difficulty = clampi(int(config.get_value(SECTION, "difficulty", DIFFICULTY_EASY)),
+		DIFFICULTY_EASY, DIFFICULTY_HARD)
 	var loaded_position: int = config.get_value(SECTION, "position", int(position))
 	if loaded_position >= 0 and loaded_position < TeamFormation.Role.size():
 		position = loaded_position

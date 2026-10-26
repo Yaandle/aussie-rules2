@@ -79,14 +79,64 @@ var _kit_boot := Color(0.0, 0.0, 0.0, 0.0)
 var _kit_socks := Color(0.0, 0.0, 0.0, 0.0)
 
 
+## -1 keeps CAMERA_SIDESTEP (the CHARACTER screen's framing). 0..1 instead
+## puts the player at that fraction of the screen's width at every zoom —
+## the sidestep is worked out from the camera's FOV, the window's aspect and
+## the distance (_sidestep()), so zoom_in() doesn't push them off the edge.
+## Career's Create/Edit screen uses 0.833, the middle of the right third,
+## clear of its card. Set on the scene instance, before _ready().
+@export var subject_screen_x := -1.0
+
+## Dress the ground as Field 2, the bush oval (Settings.FieldStyle.OVAL_1's
+## environment), instead of the plain generated field — Career's Create/
+## Edit screen (playtest: "show the player standing on field 2"). Done here
+## rather than through Field.follow_field_style, which follows the
+## player's FIELD setting.
+@export var dress_field_2 := false
+const FIELD_2_FOG_BEGIN := 90.0    # m — just past the far boundary fence
+const FIELD_2_FOG_END := 320.0     # m
+
+
 func _ready() -> void:
-	add_child(FIELD_SCENE.instantiate())
+	var field := FIELD_SCENE.instantiate()
+	if dress_field_2:
+		field.build_fence = false
+		field.build_trees = false
+	add_child(field)
+	if dress_field_2:
+		(field.get_node("Ground/Turf") as MeshInstance3D).visible = false
+		field.add_child((load(Field.OVAL1_SCENE_PATH) as PackedScene).instantiate())
+		# The studio box fogs out completely by 48 m, and the bush oval's
+		# fence and gum ring start ~80 m away: push the fog past them on a
+		# copy, so the shared environment resource is left alone.
+		var world := $WorldEnvironment as WorldEnvironment
+		var environment := world.environment.duplicate() as Environment
+		environment.fog_depth_begin = FIELD_2_FOG_BEGIN
+		environment.fog_depth_end = FIELD_2_FOG_END
+		world.environment = environment
 	_build_rig(CharacterProfile.model_id)
 
 	_ring.position = STAND_ON + Vector3(0.0, RING_HEIGHT, 0.0)
 
 	_camera.rotation = Vector3.ZERO   # identity basis already looks down -Z
-	_camera.position = STAND_ON + Vector3(-CAMERA_SIDESTEP, CAMERA_HEIGHT, CAMERA_DISTANCE)
+	_camera.position = _camera_target(CAMERA_DISTANCE)
+
+
+func _camera_target(distance: float) -> Vector3:
+	return STAND_ON + Vector3(-_sidestep(distance), CAMERA_HEIGHT, distance)
+
+
+## How far left of the player the camera stands so they appear at
+## subject_screen_x. The camera is level and keeps its height (Godot's
+## default KEEP_HEIGHT), so half the visible width at the player's depth is
+## tan(fov / 2) × aspect × distance.
+func _sidestep(distance: float) -> float:
+	if subject_screen_x < 0.0:
+		return CAMERA_SIDESTEP
+	var view := get_viewport().get_visible_rect().size
+	var aspect := view.x / maxf(view.y, 1.0)
+	var half_width := tan(deg_to_rad(_camera.fov) * 0.5) * aspect * distance
+	return (subject_screen_x * 2.0 - 1.0) * half_width
 
 
 ## Cosmetic rig scale so the portrait reflects the draft HEIGHT value
@@ -143,7 +193,7 @@ func zoom_out() -> void:
 
 
 func _tween_camera_to(distance: float) -> void:
-	var target := STAND_ON + Vector3(-CAMERA_SIDESTEP, CAMERA_HEIGHT, distance)
+	var target := _camera_target(distance)
 	var tween := create_tween()
 	tween.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
 	tween.tween_property(_camera, "position", target, ZOOM_DURATION)

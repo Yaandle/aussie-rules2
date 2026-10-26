@@ -1668,6 +1668,12 @@ const CAREER_HEIGHT_KEY := 193.0       # cm — FB/CHB/CHF/FF, unplaytested feel
 const CAREER_HEIGHT_MEDIUM := 185.0    # cm — flanks, wings, centre, ruck rover; unplaytested feel guess
 const CAREER_HEIGHT_SMALL := 178.0     # cm — pockets, rover; unplaytested feel guess
 
+## The level every trainable attribute starts on when a career begins, by
+## CareerProfile difficulty: Easy one square, Hard none (the Tuning
+## minimums). User's numbers.
+const CAREER_START_LEVEL_EASY := 1
+const CAREER_START_LEVEL_HARD := 0
+
 ## Generated players in league tier N (CareerSeason.LEAGUES) get attributes
 ## between level N and N + this, so Juniors sides sit near the bottom of
 ## the range and each promotion meets a stronger league. Unplaytested feel

@@ -277,7 +277,13 @@ along the bottom.
   once you've moved right (decision 6). It opens on the current round.
   Mouse clicks, D-pad and LB/RB all work.
 
-### Phase 6: Create Your Player rework
+### Phase 6: Create Your Player rework (done 2026-10-27)
+
+Landed as below. Customise Player is the CHARACTER screen's floating
+button (Y / Tab). "Field 2" is the bush oval (`OVAL_1`) that another
+session built. The backdrop dresses itself with it and pushes the studio
+fog past the gum ring, so `field.gd` is untouched. POSITION shows its
+height ("RUCK · 200 cm"). Edit mode is Phase 7.
 
 - Rows: NAME, POSITION, NUMBER, FOOT, then a **Customise Player** button
   (reusing `CharacterScreen.CUSTOMISE_ROWS` and `SWATCHES`, with the
