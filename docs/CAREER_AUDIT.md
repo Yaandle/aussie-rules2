@@ -201,10 +201,10 @@ tackle that holds. "Last Match" is a button rather than a tab. The
 "+5 upgrades" line waits for Phase 7, when upgrades exist. Your season
 line also shows on the Season Summary and is filed in `season_history`.
 
-The per-player TACKLES stat counts every held on-ball tackle. The team
-tally only counts the ones that land in open play: in a 60 s live run, 4
-of 15 landed during a ball-up or throw-in contest, where the match makes
-no ruling. That's match behaviour outside Career, worth a look on its own.
+The per-player TACKLES stat counts every held on-ball tackle. At first
+the team tally didn't match it: in a 60 s live run, 4 of 15 landed while
+the holding-the-ball or running-too-far whistle had left the ball live.
+Fixed in full_game.gd (`_dead_ball_at()`), and the two now agree.
 
 - `MatchState` keeps per-player tallies by id: kicks, handballs, marks
   (legal only), tackles, goals, behinds, hit-outs. Disposals are derived.

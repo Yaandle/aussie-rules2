@@ -904,7 +904,21 @@ func _on_holding_the_ball(tackler: PlayerController) -> void:
 	GameState.phase = GameState.Phase.STOPPAGE
 	_scoreboard.flash("HOLDING THE BALL — FREE KICK", Tuning.CENTRE_BOUNCE_DELAY)
 	AudioManager.play_whistle()
+	_dead_ball_at(spot)
 	_start_pause(Tuning.CENTRE_BOUNCE_DELAY, _award_free_kick.bind(spot, tackler))
+
+
+## The whistle's gone, so nobody may play the ball until the free kick is
+## taken: dropped and locked resting where the kick will be taken, the
+## same dead ball _on_infringed already had. Holding-the-ball and
+## running-too-far used to leave it live for the whole pause — the tackle's
+## spill rolled free, players gathered it and tackled each other, and those
+## tackles' own rulings were thrown away (the phase was already STOPPAGE),
+## so the ball just spilled again with nothing called. A 60 s headless
+## match had 4 such tackles in 15.
+func _dead_ball_at(spot: Vector3) -> void:
+	_drop_all_balls()
+	_rest_ball_at(spot)
 
 
 func _award_free_kick(spot: Vector3, tackler: PlayerController) -> void:
@@ -934,6 +948,7 @@ func _on_run_too_far(carrier: PlayerController) -> void:
 	GameState.phase = GameState.Phase.STOPPAGE
 	_scoreboard.flash("RUNNING TOO FAR — FREE KICK", Tuning.CENTRE_BOUNCE_DELAY)
 	AudioManager.play_whistle()
+	_dead_ball_at(spot)
 	_start_pause(Tuning.CENTRE_BOUNCE_DELAY, _award_possession_at.bind(spot, receiver))
 
 
@@ -957,8 +972,7 @@ func _on_infringed(fouled: PlayerController, fifty: bool, offender: PlayerContro
 	AudioManager.play_whistle()
 	# Dead ball for the pause, resting where the kick will be taken, while
 	# the hit itself plays out (the fouled player may be ragdolling).
-	_drop_all_balls()
-	_rest_ball_at(spot)
+	_dead_ball_at(spot)
 	_start_pause(Tuning.INFRINGEMENT_PAUSE_DURATION, _award_infringement.bind(spot, fouled))
 
 
