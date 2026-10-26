@@ -1736,6 +1736,21 @@ const CAREER_SIM_GOALS_PER_OVR := 0.12   # extra goals per point of OVERALL adva
 const CAREER_SIM_BEHINDS := 3.0          # mean behinds per side
 const CAREER_SIM_BEHINDS_SD := 1.5
 
+## Career difficulty on the opposition (docs/CAREER_AUDIT.md Phase 8). The
+## opponents' generated attribute band moves this many levels
+## (CareerSeason.league_band(); your own teammates keep the league's band),
+## and the away AI's tackle commitment (AIBrain.press_intensity) and
+## loose-ball reaction delay (AIBrain.reaction_scale, a multiplier on
+## AI_LOOSE_BALL_REACTION_MIN/MAX) scale with it. No dice anywhere: these
+## change attributes and timings, and physics still decides every contest
+## (RULES_REFERENCE §3). Unplaytested feel guesses.
+const CAREER_OPPONENT_BAND_SHIFT_EASY := -1
+const CAREER_OPPONENT_BAND_SHIFT_HARD := 1
+const CAREER_AI_PRESS_EASY := 0.85
+const CAREER_AI_PRESS_HARD := 1.15
+const CAREER_AI_REACTION_EASY := 1.3
+const CAREER_AI_REACTION_HARD := 0.75
+
 ## TeamKit.contrast() score an AWAY preset's jersey must reach against
 ## HOME's before it's used (see team_kit.gd). Default gold vs the red away
 ## preset scores ~0.77; crimson vs that red ~0.1. Unplaytested feel guess.

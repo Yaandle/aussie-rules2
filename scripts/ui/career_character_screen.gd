@@ -627,9 +627,9 @@ func _refresh() -> void:
 
 func _difficulty_caption_text() -> String:
 	if _draft["difficulty"] == CareerProfile.DIFFICULTY_HARD:
-		return "Every attribute starts at the minimum · %d upgrades after each match." \
+		return "Attributes start at the minimum · %d upgrades a match · tougher opposition." \
 			% Tuning.CAREER_UPGRADES_PER_GAME_HARD
-	return "Every attribute starts on one square · %d upgrades after each match." \
+	return "Attributes start on one square · %d upgrades a match · softer opposition." \
 		% Tuning.CAREER_UPGRADES_PER_GAME_EASY
 
 

@@ -310,9 +310,31 @@ func opponent_roster() -> Array[Dictionary]:
 	return _league_roster(current_fixture())
 
 
-## Any team in the current league, as RosterGenerator rebuilds it.
-func _league_roster(team: String) -> Array[Dictionary]:
-	return RosterGenerator.generate_team(team, _league_salt(), CareerSeason.league_band(league_index))
+## Any team in the current league, as RosterGenerator rebuilds it. An
+## opponent's squad sits in opponent_band(); your own club's in the
+## league's plain band.
+func _league_roster(team: String, opponent := true) -> Array[Dictionary]:
+	var band := opponent_band() if opponent else CareerSeason.league_band(league_index)
+	return RosterGenerator.generate_team(team, _league_salt(), band)
+
+
+## The league's band moved by difficulty: weaker opponents on Easy,
+## stronger on Hard (Tuning.CAREER_OPPONENT_BAND_SHIFT_*).
+func opponent_band() -> Vector2i:
+	var shift := Tuning.CAREER_OPPONENT_BAND_SHIFT_HARD if difficulty == DIFFICULTY_HARD \
+		else Tuning.CAREER_OPPONENT_BAND_SHIFT_EASY
+	return CareerSeason.league_band(league_index, shift)
+
+
+## The away AI's AIBrain.press_intensity and reaction_scale in a Career
+## match, by difficulty (Tuning.CAREER_AI_*).
+func ai_press() -> float:
+	return Tuning.CAREER_AI_PRESS_HARD if difficulty == DIFFICULTY_HARD else Tuning.CAREER_AI_PRESS_EASY
+
+
+func ai_reaction_scale() -> float:
+	return Tuning.CAREER_AI_REACTION_HARD if difficulty == DIFFICULTY_HARD \
+		else Tuning.CAREER_AI_REACTION_EASY
 
 
 ## Salt for this league's generated names and squads. League 0 uses
@@ -336,7 +358,7 @@ func _join_club(club: String) -> void:
 		first_id = maxi(first_id, int(entry.get("id", 0)) + 1)
 
 	team_name = club
-	roster = _league_roster(club)
+	roster = _league_roster(club, false)
 	for i in roster.size():
 		roster[i]["id"] = first_id + i
 	var slot := RosterGenerator.roster_index_for_role(roster, position)

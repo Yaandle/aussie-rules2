@@ -143,6 +143,10 @@ mostly superseded history. The full text lives outside the repo, in
   (`user://career_profile.cfg`, `settings.cfg`, under
   `%APPDATA%\Godot\app_userdata\Aussie Rules 2`). Back them up first, or
   set state in memory and open the screen directly instead.
+- **Committing next to another session's edits in the same file:** with no
+  `git add -p`, build the staged copy as `git show HEAD:<file>` plus only
+  your hunk, then `git hash-object -w` it and `git update-index --cacheinfo`.
+  Their hunks stay unstaged in the working tree (Career Phases 7-8).
 - At render rates below the physics rate, `_process` skips physics ticks.
   Sample physics state on `SceneTree.physics_frame` instead.
 - Nobody in this project's history has had a live GUI session during an

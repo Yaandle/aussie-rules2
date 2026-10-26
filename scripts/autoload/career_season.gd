@@ -46,9 +46,12 @@ static func is_top_league(index: int) -> bool:
 
 
 ## Attribute levels a generated player in league `index` is drawn between.
-static func league_band(index: int) -> Vector2i:
-	var low := clampi(index, 0, Tuning.CAREER_ATTRIBUTE_LEVELS)
-	return Vector2i(low, mini(low + Tuning.CAREER_LEAGUE_BAND_WIDTH, Tuning.CAREER_ATTRIBUTE_LEVELS))
+## `shift` moves both ends (Career difficulty on the opposition, see
+## CareerProfile.opponent_band()), each clamped to the level range.
+static func league_band(index: int, shift := 0) -> Vector2i:
+	var top := Tuning.CAREER_ATTRIBUTE_LEVELS
+	var low := clampi(index + shift, 0, top)
+	return Vector2i(low, clampi(index + Tuning.CAREER_LEAGUE_BAND_WIDTH + shift, low, top))
 
 
 ## `your_opponents` is the order you meet the 11 opponents in rounds 1-11

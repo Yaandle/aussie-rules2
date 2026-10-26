@@ -42,6 +42,12 @@ var lateral_bias := 0.0
 ## home_press_intensity() the same way lateral_bias is.
 var press_intensity := 1.0
 
+## Multiplies the loose-ball reaction delay (AI_LOOSE_BALL_REACTION_MIN/
+## MAX) — above 1 a slower read, below 1 a sharper one. Career difficulty
+## sets it on the away side (FullGame._configure_ai_brain, CareerProfile.
+## ai_reaction_scale()); 1.0 everywhere else, this file's original timing.
+var reaction_scale := 1.0
+
 ## Drill-only dial: multiplies the gait a carrying brain runs for goal at
 ## in _think_carrying (1.0 is this file's original un-tuned behaviour).
 ## Added for the old chase-from-behind tackling drill — a straight foot
@@ -158,7 +164,7 @@ func update(controller: PlayerController, delta: float) -> void:
 	var is_held := holder != null
 	if not is_held and _ball_was_held:
 		_reaction_timer = randf_range(
-			Tuning.AI_LOOSE_BALL_REACTION_MIN, Tuning.AI_LOOSE_BALL_REACTION_MAX)
+			Tuning.AI_LOOSE_BALL_REACTION_MIN, Tuning.AI_LOOSE_BALL_REACTION_MAX) * reaction_scale
 	_ball_was_held = is_held
 
 	# Hold the line — don't chase or support the ball — in either of two

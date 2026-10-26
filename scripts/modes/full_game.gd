@@ -482,8 +482,9 @@ func _spawn_team(team: Tuning.Team, attack_direction: float) -> Array[PlayerCont
 ## a freshly-created AIBrain. Used both here and by _switch_human_player()'s
 ## own hand-back AIBrain, so the two call sites can't drift about which
 ## settings a HOME player's AI actually gets the moment nobody's driving
-## them. AWAY always keeps AIBrain's own un-tuned defaults — only the
-## human's own team is something Team Edit lets them shape.
+## them. AWAY keeps AIBrain's own un-tuned defaults — only the human's own
+## team is something Team Edit lets them shape — except in Career, where
+## the difficulty tunes AWAY (below).
 func _configure_ai_brain(brain: AIBrain, team: Tuning.Team, attack_direction: float,
 		home_position: Vector3) -> AIBrain:
 	brain.ball = _ball
@@ -492,6 +493,13 @@ func _configure_ai_brain(brain: AIBrain, team: Tuning.Team, attack_direction: fl
 	if team == Tuning.Team.HOME:
 		brain.lateral_bias = Settings.home_lateral_bias()
 		brain.press_intensity = Settings.home_press_intensity()
+	elif GameState.career_active:
+		# Career difficulty on the opposition (CareerProfile.ai_press/
+		# ai_reaction_scale): how hard they commit to tackles and how fast
+		# they read a loose ball. Their squad's attributes are the other half
+		# (CareerProfile.opponent_band()).
+		brain.press_intensity = CareerProfile.ai_press()
+		brain.reaction_scale = CareerProfile.ai_reaction_scale()
 	return brain
 
 

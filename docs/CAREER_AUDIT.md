@@ -317,7 +317,11 @@ many upgrades are waiting. A dev-simmed round earns none.
   `Tuning.CAREER_UPGRADES_PER_GAME_EASY/HARD`, capped per league
   (decision 3).
 
-### Phase 8: difficulty and the AI
+### Phase 8: difficulty and the AI (done 2026-10-27)
+
+Landed as below. Only opponents move band (Easy −1 level, Hard +1); your
+club keeps the league's. The AI knobs are set on AWAY brains in Career
+only, so quick play is unchanged.
 
 - Easy and Hard shift the opponents' generated attribute band (low on
   Easy, high on Hard, both rising with the league). The away AI gets
@@ -334,3 +338,27 @@ many upgrades are waiting. A dev-simmed round earns none.
 How the BEAT-style carousel feels, where the player sits on the Create
 screen, Title Case on the Dashboard, and whether Easy and Hard feel
 different in a match. Headless checks can't judge any of these.
+
+## For review (all eight phases done, 2026-10-27)
+
+Commits on `update`, oldest first: `f7cf90a` (0), `2cefede` (1), `d85863f`
+(2), `5fb7bd0` (stoppage dead ball, found through Phase 2), `7eea0f4` (3),
+`634d86d` (4), `549b432` (5), `9755693` (6), `2ff61e3` (7), and Phase 8.
+Each commit message lists what was verified headless and what needs eyes.
+
+Tuning numbers that are unplaytested feel guesses: `CAREER_HEIGHT_*`,
+`CAREER_LEAGUE_BAND_WIDTH`, `CAREER_SIM_*` (aimed at 27 points a side
+with no real Career scorelines to check against), `CAREER_ATTRIBUTE_CAP_START`,
+`CAREER_OPPONENT_BAND_SHIFT_*` and `CAREER_AI_*`. The user set
+`CAREER_START_LEVEL_*`, `CAREER_UPGRADES_PER_GAME_*` and
+`CAREER_PROMOTION_PLACES` (2, decision 4).
+
+Known limits:
+- Hard makes every opponent stronger than your own AI teammates, and the
+  dev sim (F8) rates your side on squad OVR alone, so simmed Hard seasons
+  finish low. Real matches are where your player counts.
+- No finals yet; top 2 on the ladder go up.
+- A promoted club's name is drawn fresh and can repeat one from an earlier
+  league.
+- Nobody has looked at any of these screens in a live window with a pad.
+  Every frame check was a headless `--write-movie` capture.
