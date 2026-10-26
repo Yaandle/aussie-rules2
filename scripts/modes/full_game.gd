@@ -347,6 +347,7 @@ func _spawn_teams() -> void:
 		player.field_ball_up_called.connect(_on_field_ball_up)
 		player.holding_the_ball_called.connect(_on_holding_the_ball)
 		player.run_too_far_called.connect(_on_run_too_far)
+		player.infringed.connect(_on_infringed.bind(player))
 		player.hit_out_resolved.connect(_on_hit_out_resolved)
 		# FULL_TEAM auto-carrier control — jump the human onto whoever HOME
 		# wins the ball. ball_gathered covers marks too (_finish_mark_catch
@@ -910,6 +911,52 @@ func _on_run_too_far(carrier: PlayerController) -> void:
 	_scoreboard.flash("RUNNING TOO FAR — FREE KICK", Tuning.CENTRE_BOUNCE_DELAY)
 	AudioManager.play_whistle()
 	_start_pause(Tuning.CENTRE_BOUNCE_DELAY, _award_possession_at.bind(spot, receiver))
+
+
+## A tackle or bump that wasn't allowed (PlayerController.infringed):
+## `fouled` gets a free kick where they stand — or, for a hit on a player
+## holding the ball under protection, a 50 m penalty: the mark moves 50 m
+## toward the goal `fouled`'s team attacks, stopping just short of the goal
+## line (_fifty_metre_spot). Same stoppage shape as holding the ball.
+func _on_infringed(fouled: PlayerController, fifty: bool, offender: PlayerController) -> void:
+	if GameState.phase != GameState.Phase.PLAY:
+		return
+	if _after_siren_active():
+		return   # only the kick after the siren matters now
+	var spot := fouled.global_position
+	if fifty:
+		spot = _fifty_metre_spot(spot, fouled.team)
+	MatchState.clock_running = false
+	GameState.phase = GameState.Phase.STOPPAGE
+	_scoreboard.flash("50 METRE PENALTY" if fifty else "FREE KICK — OFF THE BALL",
+		Tuning.CENTRE_BOUNCE_DELAY)
+	AudioManager.play_whistle()
+	# Dead ball for the pause, resting where the kick will be taken.
+	_drop_all_balls()
+	_rest_ball_at(spot)
+	_start_pause(Tuning.CENTRE_BOUNCE_DELAY, _award_infringement.bind(spot, fouled))
+
+
+func _award_infringement(spot: Vector3, fouled: PlayerController) -> void:
+	fouled.global_position = Vector3(spot.x, fouled.global_position.y, spot.z)
+	_award_possession_at(spot, fouled)
+
+
+## `from` moved Tuning.FIFTY_METRE_PENALTY toward the goal `team` attacks
+## (HOME +X, AWAY -X), no closer than FIFTY_METRE_GOAL_LINE_SETBACK to the
+## goal line, and pulled back inside the boundary if the move took it out
+## (a mark near the wing moved toward a goal at the narrow end).
+func _fifty_metre_spot(from: Vector3, team: Tuning.Team) -> Vector3:
+	var direction := 1 if team == Tuning.Team.HOME else -1
+	var limit := _field.goal_line_x(direction) - float(direction) * Tuning.FIFTY_METRE_GOAL_LINE_SETBACK
+	var x := from.x + float(direction) * Tuning.FIFTY_METRE_PENALTY
+	if (x - limit) * float(direction) > 0.0:
+		x = limit
+	var spot := Vector3(x, 0.0, from.z)
+	if not _field.is_inside_oval(spot, 2.0):
+		spot = _throw_in_point(spot)
+		spot.y = 0.0
+	return spot
 
 
 ## Shared tail of every "possession + immunity at a spot" restart (free

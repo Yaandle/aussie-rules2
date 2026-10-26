@@ -82,6 +82,16 @@ signal tackle_committed(is_slide: bool)
 ## real numbers has an event to hook rather than needing to re-derive one.
 signal bump_landed(bumper: PlayerController, carrier: PlayerController, clean: bool)
 
+## Fired on the OFFENDER when a human's tackle or bump lands on an
+## opponent it isn't allowed to touch (playtest): one without the ball (a
+## tackle off the ball, a late hit) — a free kick to them where they stand
+## — or one holding the ball under protection (a mark or free kick) — a
+## 50 m penalty (`fifty`). Nothing physical happens to `fouled`: no spill,
+## no ragdoll; whoever owns match flow (FullGame._on_infringed) stops play
+## and awards it. AI never tackles off the ball, so only a human can
+## concede one.
+signal infringed(fouled: PlayerController, fifty: bool)
+
 @export var team: Tuning.Team = Tuning.Team.HOME
 
 ## Identity only, not gameplay — Career mode's per-player goal/disposal
@@ -269,6 +279,10 @@ var _slide_dive_timer := 0.0
 var _slide_dive_cooldown := 0.0
 var _slide_dive_direction := Vector3.FORWARD
 var _slide_was_pressed := false
+## The tackle button's rising edge this frame (set in _update_slide_dive) —
+## only a fresh press can concede a free kick off the ball, never B held
+## down while running past someone on the way to the carrier.
+var _slide_just_pressed := false
 
 ## Seconds left before another Lunge tackle attempt can fire — see
 ## _try_lunge_tackle. Unlike a missed Slide (which sets _stun_timer, a real
@@ -1244,6 +1258,7 @@ func _update_slide_dive(delta: float) -> void:
 	var pressed := _brain.wants_tackle()
 	var just_pressed := pressed and not _slide_was_pressed
 	_slide_was_pressed = pressed
+	_slide_just_pressed = just_pressed
 
 	if _slide_dive_timer > 0.0:
 		_slide_dive_timer = _tick_down(_slide_dive_timer, delta)
@@ -1304,6 +1319,11 @@ func _try_tackle() -> void:
 	var target := _nearest_player(Tuning.TACKLE_RADIUS, func(other: PlayerController) -> bool:
 		return other.team != team and other.is_carrying() and not other.is_protected())
 	if target == null:
+		# A press that just launched a dive at a carrier is going for them.
+		if _slide_just_pressed and _slide_dive_timer <= 0.0:
+			var fouled := _foul_target(Tuning.TACKLE_RADIUS)
+			if fouled != null:
+				_commit_foul(fouled)
 		return
 	# Landed (the gate), then held or broken on the model (Tuning's "Whether
 	# a tackle holds"). A broken Slide costs the tackler what a whiff does.
@@ -1376,12 +1396,19 @@ func _try_lunge_tackle() -> void:
 		return
 	# A press with nobody in reach yet stays buffered (InputManager) for the
 	# carrier to step in, rather than being spent on nothing.
-	if _brain.lunge_tackle_pending() and _lunge_target(Tuning.TACKLE_LUNGE_REACH) == null:
+	if _brain.lunge_tackle_pending() and _lunge_target(Tuning.TACKLE_LUNGE_REACH) == null \
+			and _foul_target(Tuning.TACKLE_RADIUS) == null:
 		return
 	if not _brain.wants_lunge_tackle():
 		return
 	var target := _lunge_target(Tuning.TACKLE_LUNGE_REACH)
 	if target == null:
+		# Nobody legal to tackle, but someone right there who isn't (no ball,
+		# or protected): a free kick or 50 against. Point-blank only — no
+		# dash at somebody you can't tackle.
+		var fouled := _foul_target(Tuning.TACKLE_RADIUS)
+		if fouled != null:
+			_commit_foul(fouled)
 		return
 	if _flat_distance_to(target) <= Tuning.TACKLE_RADIUS:
 		_land_lunge(target)
@@ -1402,6 +1429,33 @@ func _lunge_target(reach: float) -> PlayerController:
 func _is_lunge_target(other: PlayerController) -> bool:
 	return is_instance_valid(other) and other.team != team and other.is_carrying() \
 		and not other.is_protected()
+
+
+## Who a human's tackle within `reach` would foul, or null: the nearest
+## opponent this player may not tackle — no ball, or holding it under
+## protection (see `infringed`). Never while a kick is in the air: in a
+## marking contest X is also the running mark, and a contest for the ball
+## isn't a tackle off it. AI brains never get one (null), so an AI only
+## ever tackles carriers.
+func _foul_target(reach: float) -> PlayerController:
+	if not _brain is HumanBrain:
+		return null
+	var ball := _live_ball()
+	if ball != null and (ball.is_kick_flight() or ball.is_airborne()):
+		return null
+	return _nearest_player(reach, func(other: PlayerController) -> bool:
+		return other.team != team and (not other.is_carrying() or other.is_protected()))
+
+
+## A human's tackle or bump on `fouled` that isn't allowed (see `infringed`):
+## nothing happens to them physically, the offender pays a whiff's cost, and
+## match flow is told.
+func _commit_foul(fouled: PlayerController) -> void:
+	var fifty := fouled.is_carrying() and fouled.is_protected()
+	last_tackle = {"foul": true, "fifty": fifty}
+	_lunge_tap_cooldown = Tuning.TACKLE_LUNGE_TAP_COOLDOWN
+	_lunge_dash_timer = 0.0
+	infringed.emit(fouled, fifty)
 
 
 func _flat_distance_to(other: Node3D) -> float:
@@ -1889,19 +1943,36 @@ func _try_bump_contact() -> void:
 	if not _bump_dash_active:
 		return
 	var carrier := _nearest_opposing_carrier()
-	if carrier != null:
-		var to_carrier := carrier.global_position - global_position
-		to_carrier.y = 0.0
-		var dist := to_carrier.length()
-		if dist <= Tuning.BUMP_RANGE and dist > 0.0001 \
-				and _bump_dash_direction.angle_to(to_carrier.normalized()) <= deg_to_rad(Tuning.BUMP_CONE_DEG):
+	if carrier != null and _bump_reaches(carrier):
+		# A carrier under protection (mark/free kick) can't be bumped off it —
+		# that used to strip the ball; now it's a 50 m penalty (`infringed`).
+		if carrier.is_protected() and _brain is HumanBrain:
+			_commit_foul(carrier)
+		elif not carrier.is_protected():
 			_resolve_bump_contact(carrier)
-			_bump_dash_active = false
-			_bump_dash_timer = 0.0
-			return
+		_bump_dash_active = false
+		_bump_dash_timer = 0.0
+		return
+	# A late hit: the dash connecting with an opponent who hasn't got it.
+	var fouled := _foul_target(Tuning.BUMP_RANGE)
+	if fouled != null and not fouled.is_carrying() and _bump_reaches(fouled):
+		_commit_foul(fouled)
+		_bump_dash_active = false
+		_bump_dash_timer = 0.0
+		return
 	if _bump_dash_timer <= 0.0:
 		_resolve_bump_miss()
 		_bump_dash_active = false
+
+
+## Whether this frame's bump dash reaches `other`: in BUMP_RANGE and inside
+## BUMP_CONE_DEG of the dash.
+func _bump_reaches(other: PlayerController) -> bool:
+	var to_other := other.global_position - global_position
+	to_other.y = 0.0
+	var dist := to_other.length()
+	return dist <= Tuning.BUMP_RANGE and dist > 0.0001 \
+		and _bump_dash_direction.angle_to(to_other.normalized()) <= deg_to_rad(Tuning.BUMP_CONE_DEG)
 
 
 ## A bump dash connecting — clean or mistimed exactly as the old

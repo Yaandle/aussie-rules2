@@ -52,14 +52,12 @@ extends CanvasLayer
 ##   ring around the badge, landing on it at press-now. Same countdown
 ##   (MarkCueModel.cue_time_to_press), drawn bigger and outlined in ink so
 ##   it reads over grass ("make this easier to see").
-## * SMOTHER badge. An opponent lining up a kick within reach of a smother
-##   (PlayerController.live_smother_target) shows RB SMOTHER instead of a
-##   mark prompt, and live_mark_prompt() now stays quiet for an opponent's
-##   kick until it is MARK_STAND_MIN_DISTANCE off the boot.
+## * No mark prompt for an opponent's kick until it is
+##   MARK_STAND_MIN_DISTANCE off the boot (live_mark_prompt()). The SMOTHER
+##   badge that used to show there is gone (playtest: not wanted).
 
 const BADGE_RADIUS := 18.0
 const LABEL_SIZE := 19
-const CAPTION_SIZE := 12
 
 ## Fixed ring radius (no longer animated in/out — see this file's own
 ## header) and how many seconds of live offset the sweep's full lap spans.
@@ -201,8 +199,8 @@ func _process(delta: float) -> void:
 
 
 ## What the badge should show this frame: the pressed (or still-committed)
-## tier inside an open mark window, else the recommendation, else the
-## SMOTHER badge (Action.SMOTHER_DIVE stands in for it), else NONE.
+## tier inside an open mark window, else the recommendation, else NONE.
+## (There was a SMOTHER badge too; playtest didn't want it.)
 func _display_tier() -> Tuning.Action:
 	var live := player.live_mark_prompt(ball)
 	var committed := player.committed_mark_tier()
@@ -224,8 +222,6 @@ func _display_tier() -> Tuning.Action:
 		if committed != Tuning.Action.NONE:
 			_chosen_tier = committed
 		return _chosen_tier if _chosen_tier != Tuning.Action.NONE else live
-	if is_instance_valid(player.live_smother_target()):
-		return Tuning.Action.SMOTHER_DIVE
 	return Tuning.Action.NONE
 
 
@@ -325,15 +321,6 @@ func _draw_badge(canvas: Control) -> void:
 	var size := font.get_string_size(label, HORIZONTAL_ALIGNMENT_CENTER, -1, LABEL_SIZE)
 	canvas.draw_string(font, _screen_pos - size * 0.5 + Vector2(0.0, size.y * 0.5),
 		label, HORIZONTAL_ALIGNMENT_LEFT, -1, LABEL_SIZE, SoftBrutalist.PANEL)
-	if _tier == Tuning.Action.SMOTHER_DIVE:
-		var caption := "SMOTHER"
-		var caption_size := font.get_string_size(caption, HORIZONTAL_ALIGNMENT_CENTER, -1, CAPTION_SIZE)
-		var caption_pos := _screen_pos + Vector2(-caption_size.x * 0.5,
-			BADGE_RADIUS + 6.0 + caption_size.y * 0.5)
-		canvas.draw_string_outline(font, caption_pos, caption, HORIZONTAL_ALIGNMENT_LEFT, -1,
-			CAPTION_SIZE, 4, SoftBrutalist.INK)
-		canvas.draw_string(font, caption_pos, caption, HORIZONTAL_ALIGNMENT_LEFT, -1,
-			CAPTION_SIZE, SoftBrutalist.PANEL)
 
 
 func _flash_colour() -> Color:
@@ -345,8 +332,6 @@ func _flash_colour() -> Color:
 
 func _badge_colour(tier: Tuning.Action) -> Color:
 	match tier:
-		Tuning.Action.SMOTHER_DIVE:
-			return SoftBrutalist.ACCENT_SECONDARY   # RB has no face-button colour
 		Tuning.Action.MARK_RUNNING:
 			return SoftBrutalist.BUTTON_X
 		Tuning.Action.MARK_AGGRESSIVE:
@@ -357,8 +342,6 @@ func _badge_colour(tier: Tuning.Action) -> Color:
 
 func _badge_label(tier: Tuning.Action) -> String:
 	match tier:
-		Tuning.Action.SMOTHER_DIVE:
-			return "RB"
 		Tuning.Action.MARK_RUNNING:
 			return "X"
 		Tuning.Action.MARK_AGGRESSIVE:

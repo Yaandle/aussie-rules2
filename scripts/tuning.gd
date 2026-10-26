@@ -1029,6 +1029,11 @@ const PRIOR_OPPORTUNITY_GRACE := 0.5   # s
 # is a real, well-known rule number, unlike Bump's dangerous-contact
 # threshold below, which genuinely has none to use.
 const FREE_KICK_RETREAT_DISTANCE := 10.0   # m
+# 50 m penalty (FullGame._on_infringed): a hit on a player holding the ball
+# under protection moves their mark this far toward the goal their team
+# attacks — the real AFL distance — stopping this short of the goal line.
+const FIFTY_METRE_PENALTY := 50.0          # m
+const FIFTY_METRE_GOAL_LINE_SETBACK := 1.0 # m
 
 # Smother (RB tap, not carrying — moved off X, which now always tackles;
 # RB is shared with the ruck Hit-Out): closing down an opponent before their kick
