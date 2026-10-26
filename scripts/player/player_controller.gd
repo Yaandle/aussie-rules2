@@ -276,6 +276,15 @@ var _slide_was_pressed := false
 ## never leaves the ground, so nothing else about the player is affected.
 var _lunge_tap_cooldown := 0.0
 
+## A Lunge pressed at a carrier just out of reach (Tuning.TACKLE_LUNGE_REACH):
+## while _lunge_dash_timer is positive the body drives at the live target
+## at _lunge_dash_speed, the same "committed movement owns the body" shape
+## as Smother's dive, and _try_lunge_tackle lands it the frame they're in
+## TACKLE_RADIUS or whiffs it when the clock runs out.
+var _lunge_dash_timer := 0.0
+var _lunge_dash_speed := 0.0
+var _lunge_dash_target: PlayerController = null
+
 ## Residual horizontal knockback velocity from being bumped, decaying via
 ## BRAKING each frame — see _update_locomotion's early branch and
 ## receive_bump(). While nonzero this overrides normal input-driven
@@ -298,6 +307,13 @@ var _tackle_hold_is_tackler := false
 ## _begin_ragdoll. While it's active the ragdoll owns the body: the player
 ## can't act, and _update_locomotion just follows the hips.
 var _ragdoll: PlayerRagdoll = null
+
+## The other player in the tackle that ragdolled this one. Their capsules
+## pass through each other until this ragdoll ends: each capsule follows its
+## own body's hips, and a tackler falling on through the carrier otherwise
+## jammed on the carrier's capsule — far enough behind its own body, on a
+## long fall, to trip PlayerRagdoll's teleport check and snap upright.
+var _ragdoll_partner: PlayerController = null
 
 ## The last tackle this player made, for headless checks and readouts:
 ## TackleBalance.resolve's read of it (empty when it never landed) plus
@@ -478,6 +494,10 @@ func _physics_process(delta: float) -> void:
 		# get-up sets its own stun in on_ragdoll_getup.
 		if is_ragdolled() and _ragdoll.phase() != PlayerRagdoll.Phase.GETTING_UP:
 			_stun_timer = maxf(_stun_timer, 0.1)
+	if _ragdoll_partner != null and not is_ragdolled():
+		if is_instance_valid(_ragdoll_partner):
+			remove_collision_exception_with(_ragdoll_partner)
+		_ragdoll_partner = null
 
 	_update_charge(delta)
 	_update_marking(delta)
@@ -659,6 +679,18 @@ func _update_locomotion(delta: float) -> void:
 	if _smother_dive_timer > 0.0:
 		_heading = _smother_dive_direction
 		_speed = Tuning.SMOTHER_DIVE_SPEED
+		velocity.x = _heading.x * _speed
+		velocity.z = _heading.z * _speed
+		return
+
+	# A Lunge's dash the same way, re-aimed at the carrier every frame — see
+	# _try_lunge_tackle.
+	if _lunge_dash_timer > 0.0 and is_instance_valid(_lunge_dash_target):
+		var to_target := _lunge_dash_target.global_position - global_position
+		to_target.y = 0.0
+		if to_target.length_squared() > 0.0001:
+			_heading = to_target.normalized()
+		_speed = _lunge_dash_speed
 		velocity.x = _heading.x * _speed
 		velocity.z = _heading.z * _speed
 		return
@@ -1153,13 +1185,15 @@ func _complete_gather(ball: Ball) -> void:
 ## (see Tuning's TACKLE_SLIDE_*/TACKLE_LUNGE_TAP_* constants) rather than
 ## being two separate contest mechanics.
 ## The three numbers themselves come from TackleBalance.contact_metrics, the
-## same ones the ragdoll's balance loss is worked out from.
-func _resolve_tackle_contact(tackler: PlayerController, target: PlayerController, is_slide: bool) -> bool:
+## same ones the ragdoll's balance loss is worked out from. `tackler_velocity`
+## is what the tackler hits with — _tackle_velocity, not their raw velocity.
+func _resolve_tackle_contact(tackler: PlayerController, target: PlayerController, is_slide: bool,
+		tackler_velocity: Vector3) -> bool:
 	var to_target := target.global_position - tackler.global_position
 	to_target.y = 0.0
 	if to_target.length_squared() < 0.0001:
 		return true
-	var m := TackleBalance.contact_metrics(tackler.global_position, tackler.velocity,
+	var m := TackleBalance.contact_metrics(tackler.global_position, tackler_velocity,
 		target.global_position, target.velocity)
 	var closing_speed: float = m.closing_speed
 	var carrier_speed: float = m.carrier_speed
@@ -1172,6 +1206,25 @@ func _resolve_tackle_contact(tackler: PlayerController, target: PlayerController
 	var required := Tuning.TACKLE_LUNGE_TAP_MIN_CLOSING_SPEED \
 		+ Tuning.TACKLE_LUNGE_TAP_CLOSING_SPEED_SCALE * carrier_speed
 	return closing_speed >= required and approach_angle <= Tuning.TACKLE_LUNGE_TAP_MAX_ANGLE_DEG
+
+
+## The velocity a tackle hits with: this body's own, topped up so it's
+## driving at `target` at no less than `drive` m/s (the Lunge's lunge, the
+## Slide's dive or step-in — Tuning's TACKLE_LUNGE_SPEED /
+## TACKLE_SLIDE_*_SPEED). Contacts resolve after move_and_slide, which has
+## already taken out whatever part of `velocity` ran into the target's
+## capsule, so a tackler standing on a carrier otherwise reads as not
+## moving at them at all. Topping up the tackler's own speed, not the
+## closing speed, keeps a chase a chase: driving at 7 m/s after a carrier
+## running away at 8 still closes on nothing.
+func _tackle_velocity(target: PlayerController, drive: float) -> Vector3:
+	var dir := target.global_position - global_position
+	dir.y = 0.0
+	if dir.length_squared() < 0.0001:
+		return velocity
+	dir = dir.normalized()
+	var flat := Vector3(velocity.x, 0.0, velocity.z)
+	return flat + dir * maxf(0.0, drive - flat.dot(dir))
 
 
 ## FIFA-style ball-steal assist (polish-pass brief: "it's a bit hard to get
@@ -1231,11 +1284,16 @@ func _update_slide_dive(delta: float) -> void:
 ## feedback wanted the two tackle types to read differently (see Tuning.
 ## Action.TACKLE_HELD's own comment). TACKLE_GRAB (tackler) and TACKLE_HELD
 ## (target) are a synced pair, the same "two bodies meeting" relationship
-## TACKLE_TAKEDOWN/TACKLED are for Lunge just below. Never a ragdoll: Slide
-## is the AI's only tackle, and AI tackles stay on their clips. A Slide
-## that lands but breaks (_break_tackle) leaves the carrier running.
+## TACKLE_TAKEDOWN/TACKLED are for Lunge just below. The tackler always
+## keeps their feet. A human's Slide hard enough to pass
+## Tuning.TACKLE_SLIDE_KNOCKDOWN_B knocks the carrier over instead of holding
+## them up — the held Lunge's ragdoll path — while the tackler drives low
+## (TACKLE_TAKEDOWN); an AI's never does, since AI tackles stay on their
+## clips. A Slide that lands but breaks (_break_tackle) leaves the carrier
+## running.
 func _try_tackle() -> void:
-	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE or _mark_readying:
+	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE or _mark_readying \
+			or _lunge_dash_timer > 0.0:
 		return
 	# A dive in progress is a commitment — it still has to land the same
 	# proximity test below, but it doesn't need the button held throughout,
@@ -1249,15 +1307,29 @@ func _try_tackle() -> void:
 		return
 	# Landed (the gate), then held or broken on the model (Tuning's "Whether
 	# a tackle holds"). A broken Slide costs the tackler what a whiff does.
+	# Mid-dive it hits at the dive's speed; otherwise it steps in.
+	var hit_velocity := _tackle_velocity(target, Tuning.TACKLE_SLIDE_DIVE_SPEED
+		if _slide_dive_timer > 0.0 else Tuning.TACKLE_SLIDE_STEP_SPEED)
 	var impact := {}
-	if _resolve_tackle_contact(self, target, true):
-		impact = TackleBalance.resolve(global_position, velocity, body_mass,
+	if _resolve_tackle_contact(self, target, true, hit_velocity):
+		impact = TackleBalance.resolve(global_position, hit_velocity, body_mass,
 			target.global_position, target.velocity, target.body_mass, 0.0,
 			-target.global_transform.basis.z)
 		last_tackle = impact.merged({"slide": true, "held": float(impact.p_break) < Tuning.TACKLE_SLIDE_BREAK_P})
 	else:
 		last_tackle = {"slide": true, "held": false, "missed": true}
-	if last_tackle.held:
+	if last_tackle.held and _brain is HumanBrain and float(impact.b) >= Tuning.TACKLE_SLIDE_KNOCKDOWN_B:
+		# Knocked over, not held up: down the held Lunge's path, tackler
+		# still on their feet — so without the Lunge's leg drive
+		# (TACKLE_RAGDOLL_IMPULSE_SCALE) on the push: a 10.5 m/s dive with it
+		# sent a standing carrier tumbling 4 m.
+		last_tackle.knocked_down = true
+		_slide_dive_timer = 0.0
+		impact.impulse = (impact.impulse as Vector3) / Tuning.TACKLE_RAGDOLL_IMPULSE_SCALE
+		target._get_tackled(self, false, impact)
+		_begin(Tuning.Action.TACKLE_TAKEDOWN)
+		tackle_committed.emit(true)
+	elif last_tackle.held:
 		target._get_tackled(self, true)
 		# Never blocked here: _try_tackle()'s own top guard already requires
 		# _action == NONE on self before any of this runs.
@@ -1277,9 +1349,11 @@ func _try_tackle() -> void:
 		_stun_timer = maxf(_stun_timer, Tuning.TACKLE_SLIDE_MISS_STUN_DURATION)
 
 
-## Lunge tackle (Q/X tap, not carrying): a quick strip attempt at whatever's
-## already within TACKLE_RADIUS right now — never dashes, unlike Slide's own
-## dive-in (_update_slide_dive). Playtest feedback: "the lunge tackle can
+## Lunge tackle (Q/X tap, not carrying): a quick grab at a carrier within
+## Tuning.TACKLE_LUNGE_REACH — at once if they're inside TACKLE_RADIUS,
+## otherwise after a short dash at them (_lunge_dash_*), hitting as if
+## driving in at TACKLE_LUNGE_SPEED either way (see that constant's comment
+## for the playtest report behind it). Playtest feedback: "the lunge tackle can
 ## take both players to the ground" — the target still goes all the way
 ## down (Action.TACKLED, unchanged), and now the tackler gets their own
 ## synced Action.TACKLE_TAKEDOWN beat too, driving down and ending low
@@ -1297,24 +1371,74 @@ func _try_tackle() -> void:
 ## already being blocked at the boot is smother's job, not this one's) so
 ## the two never actually compete for the same target on the same press.
 func _try_lunge_tackle() -> void:
+	if _lunge_dash_timer > 0.0:
+		_step_lunge_dash()
+		return
 	if is_carrying() or _stun_timer > 0.0 or _lunge_tap_cooldown > 0.0 \
 			or _action != Tuning.Action.NONE or _mark_readying:
 		return
+	# A press with nobody in reach yet stays buffered (InputManager) for the
+	# carrier to step in, rather than being spent on nothing.
+	if _brain.lunge_tackle_pending() and _lunge_target(Tuning.TACKLE_LUNGE_REACH) == null:
+		return
 	if not _brain.wants_lunge_tackle():
 		return
-	var target := _nearest_player(Tuning.TACKLE_RADIUS, func(other: PlayerController) -> bool:
-		return other.team != team and other.is_carrying() and not other.is_protected() \
-			and not (other.is_kick_aiming() or other.is_mid_kick_swing()))
+	var target := _lunge_target(Tuning.TACKLE_LUNGE_REACH)
 	if target == null:
 		return
-	if not _resolve_tackle_contact(self, target, false):
+	if _flat_distance_to(target) <= Tuning.TACKLE_RADIUS:
+		_land_lunge(target)
+		return
+	_lunge_dash_target = target
+	_lunge_dash_speed = maxf(Tuning.TACKLE_LUNGE_SPEED, _speed)
+	_lunge_dash_timer = Tuning.TACKLE_LUNGE_DASH_DURATION
+
+
+func _lunge_target(reach: float) -> PlayerController:
+	return _nearest_player(reach, func(other: PlayerController) -> bool:
+		return _is_lunge_target(other))
+
+
+func _is_lunge_target(other: PlayerController) -> bool:
+	return is_instance_valid(other) and other.team != team and other.is_carrying() \
+		and not other.is_protected() and not (other.is_kick_aiming() or other.is_mid_kick_swing())
+
+
+func _flat_distance_to(other: Node3D) -> float:
+	var d := other.global_position - global_position
+	d.y = 0.0
+	return d.length()
+
+
+## One frame of a Lunge's dash, after this frame's move: lands it once the
+## carrier is inside TACKLE_RADIUS, whiffs it (the tap cooldown) when the
+## clock runs out, and lets it go quietly if they stopped being a target
+## (the ball went elsewhere).
+func _step_lunge_dash() -> void:
+	_lunge_dash_timer = _tick_down(_lunge_dash_timer, get_physics_process_delta_time())
+	var target := _lunge_dash_target
+	if not _is_lunge_target(target) or _stun_timer > 0.0 or is_carrying():
+		_lunge_dash_timer = 0.0
+		return
+	if _flat_distance_to(target) <= Tuning.TACKLE_RADIUS:
+		_lunge_dash_timer = 0.0
+		_land_lunge(target)
+	elif _lunge_dash_timer <= 0.0:
+		last_tackle = {"slide": false, "held": false, "missed": true}
+		_lunge_tap_cooldown = Tuning.TACKLE_LUNGE_TAP_COOLDOWN
+
+
+## A Lunge reaching its carrier: the gate, then hold or break, then the fall.
+func _land_lunge(target: PlayerController) -> void:
+	var hit_velocity := _tackle_velocity(target, Tuning.TACKLE_LUNGE_SPEED)
+	if not _resolve_tackle_contact(self, target, false, hit_velocity):
 		last_tackle = {"slide": false, "held": false, "missed": true}
 		_lunge_tap_cooldown = Tuning.TACKLE_LUNGE_TAP_COOLDOWN
 		return
 	# Worked out once, before either body changes, so both players react
 	# to the same hit — and whether it holds at all comes off the same read
 	# (Tuning's "Whether a tackle holds").
-	var impact := TackleBalance.resolve(global_position, velocity, body_mass,
+	var impact := TackleBalance.resolve(global_position, hit_velocity, body_mass,
 		target.global_position, target.velocity, target.body_mass,
 		Tuning.TACKLE_RAGDOLL_MIN_BALANCE_LOSS, -target.global_transform.basis.z)
 	last_tackle = impact.merged({"slide": false, "held": float(impact.p_break) < Tuning.TACKLE_LUNGE_BREAK_P})
@@ -1333,6 +1457,7 @@ func _try_lunge_tackle() -> void:
 			"bone": &"Chest",
 			"contact_offset": Vector3.ZERO,
 			"body_share": 0.0,
+			"partner": target,
 			"velocity": impact.tackler_velocity,
 			"mass_kg": body_mass,
 		}):
@@ -1381,6 +1506,7 @@ func _get_tackled(by: PlayerController, is_slide: bool, impact := {}) -> void:
 			"bone": impact.bone,
 			"contact_offset": impact.contact_offset,
 			"body_share": impact.body_share,
+			"partner": by,
 			"velocity": velocity,
 			"mass_kg": body_mass,
 		})
@@ -1489,7 +1615,9 @@ func _fall_toward(direction: Vector3) -> void:
 
 
 ## Hands the body to the active ragdoll (PlayerRagdoll) for a tackle — see
-## its header for the phases. `hit` is PlayerRagdoll.begin's. Returns false
+## its header for the phases. `hit` is PlayerRagdoll.begin's, plus an
+## optional "partner" (the other player in the tackle — see
+## _ragdoll_partner). Returns false
 ## when this player can't ragdoll (procedural rig, feature off), so the
 ## caller plays its canned clip instead. Whatever action was playing is cut
 ## — physics has the skeleton now.
@@ -1507,8 +1635,15 @@ func _begin_ragdoll(hit: Dictionary) -> bool:
 	_slide_dive_timer = 0.0
 	_bump_dash_timer = 0.0
 	_smother_dive_timer = 0.0
+	_lunge_dash_timer = 0.0
 	_knockback = Vector3.ZERO
 	_stun_timer = maxf(_stun_timer, 0.1)
+	var partner := hit.get("partner") as PlayerController
+	if is_instance_valid(partner) and partner != _ragdoll_partner:
+		if is_instance_valid(_ragdoll_partner):
+			remove_collision_exception_with(_ragdoll_partner)
+		add_collision_exception_with(partner)
+		_ragdoll_partner = partner
 	return true
 
 

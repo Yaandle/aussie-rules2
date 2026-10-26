@@ -70,6 +70,14 @@ mostly superseded history. The full text lives outside the repo, in
   the 17 kg chest backflipped the body, which then lay the wrong way round.
   Start the tackler's ragdoll at their post-collision velocity too. At full
   speed it ploughs into the carrier and sits down backwards.
+- **Don't resolve a contact on post-`move_and_slide` velocity alone.** By
+  then the part running into the other capsule is gone. A tackle pressed
+  against a stopped carrier read 0 m/s closing and whiffed. Count the
+  tackler's committed drive (`PlayerController._tackle_velocity`).
+- **Freezing a player's physics process freezes their ragdoll too.**
+  Kick-to-kick froze the rival the frame a tutorial step cleared, and the
+  tackle is what cleared it. The carrier's ragdoll sat mid-build, standing
+  frozen, while only the tackler fell. Keep ragdolled players processing.
 - **Judge a ragdoll's fall by how it lies at get-up, on a floor that's
   really under it.** A test floor that ended at x = 200 m let half a sweep
   fall into the void and still "connect".

@@ -82,6 +82,10 @@ func wants_lunge_tackle() -> bool:
 	return InputManager.consume_buffered_press(&"lunge_tackle")
 
 
+func lunge_tackle_pending() -> bool:
+	return InputManager.has_buffered_press(&"lunge_tackle")
+
+
 func wants_mark_safe() -> bool:
 	return Input.is_action_pressed(&"mark_safe")
 

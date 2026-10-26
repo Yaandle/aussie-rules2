@@ -824,8 +824,9 @@ const TACKLE_SLIDE_MAX_ANGLE_DEG := 160.0       # deg — wide; closing_speed is
 # commitment, just no longer the costliest thing you can whiff, period.
 const TACKLE_SLIDE_MISS_STUN_DURATION := 1.3    # s
 
-# Lunge tackle (X tap, not carrying — a quick poke/strip at whatever's
-# already within TACKLE_RADIUS, no dash, stays on feet either way). Its
+# Lunge tackle (X tap, not carrying — a quick grab at a carrier within
+# TACKLE_LUNGE_REACH, with a short dash if they're outside TACKLE_RADIUS;
+# see TACKLE_LUNGE_REACH below). Its
 # closing-speed bar starts higher than Slide's and scales up far more
 # steeply with carrier speed — the concrete mechanism behind "correspondingly
 # lower success chance against a strong/fast carry": at SPRINT_SPEED (8.4)
@@ -840,6 +841,35 @@ const TACKLE_LUNGE_TAP_MAX_ANGLE_DEG := 70.0       # deg — narrower than BUMP'
 # ~3x below TACKLE_SLIDE_MISS_STUN_DURATION so the two moves stay clearly
 # separated by miss-cost.
 const TACKLE_LUNGE_TAP_COOLDOWN := 0.4    # s
+# The Lunge's reach (playtest, tackling coach: "standing right next to the
+# player and use X, they're not being hugged"). It used to fire only at a
+# carrier already inside TACKLE_RADIUS on the press frame, and judge the
+# hit on the tackler's velocity after move_and_slide, which had already
+# taken out everything that ran into the carrier's capsule. So a press
+# against a carrier who'd stopped on you read 0 m/s closing and whiffed,
+# and against one jogging in, only the ~0.1 s between 1.4 m and touching
+# worked. Now a press with a carrier inside LUNGE_REACH commits: inside
+# TACKLE_RADIUS it lands at once; further out it's a short dash at their
+# live position, at LUNGE_SPEED or the tackler's own pace if faster, for
+# up to LUNGE_DASH_DURATION. Either way the hit counts the tackler as
+# driving in at least LUNGE_SPEED (PlayerController._tackle_velocity). A
+# press with nobody in reach isn't spent: InputManager's buffer holds it
+# for INPUT_BUFFER_WINDOW in case a carrier steps in.
+const TACKLE_LUNGE_REACH := 2.2              # m, unplaytested feel guess
+const TACKLE_LUNGE_SPEED := 7.0              # m/s, unplaytested feel guess
+const TACKLE_LUNGE_DASH_DURATION := 0.25     # s, unplaytested feel guess
+# A standing Slide counts its tackler as stepping in at least this fast, for
+# the same reason: pressed against a carrier who'd stopped, it used to read
+# 0 m/s closing and whiff, at the full 1.3 s miss stun. A step, not a dive,
+# so a wrap at point-blank stays a hold-up.
+const TACKLE_SLIDE_STEP_SPEED := 2.0         # m/s, unplaytested feel guess
+# Slide is the tackle that keeps the tackler on their feet (playtest: "closer
+# to the bump"). A held Slide this hard (b at or past KNOCKDOWN_B: a dive in
+# from square, or a carrier running onto it) knocks the carrier over —
+# ragdolled when a human made the tackle, through the same path as a held
+# Lunge, while the tackler drives low on their feet (TACKLE_TAKEDOWN). An
+# AI's Slide still only ever holds up (no ragdoll on AI tackles).
+const TACKLE_SLIDE_KNOCKDOWN_B := 0.97       # unplaytested feel guess
 
 # Slide's dive-in (polish-pass brief: "it's a bit hard to get the ball off
 # the AI" / FIFA-style assist) — purely a movement-closing mechanic, not a

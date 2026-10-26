@@ -81,6 +81,15 @@ func wants_lunge_tackle() -> bool:
 	return false
 
 
+## Whether a Lunge press is waiting, without spending it — so
+## PlayerController._try_lunge_tackle can leave a press made a moment
+## before a carrier is in reach buffered rather than wasting it. Brains with
+## no buffer (AI, scripted test brains) report false and keep the old
+## spend-on-read behaviour.
+func lunge_tackle_pending() -> bool:
+	return false
+
+
 ## Held-down semantics, exactly like wants_kick(): true for as long as a
 ## Safe Mark should stay readied (A on a pad) — see
 ## PlayerController._update_aerial_contest. The same query, unchanged, is
