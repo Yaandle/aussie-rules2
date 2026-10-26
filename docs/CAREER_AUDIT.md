@@ -232,7 +232,11 @@ There's no upgrades badge yet (Phase 7). The ladder widened to 560 px.
   ...).
 - Explicit focus neighbours so a pad moves through it as a grid.
 
-### Phase 4: View Roster table
+### Phase 4: View Roster table (done 2026-10-27)
+
+Landed as below. The table is a `CareerTable`, which gained position-line
+divider rows. ↑/↓ are caught before the GUI so they scroll instead of
+moving focus onto the Dashboard behind the page.
 
 - Keep the CareerTheme look and the same six fields (#, NAME, POS,
   HEIGHT, WEIGHT, OVERALL). Take the TEAMS squad sheet's structure: a

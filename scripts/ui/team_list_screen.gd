@@ -705,7 +705,7 @@ func _squad_entries() -> Array[Dictionary]:
 		var you := roster_idx == start_idx
 		var profiled := CharacterProfile.apply_all or you
 		var entry := {
-			"pos": _position_label(slot),
+			"pos": TeamFormation.position_label(slot),
 			"number": int(base["number"]),
 			"name": "YOU" if you else String(base["name"]),
 			"line": int(slot["line"]),
@@ -721,21 +721,6 @@ func _squad_entries() -> Array[Dictionary]:
 		entry["overall"] = RosterGenerator.overall(entry)
 		entries.append(entry)
 	return entries
-
-
-## SLOTS labels repeat across a line (two BPs, two HBFs, ...), which is
-## fine on the board where position shows the side but ambiguous in a
-## list — so the flank/pocket pairs get an L / R suffix here.
-func _position_label(slot: Dictionary) -> String:
-	var label := String(slot["label"])
-	if int(slot["line"]) == TeamFormation.Line.FOLLOWERS:
-		return label
-	var lateral := float(slot["lateral"])
-	if lateral < -0.01:
-		return label + " L"
-	if lateral > 0.01:
-		return label + " R"
-	return label
 
 
 func _squad_cells(entry: Dictionary) -> Array:

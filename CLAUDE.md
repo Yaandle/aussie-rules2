@@ -13,7 +13,7 @@ This is a Godot 4.6 (Jolt) Aussie Rules football game. Work on branch
   ragdoll plan (stage 1 done).
 - `docs/ML_AI_AUDIT.md`: the ML ladder (LR, GA, MLP marking cue in §9).
 - `docs/CAREER_AUDIT.md`: Career mode audit, the user's decisions, and the
-  8-phase plan (Phases 0–3 done).
+  8-phase plan (Phases 0–4 done).
 - Code comments carry the "why". Read a script's header before changing it.
 
 Don't go looking for `docs/HANDOVER.md`, `FEATURE_AUDIT.md`, `ui_audit.md`

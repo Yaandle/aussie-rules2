@@ -57,6 +57,8 @@ const SUMMARY_SCENE := "res://scenes/ui/career_season_summary_screen.tscn"
 
 var _roster_overlay: Control
 var _roster_back_button: Control
+var _roster_scroll: ScrollContainer
+var _roster_scroll_tween: Tween
 var _view_roster_button: Control
 var _new_career_button: Control
 var _next_game_card: Control
@@ -66,6 +68,20 @@ var _confirm_cancel_button: Control
 
 func _ready() -> void:
 	_build()
+
+
+## ↑/↓ scroll the roster page. Caught here, ahead of the GUI: with the
+## page's Back button focused, the GUI would otherwise spend ui_up/ui_down
+## walking focus onto the Dashboard buttons hidden behind the page.
+func _input(event: InputEvent) -> void:
+	if not (is_instance_valid(_roster_overlay) and _roster_overlay.visible):
+		return
+	if event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up"):
+		_scroll_roster(-1)
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed(&"move_back") or event.is_action_pressed(&"ui_down"):
+		_scroll_roster(1)
+		get_viewport().set_input_as_handled()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -416,6 +432,13 @@ func _build_action_button(text: String, icon_name: StringName, enabled: bool,
 ## popup card over a dimmed dashboard, per the user's own "basic
 ## streamlit-like spreadsheet, not a pop up window" request. Built once,
 ## lazily, then just shown/hidden.
+##
+## Phase 4 of docs/CAREER_AUDIT.md's plan restyled it after the TEAMS
+## squad sheet (playtest: "sort it by position like how I do in the other
+## page"): a CareerTable card, players grouped BACK → FOLLOWERS under their
+## line's colour, L/R on the flank and pocket positions, your row tinted.
+## Same six fields as before. ↑/↓ scroll it (the page is taller than the
+## screen); the mouse wheel does too.
 func _on_view_roster_pressed() -> void:
 	if _roster_overlay == null:
 		_roster_overlay = _build_roster_table()
@@ -431,19 +454,20 @@ func _on_view_roster_pressed() -> void:
 		_view_roster_button.grab_focus.call_deferred()
 
 
-## Column spec for the roster table: label, minimum width, horizontal
-## alignment, and the roster-entry key/formatter that fills its cells.
-## Table-driven so a column is one more entry here, not a hand-placed
-## node — same reasoning character_screen.gd's ATTRIBUTE_ROWS gives for
-## its own row list.
+## Column spec for the roster table (CareerTable's shape): label, minimum
+## width (0 = NAME takes the slack), horizontal alignment.
 const ROSTER_COLUMNS := [
 	{"label": "#", "width": 36.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
-	{"label": "NAME", "width": 220.0, "align": HORIZONTAL_ALIGNMENT_LEFT},
-	{"label": "POS", "width": 70.0, "align": HORIZONTAL_ALIGNMENT_LEFT},
-	{"label": "HEIGHT", "width": 90.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
-	{"label": "WEIGHT", "width": 90.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
-	{"label": "OVERALL", "width": 90.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+	{"label": "NAME", "width": 0.0, "align": HORIZONTAL_ALIGNMENT_LEFT},
+	{"label": "POS", "width": 64.0, "align": HORIZONTAL_ALIGNMENT_LEFT},
+	{"label": "HEIGHT", "width": 84.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+	{"label": "WEIGHT", "width": 84.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+	{"label": "OVERALL", "width": 84.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
 ]
+const ROSTER_TABLE_WIDTH := 760.0
+## Pixels per ↑/↓ press, as TEAMS' squad sheet (three rows).
+const ROSTER_SCROLL_STEP := CareerTable.ROW_HEIGHT * 3.0
+const ROSTER_SCROLL_DURATION := 0.25
 
 
 func _build_roster_table() -> Control:
@@ -482,63 +506,80 @@ func _build_roster_table() -> Control:
 				_view_roster_button.grab_focus.call_deferred())
 	_roster_back_button = back_button
 	header_row.add_child(back_button)
+	# The page's only control: left/right stay on it rather than walking
+	# onto the Dashboard behind (up/down are the scroll, see _input()).
+	for side in [SIDE_LEFT, SIDE_RIGHT, SIDE_TOP, SIDE_BOTTOM]:
+		back_button.set_focus_neighbor(side, NodePath("."))
 
 	var hints := DeviceHintBar.new()
 	column.add_child(hints)
 	hints.set_hint_sets({
-		InputManager.Device.KEYBOARD: [{"keys": "Esc", "label": "Back"}],
-		InputManager.Device.GAMEPAD: [{"keys": "B", "label": "Back"}],
+		InputManager.Device.KEYBOARD: [
+			{"keys": "↑ / ↓", "label": "Scroll"},
+			{"keys": "Esc", "label": "Back"},
+		],
+		InputManager.Device.GAMEPAD: [
+			{"keys": "D-Pad ↕", "label": "Scroll"},
+			{"keys": "B", "label": "Back"},
+		],
 	})
 
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.mouse_filter = Control.MOUSE_FILTER_PASS
-	column.add_child(scroll)
-
-	var grid := GridContainer.new()
-	grid.columns = ROSTER_COLUMNS.size()
-	grid.add_theme_constant_override(&"h_separation", 18)
-	grid.add_theme_constant_override(&"v_separation", 8)
-	grid.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	scroll.add_child(grid)
-
-	for col: Dictionary in ROSTER_COLUMNS:
-		var heading := CareerTheme.label(col["label"], SoftBrutalist.SIZE_LABEL,
-			CareerTheme.TEXT, SoftBrutalist.WEIGHT_BOLD, 1)
-		heading.custom_minimum_size.x = col["width"]
-		heading.horizontal_alignment = col["align"]
-		grid.add_child(heading)
-
-	var sorted_roster := CareerProfile.roster.duplicate()
-	sorted_roster.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return int(a["number"]) < int(b["number"]))
-
-	for entry: Dictionary in sorted_roster:
-		_add_roster_row(grid, entry)
+	# Scrollbar hidden, as on TEAMS (the hint bar names the scroll, and a
+	# default-theme bar is the one grey widget on the page); the wheel works.
+	_roster_scroll = ScrollContainer.new()
+	_roster_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_roster_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_roster_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
+	_roster_scroll.mouse_filter = Control.MOUSE_FILTER_PASS
+	column.add_child(_roster_scroll)
+	var table := CareerTable.build(ROSTER_COLUMNS, _roster_rows(), ROSTER_TABLE_WIDTH)
+	table.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	_roster_scroll.add_child(table)
 
 	return page
 
 
-func _add_roster_row(grid: GridContainer, entry: Dictionary) -> void:
-	var role_label: String = ""
-	for slot: Dictionary in TeamFormation.SLOTS:
-		if slot["role"] == entry["role"]:
-			role_label = slot["label"]
-			break
-	var cells := [
-		"%d" % entry["number"],
-		String(entry["name"]),
-		role_label,
-		"%.0f cm" % entry.get("height", Tuning.CHARACTER_HEIGHT_DEFAULT),
-		"%.0f kg" % entry.get("weight", 0.5 * (RosterGenerator.WEIGHT_MIN + RosterGenerator.WEIGHT_MAX)),
-		"%d" % RosterGenerator.overall(entry),
-	]
-	for i in ROSTER_COLUMNS.size():
-		var col: Dictionary = ROSTER_COLUMNS[i]
-		var cell := CareerTheme.label(cells[i], SoftBrutalist.SIZE_BODY, CareerTheme.TEXT)
-		cell.custom_minimum_size.x = col["width"]
-		cell.horizontal_alignment = col["align"]
-		grid.add_child(cell)
+## TeamFormation.SLOTS order (back line → followers, left → right within a
+## line), a divider at the top of each line — the squad sheet's grouping.
+## The roster itself is stored in roster-spawn order, so each slot is
+## looked up through ROSTER_ORDER.
+func _roster_rows() -> Array:
+	var rows: Array = []
+	for line: int in TeamFormation.LINE_NAMES.size():
+		rows.append({"divider": TeamFormation.LINE_NAMES[line],
+			"colour": FormationWhiteboard.LINE_COLOURS[line]})
+		for slot_index in TeamFormation.SLOTS.size():
+			var slot: Dictionary = TeamFormation.SLOTS[slot_index]
+			if int(slot["line"]) != line:
+				continue
+			var roster_index := TeamFormation.ROSTER_ORDER.find(slot_index)
+			if roster_index < 0 or roster_index >= CareerProfile.roster.size():
+				continue
+			var entry: Dictionary = CareerProfile.roster[roster_index]
+			rows.append({"you": int(entry.get("id", -1)) == CareerProfile.player_id, "cells": [
+				"%d" % entry["number"],
+				String(entry["name"]),
+				TeamFormation.position_label(slot),
+				"%.0f cm" % entry.get("height", Tuning.CHARACTER_HEIGHT_DEFAULT),
+				"%.0f kg" % entry.get("weight",
+					0.5 * (RosterGenerator.WEIGHT_MIN + RosterGenerator.WEIGHT_MAX)),
+				"%d" % RosterGenerator.overall(entry),
+			]})
+	return rows
+
+
+func _scroll_roster(direction: int) -> void:
+	if not is_instance_valid(_roster_scroll):
+		return
+	var bar := _roster_scroll.get_v_scroll_bar()
+	var limit := maxf(0.0, bar.max_value - _roster_scroll.size.y)
+	var target := clampf(_roster_scroll.scroll_vertical + direction * ROSTER_SCROLL_STEP, 0.0, limit)
+	if _roster_scroll_tween != null and _roster_scroll_tween.is_valid():
+		_roster_scroll_tween.kill()
+	_roster_scroll_tween = create_tween()
+	_roster_scroll_tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_roster_scroll_tween.tween_property(_roster_scroll, "scroll_vertical", int(target),
+		ROSTER_SCROLL_DURATION)
 
 
 func _open_new_career_confirm() -> void:

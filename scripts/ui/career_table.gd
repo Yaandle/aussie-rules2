@@ -9,7 +9,10 @@ extends RefCounted
 ## page and, from Phase 4, the roster, so they can't drift apart.
 ##
 ## `columns`: [{label, width, align}] — width 0 takes whatever's left
-## (one column should). `rows`: [{cells: Array of String, you: bool}].
+## (one column should). `rows`: [{cells: Array of String, you: bool}], or
+## a group heading {divider: String, colour: Color} — the squad sheet's
+## position-line divider, a short bar in the line's colour beside its name.
+## The zebra stripe restarts under each divider, as it does on TEAMS.
 ## Not interactive.
 
 const ROW_HEIGHT := 28.0
@@ -42,14 +45,39 @@ static func build(columns: Array, rows: Array, width: float, cut_after := 0,
 	column.add_child(_row(columns, headings, Color(0, 0, 0, 0), true, row_height))
 	column.add_child(rule(CareerTheme.PANEL_TEXT, 2.0))
 
+	var stripe := false
 	for i in rows.size():
 		var row: Dictionary = rows[i]
+		if row.has("divider"):
+			column.add_child(_divider(String(row["divider"]), row["colour"], row_height))
+			stripe = false
+			continue
 		var you := bool(row.get("you", false))
-		var fill := YOU_TINT if you else (STRIPE if i % 2 == 1 else Color(0, 0, 0, 0))
+		var fill := YOU_TINT if you else (STRIPE if stripe else Color(0, 0, 0, 0))
+		stripe = not stripe
 		column.add_child(_row(columns, row["cells"], fill, you, row_height))
 		if i + 1 == cut_after and i + 1 < rows.size():
 			column.add_child(rule(CareerTheme.POSITIVE, 2.0))
 	return card
+
+
+## team_list_screen.gd's _line_divider, in CareerTheme ink.
+static func _divider(text: String, colour: Color, row_height: float) -> Control:
+	var row := HBoxContainer.new()
+	row.custom_minimum_size.y = row_height + 4.0
+	row.add_theme_constant_override(&"separation", 8)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var bar := ColorRect.new()
+	bar.color = colour
+	bar.custom_minimum_size = Vector2(4.0, 14.0)
+	bar.size_flags_vertical = Control.SIZE_SHRINK_END
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(bar)
+	var label := CareerTheme.label(text, SoftBrutalist.SIZE_CAPTION, CareerTheme.PANEL_TEXT.lightened(0.3),
+		SoftBrutalist.WEIGHT_BOLD, 2)
+	label.size_flags_vertical = Control.SIZE_SHRINK_END
+	row.add_child(label)
+	return row
 
 
 static func _row(columns: Array, cells: Array, fill: Color, bold: bool, height: float) -> Control:
