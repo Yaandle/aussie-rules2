@@ -343,7 +343,11 @@ const BOUNCE_ANGLE := -40.0            # deg
 # is_bounce arg); a kick / handball / hit-out bounces off the hull as
 # before.
 const BOUNCE_REBOUND_HEIGHT := 0.30    # m, on the way down
-const BOUNCE_REBOUND_UP_SPEED := 4.2   # m/s clean vertical rebound
+# Raised 4.2 -> 5.2 (apex ~1.2 m -> ~1.7 m): see "Bouncing at pace" below.
+const BOUNCE_REBOUND_UP_SPEED := 5.2   # m/s clean vertical rebound, unplaytested feel guess
+# The forward speed when the bouncer can't be read (gone, or not a body):
+# KEEP of the strike's horizontal speed, capped at MAX_AHEAD. A live
+# bouncer's rebound follows their own pace instead (BOUNCE_REBOUND_MATCH).
 const BOUNCE_REBOUND_KEEP := 0.55      # fraction of horizontal speed kept
 # Hard ceiling on the rebound's forward speed after KEEP, applied on top:
 # without it a sprint's momentum transfer put the ball far enough ahead to
@@ -352,6 +356,32 @@ const BOUNCE_REBOUND_KEEP := 0.55      # fraction of horizontal speed kept
 # little more") — lands the ball a short, consistent step in front at any
 # run speed.
 const BOUNCE_REBOUND_MAX_AHEAD := 3.8  # m/s
+
+# Bouncing at pace. Playtest (2026-10-27): "bounce can be improved, make it
+# come up higher, because the running player has to go into a jog ... the
+# ball hits their legs when they run and bounce." Measured headless at an
+# 11 m/s sprint, there were two causes. The BOUNCE action cut target
+# speed to ACTION_SPEED_SCALE (0.4), which is the jog. And GATHER_COOLDOWN
+# kept the bouncer off it for 0.45 s after release, so a runner still at
+# pace reached the 3.8 m/s rebound while it was thigh-high (0.84 m),
+# ran into it and knocked it sideways, dropping to 2 m/s. AFL players
+# bounce at full stride. Now:
+# * the bounce keeps BOUNCE_SPEED_SCALE of pace;
+# * the rebound's forward speed is MATCH of the bouncer's own speed
+#   along the bounce, plus LEAD, so it rises while they close on it
+#   gently at any pace, instead of a sprinter overrunning a fixed 3.8;
+# * the bouncer's own capsule ignores the ball for BOUNCE_RELEASE_GRACE
+#   (Ball.launch), so their legs can't kick it;
+# * the bouncer takes it back the moment it's up to
+#   BOUNCE_REGATHER_HEIGHT on the way up (or once it starts falling, if it
+#   never gets there), with no GATHER_COOLDOWN. Before that, their own
+#   bounce isn't theirs to take: it has to hit the turf first.
+# Unplaytested feel guesses.
+const BOUNCE_SPEED_SCALE := 0.9
+const BOUNCE_REBOUND_MATCH := 0.8
+const BOUNCE_REBOUND_LEAD := 0.6       # m/s
+const BOUNCE_RELEASE_GRACE := 0.9      # s
+const BOUNCE_REGATHER_HEIGHT := 1.15   # m, just above the carry point (~1.05)
 
 # A kick on the run goes further than the same kick standing still.
 # Fraction of the player's horizontal velocity added to the ball.
@@ -1992,11 +2022,14 @@ static func action_contact_time(action: Action) -> float:
 
 
 ## Fraction of target speed available while `action` is active. KICK/
-## HANDBALL/BOUNCE all share the one historical ACTION_SPEED_SCALE; the
+## HANDBALL share the one historical ACTION_SPEED_SCALE; BOUNCE is run at
+## nearly full stride (BOUNCE_SPEED_SCALE, "Bouncing at pace"); the
 ## mark tiers each cost a different amount because that cost is the whole
 ## point of choosing between them (see the Marking section above).
 static func action_speed_scale(action: Action) -> float:
 	match action:
+		Action.BOUNCE:
+			return BOUNCE_SPEED_SCALE
 		Action.MARK_SAFE, Action.MARK_SAFE_MISS:
 			return MARK_SAFE_SPEED_SCALE
 		Action.MARK_RUNNING, Action.MARK_RUNNING_MISS:

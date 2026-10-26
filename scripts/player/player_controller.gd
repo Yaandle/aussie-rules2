@@ -1128,7 +1128,11 @@ func _track_carry_distance(previous_position: Vector3) -> void:
 ## GATHER_LUNGE_MAX keeps it well short of the deliberate GROUND_PICKUP
 ## reach, but real.
 func _try_gather() -> void:
-	if is_carrying() or _gather_cooldown > 0.0 or _action != Tuning.Action.NONE \
+	# A bounce is taken back on the run, before its clip has finished: the
+	# clip's own last beat is the hands taking it again (Tuning's
+	# "Bouncing at pace").
+	var bouncing := _action == Tuning.Action.BOUNCE and _action_fired
+	if is_carrying() or _gather_cooldown > 0.0 or (_action != Tuning.Action.NONE and not bouncing) \
 			or _stun_timer > 0.0:
 		return
 	if ruck_contest_locked():
@@ -1139,7 +1143,7 @@ func _try_gather() -> void:
 		if not (body is Ball):
 			continue
 		var ball := body as Ball
-		if ball.is_held:
+		if ball.is_held or ball.awaiting_own_bounce(self):
 			continue
 		if ball.linear_velocity.length() > Tuning.GATHER_MAX_BALL_SPEED:
 			continue
@@ -3294,7 +3298,9 @@ func _dispose() -> void:
 
 	_carried_ball = null
 	_carry_distance = 0.0
-	_gather_cooldown = Tuning.GATHER_COOLDOWN
+	# Your own bounce is gated by the ball instead — it's yours again once
+	# it's back up (Ball.awaiting_own_bounce), not after a fixed wait.
+	_gather_cooldown = 0.0 if _action == Tuning.Action.BOUNCE else Tuning.GATHER_COOLDOWN
 	_protected_timer = 0.0   # playing on forfeits stand-the-mark protection
 	_release_frozen_opponents()
 	if _action != Tuning.Action.BOUNCE:

@@ -282,6 +282,13 @@ class Clip:
 	  "wrist_l", "wrist_r": lean(...) on the hand bone
 	  "foot_l", "foot_r": {"pos": P offset from the rest ankle, "pitch": deg
 	                       toe-down (negative = toe up), "turn": deg}
+	  "knee_l", "knee_r": P offset of that leg's ikpole from its rest spot
+	                      (1.04 m in front of the knee, at knee height). The
+	                      leg IK bends the knee toward the pole, so a foot
+	                      raised past it flips the knee down and back. Any
+	                      clip that lifts a foot above knee height out in
+	                      front (the kick's follow-through) has to carry the
+	                      pole up with it.
 	"""
 
 	def __init__(self, name, keys, legs_from=None, legs_offset=0.0):
@@ -343,6 +350,16 @@ def build_basis(rig, base, spec):
 		loc = f.get("pos", Vector())
 		q = rot((1, 0, 0), f.get("pitch", 0.0) * FOOT_PITCH_SIGN) @ rot((0, 0, 1), f.get("turn", 0.0))
 		basis["iktarget." + side] = (loc.copy(), q)
+	for side in ("l", "r"):
+		k = spec.get("knee_" + side)
+		if k is None:
+			continue
+		# Unlike iktarget's, the pole's rest frame isn't the armature's
+		# (its +Y runs forward), so the armature-axis offset is taken into
+		# it the same way the pelvis offset is.
+		name = "ikpole." + side
+		loc, q = basis[name]
+		basis[name] = (loc + rig.rest_rot[name].inverted() @ k, q)
 	return basis, reached
 
 
@@ -749,6 +766,13 @@ def clip_kick():
 	# hands, drop it, the right leg swings through on BootPoint's line
 	# (~0.5 m ahead, ~0.3 m up), follow through high with the body leaning
 	# back against it.
+	#
+	# The right pole rides up with the swing (knee_r). Left at its rest
+	# spot, it ended up under the hip-to-ankle line once the boot rose past
+	# knee height in the follow-through, and the knee flipped down and back
+	# for ~0.1 s (measured in Godot: the thigh and shin turned ~33° in a
+	# single 1/120 s step at 0.53 s, then flipped back at 0.63 s). Playtest:
+	# "kicking animation has a small glitch with the leg".
 	return Clip("kick", [
 		(0.0, {}),
 		# wind-up: right leg back and up, ball held out over the kicking foot.
@@ -779,8 +803,10 @@ def clip_kick():
 			"elbow_l": P(1.0, -0.2, -0.6), "elbow_r": P(-1.0, 0.4, -0.5),
 			"foot_l": {"pos": P(0, 0.14, 0), "pitch": 5},
 			"foot_r": {"pos": P(0.02, 0.50, 0.28), "pitch": 45},
+			"knee_r": P(0, -0.30, 0.60),
 		}),
-		# follow-through: boot finishes high, left heel lifting.
+		# follow-through: boot finishes high, left heel lifting. Pole well
+		# above the near-level leg, so the knee points up.
 		(contact + (length - contact) * 0.45, {
 			"pelvis": {"pos": P(0, 0.08, 0.02), "rot": lean(fwd=-10, turn=6)},
 			"spine1": lean(fwd=-6), "spine2": lean(fwd=-2), "head": lean(fwd=8),
@@ -788,6 +814,7 @@ def clip_kick():
 			"elbow_l": P(1.0, -0.2, -0.5), "elbow_r": P(-1.0, 0.4, -0.5),
 			"foot_l": {"pos": P(0, 0.14, 0.07), "pitch": 15},
 			"foot_r": {"pos": P(0.02, 0.66, 0.88), "pitch": 30},
+			"knee_r": P(0, -0.44, 1.20),
 		}),
 		(length, {}),
 	])
