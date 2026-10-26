@@ -218,7 +218,11 @@ Fixed in full_game.gd (`_dead_ball_at()`), and the two now agree.
   A "Last Match" tab keeps the full-time card reachable.
 - The full-time card adds a "+5 upgrades" line.
 
-### Phase 3: Dashboard layout
+### Phase 3: Dashboard layout (done 2026-10-27)
+
+Landed as below. New Career moved up beside the team name. Edit Player
+and View Fixture show a lock until Phases 5 and 6–7 build their pages.
+There's no upgrades badge yet (Phase 7). The ladder widened to 560 px.
 
 - Stack, all 520 px wide: the Next Game card, then an **Edit Player**
   button at full width and about 40 px tall (with an upgrades badge when

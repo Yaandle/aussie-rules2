@@ -26,6 +26,16 @@ extends CanvasLayer
 ##
 ## F8 in a debug build sims the current round (CareerProfile.
 ## sim_current_round()) — dev-only, for running seasons through quickly.
+##
+## Layout (docs/CAREER_AUDIT.md Phase 3): one STACK_WIDTH column — the
+## NEXT GAME card, a full-width Edit Player button under it, then View
+## Roster | View Stats | View Fixture sharing the same width — so the
+## controls read as one block; New Career sits up by the team name, away
+## from the things you press every week. Button labels are Title Case with
+## no letter tracking (playtest: "not all capitalised"). Edit Player and
+## View Fixture show a lock until their pages exist (Phases 6-7 and 5).
+## Focus neighbours are set by hand (_link_focus()) so a pad walks the
+## stack as a grid.
 
 const SCREEN_MARGIN_X := SoftBrutalist.SPACE_6
 const SCREEN_MARGIN_Y := SoftBrutalist.SPACE_4
@@ -34,10 +44,13 @@ const CARD_PAD := 20.0
 const BUTTON_HEIGHT := 48.0
 const BUTTON_WIDTH := 200.0
 const ICON_SIZE := 22.0
-## Whatever's left of the 1280 design width beside the left column (the
-## three 200 px buttons and their gaps). Phase 3's narrower button row
-## frees more.
-const LADDER_WIDTH := 470.0
+## The left stack: the NEXT GAME card's width, and every button under it.
+const STACK_WIDTH := 520.0
+const STACK_BUTTON_HEIGHT := 40.0
+const STACK_GAP := 12.0
+const SMALL_BUTTON_SIZE := Vector2(140.0, 36.0)
+## Room beside the stack on the 1280 design width, with space to spare.
+const LADDER_WIDTH := 560.0
 
 const DASHBOARD_SCENE := "res://scenes/ui/career_dashboard_screen.tscn"
 const SUMMARY_SCENE := "res://scenes/ui/career_season_summary_screen.tscn"
@@ -46,6 +59,7 @@ var _roster_overlay: Control
 var _roster_back_button: Control
 var _view_roster_button: Control
 var _new_career_button: Control
+var _next_game_card: Control
 var _confirm_overlay: Control
 var _confirm_cancel_button: Control
 
@@ -97,15 +111,23 @@ func _build() -> void:
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	margin.add_child(column)
 
+	var header_row := HBoxContainer.new()
+	header_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(header_row)
 	var header := VBoxContainer.new()
 	header.add_theme_constant_override(&"separation", 4)
+	header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	column.add_child(header)
+	header_row.add_child(header)
 	header.add_child(CareerTheme.label(CareerProfile.team_name, SoftBrutalist.SIZE_TITLE,
 		CareerTheme.TEXT, SoftBrutalist.WEIGHT_HEAVY))
 	header.add_child(CareerTheme.label("%s · SEASON %d — %s" % [
 		CareerSeason.league_name(CareerProfile.league_index), CareerProfile.season_index + 1,
 		CareerProfile.player_name], SoftBrutalist.SIZE_BODY, CareerTheme.TEXT_MUTED))
+	_new_career_button = _build_action_button("New Career", &"", true, _open_new_career_confirm,
+		SMALL_BUTTON_SIZE)
+	_new_career_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	header_row.add_child(_new_career_button)
 
 	var body := HBoxContainer.new()
 	body.add_theme_constant_override(&"separation", int(BAND_GAP))
@@ -114,26 +136,36 @@ func _build() -> void:
 	column.add_child(body)
 
 	var left := VBoxContainer.new()
-	left.add_theme_constant_override(&"separation", int(BAND_GAP))
+	left.add_theme_constant_override(&"separation", int(STACK_GAP))
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	left.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	body.add_child(left)
 	body.add_child(_build_ladder_column())
 
-	var next_game_card := _build_next_game_card()
-	left.add_child(next_game_card)
+	_next_game_card = _build_next_game_card()
+	left.add_child(_next_game_card)
+
+	# Not built yet (Phases 6-7): a lock, like any screen that isn't there.
+	var edit_button := _build_action_button("Edit Player", &"lock", false, Callable(),
+		Vector2(STACK_WIDTH, STACK_BUTTON_HEIGHT))
+	left.add_child(edit_button)
 
 	var button_row := HBoxContainer.new()
-	button_row.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_4))
+	button_row.add_theme_constant_override(&"separation", int(STACK_GAP))
 	button_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	left.add_child(button_row)
-	var view_roster_button := _build_action_button("VIEW ROSTER", &"gear", true,
-		_on_view_roster_pressed)
-	_view_roster_button = view_roster_button
-	button_row.add_child(view_roster_button)
-	button_row.add_child(_build_view_stats_button())
-	_new_career_button = _build_new_career_button()
-	button_row.add_child(_new_career_button)
+	var third := Vector2((STACK_WIDTH - STACK_GAP * 2.0) / 3.0, STACK_BUTTON_HEIGHT)
+	_view_roster_button = _build_action_button("View Roster", &"gear", true,
+		_on_view_roster_pressed, third)
+	button_row.add_child(_view_roster_button)
+	var view_stats_button := _build_action_button("View Stats", &"goalpost", true,
+		_on_view_stats_pressed, third)
+	button_row.add_child(view_stats_button)
+	# Phase 5's fixture carousel.
+	var view_fixture_button := _build_action_button("View Fixture", &"lock", false, Callable(), third)
+	button_row.add_child(view_fixture_button)
+	_link_focus([_next_game_card, edit_button, _view_roster_button],
+		[_view_roster_button, view_stats_button, view_fixture_button])
 
 	# Hint bar — no control legend existed on this screen at all
 	# (ui_audit.md finding #2, missed by the audit's own file list but the
@@ -159,7 +191,34 @@ func _build() -> void:
 	# Explicit default focus (mandatory per the UI brief): the NEXT GAME card,
 	# which is live in every state now — the next round, or the season
 	# summary once the season is over.
-	next_game_card.grab_focus.call_deferred()
+	_next_game_card.grab_focus.call_deferred()
+
+
+## Up/down through the stack (`column`, top to bottom), left/right along
+## the button row (`row`), New Career above the card. Controls that can't
+## take focus (a locked button) are skipped, so down from the card goes
+## straight to the row while Edit Player is locked.
+func _link_focus(column: Array, row: Array) -> void:
+	var stack: Array = [_new_career_button]
+	for control: Control in column:
+		if control.focus_mode != Control.FOCUS_NONE:
+			stack.append(control)
+	for i in stack.size():
+		var control: Control = stack[i]
+		if i > 0:
+			control.focus_neighbor_top = control.get_path_to(stack[i - 1])
+		if i < stack.size() - 1:
+			control.focus_neighbor_bottom = control.get_path_to(stack[i + 1])
+	var live: Array = row.filter(func(c: Control) -> bool: return c.focus_mode != Control.FOCUS_NONE)
+	var above: Control = stack[stack.size() - 2] if stack.size() > 1 else null
+	for i in live.size():
+		var control: Control = live[i]
+		if i > 0:
+			control.focus_neighbor_left = control.get_path_to(live[i - 1])
+		if i < live.size() - 1:
+			control.focus_neighbor_right = control.get_path_to(live[i + 1])
+		if above != null:
+			control.focus_neighbor_top = control.get_path_to(above)
 
 
 ## "LADDER" over the league table, your row tinted and the promotion places
@@ -231,10 +290,10 @@ func _build_next_game_card() -> Control:
 	heading_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	rows.add_child(heading_row)
 	var season_over := CareerProfile.season_complete()
-	var heading := "SEASON COMPLETE" if season_over else "NEXT GAME · ROUND %d OF %d" % [
+	var heading := "Season Complete" if season_over else "Next Game · Round %d of %d" % [
 		CareerProfile.games_played + 1, CareerProfile.season_length()]
 	heading_row.add_child(CareerTheme.label(heading, SoftBrutalist.SIZE_LABEL, CareerTheme.PANEL_TEXT,
-		SoftBrutalist.WEIGHT_BOLD, 1))
+		SoftBrutalist.WEIGHT_BOLD))
 	var icon := ExclamationIcon.new()
 	heading_row.add_child(icon)
 
@@ -293,10 +352,13 @@ func _set_next_game_hover(panel: Panel, hovering: bool) -> void:
 ## ROSTER, the roster table's BACK, and the old lock screen's MAIN MENU were
 ## all mouse-only with no way for a keyboard/gamepad player to reach them
 ## at all (ui_audit.md finding #3).
+##
+## `icon_name` empty draws the label alone; `size` defaults to the 200 x 48
+## dialog button.
 func _build_action_button(text: String, icon_name: StringName, enabled: bool,
-		on_pressed: Callable) -> Control:
+		on_pressed: Callable, size := Vector2(BUTTON_WIDTH, BUTTON_HEIGHT)) -> Control:
 	var panel := Panel.new()
-	panel.custom_minimum_size = Vector2(BUTTON_WIDTH, BUTTON_HEIGHT)
+	panel.custom_minimum_size = size
 	panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	var fill := CareerTheme.PANEL if enabled else CareerTheme.PANEL.darkened(0.35)
 	panel.add_theme_stylebox_override(&"panel", CareerTheme.panel_style(fill))
@@ -337,13 +399,14 @@ func _build_action_button(text: String, icon_name: StringName, enabled: bool,
 	panel.add_child(row)
 
 	var text_colour := CareerTheme.PANEL_TEXT if enabled else Color(CareerTheme.PANEL_TEXT, 0.5)
-	var icon := UIIcon.new()
-	icon.icon_name = icon_name
-	icon.custom_minimum_size = Vector2(ICON_SIZE, ICON_SIZE)
-	icon.line_colour = text_colour
-	row.add_child(icon)
+	if not icon_name.is_empty():
+		var icon := UIIcon.new()
+		icon.icon_name = icon_name
+		icon.custom_minimum_size = Vector2(ICON_SIZE, ICON_SIZE)
+		icon.line_colour = text_colour
+		row.add_child(icon)
 	row.add_child(CareerTheme.label(text, SoftBrutalist.SIZE_LABEL, text_colour,
-		SoftBrutalist.WEIGHT_BOLD, 1))
+		SoftBrutalist.WEIGHT_BOLD))
 
 	return panel
 
@@ -412,7 +475,7 @@ func _build_roster_table() -> Control:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	header_row.add_child(spacer)
-	var back_button := _build_action_button("BACK", &"arrow_left", true,
+	var back_button := _build_action_button("Back", &"arrow_left", true,
 		func() -> void:
 			_roster_overlay.visible = false
 			if is_instance_valid(_view_roster_button):
@@ -476,16 +539,6 @@ func _add_roster_row(grid: GridContainer, entry: Dictionary) -> void:
 		cell.custom_minimum_size.x = col["width"]
 		cell.horizontal_alignment = col["align"]
 		grid.add_child(cell)
-
-
-## Always live: the season stats page lists the squad with zeros before
-## the first match, and its LAST MATCH reaches the full-time card.
-func _build_view_stats_button() -> Control:
-	return _build_action_button("VIEW STATS", &"goalpost", true, _on_view_stats_pressed)
-
-
-func _build_new_career_button() -> Control:
-	return _build_action_button("NEW CAREER", &"figure", true, _open_new_career_confirm)
 
 
 func _open_new_career_confirm() -> void:
@@ -552,10 +605,10 @@ func _build_new_career_confirm() -> Control:
 	actions.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_4))
 	actions.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(actions)
-	_confirm_cancel_button = _build_action_button("CANCEL", &"arrow_left", true,
+	_confirm_cancel_button = _build_action_button("Cancel", &"arrow_left", true,
 		_close_new_career_confirm)
 	actions.add_child(_confirm_cancel_button)
-	var start_button := _build_action_button("START NEW", &"figure", true, _on_start_new_career)
+	var start_button := _build_action_button("Start New", &"figure", true, _on_start_new_career)
 	actions.add_child(start_button)
 
 	for pair: Array in [[_confirm_cancel_button, start_button], [start_button, _confirm_cancel_button]]:
