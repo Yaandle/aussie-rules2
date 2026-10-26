@@ -88,9 +88,10 @@ func ragdoll() -> PhysicsRagdoll:
 
 
 ## Goes physical. `hit`: {"strength" 0-1, "impulse" (N·s, world), "bone",
-## "contact_offset" (world, from that body's centre), "velocity" (the
-## player's own at contact), "mass_kg"}. Returns false if this rig can't
-## ragdoll, so the caller plays its canned clip instead.
+## "contact_offset" (world, from that body's centre), "body_share" (of the
+## push that moves the whole body — PhysicsRagdoll.apply_tackle_push),
+## "velocity" (the player's own at contact), "mass_kg"}. Returns false if
+## this rig can't ragdoll, so the caller plays its canned clip instead.
 func begin(hit: Dictionary) -> bool:
 	if not supported(_rig):
 		return false
@@ -168,7 +169,7 @@ func _step_falling(delta: float) -> void:
 		var dt := minf(delta, _push_left)
 		var bone: StringName = _hit.get("bone", &"Chest")
 		var point := _ragdoll.body(bone).global_position + (_hit.get("contact_offset", Vector3.ZERO) as Vector3)
-		_ragdoll.apply_impact_at(bone, _push * dt, point)
+		_ragdoll.apply_tackle_push(bone, _push * dt, point, float(_hit.get("body_share", 0.0)))
 		_push_left -= dt
 	_ragdoll.step(delta)
 	_time += delta

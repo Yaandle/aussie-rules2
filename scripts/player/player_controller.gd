@@ -64,8 +64,9 @@ signal run_too_far_called(carrier: PlayerController)
 ## `connected` is false on a clean miss (nothing about the ball changes).
 signal hit_out_resolved(player: PlayerController, connected: bool)
 
-## Fired on the TACKLER the frame a tackle connects — `is_slide` true for a
-## standing/dive-in Slide (_try_tackle), false for a Lunge (_try_lunge_tackle).
+## Fired on the TACKLER the frame a tackle connects and holds (a broken one
+## doesn't count) — `is_slide` true for a standing/dive-in Slide
+## (_try_tackle), false for a Lunge (_try_lunge_tackle).
 ## The tackled-side outcome is already covered by holding_the_ball_called /
 ## field_ball_up_called; this exists so something watching the tackler can tell
 ## *which* commitment landed (the tackling tutorial keys its per-step success on
@@ -298,6 +299,11 @@ var _tackle_hold_is_tackler := false
 ## can't act, and _update_locomotion just follows the hips.
 var _ragdoll: PlayerRagdoll = null
 
+## The last tackle this player made, for headless checks and readouts:
+## TackleBalance.resolve's read of it (empty when it never landed) plus
+## "slide", "held" and, for a whiff, "missed".
+var last_tackle := {}
+
 ## Seconds this player personally has held the ball since their own last
 ## gather/mark. Distinct from MatchState.possession_seconds(), which
 ## tracks the whole TEAM's unbroken hold and does not reset on a same-team
@@ -517,7 +523,12 @@ func _physics_process(delta: float) -> void:
 	_try_bump_contact()
 	_try_smother_contact()
 
-	_animation.drive(Vector2.ZERO if is_ragdolled() else locomotion_blend(), delta)
+	# The real ground speed sets how fast the legs turn over (PlayerAnimation's
+	# "Stride matching"), not just which clips blend.
+	if is_ragdolled():
+		_animation.drive(Vector2.ZERO, delta, 0.0)
+	else:
+		_animation.drive(locomotion_blend(), delta, Vector2(velocity.x, velocity.z).length())
 
 
 # ── Locomotion ───────────────────────────────────────────────────────
@@ -1118,9 +1129,12 @@ func _complete_gather(ball: Ball) -> void:
 # by real closing speed / approach angle / carrier speed at contact, never a
 # dice roll (RULES_REFERENCE.md §3 notes Prototype 1's old flat
 # TACKLE_BREAK_CHANCE=0.45 coin-flip was deliberately dropped for exactly
-# this reason). No holding-the-ball adjudication yet (free kick vs ball-up)
-# — see RULES_REFERENCE.md §4 — a successful tackle, of either kind, always
-# spills the ball loose for a fresh contest.
+# this reason). Two steps, both off the contact's own numbers: the gate
+# decides whether it lands (a miss is a whiff), then TackleBalance's model
+# decides whether a landed tackle holds or the carrier breaks it (Tuning's
+# "Whether a tackle holds") — evaluated against a threshold, never rolled.
+# A held tackle, of either kind, spills the ball loose for a fresh contest
+# (holding-the-ball vs ball-up is _get_tackled's call, RULES_REFERENCE.md §4).
 
 ## Shared physical gate for both tackle commitments. closing_speed is the
 ## tackler-minus-target relative velocity dotted along the tackler→target
@@ -1217,7 +1231,9 @@ func _update_slide_dive(delta: float) -> void:
 ## feedback wanted the two tackle types to read differently (see Tuning.
 ## Action.TACKLE_HELD's own comment). TACKLE_GRAB (tackler) and TACKLE_HELD
 ## (target) are a synced pair, the same "two bodies meeting" relationship
-## TACKLE_TAKEDOWN/TACKLED are for Lunge just below.
+## TACKLE_TAKEDOWN/TACKLED are for Lunge just below. Never a ragdoll: Slide
+## is the AI's only tackle, and AI tackles stay on their clips. A Slide
+## that lands but breaks (_break_tackle) leaves the carrier running.
 func _try_tackle() -> void:
 	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE or _mark_readying:
 		return
@@ -1231,7 +1247,17 @@ func _try_tackle() -> void:
 		return other.team != team and other.is_carrying() and not other.is_protected())
 	if target == null:
 		return
+	# Landed (the gate), then held or broken on the model (Tuning's "Whether
+	# a tackle holds"). A broken Slide costs the tackler what a whiff does.
+	var impact := {}
 	if _resolve_tackle_contact(self, target, true):
+		impact = TackleBalance.resolve(global_position, velocity, body_mass,
+			target.global_position, target.velocity, target.body_mass, 0.0,
+			-target.global_transform.basis.z)
+		last_tackle = impact.merged({"slide": true, "held": float(impact.p_break) < Tuning.TACKLE_SLIDE_BREAK_P})
+	else:
+		last_tackle = {"slide": true, "held": false, "missed": true}
+	if last_tackle.held:
 		target._get_tackled(self, true)
 		# Never blocked here: _try_tackle()'s own top guard already requires
 		# _action == NONE on self before any of this runs.
@@ -1241,6 +1267,8 @@ func _try_tackle() -> void:
 		target._begin_tackle_hold(self, false)
 		tackle_committed.emit(true)
 	else:
+		if not impact.is_empty():
+			target._break_tackle()
 		# A whiffed Slide used to be the single costliest miss in the kit;
 		# the hit-stick bump rework gave that title to a whiffed bump instead
 		# — see TACKLE_SLIDE_MISS_STUN_DURATION's own updated comment. maxf,
@@ -1260,8 +1288,11 @@ func _try_tackle() -> void:
 ## collision/capsule change, `_lunge_tap_cooldown` unaffected either way) —
 ## TACKLE_TAKEDOWN is a cosmetic crouch layered on top of that, not a
 ## second real knockdown; a whiffed Lunge still only pays the short tap
-## cooldown below, same as always. Shares its physical binding with wants_
-## handball()/wants_mark_running()/wants_smother() — excludes anyone
+## cooldown below, same as always, and so does one that lands but breaks.
+## On a 6thbuild rig a held Lunge ragdolls the target instead (and the
+## tackler too on a big hit) — see _get_tackled. Shares its physical
+## binding with wants_handball()/wants_mark_running()/wants_smother() —
+## excludes anyone
 ## _update_smother() would also claim (kick-aiming/mid-swing: a kick
 ## already being blocked at the boot is smother's job, not this one's) so
 ## the two never actually compete for the same target on the same press.
@@ -1276,29 +1307,37 @@ func _try_lunge_tackle() -> void:
 			and not (other.is_kick_aiming() or other.is_mid_kick_swing()))
 	if target == null:
 		return
-	if _resolve_tackle_contact(self, target, false):
-		# Worked out once, before either body changes, so both players react
-		# to the same hit.
-		var impact := TackleBalance.resolve(global_position, velocity, body_mass,
-			target.global_position, target.velocity, target.body_mass,
-			Tuning.TACKLE_RAGDOLL_MIN_BALANCE_LOSS, -target.global_transform.basis.z)
-		target._get_tackled(self, false, impact)
-		# A big enough hit takes the tackler off their feet too (Tuning's
-		# TACKLE_RAGDOLL_TACKLER_*), carried on into the carrier by their
-		# own momentum; otherwise the takedown beat on their feet as before.
-		var tackler_b: float = impact.tackler_b
-		if tackler_b <= 0.0 or not _begin_ragdoll({
-				"strength": 1.0 - tackler_b,
-				"impulse": impact.tackler_impulse,
-				"bone": &"Chest",
-				"contact_offset": Vector3.ZERO,
-				"velocity": velocity,
-				"mass_kg": body_mass,
-			}):
-			_begin(Tuning.Action.TACKLE_TAKEDOWN)
-		tackle_committed.emit(false)
-	else:
+	if not _resolve_tackle_contact(self, target, false):
+		last_tackle = {"slide": false, "held": false, "missed": true}
 		_lunge_tap_cooldown = Tuning.TACKLE_LUNGE_TAP_COOLDOWN
+		return
+	# Worked out once, before either body changes, so both players react
+	# to the same hit — and whether it holds at all comes off the same read
+	# (Tuning's "Whether a tackle holds").
+	var impact := TackleBalance.resolve(global_position, velocity, body_mass,
+		target.global_position, target.velocity, target.body_mass,
+		Tuning.TACKLE_RAGDOLL_MIN_BALANCE_LOSS, -target.global_transform.basis.z)
+	last_tackle = impact.merged({"slide": false, "held": float(impact.p_break) < Tuning.TACKLE_LUNGE_BREAK_P})
+	if not last_tackle.held:
+		target._break_tackle()
+		_lunge_tap_cooldown = Tuning.TACKLE_LUNGE_TAP_COOLDOWN
+		return
+	target._get_tackled(self, false, impact)
+	# A big enough hit takes the tackler off their feet too (Tuning's
+	# TACKLE_RAGDOLL_TACKLER_*), going down the way they were running;
+	# otherwise the takedown beat on their feet as before.
+	var tackler_b: float = impact.tackler_b
+	if tackler_b <= 0.0 or not _begin_ragdoll({
+			"strength": 1.0 - tackler_b,
+			"impulse": impact.tackler_impulse,
+			"bone": &"Chest",
+			"contact_offset": Vector3.ZERO,
+			"body_share": 0.0,
+			"velocity": impact.tackler_velocity,
+			"mass_kg": body_mass,
+		}):
+		_begin(Tuning.Action.TACKLE_TAKEDOWN)
+	tackle_committed.emit(false)
 
 
 ## Called on the tackled player, by the tackler. `is_slide` picks which
@@ -1341,6 +1380,7 @@ func _get_tackled(by: PlayerController, is_slide: bool, impact := {}) -> void:
 			"impulse": impact.impulse,
 			"bone": impact.bone,
 			"contact_offset": impact.contact_offset,
+			"body_share": impact.body_share,
 			"velocity": velocity,
 			"mass_kg": body_mass,
 		})
@@ -1352,6 +1392,17 @@ func _get_tackled(by: PlayerController, is_slide: bool, impact := {}) -> void:
 		holding_the_ball_called.emit(by)
 	else:
 		field_ball_up_called.emit(by, self)
+
+
+## Called on the carrier when a tackle lands but the model says it breaks
+## (Tuning's "Whether a tackle holds"): they shrug it, keep the ball and
+## run on, a step slower for it, and the locomotion they never left picks
+## the pace back up. No ragdoll and no clip — nothing about them changes but
+## their speed.
+func _break_tackle() -> void:
+	velocity.x *= Tuning.TACKLE_BREAK_SPEED_KEEP
+	velocity.z *= Tuning.TACKLE_BREAK_SPEED_KEEP
+	_speed *= Tuning.TACKLE_BREAK_SPEED_KEEP
 
 
 ## Rulebook §6: a Slide connect should read as one wrestle, not two clips

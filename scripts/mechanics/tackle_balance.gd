@@ -13,10 +13,14 @@ extends RefCounted
 ## read from WEIGHTS_PATH, falling back to TackleModel's defaults. The
 ## sandbox reads its output as P(break); here it's only used as a smooth
 ## 0-1 measure of how hard the hit was. The inputs are the real contact,
-## each normalised 0-1 (see Tuning), not the sandbox's ordinal ranges. It's
-## evaluated, never rolled: whether the tackle holds is still
-## _resolve_tackle_contact's call, and the same hit always gives the same
-## b (RULES_REFERENCE.md §3).
+## each normalised 0-1 (see Tuning), not the sandbox's ordinal ranges.
+## Every input favours the tackler (faster, squarer, heavier), so the live
+## read is the other way round from the sandbox's: b is how much the hit
+## wins, and p_break = 1 - b is the carrier's share — a hard square hit
+## rarely breaks, a glancing touch usually does. PlayerController compares
+## p_break with each tackle type's threshold (Tuning.TACKLE_*_BREAK_P) to
+## decide whether a landed tackle holds. Evaluated, never rolled: the same
+## hit always gives the same b and the same outcome (RULES_REFERENCE.md §3).
 
 const WEIGHTS_PATH := "res://data/ml/tackle_weights.json"
 
@@ -99,9 +103,11 @@ static func balance_loss(closing_speed: float, approach_angle_deg: float, mass_r
 
 
 ## Everything a connected tackle hands the ragdoll, tackler -> target:
-## b, the push (impulse N·s, world), which body it lands on and where, and
-## the tackler's own share (tackler_b 0 = stays on their feet). `min_b`
-## floors b (Tuning.TACKLE_RAGDOLL_MIN_BALANCE_LOSS on a live connect).
+## b (and raw_b / p_break before the floor), the push (impulse N·s, world),
+## which body it lands on and where and how much of it moves the whole body
+## (PhysicsRagdoll.apply_tackle_push), and the tackler's own share
+## (tackler_b 0 = stays on their feet). `min_b` floors b
+## (Tuning.TACKLE_RAGDOLL_MIN_BALANCE_LOSS on a live Lunge connect).
 ## `target_facing` (flat, world) stands in for the target's heading when
 ## they're near-stationary: the tackle gate treats any hit on a standing
 ## player as square (approach angle 0), which is right for whether it
@@ -118,17 +124,24 @@ static func resolve(tackler_pos: Vector3, tackler_vel: Vector3, tackler_mass: fl
 		angle = rad_to_deg((-(m.direction as Vector3)).angle_to(target_facing.normalized()))
 	var ratio := tackler_mass / maxf(target_mass, 1.0)
 	var raw_b := balance_loss(maxf(m.closing_speed, 0.0), angle, ratio)
+	# Whether it holds is read off the gate's own angle, not the facing one:
+	# a standing player has no run to carry them out of a tackle, so one hit
+	# from behind is no easier to break than one from in front — but it
+	# does still knock them over the way it came (raw_b, the fall).
+	var hold_b := balance_loss(maxf(m.closing_speed, 0.0), m.approach_angle, ratio)
 	var b := maxf(raw_b, min_b)
-	# Along the tackler's momentum relative to the target; straight along
-	# the line between them when they're barely moving relative to each other.
-	var push_dir: Vector3 = m.relative_velocity
-	if push_dir.length_squared() < 0.25:
-		push_dir = m.direction
-	push_dir.y = 0.0
-	if push_dir.length_squared() < 0.0001:
-		push_dir = Vector3.FORWARD
-	var flat := push_dir.normalized()
-	push_dir = (flat + Vector3.DOWN * Tuning.TACKLE_RAGDOLL_DRAG_DOWN).normalized()
+	# Along the hit vector — the line from the tackler into the carrier —
+	# which is the only way an impulse through the contact can push, and
+	# the direction the closing speed below is measured along. It used to
+	# be the relative velocity, which on a carrier running across a tackler
+	# points mostly back down the carrier's own path: a hit from the side
+	# knocked them backwards. Their own run isn't lost — PlayerRagdoll starts
+	# every body at the carrier's velocity — the hit only adds to it.
+	var flat: Vector3 = m.direction
+	if flat == Vector3.ZERO:
+		flat = Vector3(m.relative_velocity.x, 0.0, m.relative_velocity.z)
+		flat = flat.normalized() if flat.length_squared() > 0.0001 else Vector3.FORWARD
+	var push_dir := (flat + Vector3.DOWN * Tuning.TACKLE_RAGDOLL_DRAG_DOWN).normalized()
 	# A wrap-up is an inelastic collision: the momentum it can change is the
 	# pair's reduced mass times the closing speed, not the tackler's whole
 	# momentum (which flung a light carrier 5 m in the lab).
@@ -138,19 +151,39 @@ static func resolve(tackler_pos: Vector3, tackler_vel: Vector3, tackler_mass: fl
 	var tackler_b := 0.0
 	if b >= Tuning.TACKLE_RAGDOLL_TACKLER_MIN_B:
 		tackler_b = b * Tuning.TACKLE_RAGDOLL_TACKLER_SHARE
+	# The tackler goes down the way they were running — driving on through
+	# the tackle — or into the carrier if they'd stopped: tackler_impulse is
+	# that drive down into the turf, at the chest so it topples them rather
+	# than shoving them along. Their bodies start at tackler_velocity, their
+	# own less what the collision itself took out of them (the push without
+	# SCALE's leg drive, which comes off the ground, not out of their
+	# momentum). Started at their full run they ploughed into the carrier's
+	# falling body, stopped dead at the chest while their legs ran on, and
+	# sat down backwards — or swept the carrier's legs out from under them,
+	# so the carrier fell back onto them.
+	var travel := Vector3(tackler_vel.x, 0.0, tackler_vel.z)
+	var tackler_dir := travel.normalized() if travel.length() > Tuning.PIVOT_SPEED_THRESHOLD else flat
+	var collision := size / Tuning.TACKLE_RAGDOLL_IMPULSE_SCALE
 	return {
 		"b": b,
 		"raw_b": raw_b,
+		"p_break": 1.0 - hold_b,
 		"closing_speed": m.closing_speed,
 		"approach_angle": angle,
 		"mass_ratio": ratio,
+		"direction": flat,
 		"impulse": push_dir * size,
-		"bone": &"Hips" if angle > Tuning.TACKLE_RAGDOLL_HIPS_FROM_BEHIND_DEG else &"Chest",
+		# Above the centre of mass, from whichever side: a push there tips
+		# the body the way it's pushed. A low wrap from behind used to go on
+		# the hips, which slid the pelvis forward under the torso and sat the
+		# carrier down backwards onto the tackler.
+		"bone": &"Chest",
 		# World offset from the hit body's centre toward the tackler.
-		"contact_offset": -(m.direction as Vector3) * Tuning.TACKLE_RAGDOLL_CONTACT_SIDE_OFFSET,
+		"contact_offset": -flat * Tuning.TACKLE_RAGDOLL_CONTACT_SIDE_OFFSET,
+		"body_share": Tuning.TACKLE_RAGDOLL_BODY_SHARE,
 		"tackler_b": tackler_b,
-		# Back the other way, still driven down — the pair go to ground
-		# together, neither is lifted.
-		"tackler_impulse": (-flat + Vector3.DOWN * Tuning.TACKLE_RAGDOLL_DRAG_DOWN).normalized()
-			* size * Tuning.TACKLE_RAGDOLL_TACKLER_RECOIL,
+		"tackler_direction": tackler_dir,
+		"tackler_velocity": tackler_vel - flat * collision / maxf(tackler_mass, 1.0),
+		"tackler_impulse": (tackler_dir + Vector3.DOWN * Tuning.TACKLE_RAGDOLL_DRAG_DOWN).normalized()
+			* size * Tuning.TACKLE_RAGDOLL_TACKLER_DRIVE,
 	}

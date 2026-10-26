@@ -74,7 +74,7 @@ records of a mechanism being replaced, not values to port.
 | Prototype 1 | What it did | Prototype 2 |
 |---|---|---|
 | `MARK_RADIUS = 12.0`, `CONTEST_RADIUS = 10.0` | Positional gates deciding whether a mark counted, then a proximity-weighted roll | Physical: the ball is a rigid body, a mark is catching it |
-| `TACKLE_TRIGGER_RADIUS = 3.5`, `TACKLE_BREAK_CHANCE = 0.45` | A radius check, then a flat coin flip | Physical: contact, momentum and the holding-the-ball timer |
+| `TACKLE_TRIGGER_RADIUS = 3.5`, `TACKLE_BREAK_CHANCE = 0.45` | A radius check, then a flat coin flip | Physical: contact, momentum and the holding-the-ball timer. A landed tackle holds or breaks on `TackleBalance`'s formula of that contact (closing speed, squareness, weight ratio) against a per-tackle threshold — evaluated, never rolled, so the same hit always gives the same outcome |
 | `KICK_BASE_ACC = 0.68`, `KICK_SCATTER_*`, `PRESSURE_*` | Accuracy rolls degraded by nearby opponents, scatter applied to the landing point | Physical: the kick is an impulse; inaccuracy will come from being under pressure while striking it, not from a roll after the fact |
 | `BALL_FLIGHT_SPEED = 95.0`, `BALL_BOUNCE_*`, `BALL_ROLL_*` | A scripted lerp along a flight path, plus a cosmetic 2-hop bounce that never moved the ball's real position | `Ball` is a `RigidBody3D`: gravity, quadratic drag, Magnus spin, a prolate-spheroid hull and real restitution |
 | `PLAYER_SPEED = 28.0` / `FULL_GAME_PLAYER_SPEED = 19.0` | Units/sec added straight to a position | `Tuning.WALK/JOG/SPRINT_SPEED` = 1.8 / 4.8 / 8.4 m/s, reached through acceleration curves |

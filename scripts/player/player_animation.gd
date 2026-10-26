@@ -34,9 +34,10 @@ extends Node
 ## HumanoidAnimations.GAITS. x = strafe (-1 left, +1 right),
 ## y = forward speed (-1 backpedal, +1 full sprint), both normalised
 ## against Tuning.SPRINT_SPEED.
+const JOG_BLEND := 0.55
 const BLEND_POINTS := [
 	[Vector2(0.0, 0.0), &"idle"],
-	[Vector2(0.0, 0.55), &"jog_fwd"],
+	[Vector2(0.0, JOG_BLEND), &"jog_fwd"],
 	[Vector2(0.0, 1.0), &"run_fwd"],
 	[Vector2(0.0, -1.0), &"run_back"],
 	[Vector2(-1.0, 0.0), &"strafe_l"],
@@ -116,6 +117,56 @@ const GETUP_LYING_TOLERANCE := 0.04
 const GETUP_SAMPLE_STEP := 1.0 / 60.0
 const HIPS_TRACK := ^"Skeleton3D:Hips"
 
+## ── Stride matching ─────────────────────────────────────────────────
+## The gait clips play at whatever cadence they were authored at, but the
+## body moves at whatever the physics says. 6thbuild's run_fwd has its
+## stance foot sweeping ~3.4 m/s under the hips while a sprint is 8.4 m/s
+## (11 on a fast CHARACTER profile), so the legs read as running through
+## treacle while the turf slides past under them. The locomotion blend
+## space now plays through a TimeScale (STRIDE_NODE) whose rate is the
+## body's real speed over the ground speed the blended clips were authored
+## for, so the legs turn over faster the faster the player is going.
+## Each clip's authored speed is measured off the clip itself at build time
+## (_measure_stride: the planted foot's sweep under the hips), the same way
+## the get-ups find their lying frame, so a re-authored clip re-measures
+## itself and the procedural rig's much longer stride gets its own numbers.
+## The rate is capped by cadence, not by a flat multiple: a short-strided
+## clip matched all the way to a sprint would turn over 8-9 steps a second,
+## which blurs rather than reads as fast. STRIDE_CADENCE is the most steps
+## a second a runner makes at JOG_SPEED and at SPRINT_SPEED (real figures
+## are ~3 and ~4.5-5, set a touch over to read quick on short-strided
+## clips), extrapolated linearly either side, so past it the feet are left
+## to skate a little instead. A backpedal is a short, quick shuffle rather
+## than a stride, so going backwards just never plays slower than authored,
+## up to STRIDE_BACK_MAX_RATE. Unplaytested feel guesses.
+const GAIT_NODE := &"gait"
+const STRIDE_NODE := &"stride"
+const STRIDE_CLIPS: Array[StringName] = [&"jog_fwd", &"run_fwd", &"run_back"]
+const STRIDE_CADENCE := Vector2(3.4, 5.2)
+const STRIDE_CADENCE_LIMITS := Vector2(1.8, 5.8)
+const STRIDE_MIN_RATE := 0.85
+const STRIDE_BACK_MAX_RATE := 1.3
+## Blend magnitude under which the rate eases back to 1, so a standing
+## player's idle sway plays as authored.
+const STRIDE_FADE := 0.08
+## How far above its lowest point a foot still counts as planted, and the
+## measuring step.
+const STRIDE_PLANT_TOLERANCE := 0.03
+const STRIDE_SAMPLE_STEP := 1.0 / 60.0
+
+## ── Drive lean ──────────────────────────────────────────────────────
+## A runner leans into acceleration and sits back to brake; constant-speed
+## clips do neither, so getting going looked like the legs speeding up
+## under an upright torso. Added to the Spine after the tree mixes (the same
+## post-mix pass as the foot clamp), from the body's change of speed plus a
+## little for pace itself, only while running forwards in locomotion.
+## Degrees, positive forward. Unplaytested feel guesses.
+const LEAN_BONE := &"Spine"
+const LEAN_PER_ACCEL_DEG := 1.1     ## per m/s² of speed gained
+const LEAN_AT_SPRINT_DEG := 4.0
+const LEAN_LIMITS_DEG := Vector2(-6.0, 12.0)
+const LEAN_SMOOTHING := 10.0
+
 const LOCOMOTION_STATE := &"locomotion"
 const BLEND_SMOOTHING := 14.0     ## exponential rate; stops the blend snapping
 const ACTION_BLEND_IN := 0.10     ## s
@@ -147,6 +198,20 @@ var _tree: AnimationTree
 var _playback: AnimationNodeStateMachinePlayback
 var _blend := Vector2.ZERO
 var _blend_parameter := ""
+var _stride_parameter := ""
+
+## clip -> {"speed" (m/s, skeleton space), "cadence" (steps/s)} for
+## STRIDE_CLIPS — see "Stride matching". Every rig on one model has the
+## same clips, so it's measured once per model and shared.
+static var _stride_cache := {}
+var _strides := {}
+var _stride_rate := 1.0
+
+## See "Drive lean". -1 when the gait clips don't all animate LEAN_BONE
+## (the tree wouldn't overwrite it each frame, so the lean would pile up).
+var _lean_bone := -1
+var _lean_deg := 0.0
+var _last_speed := 0.0
 
 ## Snapshot from note_mark_ball() (ball relative to the player, its flight,
 ## the nearest opponent's side), consumed by the next play_action().
@@ -178,12 +243,15 @@ func _ready() -> void:
 	_tree.root_node = _tree.get_path_to(_rig)
 
 	_player.add_animation_library(&"", _build_merged_library())
+	_strides = _measure_strides()
+	_lean_bone = _find_lean_bone()
 
 	_tree.tree_root = _build_state_machine()
 	_tree.anim_player = _tree.get_path_to(_player)
 	_tree.active = true
 	_playback = _tree.get("parameters/playback")
-	_blend_parameter = "parameters/%s/blend_position" % LOCOMOTION_STATE
+	_blend_parameter = "parameters/%s/%s/blend_position" % [LOCOMOTION_STATE, GAIT_NODE]
+	_stride_parameter = "parameters/%s/%s/scale" % [LOCOMOTION_STATE, STRIDE_NODE]
 
 	var controller := get_parent() as PlayerController
 	if controller != null:
@@ -191,12 +259,84 @@ func _ready() -> void:
 
 
 ## Called every physics frame by the controller with the body-space
-## velocity from PlayerController.locomotion_blend().
-func drive(blend: Vector2, delta: float) -> void:
+## velocity from PlayerController.locomotion_blend() and the body's real
+## ground speed (m/s). Without a speed (the animation viewer drives a bare
+## blend) it's read off the blend, which is normalised to SPRINT_SPEED.
+func drive(blend: Vector2, delta: float, speed := -1.0) -> void:
 	if _tree == null or not _tree.active:
 		return
 	_blend = _blend.lerp(blend, 1.0 - exp(-BLEND_SMOOTHING * delta))
 	_tree.set(_blend_parameter, _blend)
+	if speed < 0.0:
+		speed = blend.length() * Tuning.SPRINT_SPEED
+	_stride_rate = _stride_rate_for(speed)
+	_tree.set(_stride_parameter, _stride_rate)
+	_update_lean(speed, delta)
+
+
+## The locomotion playback rate right now — see "Stride matching".
+func stride_rate() -> float:
+	return _stride_rate
+
+
+## clip -> {"speed", "cadence"} as measured — see "Stride matching".
+func stride_measurements() -> Dictionary:
+	return _strides
+
+
+func _stride_rate_for(speed: float) -> float:
+	var reach := _blend.length()
+	if _strides.is_empty() or reach < 0.0001:
+		return 1.0
+	reach = minf(reach, 1.0)
+	# The ground speed and cadence the blend is showing, from the clips at
+	# its anchors: idle -> jog_fwd covers no ground at one end and the jog's
+	# at the other, jog_fwd -> run_fwd in between, run_back going backwards.
+	# The strafes and diagonals ride along with the forward clips — a turn
+	# leaves the body's speed, and so the rate, much where it was.
+	var authored := 0.0
+	var cadence := 0.0
+	var backwards := _blend.y < -absf(_blend.x)
+	if backwards:
+		var back: Dictionary = _strides.get(&"run_back", {})
+		authored = reach * float(back.get("speed", 0.0))
+		cadence = float(back.get("cadence", 0.0))
+	else:
+		var jog: Dictionary = _strides.get(&"jog_fwd", {})
+		var run: Dictionary = _strides.get(&"run_fwd", jog)
+		if reach <= JOG_BLEND:
+			authored = reach / JOG_BLEND * float(jog.get("speed", 0.0))
+			cadence = float(jog.get("cadence", 0.0))
+		else:
+			var t := (reach - JOG_BLEND) / (1.0 - JOG_BLEND)
+			authored = lerpf(float(jog.get("speed", 0.0)), float(run.get("speed", 0.0)), t)
+			cadence = lerpf(float(jog.get("cadence", 0.0)), float(run.get("cadence", 0.0)), t)
+	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
+	if skeleton != null:
+		authored *= skeleton.global_basis.get_scale().x
+	if authored < 0.05 or cadence <= 0.0:
+		return 1.0
+	if backwards:
+		return lerpf(1.0, clampf(speed / authored, 1.0, STRIDE_BACK_MAX_RATE), clampf(reach / STRIDE_FADE, 0.0, 1.0))
+	var steps := clampf(remap(speed, Tuning.JOG_SPEED, Tuning.SPRINT_SPEED, STRIDE_CADENCE.x, STRIDE_CADENCE.y),
+		STRIDE_CADENCE_LIMITS.x, STRIDE_CADENCE_LIMITS.y)
+	var rate := clampf(speed / authored, STRIDE_MIN_RATE, maxf(steps / cadence, STRIDE_MIN_RATE))
+	return lerpf(1.0, rate, clampf(reach / STRIDE_FADE, 0.0, 1.0))
+
+
+func _update_lean(speed: float, delta: float) -> void:
+	var accel := (speed - _last_speed) / maxf(delta, 0.0001)
+	_last_speed = speed
+	var target := 0.0
+	if _blend.y > 0.1 and current_state() == LOCOMOTION_STATE and not ragdoll_active:
+		target = clampf(accel * LEAN_PER_ACCEL_DEG + speed / Tuning.SPRINT_SPEED * LEAN_AT_SPRINT_DEG,
+			LEAN_LIMITS_DEG.x, LEAN_LIMITS_DEG.y)
+	_lean_deg = lerpf(_lean_deg, target, 1.0 - exp(-LEAN_SMOOTHING * delta))
+
+
+## The drive lean right now, degrees — see "Drive lean".
+func lean_degrees() -> float:
+	return _lean_deg
 
 
 ## Runs on the render frame (AnimationTree's own default process timing,
@@ -209,7 +349,31 @@ func drive(blend: Vector2, delta: float) -> void:
 ## equivalent (Godot processes siblings in child order), so its mixing has
 ## already run for this same frame by the time this fires.
 func _process(_delta: float) -> void:
+	_apply_lean()
 	_clamp_feet_to_ground()
+
+
+## Tips the Spine by _lean_deg about the body's own left-right axis, on top
+## of whatever the tree just wrote — see "Drive lean". The tree rewrites the
+## bone every frame (_find_lean_bone checked it can), so this never stacks.
+func _apply_lean() -> void:
+	if _rig == null or ragdoll_active or _lean_bone < 0 or absf(_lean_deg) < 0.05:
+		return
+	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
+	var body := get_parent() as Node3D
+	if skeleton == null or body == null:
+		return
+	# The body's right in skeleton space, then in the bone's parent's frame:
+	# a rotation about a skeleton-space axis applied to the bone's global
+	# pose is the same rotation about that axis taken into its parent's
+	# frame, applied to its local pose. Forward is -Z, so tipping +Y toward
+	# it is a negative turn about +X.
+	var right := (skeleton.global_basis.orthonormalized().inverse() * body.global_basis.x).normalized()
+	var parent := skeleton.get_bone_parent(_lean_bone)
+	if parent >= 0:
+		right = (skeleton.get_bone_global_pose(parent).basis.orthonormalized().inverse() * right).normalized()
+	var turn := Quaternion(right, -deg_to_rad(_lean_deg))
+	skeleton.set_bone_pose_rotation(_lean_bone, turn * skeleton.get_bone_pose_rotation(_lean_bone))
 
 
 ## A deliberately simple ground-contact fix, not full per-leg IK: the
@@ -443,6 +607,104 @@ static func _getup_point(anim: Animation) -> Dictionary:
 	}
 
 
+## Measures STRIDE_CLIPS on this rig's skeleton (cached per model — see
+## _stride_cache). Poses the skeleton directly, then puts it back to rest
+## before the tree takes over; empty if the rig has no skeleton yet.
+func _measure_strides() -> Dictionary:
+	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
+	if skeleton == null:
+		return {}
+	var rig := _rig as HumanoidRig
+	var key := rig.selected_model() if rig != null and rig.is_imported() else "procedural"
+	if _stride_cache.has(key):
+		return _stride_cache[key]
+	var out := {}
+	for clip: StringName in STRIDE_CLIPS:
+		if _player.has_animation(clip):
+			var measured := _measure_stride(skeleton, _player.get_animation(clip))
+			if not measured.is_empty():
+				out[clip] = measured
+	skeleton.reset_bone_poses()
+	if not out.is_empty():
+		_stride_cache[key] = out
+	return out
+
+
+## One looping gait clip's authored ground speed and cadence: while a foot is
+## planted (within STRIDE_PLANT_TOLERANCE of its own lowest point) it should
+## be standing still on the turf, so how fast it sweeps under the hips is how
+## fast the clip means the body to travel. Both feet's sweeps over the whole
+## cycle, over the time they were planted; two steps a cycle. Skeleton space,
+## so unscaled by the rig's height.
+static func _measure_stride(skeleton: Skeleton3D, anim: Animation) -> Dictionary:
+	var hips := skeleton.find_bone(&"Hips")
+	var feet := [skeleton.find_bone(&"LeftFoot"), skeleton.find_bone(&"RightFoot")]
+	if hips < 0 or feet.has(-1) or anim.length <= 0.0:
+		return {}
+	var tracks := []
+	for i in anim.get_track_count():
+		var type := anim.track_get_type(i)
+		if type != Animation.TYPE_ROTATION_3D and type != Animation.TYPE_POSITION_3D:
+			continue
+		var bone := skeleton.find_bone(String(anim.track_get_path(i).get_concatenated_subnames()))
+		if bone >= 0:
+			tracks.append([i, bone, type])
+	var count := maxi(ceili(anim.length / STRIDE_SAMPLE_STEP), 2)
+	var step := anim.length / count
+	var samples := []   # per sample: [hips, left foot, right foot], skeleton space
+	for s in count + 1:
+		var t := step * s
+		for track: Array in tracks:
+			if track[2] == Animation.TYPE_ROTATION_3D:
+				skeleton.set_bone_pose_rotation(track[1], anim.rotation_track_interpolate(track[0], t))
+			else:
+				skeleton.set_bone_pose_position(track[1], anim.position_track_interpolate(track[0], t))
+		samples.append([skeleton.get_bone_global_pose(hips).origin,
+			skeleton.get_bone_global_pose(feet[0]).origin, skeleton.get_bone_global_pose(feet[1]).origin])
+	var swept := 0.0
+	var planted := 0.0
+	for f in [1, 2]:
+		var lowest := INF
+		for sample: Array in samples:
+			lowest = minf(lowest, (sample[f] as Vector3).y)
+		for s in range(1, samples.size()):
+			var a: Array = samples[s - 1]
+			var b: Array = samples[s]
+			if (a[f] as Vector3).y > lowest + STRIDE_PLANT_TOLERANCE \
+					or (b[f] as Vector3).y > lowest + STRIDE_PLANT_TOLERANCE:
+				continue
+			var moved: Vector3 = ((b[f] as Vector3) - (b[0] as Vector3)) - ((a[f] as Vector3) - (a[0] as Vector3))
+			swept += Vector2(moved.x, moved.z).length()
+			planted += step
+	if planted <= 0.0:
+		return {}
+	return {"speed": swept / planted, "cadence": 2.0 / anim.length}
+
+
+## LEAN_BONE's index if every locomotion clip animates its rotation, else -1.
+func _find_lean_bone() -> int:
+	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
+	if skeleton == null:
+		return -1
+	var bone := skeleton.find_bone(LEAN_BONE)
+	if bone < 0:
+		return -1
+	for point: Array in BLEND_POINTS:
+		var clip: StringName = point[1]
+		if not _player.has_animation(clip):
+			return -1
+		var anim := _player.get_animation(clip)
+		var animated := false
+		for i in anim.get_track_count():
+			if anim.track_get_type(i) == Animation.TYPE_ROTATION_3D \
+					and anim.track_get_path(i).get_concatenated_subnames() == String(LEAN_BONE):
+				animated = true
+				break
+		if not animated:
+			return -1
+	return bone
+
+
 func blend_position() -> Vector2:
 	return _blend
 
@@ -479,7 +741,7 @@ func _build_merged_library() -> AnimationLibrary:
 
 func _build_state_machine() -> AnimationNodeStateMachine:
 	var machine := AnimationNodeStateMachine.new()
-	machine.add_node(LOCOMOTION_STATE, _build_blend_space(), Vector2(260.0, 140.0))
+	machine.add_node(LOCOMOTION_STATE, _build_locomotion(), Vector2(260.0, 140.0))
 	machine.add_transition(&"Start", LOCOMOTION_STATE,
 		_transition(0.0, AnimationNodeStateMachineTransition.SWITCH_MODE_IMMEDIATE,
 			AnimationNodeStateMachineTransition.ADVANCE_MODE_AUTO))
@@ -561,6 +823,16 @@ func _build_state_machine() -> AnimationNodeStateMachine:
 				AnimationNodeStateMachineTransition.SWITCH_MODE_AT_END,
 				AnimationNodeStateMachineTransition.ADVANCE_MODE_AUTO))
 	return machine
+
+
+## The blend space through the stride TimeScale — see "Stride matching".
+func _build_locomotion() -> AnimationNodeBlendTree:
+	var tree := AnimationNodeBlendTree.new()
+	tree.add_node(GAIT_NODE, _build_blend_space(), Vector2(0.0, 0.0))
+	tree.add_node(STRIDE_NODE, AnimationNodeTimeScale.new(), Vector2(260.0, 0.0))
+	tree.connect_node(STRIDE_NODE, 0, GAIT_NODE)
+	tree.connect_node(&"output", 0, STRIDE_NODE)
+	return tree
 
 
 func _build_blend_space() -> AnimationNodeBlendSpace2D:

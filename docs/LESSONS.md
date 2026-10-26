@@ -23,8 +23,11 @@ mostly superseded history. The full text lives outside the repo, in
   `ACTION_DURATION` / `ACTION_CONTACT`.
 - **Contests are decided by collision, timing and momentum, never a
   probability roll** (`RULES_REFERENCE.md` §3). The ML models in
-  `scripts/dev` are a sandbox. The one model-adjacent thing in gameplay is
-  the mark cue, and it's only a cue (`docs/ML_AI_AUDIT.md` §9).
+  `scripts/dev` are a sandbox. Gameplay uses two model-adjacent things. The
+  mark cue is only a cue (`docs/ML_AI_AUDIT.md` §9). `TackleBalance`
+  evaluates the tackle model's formula on the real contact: a threshold
+  decides hold or break, and the same value sets ragdoll strength. It's
+  never rolled.
 - **Kits resolve in one place.** `TeamKit` gives HOME the CHARACTER
   screen's kit and AWAY a preset picked to contrast with it. Imported
   models are recoloured by Blender material name (`Shirt`/`Jersey`, `Short`,
@@ -62,6 +65,18 @@ mostly superseded history. The full text lives outside the repo, in
   the balance assist's weight support, and its tilt correction must be
   weak at low strength, or it soaks up the hit and the body crumples in
   place instead of falling away.
+- **Push a tackled ragdoll along the contact line, mostly as a whole body.**
+  Relative velocity sent a side-hit runner backwards. All of a hard push on
+  the 17 kg chest backflipped the body, which then lay the wrong way round.
+  Start the tackler's ragdoll at their post-collision velocity too. At full
+  speed it ploughs into the carrier and sits down backwards.
+- **Judge a ragdoll's fall by how it lies at get-up, on a floor that's
+  really under it.** A test floor that ended at x = 200 m let half a sweep
+  fall into the void and still "connect".
+- **Gait clips are slow for the game's speeds.** 6thbuild's run_fwd covers
+  ~3.4 m/s of ground and the jog ~2.7, against 8.4 m/s sprints.
+  PlayerAnimation measures each clip and scales cadence to match, capped
+  at a realistic steps-per-second, so expect some foot skate at a sprint.
 - **Read a ragdoll's position from its bodies, not the skeleton.** In
   physics frames `get_bone_global_pose` didn't track the simulated bodies
   (1-3 m off after a fall), though the rendered skin did.

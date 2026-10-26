@@ -280,7 +280,7 @@ func tackle() -> void:
 	if float(_tackle.tackler_b) > 0.0:
 		_tackler_ragdoll.capture_target_pose()
 		_tackler_ragdoll.strength = 1.0 - float(_tackle.tackler_b)
-		_tackler_ragdoll.start(tackler_vel)
+		_tackler_ragdoll.start(_tackle.tackler_velocity)
 		_tackler_push = (_tackle.tackler_impulse as Vector3) / PUSH_DURATION
 
 
@@ -441,8 +441,9 @@ func _physics_process(delta: float) -> void:
 		if _tackle.is_empty():
 			_ragdoll.apply_impact(target_bone, _push_force * dt)
 		else:
-			_ragdoll.apply_impact_at(target_bone, _push_force * dt,
-				_ragdoll.body(target_bone).global_position + (_tackle.contact_offset as Vector3))
+			_ragdoll.apply_tackle_push(target_bone, _push_force * dt,
+				_ragdoll.body(target_bone).global_position + (_tackle.contact_offset as Vector3),
+				float(_tackle.body_share))
 			if _tackler_ragdoll.is_simulating():
 				_tackler_ragdoll.apply_impact(&"Chest", _tackler_push * dt)
 		_push_remaining -= dt
@@ -793,6 +794,10 @@ func _update_readouts() -> void:
 		lines.append_array([
 			"",
 			"TACKLE  b %.2f" % _tackle.b,
+			# What a match would do with this hit; the lab plays the fall either way.
+			"p(break) %.2f · Lunge %s · Slide %s" % [_tackle.p_break,
+				"breaks" if float(_tackle.p_break) >= Tuning.TACKLE_LUNGE_BREAK_P else "holds",
+				"breaks" if float(_tackle.p_break) >= Tuning.TACKLE_SLIDE_BREAK_P else "holds"],
 			"Closing  %.1f m/s · %.0f° off square" % [_tackle.closing_speed, _tackle.approach_angle],
 			"Mass ratio  ×%.2f" % _tackle.mass_ratio,
 			"Push  %.0f N·s at %s" % [(_tackle.impulse as Vector3).length(), _tackle.bone],

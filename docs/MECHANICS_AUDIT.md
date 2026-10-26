@@ -277,6 +277,16 @@ working first):**
    the head/limbs, or transition into a controlled fall rather than a
    flat collapse.
 
+**2026-10-26: hold-or-break and fall direction, unplaytested.** A landed
+tackle (X Lunge or B Slide) now holds or breaks on the model: p(break) =
+1 − b against `Tuning.TACKLE_LUNGE_BREAK_P` / `TACKLE_SLIDE_BREAK_P`. A
+broken tackle leaves the carrier running with the ball, no ragdoll. The
+push now runs along the hit vector (the contact line), mostly as a
+whole-body shove, at the chest whatever the side. The tackler ragdolls at
+their post-collision velocity and goes down the way they ran. Headless:
+every case hit from front, either side, behind, standing and running,
+lands along the hit, and every tackler along their run.
+
 **Stages 2-5 status (2026-10-25): built, unplaytested.** A Lunge connect on
 a 6thbuild rig now ragdolls instead of playing TACKLED (`PlayerRagdoll`,
 `scripts/player/player_ragdoll.gd`). The tackle check still decides whether

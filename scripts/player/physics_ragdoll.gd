@@ -180,6 +180,7 @@ const HEAD_PROTECT_STRENGTH := 0.6
 const ARM_BRACE_STRENGTH := 0.5
 const BRACE_FALL_SPEED := 0.9
 const BRACE_DOWN := 0.7
+const BRACE_LOOKAHEAD := 0.25   ## s — see _topple
 const ARM_BONES: Array[String] = ["LeftUpperArm", "RightUpperArm"]
 
 ## Contact feel. Friction high enough that a fallen body stops rather than
@@ -614,6 +615,25 @@ func apply_impact_at(bone: StringName, impulse: Vector3, world_point: Vector3) -
 		pb.apply_central_impulse(impulse * (1.0 - IMPACT_DIRECT_SHARE) * pb.mass / neighbour_mass)
 
 
+## A tackle's push for one tick: `body_share` of it moves the whole body as
+## one (every body by its share of the mass, so the centre of mass takes it
+## without anything turning), the rest lands on `bone` at `world_point` via
+## apply_impact_at. All of it on the hit link, as a pure apply_impact_at,
+## put a hard hit's worth of momentum into the 17 kg chest alone: it shot
+## back at 15 m/s while the legs carried on, and the body backflipped and
+## landed face down, the wrong way round for a hit from the front. Moving
+## the body as a whole lets the feet's grip on the turf do the toppling,
+## which always topples it the way it was pushed; the contact share adds
+## the turn a hit high on one side gives.
+func apply_tackle_push(bone: StringName, impulse: Vector3, world_point: Vector3, body_share: float) -> void:
+	body_share = clampf(body_share, 0.0, 1.0)
+	if body_share > 0.0:
+		var mass := total_mass()
+		for pb: PhysicalBone3D in bodies.values():
+			pb.apply_central_impulse(impulse * body_share * pb.mass / mass)
+	apply_impact_at(bone, impulse * (1.0 - body_share), world_point)
+
+
 func body(bone: StringName) -> PhysicalBone3D:
 	return bodies.get(String(bone))
 
@@ -775,11 +795,7 @@ func _apply_motors(delta: float) -> void:
 	_falling = not down and (not balancing or hips.linear_velocity.y < -BRACE_FALL_SPEED)
 	var brace_dir := Vector3.ZERO
 	if _falling:
-		var flat := linear_momentum()
-		flat.y = 0.0
-		if flat.length_squared() < 1.0:
-			flat = centre_of_mass() - _feet_midpoint()
-			flat.y = 0.0
+		var flat := _topple()
 		if flat.length_squared() > 0.0001:
 			brace_dir = (flat.normalized() + Vector3.DOWN * BRACE_DOWN).normalized()
 	for j: Dictionary in _joints:
@@ -872,6 +888,21 @@ func _apply_balance(s: float, delta: float) -> bool:
 			PhysicsServer3D.body_apply_torque_impulse(pb.get_rid(), dw * _inertia_along(pb, axis_dw))
 		pb.apply_central_impulse(impulse)
 	return true
+
+
+## Which way the body is going over, flat (not normalised): how far the
+## centre of mass already leans past the feet, plus where it's heading
+## relative to them over the next BRACE_LOOKAHEAD. The arms reach along
+## this. They used to reach along the body's momentum, but a tackled
+## runner's momentum is mostly their own run: hit side-on, or from the
+## front, they'd brace forward while toppling sideways or back.
+func _topple() -> Vector3:
+	var feet_vel := ((bodies["LeftFoot"] as PhysicalBone3D).linear_velocity
+		+ (bodies["RightFoot"] as PhysicalBone3D).linear_velocity) * 0.5
+	var lean := centre_of_mass() - _feet_midpoint()
+	lean += (linear_momentum() / total_mass() - feet_vel) * BRACE_LOOKAHEAD
+	lean.y = 0.0
+	return lean
 
 
 static func _gravity() -> float:
