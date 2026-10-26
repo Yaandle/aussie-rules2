@@ -498,7 +498,9 @@ const ACTION_CONTACT := {
 # about the exact metre. 20 m of path ≈ 15 m of ground made good on a
 # gently curving run. Deliberate deviation from the rule number, not an
 # oversight.
-const BOUNCE_INTERVAL := 20.0          # metres of carry between bounces
+# Playtest again ("called for running too far too soon"): at an 11 m/s
+# CHARACTER sprint, 20 m of path is under two seconds of carry. 30 m.
+const BOUNCE_INTERVAL := 30.0          # metres of carry between bounces
 
 # An actual arm's reach. P1's LOOSE_BALL_GATHER_RADIUS was 4.0 units — a
 # positional abstraction for "close enough", not a reach. Nudged up from
@@ -683,6 +685,7 @@ const CAM_SWITCH_YAW_RATE := 14.0          # brisk — a hard swing across, clos
 const CAM_RUCK_SIDE_YAW := 0.0             # rad
 const CAM_RUCK_SIDE_PITCH := -14.0         # deg — a touch flatter than CAM_PITCH_DEFAULT to see the leap
 const CAM_RUCK_SIDE_EASE_RATE := 3.0       # 1/s exponential ease, gentler than CAM_SWITCH_YAW_RATE
+const CAM_RUCK_SIDE_DISTANCE_MULT := 1.4   # × the arm length — pulled back to fit both ruckmen and the leap; unplaytested feel guess
 
 
 # ── Input feel ───────────────────────────────────────────────────────
@@ -834,7 +837,13 @@ const TACKLE_SLIDE_MISS_STUN_DURATION := 1.3    # s
 # speed and fails outright; only a genuine interception angle clears it.
 const TACKLE_LUNGE_TAP_MIN_CLOSING_SPEED := 1.5    # m/s — 3x Slide's floor
 const TACKLE_LUNGE_TAP_CLOSING_SPEED_SCALE := 0.35 # 7x steeper than Slide's — required closing speed hits 4.44 m/s against a SPRINT_SPEED carrier
-const TACKLE_LUNGE_TAP_MAX_ANGLE_DEG := 70.0       # deg — narrower than BUMP's effective ~84° tolerance (BUMP_APPROACH_DOT_MIN=0.1), close to BUMP_CONE_DEG (55°) — roughly front-on/crossing contact only
+# Was 70° ("front-on/crossing contact only") when this gate decided every
+# tackle by itself. Since the model decides hold-or-break (Tuning's "Whether
+# a tackle holds"), the gate only has to say the lunge reached them: a
+# side-on grab now lands and the model judges it (side-on holds less often
+# than square), instead of whiffing outright — playtest: the ragdoll barely
+# fired in a match, where carriers mostly run across or away from you.
+const TACKLE_LUNGE_TAP_MAX_ANGLE_DEG := 120.0      # deg, unplaytested feel guess
 # Deliberately "minimal" (brief: stays on feet, low commitment) — on par
 # with BUMP_STUN_DURATION (0.4s) as the nearest "brief overcommit, not a
 # real setback" analog in this file, well under SPOIL_COOLDOWN (0.6s), and
@@ -869,7 +878,7 @@ const TACKLE_SLIDE_STEP_SPEED := 2.0         # m/s, unplaytested feel guess
 # ragdolled when a human made the tackle, through the same path as a held
 # Lunge, while the tackler drives low on their feet (TACKLE_TAKEDOWN). An
 # AI's Slide still only ever holds up (no ragdoll on AI tackles).
-const TACKLE_SLIDE_KNOCKDOWN_B := 0.97       # unplaytested feel guess
+const TACKLE_SLIDE_KNOCKDOWN_B := 0.9        # unplaytested feel guess — was 0.97, which only a square dive cleared ("ragdoll not being applied enough")
 
 # Slide's dive-in (polish-pass brief: "it's a bit hard to get the ball off
 # the AI" / FIFA-style assist) — purely a movement-closing mechanic, not a
@@ -1021,7 +1030,8 @@ const PRIOR_OPPORTUNITY_GRACE := 0.5   # s
 # threshold below, which genuinely has none to use.
 const FREE_KICK_RETREAT_DISTANCE := 10.0   # m
 
-# Smother (X tap, not carrying): closing down an opponent before their kick
+# Smother (RB tap, not carrying — moved off X, which now always tackles;
+# RB is shared with the ruck Hit-Out): closing down an opponent before their kick
 # leaves the boot. SMOTHER_RADIUS is deliberately tighter than TACKLE_RADIUS
 # — this has to be a genuine close-down, not a tackle with extra steps.
 # Blocked at the boot means the ball barely moves, unlike a tackle's spill.

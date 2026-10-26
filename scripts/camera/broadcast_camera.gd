@@ -109,6 +109,7 @@ func _process(delta: float) -> void:
 		_update_rotation(delta)
 		_update_focus(delta)
 		_update_fov(delta)
+		_update_arm_length(delta)
 	_clamp_camera_height()
 
 
@@ -330,6 +331,19 @@ func _ease_toward_switch_target(delta: float) -> void:
 
 func _is_target_aiming() -> bool:
 	return target is PlayerController and (target as PlayerController).is_kick_aiming()
+
+
+## Chase only: the spring arm eases out to CAM_RUCK_SIDE_DISTANCE_MULT while
+## the target's in a ruck contest (playtest: "zoom the ruck contest out a
+## little bit more"), so both ruckmen and the leap fit the side-on frame,
+## and back once it's over. Every other time the target length is the
+## plain distance / zoom, which this leaves exactly where it is.
+func _update_arm_length(delta: float) -> void:
+	var length := distance / zoom
+	if _is_target_ruck_contesting():
+		length *= Tuning.CAM_RUCK_SIDE_DISTANCE_MULT
+	_arm.spring_length = lerpf(_arm.spring_length, length,
+		1.0 - exp(-Tuning.CAM_RUCK_SIDE_EASE_RATE * delta))
 
 
 func _is_target_ruck_contesting() -> bool:

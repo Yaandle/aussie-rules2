@@ -612,6 +612,7 @@ func _prepare_centre_bounce(delay := Tuning.CENTRE_BOUNCE_DELAY) -> void:
 	MatchState.clock_running = false
 	_drop_all_balls()
 	_reposition_kickoff()
+	_hand_human_the_ruck()
 	# Locked, not just placed — nobody may pick it up off the centre circle
 	# while the teams are still walking back. Sits on the centre rather than
 	# hovering over it; released by the throw-up at the end of the chain
@@ -683,10 +684,9 @@ func _begin_ruck_contest(spot: Vector3, contestant_a: PlayerController,
 	contestant_a.set_ruck_contestant(true, release + Tuning.RUCK_CONTEST_WINDOW)
 	contestant_b.set_ruck_contestant(true, release + Tuning.RUCK_CONTEST_WINDOW)
 	_ruck_contestants = [contestant_a, contestant_b]
-	# FULL_TEAM: the human takes the HOME ruckman for the contest.
-	if Settings.player_control_mode == Settings.PlayerControlMode.FULL_TEAM \
-			and ControlMode.scheme_for(Tuning.Team.HOME) == ControlMode.Scheme.SINGLE_PLAYER:
-		_assign_human_to(contestant_a if contestant_a.team == Tuning.Team.HOME else contestant_b)
+	# FULL_TEAM: the human takes the HOME ruckman for the contest (normally
+	# already done when the stoppage was called — _hand_human_the_ruck).
+	_hand_human_the_ruck(contestant_a if contestant_a.team == Tuning.Team.HOME else contestant_b)
 
 	var umpire := _field.field_umpire()
 	if is_instance_valid(umpire):
@@ -739,6 +739,21 @@ func _release_ruck_contest(spot: Vector3, contestant_a: PlayerController,
 	MatchState.clock_running = true
 
 
+## FULL_TEAM: put the human on HOME's ruckman. Called the moment a ruck
+## stoppage is called (centre bounce — quarter start or after a goal —
+## field ball-up, boundary throw-in), not only once the umpire starts the
+## throw-up: playtest, "at the end of quarter or score the player control
+## stays on the player I have". The whole reset is then watched from the
+## ruckman, and RB is live for the contest from its first frame.
+func _hand_human_the_ruck(ruckman: PlayerController = null) -> void:
+	if Settings.player_control_mode != Settings.PlayerControlMode.FULL_TEAM \
+			or ControlMode.scheme_for(Tuning.Team.HOME) != ControlMode.Scheme.SINGLE_PLAYER:
+		return
+	if ruckman == null and not _home_players.is_empty():
+		ruckman = _home_players[0]
+	_assign_human_to(ruckman)
+
+
 ## A ruckman has palmed the ball away — the contest is over, so drop the
 ## "only the two ruckmen may gather" lock (PlayerController._ruck_contest_
 ## locked) immediately rather than making the on-ballers wait out the rest
@@ -780,7 +795,9 @@ func _on_player_disposed(action: Tuning.Action, player: PlayerController) -> voi
 ## this follows the same cue the player can see.
 ##
 ## Only for the human's own kick — an AI teammate disposing of the ball
-## should not drag the human's control away from whatever they're doing.
+## should not drag the human's control away from whatever they're doing —
+## and not for a shot at goal (playtest: "this should not happen if the ball
+## is going for a score"): you stay on the kicker to watch it go through.
 func _on_home_kick_disposed(kicker: PlayerController) -> void:
 	if GameState.phase != GameState.Phase.PLAY:
 		return
@@ -792,8 +809,24 @@ func _on_home_kick_disposed(kicker: PlayerController) -> void:
 			or ControlMode.controlled_player(Tuning.Team.HOME) != kicker:
 		return
 	var landing := _ball.predicted_landing_position()
+	if _is_shot_at_goal(_ball.global_position, landing, 1):
+		return
 	var next := ControlMode.next_in_roster(Tuning.Team.HOME, kicker, landing)
 	_assign_human_to(next)
+
+
+## Whether a flight from `from` to `landing` crosses the goal line at the
+## `direction` end (+1 is HOME's attacking end) between the behind posts —
+## a shot at goal, whatever comes of it. Straight-line between the two
+## points, which over the length of a kick is close enough to the arc's own
+## crossing for a which-side-of-the-post call.
+func _is_shot_at_goal(from: Vector3, landing: Vector3, direction: int) -> bool:
+	var line_x := _field.goal_line_x(direction)
+	if (landing.x - line_x) * float(direction) <= 0.0 or is_equal_approx(landing.x, from.x):
+		return false
+	var t := clampf((line_x - from.x) / (landing.x - from.x), 0.0, 1.0)
+	var cross_z := lerpf(from.z, landing.z, t)
+	return absf(cross_z) <= Tuning.GOAL_POST_SEPARATION * 0.5 + Tuning.BEHIND_POST_OFFSET
 
 
 func _on_player_marked(_tier: Tuning.Action, _legal_mark: bool, player: PlayerController) -> void:
@@ -820,6 +853,7 @@ func _on_field_ball_up(tackler: PlayerController, tackled: PlayerController) -> 
 	_rest_ball_at(spot)
 	# Each team's ruckman contests it, not the tackler and tackled (see
 	# _begin_ruck_contest).
+	_hand_human_the_ruck()
 	_start_pause(Tuning.CENTRE_BOUNCE_DELAY,
 		_begin_ruck_contest.bind(spot, _home_players[0], _away_players[0]))
 
@@ -1215,6 +1249,7 @@ func _trigger_out_of_bounds(pos: Vector3) -> void:
 	GameState.phase = GameState.Phase.STOPPAGE
 	_scoreboard.flash("OUT OF BOUNDS", Tuning.OUT_OF_BOUNDS_PAUSE_DURATION)
 	AudioManager.play_whistle()
+	_hand_human_the_ruck()
 	_start_pause(Tuning.OUT_OF_BOUNDS_PAUSE_DURATION,
 		_resume_after_out_of_bounds.bind(throw_in_point))
 

@@ -374,11 +374,22 @@ func _post(parent: Node3D, base: Vector3, height: float) -> void:
 # ── Scoring ──────────────────────────────────────────────────────────
 # Three Area3D triggers per end: one goal-mouth box between the goal
 # posts, two behind boxes either side of it out to the behind posts. No
-# post-hit or crossing-height distinction (design doc scope for the Full
-# Game milestone) — whichever box the ball enters decides the outcome.
+# post-hit distinction (design doc scope for the Full Game milestone) —
+# whichever box the ball enters decides the outcome.
+#
+# Height: the posts count as running on up forever, as the real rule has
+# it. The zones were 12 m tall ("no realistic kick clears it"), but a big
+# kick does — it sailed over the trigger between the posts, landed past the
+# boundary and was called out (playtest). Now tall enough that nothing can.
+#
+# A ball carried over the line (Ball.holder() set) is a behind wherever it
+# crosses — kicked through the goal posts is the only goal — and no score
+# at all while its carrier is protected or walking back off a mark: a
+# defender stepping back over their own line to take a kick-in or a mark
+# was conceding a score (playtest).
 
 const SCORE_ZONE_DEPTH := 4.0      ## m, how far past the goal line the trigger reaches
-const SCORE_ZONE_HEIGHT := 12.0    ## m, tall enough that no realistic kick clears it
+const SCORE_ZONE_HEIGHT := 200.0   ## m — the posts extend upward without limit
 
 func _build_score_zones(parent: Node3D, direction: int, line_x: float,
 		goal_z: float, behind_z: float) -> void:
@@ -407,8 +418,13 @@ func _score_zone(parent: Node3D, zone_name: String, centre_x: float, centre_z: f
 	area.add_child(collision)
 
 	area.body_entered.connect(func(body: Node3D) -> void:
-		if body is Ball:
-			scored.emit(team, is_goal))
+		if not body is Ball:
+			return
+		var holder := (body as Ball).holder() as PlayerController
+		if holder == null:
+			scored.emit(team, is_goal)
+		elif not (holder.is_protected() or holder.is_retreating_from_mark()):
+			scored.emit(team, false))
 
 
 # ── Match officials ──────────────────────────────────────────────────

@@ -140,7 +140,7 @@ docs/
 | Lunge tackle — tap, not carrying (lower commitment, weaker against a fast carrier) | `Q` | X |
 | Mark: Safe (hold) · Running (tap) · Aggressive (tap, jumps) | `G` · `Q` · `H` | A · X · Y |
 | Spoil (not carrying, near a contest) | `P` | LT (tap) |
-| Smother (not carrying, opponent mid-kick) | `Q` | X |
+| Smother (not carrying, opponent mid-kick) | `J` | RB |
 | Bump: hold stance, flick right stick to swing | `L` + flick | LB + flick |
 | Hit-out — ruck contest only | `J` | RB |
 | Switch controlled player (Single Player mode) | `Tab` | D-pad Left |

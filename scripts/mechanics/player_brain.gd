@@ -120,7 +120,8 @@ func wants_spoil() -> bool:
 
 
 ## Edge-triggered: true for the one frame a Smother should be attempted
-## (X tap, not carrying) — see PlayerController._try_smother.
+## (RB tap, not carrying — shared with the ruck Hit-Out, which only a ruck
+## contestant can use) — see PlayerController._update_smother.
 func wants_smother() -> bool:
 	return false
 

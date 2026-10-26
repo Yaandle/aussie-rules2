@@ -53,7 +53,7 @@ extends CanvasLayer
 ##   (MarkCueModel.cue_time_to_press), drawn bigger and outlined in ink so
 ##   it reads over grass ("make this easier to see").
 ## * SMOTHER badge. An opponent lining up a kick within reach of a smother
-##   (PlayerController.live_smother_target) shows X SMOTHER instead of a
+##   (PlayerController.live_smother_target) shows RB SMOTHER instead of a
 ##   mark prompt, and live_mark_prompt() now stays quiet for an opponent's
 ##   kick until it is MARK_STAND_MIN_DISTANCE off the boot.
 
@@ -345,7 +345,9 @@ func _flash_colour() -> Color:
 
 func _badge_colour(tier: Tuning.Action) -> Color:
 	match tier:
-		Tuning.Action.MARK_RUNNING, Tuning.Action.SMOTHER_DIVE:
+		Tuning.Action.SMOTHER_DIVE:
+			return SoftBrutalist.ACCENT_SECONDARY   # RB has no face-button colour
+		Tuning.Action.MARK_RUNNING:
 			return SoftBrutalist.BUTTON_X
 		Tuning.Action.MARK_AGGRESSIVE:
 			return SoftBrutalist.BUTTON_Y
@@ -355,7 +357,9 @@ func _badge_colour(tier: Tuning.Action) -> Color:
 
 func _badge_label(tier: Tuning.Action) -> String:
 	match tier:
-		Tuning.Action.MARK_RUNNING, Tuning.Action.SMOTHER_DIVE:
+		Tuning.Action.SMOTHER_DIVE:
+			return "RB"
+		Tuning.Action.MARK_RUNNING:
 			return "X"
 		Tuning.Action.MARK_AGGRESSIVE:
 			return "Y"

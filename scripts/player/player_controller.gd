@@ -1365,11 +1365,8 @@ func _try_tackle() -> void:
 ## cooldown below, same as always, and so does one that lands but breaks.
 ## On a 6thbuild rig a held Lunge ragdolls the target instead (and the
 ## tackler too on a big hit) — see _get_tackled. Shares its physical
-## binding with wants_handball()/wants_mark_running()/wants_smother() —
-## excludes anyone
-## _update_smother() would also claim (kick-aiming/mid-swing: a kick
-## already being blocked at the boot is smother's job, not this one's) so
-## the two never actually compete for the same target on the same press.
+## binding with wants_handball()/wants_mark_running(); Smother moved to RB,
+## so a kicker lining up is a Lunge target too.
 func _try_lunge_tackle() -> void:
 	if _lunge_dash_timer > 0.0:
 		_step_lunge_dash()
@@ -1399,9 +1396,12 @@ func _lunge_target(reach: float) -> PlayerController:
 		return _is_lunge_target(other))
 
 
+## A kicker lining up counts: Smother is on its own button now (RB, with the
+## ruck tap) rather than X, so X tackles them instead of diving at the boot
+## — playtest: "the X tackle is just smothering".
 func _is_lunge_target(other: PlayerController) -> bool:
 	return is_instance_valid(other) and other.team != team and other.is_carrying() \
-		and not other.is_protected() and not (other.is_kick_aiming() or other.is_mid_kick_swing())
+		and not other.is_protected()
 
 
 func _flat_distance_to(other: Node3D) -> float:
