@@ -32,8 +32,9 @@ extends CanvasLayer
 ## Roster | View Stats | View Fixture sharing the same width — so the
 ## controls read as one block; New Career sits up by the team name, away
 ## from the things you press every week. Button labels are Title Case with
-## no letter tracking (playtest: "not all capitalised"). Edit Player and
-## View Fixture show a lock until their pages exist (Phases 6-7 and 5).
+## no letter tracking (playtest: "not all capitalised"). Edit Player shows
+## a lock until its page exists (Phases 6-7); View Fixture opens the
+## fixture carousel (career_fixture_screen.gd).
 ## Focus neighbours are set by hand (_link_focus()) so a pad walks the
 ## stack as a grid.
 
@@ -177,8 +178,8 @@ func _build() -> void:
 	var view_stats_button := _build_action_button("View Stats", &"goalpost", true,
 		_on_view_stats_pressed, third)
 	button_row.add_child(view_stats_button)
-	# Phase 5's fixture carousel.
-	var view_fixture_button := _build_action_button("View Fixture", &"lock", false, Callable(), third)
+	var view_fixture_button := _build_action_button("View Fixture", &"arrow_right", true,
+		func() -> void: SceneWipe.change_scene("res://scenes/ui/career_fixture_screen.tscn"), third)
 	button_row.add_child(view_fixture_button)
 	_link_focus([_next_game_card, edit_button, _view_roster_button],
 		[_view_roster_button, view_stats_button, view_fixture_button])
@@ -681,7 +682,7 @@ func _on_main_menu_pressed() -> void:
 ## solid yellow with a black stroke — drawn rather than imported, same
 ## "no art pipeline yet" reasoning ui_icon.gd's glyphs already follow.
 class ExclamationIcon extends Control:
-	const FILL := Color("#F5C518")
+	const FILL := CareerTheme.MARKER
 	const STROKE := Color.BLACK
 
 	func _init() -> void:

@@ -248,7 +248,13 @@ moving focus onto the Dashboard behind the page.
   only change to the TEAMS screen.
 - Scroll with keyboard or pad, like TEAMS.
 
-### Phase 5: View Fixture carousel (the BEAT look)
+### Phase 5: View Fixture carousel (the BEAT look) (done 2026-10-27)
+
+Landed as below, with three changes. The yellow tick runs down the
+card's left edge so it never crosses the opponent's name. The left arrow
+shows whenever there's an earlier round, so a fresh season shows only the
+right one. RB / End jumps back to the next game. The yellow is now
+`CareerTheme.MARKER`.
 
 Reference: scene 02 (BEAT) of `showcase_1080p30.mp4`, 4–8 s. It's a row
 of numbered squares on a dark grid. Filled squares carry a hard offset
