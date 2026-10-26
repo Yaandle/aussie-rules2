@@ -15,10 +15,9 @@ extends CanvasLayer
 ## the Season Summary (career_season_summary_screen.gd), which starts the
 ## next season. The league ladder sits on the right (CareerLadderTable),
 ## with a green line under the promotion places. VIEW ROSTER is an overlay
-## reading CareerProfile.roster, VIEW STATS reopens the last full-time
-## result (career_match_end_screen.gd, reading CareerProfile.last_result;
-## a lock until a match has been played). The lock screen that used to
-## follow game 1 is gone.
+## reading CareerProfile.roster, VIEW STATS opens the season stats page
+## (career_stats_screen.gd), whose LAST MATCH reopens the full-time card.
+## The lock screen that used to follow game 1 is gone.
 ##
 ## NEW CAREER is the only way to start over (the main menu's CAREER card
 ## always continues). It asks first (_build_new_career_confirm()); nothing
@@ -284,8 +283,7 @@ func _set_next_game_hover(panel: Panel, hovering: bool) -> void:
 
 
 ## A flat tan tile with an icon + label, mouse-clickable only when
-## `enabled` (VIEW STATS is a dimmed, inert lock glyph until a match has
-## been played — see the header note). Built with a fixed width rather than ActionButton's
+## `enabled` (a disabled one is dimmed and inert). Built with a fixed width rather than ActionButton's
 ## own measure-after-layout trick (character_screen.gd's PLAY button):
 ## these are short, known labels, and a fixed width keeps the row's
 ## spacing predictable.
@@ -480,12 +478,10 @@ func _add_roster_row(grid: GridContainer, entry: Dictionary) -> void:
 		grid.add_child(cell)
 
 
-## Live once a Career match has finished (CareerProfile.last_result), a
-## lock glyph before that.
+## Always live: the season stats page lists the squad with zeros before
+## the first match, and its LAST MATCH reaches the full-time card.
 func _build_view_stats_button() -> Control:
-	var has_result := not CareerProfile.last_result.is_empty()
-	return _build_action_button("VIEW STATS", &"goalpost" if has_result else &"lock",
-		has_result, _on_view_stats_pressed)
+	return _build_action_button("VIEW STATS", &"goalpost", true, _on_view_stats_pressed)
 
 
 func _build_new_career_button() -> Control:
@@ -580,7 +576,7 @@ func _on_start_new_career() -> void:
 
 
 func _on_view_stats_pressed() -> void:
-	SceneWipe.change_scene("res://scenes/ui/career_match_end_screen.tscn")
+	SceneWipe.change_scene("res://scenes/ui/career_stats_screen.tscn")
 
 
 func _on_main_menu_pressed() -> void:

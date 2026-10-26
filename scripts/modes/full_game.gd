@@ -374,6 +374,7 @@ func _spawn_teams() -> void:
 		# marked, only what happened.
 		player.ball_disposed.connect(_on_player_disposed.bind(player))
 		player.mark_caught.connect(_on_player_marked.bind(player))
+		player.tackle_committed.connect(_on_player_tackle_landed.bind(player))
 
 
 ## Quick play only (a Career match uses _apply_career_rosters below).
@@ -771,9 +772,10 @@ func _hand_human_the_ruck(ruckman: PlayerController = null) -> void:
 ## "only the two ruckmen may gather" lock (PlayerController._ruck_contest_
 ## locked) immediately rather than making the on-ballers wait out the rest
 ## of RUCK_CONTEST_WINDOW. A missed hit-out leaves the lock to self-expire.
-func _on_hit_out_resolved(_player: PlayerController, connected: bool) -> void:
+func _on_hit_out_resolved(player: PlayerController, connected: bool) -> void:
 	if not connected:
 		return
+	MatchState.record_player_stat(player.roster_id, player.roster_name, "hitouts")
 	for contestant in _ruck_contestants:
 		if is_instance_valid(contestant):
 			contestant.set_ruck_contestant(false)
@@ -789,7 +791,9 @@ func _on_hit_out_resolved(_player: PlayerController, connected: bool) -> void:
 ## called) is a separate, harder problem — see HANDOVER.md (archived, see docs/LESSONS.md).
 func _on_player_disposed(action: Tuning.Action, player: PlayerController) -> void:
 	MatchState.record_disposal(player.team, action)
-	MatchState.record_player_disposal(player.roster_id, player.roster_name, action)
+	if action == Tuning.Action.KICK or action == Tuning.Action.HANDBALL:
+		MatchState.record_player_stat(player.roster_id, player.roster_name,
+			"kicks" if action == Tuning.Action.KICK else "handballs")
 	if action == Tuning.Action.KICK:
 		_last_kicker[player.team] = player
 	if action == Tuning.Action.KICK:
@@ -842,8 +846,16 @@ func _is_shot_at_goal(from: Vector3, landing: Vector3, direction: int) -> bool:
 	return absf(cross_z) <= Tuning.GOAL_POST_SEPARATION * 0.5 + Tuning.BEHIND_POST_OFFSET
 
 
-func _on_player_marked(_tier: Tuning.Action, _legal_mark: bool, player: PlayerController) -> void:
+func _on_player_marked(_tier: Tuning.Action, legal_mark: bool, player: PlayerController) -> void:
 	MatchState.record_mark(player.team)
+	if legal_mark:
+		MatchState.record_player_stat(player.roster_id, player.roster_name, "marks")
+
+
+## Career's per-player TACKLES: PlayerController.tackle_committed fires on
+## the tackler only when an on-the-ball tackle connects and holds.
+func _on_player_tackle_landed(_is_slide: bool, player: PlayerController) -> void:
+	MatchState.record_player_stat(player.roster_id, player.roster_name, "tackles")
 
 
 func _on_field_ball_up(tackler: PlayerController, tackled: PlayerController) -> void:
@@ -1018,10 +1030,13 @@ func _on_scored(team: Tuning.Team, is_goal: bool) -> void:
 		return   # the ball can clip the trigger again while it settles
 	MatchState.clock_running = false
 	MatchState.score(team, is_goal)
-	if is_goal:
-		var kicker: PlayerController = _last_kicker.get(team)
-		if is_instance_valid(kicker):
-			MatchState.record_player_goal(kicker.roster_id, kicker.roster_name)
+	# Goals and behinds go to the scoring team's last kicker. Field's
+	# `scored` doesn't say who touched it last, so a rushed behind is
+	# credited to that kicker too — an AFL box score credits it to nobody.
+	var kicker: PlayerController = _last_kicker.get(team)
+	if is_instance_valid(kicker):
+		MatchState.record_player_stat(kicker.roster_id, kicker.roster_name,
+			"goals" if is_goal else "behinds")
 	GameState.phase = GameState.Phase.SCORE
 	# Dead from the moment it's a score — nobody may gather it during the
 	# celebration — but NOT frozen where it is: a hard lock_at() here
@@ -1126,10 +1141,25 @@ func _show_match_end_screen() -> void:
 			"away_points": MatchState.points(Tuning.Team.AWAY),
 			"goals": MatchState.top_goalkickers(CareerMatchEndScreen.LEADERBOARD_SIZE),
 			"disposals": MatchState.top_disposals(CareerMatchEndScreen.LEADERBOARD_SIZE),
+			"player_stats": _home_player_stats(),
 		})
 		SceneWipe.change_scene("res://scenes/ui/career_match_end_screen.tscn")
 		return
 	SceneWipe.change_scene(MATCH_END_SCREEN_PATH)
+
+
+## Every HOME player's box score for the season stats, keyed by Career
+## roster id — all 18, zeros included, since everyone who played gets the
+## game (there's no interchange bench to sit on yet).
+func _home_player_stats() -> Dictionary:
+	var stats := {}
+	for i in mini(_home_players.size(), CareerProfile.roster.size()):
+		var player := _home_players[i]
+		var row := {}
+		for stat: String in MatchState.PLAYER_STATS:
+			row[stat] = MatchState.player_stat(player.roster_id, stat)
+		stats[int(CareerProfile.roster[i].get("id", i))] = row
+	return stats
 
 
 func _team_name(team: Tuning.Team) -> String:

@@ -33,6 +33,14 @@ const CARD_WIDTH := 520.0
 ## scene wipe (Tuning.CHARACTER_TRANSITION_TIME).
 const INPUT_GRACE := 1.0
 
+const DASHBOARD_SCENE := "res://scenes/ui/career_dashboard_screen.tscn"
+
+## Where RETURN TO MENU goes: the Dashboard after a match, or the season
+## stats page when its LAST MATCH opened this card (it sets this first).
+## Put back to the Dashboard on the way out, so the next full time can't
+## inherit it.
+static var return_scene := DASHBOARD_SCENE
+
 var _busy := false
 var _elapsed := 0.0
 var _result: Dictionary = {}
@@ -222,4 +230,6 @@ func _return_to_dashboard() -> void:
 		return
 	_busy = true
 	GameState.career_active = false
-	SceneWipe.change_scene("res://scenes/ui/career_dashboard_screen.tscn")
+	var destination := return_scene
+	return_scene = DASHBOARD_SCENE
+	SceneWipe.change_scene(destination)

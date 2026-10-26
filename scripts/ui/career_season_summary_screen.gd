@@ -139,6 +139,13 @@ func _build_side_column() -> Control:
 	column.custom_minimum_size.x = SIDE_WIDTH
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
+	column.add_child(CareerTheme.label("YOUR SEASON", SoftBrutalist.SIZE_LABEL, CareerTheme.TEXT,
+		SoftBrutalist.WEIGHT_BOLD, 1))
+	var mine := CareerTheme.label(_your_season_text(), SoftBrutalist.SIZE_BODY, CareerTheme.TEXT_MUTED)
+	mine.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	mine.custom_minimum_size.x = SIDE_WIDTH
+	column.add_child(mine)
+
 	column.add_child(CareerTheme.label("NEXT SEASON", SoftBrutalist.SIZE_LABEL, CareerTheme.TEXT,
 		SoftBrutalist.WEIGHT_BOLD, 1))
 	var next := CareerTheme.label(_next_season_text(), SoftBrutalist.SIZE_BODY, CareerTheme.TEXT_MUTED)
@@ -174,6 +181,24 @@ func _build_side_column() -> Control:
 		],
 	})
 	return column
+
+
+## Games, disposals (and a game), goals and tackles from your season_stats
+## line — real matches only, so a fully dev-simmed season reads 0 games.
+func _your_season_text() -> String:
+	var line := CareerProfile.season_line(CareerProfile.player_id)
+	var games := CareerProfile.stat_total(line, "games")
+	if games == 0:
+		return "No matches played — every round was simulated."
+	var disposals := CareerProfile.stat_total(line, "disposals")
+	return "%s  ·  %s (%.1f a game)  ·  %s  ·  %s" % [_count(games, "game"),
+		_count(disposals, "disposal"), float(disposals) / games,
+		_count(CareerProfile.stat_total(line, "goals"), "goal"),
+		_count(CareerProfile.stat_total(line, "tackles"), "tackle")]
+
+
+static func _count(n: int, word: String) -> String:
+	return "%d %s%s" % [n, word, "" if n == 1 else "s"]
 
 
 func _next_season_text() -> String:

@@ -193,7 +193,18 @@ have Juniors-strength squads. F8 is the dev sim key (debug builds only).
 - A headless harness sims 3 seasons and checks the ladder sums, promotion
   and save round-trips. Back up the real save first (see LESSONS).
 
-### Phase 2: per-player stats and VIEW STATS
+### Phase 2: per-player stats and VIEW STATS (done 2026-10-26)
+
+Landed as below, with two changes. Tackles needed no new signal:
+`tackle_committed` already fires on the tackler only for an on-the-ball
+tackle that holds. "Last Match" is a button rather than a tab. The
+"+5 upgrades" line waits for Phase 7, when upgrades exist. Your season
+line also shows on the Season Summary and is filed in `season_history`.
+
+The per-player TACKLES stat counts every held on-ball tackle. The team
+tally only counts the ones that land in open play: in a 60 s live run, 4
+of 15 landed during a ball-up or throw-in contest, where the match makes
+no ruling. That's match behaviour outside Career, worth a look on its own.
 
 - `MatchState` keeps per-player tallies by id: kicks, handballs, marks
   (legal only), tackles, goals, behinds, hit-outs. Disposals are derived.

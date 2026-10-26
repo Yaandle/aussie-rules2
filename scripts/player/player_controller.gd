@@ -70,7 +70,8 @@ signal hit_out_resolved(player: PlayerController, connected: bool)
 ## The tackled-side outcome is already covered by holding_the_ball_called /
 ## field_ball_up_called; this exists so something watching the tackler can tell
 ## *which* commitment landed (the tackling tutorial keys its per-step success on
-## it). Inert outside that — nothing else consumes it.
+## it). Career's per-player TACKLES stat counts it too (FullGame) — only an
+## on-the-ball tackle emits it, so a tackle off the ball never counts.
 signal tackle_committed(is_slide: bool)
 
 ## Fired on the bumper when a Bump connects (design brief priority 7).

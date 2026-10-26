@@ -37,18 +37,18 @@ var handballs := {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
 var marks := {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
 var tackles := {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
 
-## Per-player goal/disposal tallies for Career mode's full-time leaderboard
-## (id -> int) — keyed by PlayerController.roster_id, which is only ever
-## non-empty in a Career match (see player_controller.gd), so these
-## dictionaries simply never gain an entry outside Career and nothing
-## non-Career reads them. Keyed by id, not name: generated names repeat
-## (about 3 matches in 4 have two players sharing one), and a name key
-## merged their tallies. player_names maps each id back to the name the
-## leaderboard shows. full_game.gd calls record_player_disposal()/
-## record_player_goal() alongside the existing team-keyed
-## record_disposal()/score() calls, not instead of them.
-var player_goals := {}
-var player_disposals := {}
+## Per-player box score for Career mode (id -> {stat: int}, PLAYER_STATS
+## below) — the full-time leaderboards and the season stats both come from
+## it. Keyed by PlayerController.roster_id, which is only ever non-empty in
+## a Career match (see player_controller.gd), so this simply never gains
+## an entry outside Career and nothing non-Career reads it. Keyed by id,
+## not name: generated names repeat (about 3 matches in 4 have two players
+## sharing one), and a name key merged their tallies. player_names maps
+## each id back to the name a leaderboard shows. full_game.gd calls
+## record_player_stat() alongside the existing team-keyed record_*()/
+## score() calls, not instead of them.
+const PLAYER_STATS := ["kicks", "handballs", "marks", "tackles", "goals", "behinds", "hitouts"]
+var player_stats := {}
 var player_names := {}
 
 var quarter := 1
@@ -115,30 +115,38 @@ func record_disposal(team: Tuning.Team, action: Tuning.Action) -> void:
 
 
 ## `id`/`name` are a PlayerController's roster_id/roster_name — empty for
-## every non-Career spawn, and record_disposal()'s own team-keyed tally is
-## what every other screen (MatchEndScreen) still reads, so an empty id is
-## simply ignored rather than guarded against at every call site.
-func record_player_disposal(id: String, name: String, action: Tuning.Action) -> void:
-	if id.is_empty() or not (action in [Tuning.Action.KICK, Tuning.Action.HANDBALL]):
-		return
-	player_names[id] = name
-	player_disposals[id] = player_disposals.get(id, 0) + 1
-
-
-func record_player_goal(id: String, name: String) -> void:
+## every non-Career spawn, and the team-keyed tallies are what every other
+## screen (MatchEndScreen) still reads, so an empty id is simply ignored
+## rather than guarded against at every call site. `stat` is one of
+## PLAYER_STATS.
+func record_player_stat(id: String, name: String, stat: String) -> void:
 	if id.is_empty():
 		return
 	player_names[id] = name
-	player_goals[id] = player_goals.get(id, 0) + 1
+	if not player_stats.has(id):
+		player_stats[id] = {}
+	var row: Dictionary = player_stats[id]
+	row[stat] = int(row.get(stat, 0)) + 1
 
 
-## Top `count` {name, value} entries from an id -> int tally, highest
-## first, ties broken by name — shared by top_goalkickers()/top_
-## disposals() below rather than each sorting its own copy.
-func _top(tally: Dictionary, count: int) -> Array[Dictionary]:
+## One player's count of a PLAYER_STATS entry, or "disposals" (kicks +
+## handballs, the AFL box-score total).
+func player_stat(id: String, stat: String) -> int:
+	var row: Dictionary = player_stats.get(id, {})
+	if stat == "disposals":
+		return int(row.get("kicks", 0)) + int(row.get("handballs", 0))
+	return int(row.get(stat, 0))
+
+
+## Top `count` {name, value} entries for `stat` among players with at
+## least one, highest first, ties broken by name — shared by
+## top_goalkickers()/top_disposals() below.
+func _top(stat: String, count: int) -> Array[Dictionary]:
 	var entries: Array[Dictionary] = []
-	for id: String in tally:
-		entries.append({"name": String(player_names.get(id, id)), "value": tally[id]})
+	for id: String in player_stats:
+		var value := player_stat(id, stat)
+		if value > 0:
+			entries.append({"name": String(player_names.get(id, id)), "value": value})
 	entries.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		if a["value"] != b["value"]:
 			return a["value"] > b["value"]
@@ -147,11 +155,11 @@ func _top(tally: Dictionary, count: int) -> Array[Dictionary]:
 
 
 func top_goalkickers(count: int) -> Array[Dictionary]:
-	return _top(player_goals, count)
+	return _top("goals", count)
 
 
 func top_disposals(count: int) -> Array[Dictionary]:
-	return _top(player_disposals, count)
+	return _top("disposals", count)
 
 
 func record_mark(team: Tuning.Team) -> void:
@@ -171,8 +179,7 @@ func reset() -> void:
 	handballs = {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
 	marks = {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
 	tackles = {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
-	player_goals = {}
-	player_disposals = {}
+	player_stats = {}
 	player_names = {}
 	quarter = 1
 	seconds_remaining = Tuning.QUARTER_LENGTH

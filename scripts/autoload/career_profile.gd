@@ -102,8 +102,17 @@ var season_index := 0
 ## The 11 other teams in this season's league.
 var league_teams: Array[String] = []
 ## Finished seasons, oldest first: {season, league, team, position, played,
-## won, lost, drawn, outcome}.
+## won, lost, drawn, outcome, player} — `player` is your season_stats line.
 var season_history: Array[Dictionary] = []
+
+## This season's box score for your club, roster id -> {games, kicks,
+## handballs, marks, tackles, goals, behinds, hitouts} (MatchState.
+## PLAYER_STATS). Every played match adds a game to all 18 — no interchange
+## yet — and a dev-simmed round adds nothing, so averages are over real
+## matches only. Cleared each season; career_stats keeps your totals
+## across all of them.
+var season_stats := {}
+var career_stats := {}
 
 ## Team name -> average OVERALL for the sim, rebuilt on demand (generating
 ## a roster is cheap, but the sim asks for 10 of them a round).
@@ -342,6 +351,8 @@ func start_career() -> void:
 	league_index = 0
 	season_index = 0
 	season_history.clear()
+	season_stats.clear()
+	career_stats.clear()
 	roster.clear()
 	player_id = 0
 	_ovr_cache.clear()
@@ -387,9 +398,42 @@ func record_result(result: Dictionary = {}) -> void:
 		if result.has(key):
 			round_entry[key] = result[key]
 	_sim_other_games(index)
+	if result.get("player_stats") is Dictionary:
+		_add_player_stats(result["player_stats"])
 	if not result.is_empty():
 		last_result = result
+		last_result.erase("player_stats")   # folded in above; the card doesn't need it
 	save()
+
+
+## `stats` is FullGame's {roster id: {stat: n}} for every HOME player.
+func _add_player_stats(stats: Dictionary) -> void:
+	for id in stats:
+		var key := int(id)
+		var row: Dictionary = season_stats.get(key, {})
+		season_stats[key] = row
+		_add_line(row, stats[id])
+		if key == player_id:
+			_add_line(career_stats, stats[id])
+
+
+func _add_line(into: Dictionary, match_line: Dictionary) -> void:
+	into["games"] = int(into.get("games", 0)) + 1
+	for stat: String in MatchState.PLAYER_STATS:
+		into[stat] = int(into.get(stat, 0)) + int(match_line.get(stat, 0))
+
+
+## A season_stats/career_stats line's count of `stat` — a PLAYER_STATS
+## entry, "games", or "disposals" (kicks + handballs).
+static func stat_total(line: Dictionary, stat: String) -> int:
+	if stat == "disposals":
+		return int(line.get("kicks", 0)) + int(line.get("handballs", 0))
+	return int(line.get(stat, 0))
+
+
+## This season's line for roster id `id` (empty before their first game).
+func season_line(id: int) -> Dictionary:
+	return season_stats.get(id, {})
 
 
 ## Dev-only (the Dashboard's debug key): scores your own game with the
@@ -467,7 +511,9 @@ func start_next_season() -> void:
 		"season": season_index + 1, "league": CareerSeason.league_name(league_index),
 		"team": team_name, "position": ladder_position(), "played": row["played"],
 		"won": row["won"], "lost": row["lost"], "drawn": row["drawn"], "outcome": outcome,
+		"player": season_line(player_id).duplicate(),
 	})
+	season_stats.clear()
 	season_index += 1
 	if outcome == OUTCOME_PROMOTED:
 		league_index += 1
@@ -507,6 +553,8 @@ func save() -> void:
 	config.set_value(SECTION, "season_index", season_index)
 	config.set_value(SECTION, "league_teams", league_teams)
 	config.set_value(SECTION, "season_history", season_history)
+	config.set_value(SECTION, "season_stats", season_stats)
+	config.set_value(SECTION, "career_stats", career_stats)
 	config.set_value(SECTION, "roster", roster)
 	config.set_value(SECTION, "player_id", player_id)
 	config.set_value(SECTION, "rounds", rounds)
@@ -553,6 +601,10 @@ func _load() -> void:
 	season_index = maxi(int(config.get_value(SECTION, "season_index", 0)), 0)
 	league_teams.assign(config.get_value(SECTION, "league_teams", []))
 	season_history.assign(config.get_value(SECTION, "season_history", []))
+	var loaded_season_stats: Variant = config.get_value(SECTION, "season_stats", {})
+	season_stats = loaded_season_stats if loaded_season_stats is Dictionary else {}
+	var loaded_career_stats: Variant = config.get_value(SECTION, "career_stats", {})
+	career_stats = loaded_career_stats if loaded_career_stats is Dictionary else {}
 
 	var loaded_roster: Array = config.get_value(SECTION, "roster", [])
 	roster.assign(loaded_roster)
