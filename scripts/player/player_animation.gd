@@ -73,6 +73,7 @@ const ACTION_STATES := {
 	Tuning.Action.TACKLE_HELD: &"tackle_held",
 	Tuning.Action.TACKLE_TAKEDOWN: &"tackle_takedown",
 	Tuning.Action.KNOCKED_BACK: &"knocked_back",
+	Tuning.Action.TACKLE_SLING: &"tackle_sling",
 	Tuning.Action.SMOTHERED: &"smothered",
 	Tuning.Action.SMOTHER_DIVE: &"smother_dive",
 }

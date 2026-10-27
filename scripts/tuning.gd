@@ -95,9 +95,18 @@ enum Team { HOME, AWAY, NONE }
 ## TACKLED's own pose data (see HumanoidAnimations._build_knocked_back's
 ## doc comment) but skips _fall_toward()'s facing snap entirely — see
 ## PlayerController._knockdown()'s own `snap_facing` parameter.
+##
+## TACKLE_SLING: the tackler's beat on a Slide that knocks the carrier over
+## (PlayerController._slide_connect). The tackler stays on their feet
+## (Slide is the tackle "closer to the bump") and swings the carrier down
+## across their body: wrap at the chest, twist and drive down to the left,
+## then rise. Replaced TACKLE_TAKEDOWN there after playtest 2026-10-27: "the
+## tackler animations needs more work because it looks like the old tackle
+## animation". The carrier's ragdoll is pushed the way the swing throws.
+## Appended last, so no other Action's index moves.
 enum Action { NONE, KICK, HANDBALL, BOUNCE, MARK_SAFE, MARK_RUNNING, MARK_AGGRESSIVE, HIT_OUT,
 	MARK_SAFE_MISS, MARK_RUNNING_MISS, TACKLED, TACKLE_GRAB, SMOTHERED, SMOTHER_DIVE,
-	TACKLE_HELD, TACKLE_TAKEDOWN, KNOCKED_BACK }
+	TACKLE_HELD, TACKLE_TAKEDOWN, KNOCKED_BACK, TACKLE_SLING }
 
 
 # ── Ground geometry (metres) ─────────────────────────────────────────
@@ -498,6 +507,10 @@ const KICK_MOUSE_REACH_SENSITIVITY := 0.0035
 ## KNOCKED_BACK (index 16): matches TACKLED's own 1.3s/0.30 contact split
 ## exactly — see that clip's own comment; this is a sign-mirrored variant
 ## of the same fall, not a differently-paced one.
+##
+## TACKLE_SLING (index 17): 1.0 s, contact at the wrap (0.12 s): the
+## carrier's ragdoll is already going down by the time the swing peaks,
+## and the tackler is upright again as the carrier lands.
 const ACTION_DURATION := {
 	Action.NONE: 0.0,
 	Action.KICK: 0.78, Action.HANDBALL: 0.45, Action.BOUNCE: 0.50,
@@ -506,7 +519,7 @@ const ACTION_DURATION := {
 	Action.MARK_SAFE_MISS: 0.35, Action.MARK_RUNNING_MISS: 0.30,
 	Action.TACKLED: 1.3, Action.TACKLE_GRAB: 1.0, Action.SMOTHERED: 0.45,
 	Action.SMOTHER_DIVE: 0.55, Action.TACKLE_HELD: 1.0, Action.TACKLE_TAKEDOWN: 1.3,
-	Action.KNOCKED_BACK: 1.3,
+	Action.KNOCKED_BACK: 1.3, Action.TACKLE_SLING: 1.0,
 }
 const ACTION_CONTACT := {
 	Action.NONE: 0.0,
@@ -516,7 +529,7 @@ const ACTION_CONTACT := {
 	Action.MARK_SAFE_MISS: 0.10, Action.MARK_RUNNING_MISS: 0.10,
 	Action.TACKLED: 0.30, Action.TACKLE_GRAB: 0.40, Action.SMOTHERED: 0.12,
 	Action.SMOTHER_DIVE: 0.38, Action.TACKLE_HELD: 0.27, Action.TACKLE_TAKEDOWN: 0.30,
-	Action.KNOCKED_BACK: 0.30,
+	Action.KNOCKED_BACK: 0.30, Action.TACKLE_SLING: 0.12,
 }
 
 # AFL rule: a player running with the ball must bounce or touch it to
@@ -904,12 +917,15 @@ const TACKLE_LUNGE_DASH_DURATION := 0.25     # s, unplaytested feel guess
 # so a wrap at point-blank stays a hold-up.
 const TACKLE_SLIDE_STEP_SPEED := 2.0         # m/s, unplaytested feel guess
 # Slide is the tackle that keeps the tackler on their feet (playtest: "closer
-# to the bump"). A held Slide this hard (b at or past KNOCKDOWN_B: a dive in
-# from square, or a carrier running onto it) knocks the carrier over —
-# ragdolled when a human made the tackle, through the same path as a held
-# Lunge, while the tackler drives low on their feet (TACKLE_TAKEDOWN). An
-# AI's Slide still only ever holds up (no ragdoll on AI tackles).
-const TACKLE_SLIDE_KNOCKDOWN_B := 0.9        # unplaytested feel guess — was 0.97, which only a square dive cleared ("ragdoll not being applied enough")
+# to the bump"). A held Slide this hard (b at or past KNOCKDOWN_B) knocks
+# the carrier over — ragdolled when a human made the tackle, through the
+# same path as a held Lunge, while the tackler slings them down on their
+# feet (TACKLE_SLING, "Sling" below). An AI's Slide still only ever holds
+# up (no ragdoll on AI tackles). 0.9 -> 0.6, the same floor a held Lunge
+# has (TACKLE_RAGDOLL_MIN_BALANCE_LOSS): playtest 2026-10-27, "the b tackle
+# should have more ragdoll to the tackled player". Below it (a soft wrap
+# from behind) it's still the held-up grab.
+const TACKLE_SLIDE_KNOCKDOWN_B := 0.6        # unplaytested feel guess — was 0.97, then 0.9 ("ragdoll not being applied enough")
 
 # Slide's dive-in (polish-pass brief: "it's a bit hard to get the ball off
 # the AI" / FIFA-style assist) — purely a movement-closing mechanic, not a
@@ -1005,8 +1021,9 @@ const TACKLE_RAGDOLL_CONTACT_SIDE_OFFSET := 0.12  # m from the body centre towar
 # sat most tacklers down on their backs. SHARE was 0.6, which left a
 # sprinting tackler strong enough (0.42) to skid to a stop on their feet
 # and then topple whichever way, often backwards; at 0.8 every headless
-# case went down the way they ran. Below MIN_B the tackler plays
-# TACKLE_TAKEDOWN on their feet as before.
+# case went down the way they ran. Since 2026-10-27 every held Lunge takes
+# the tackler down (see "Tackle wrap" below); tackler_b only sets how weak
+# they are, capped at TACKLE_WRAP_TACKLER_MAX_STRENGTH.
 const TACKLE_RAGDOLL_TACKLER_MIN_B := 0.8       # unplaytested feel guess
 const TACKLE_RAGDOLL_TACKLER_SHARE := 0.8       # unplaytested feel guess
 const TACKLE_RAGDOLL_TACKLER_DRIVE := 0.3       # unplaytested feel guess
@@ -1025,6 +1042,78 @@ const TACKLE_RAGDOLL_GETUP_BLEND := 0.3         # s
 # Physics frames between building a player's ragdoll (first tackle only)
 # and switching it on — LESSONS.md's same-frame construction race.
 const TACKLE_RAGDOLL_BUILD_FRAMES := 2
+
+# ── Tackle wrap, sling and hit-stick ragdolls (playtest 2026-10-27) ────
+# Tackle wrap (X, Lunge). "The arms should wrap around the model and the
+# two bodies fall down/ragdoll together with the tackling player holding
+# onto tackled player." A held Lunge now always ragdolls the tackler too,
+# at no more than TACKLER_MAX_STRENGTH (so their balance assist can't keep
+# them up and pull the pair apart), and TackleWrap pulls their wrists round
+# the carrier's waist and holds them there until either starts to get up
+# (or MAX_TIME). The arms reach round on their own joint motors at no less
+# than ARM_STRENGTH. The wrist grip asks for RATE m/s of closing per metre
+# of gap, up to MAX_SPEED, closes GAIN of the shortfall a tick, and holds
+# with at most MAX_FORCE N per wrist. TORSO_RADIUS is the
+# carrier's waist, SIDE_MARGIN how far clear of it the wrists pass,
+# BACK_SPREAD how far apart they meet behind it, HUG_DISTANCE the chest gap
+# past which the chests are drawn together (all rig-scaled). Once the
+# tackler is down the grip only holds what it has: DOWN_GRIP of the force,
+# and inside DOWN_DEADZONE of its grip a wrist is damped, not pulled (one
+# pinned against the turf buzzed at 8-12 m/s), and it lets go once both
+# have been down HOLD_DOWN_TIME. Unplaytested feel guesses.
+const TACKLE_WRAP_DOWN_GRIP := 0.35
+const TACKLE_WRAP_DOWN_DEADZONE := 0.25    # m
+const TACKLE_WRAP_HOLD_DOWN_TIME := 0.4    # s
+const TACKLE_WRAP_TACKLER_MAX_STRENGTH := 0.3
+const TACKLE_WRAP_ARM_STRENGTH := 0.9
+const TACKLE_WRAP_RATE := 12.0             # 1/s
+const TACKLE_WRAP_MAX_SPEED := 4.0         # m/s
+const TACKLE_WRAP_GAIN := 0.5
+const TACKLE_WRAP_MAX_FORCE := 900.0       # N per wrist
+const TACKLE_WRAP_TORSO_RADIUS := 0.15     # m
+const TACKLE_WRAP_SIDE_MARGIN := 0.10      # m
+const TACKLE_WRAP_BACK_SPREAD := 0.07      # m
+const TACKLE_WRAP_HUG_DISTANCE := 0.40     # m
+const TACKLE_WRAP_MAX_TIME := 1.3          # s
+# Sling (B, a human's Slide that knocks the carrier over: see
+# TACKLE_SLIDE_KNOCKDOWN_B). "The b tackle should have more ragdoll to the
+# tackled player ... the tackler animations needs more work because it
+# looks like the old tackle animation." The tackler stays up and plays
+# Action.TACKLE_SLING, swinging the carrier down to their left; the
+# carrier's push runs that way: FORWARD along the hit and SIDE to the
+# tackler's left (before DRAG_DOWN), PUSH_SCALE of the hit's push without
+# its leg drive (the old knockdown's size: 1.25 slid a side-on carrier
+# 3.9 m), and their muscles at STRENGTH_SCALE of 1 - b, so they go down
+# looser. Unplaytested feel guesses.
+const TACKLE_SLIDE_SLING_FORWARD := 0.6
+const TACKLE_SLIDE_SLING_SIDE := 0.8
+const TACKLE_SLIDE_SLING_PUSH_SCALE := 1.0
+const TACKLE_SLIDE_SLING_STRENGTH_SCALE := 0.6
+# Hit stick (a clean Bump). "The tackling animation for hit stick can be
+# more emphasized (player tackling should sort of dive forward into the
+# player and send the tackled player in the direction of the momentum)."
+# Both ragdoll now (the KNOCKED_BACK clip and hop stay for the procedural
+# rig). The pair share the collision's common velocity along the dash —
+# an inelastic hit with the bumper at BUMP_DASH_SPEED — and the carrier is
+# thrown on along it at LAUNCH_SPEED more, lifted LIFT (a slope, up over
+# along) and BODY_SHARE of it moving the whole body, at STRENGTH, so they
+# fly loose. The bumper dives on after them: DIVE_DRIVE m/s worth of push
+# along the dash, DIVE_BODY_SHARE of it on the whole body and the rest at
+# the chest, which pitches them forward over their feet, arms braced out
+# in front by the ragdoll's own reflex. Unplaytested feel guesses.
+# A swing that has reached its carrier (BUMP_RANGE) drives on in and hits
+# when the bodies meet — centres IMPACT_DISTANCE apart (two capsules
+# touching) — or after CLOSE_IN_MAX_TIME. Resolved at BUMP_RANGE, the
+# carrier flew with the bumper still ~1.9 m off them.
+const BUMP_IMPACT_DISTANCE := 0.9          # m
+const BUMP_CLOSE_IN_MAX_TIME := 0.2        # s
+const BUMP_RAGDOLL_LAUNCH_SPEED := 3.5     # m/s
+const BUMP_RAGDOLL_LIFT := 0.35
+const BUMP_RAGDOLL_BODY_SHARE := 0.8
+const BUMP_RAGDOLL_STRENGTH := 0.15
+const BUMP_DIVE_DRIVE := 2.5               # m/s
+const BUMP_DIVE_BODY_SHARE := 0.5
+const BUMP_DIVE_STRENGTH := 0.25
 # Every PlayerController's body mass when nothing sets it — Career sets it
 # from the roster's weight (RosterGenerator 58-92 kg). The ragdoll's
 # segment masses scale from PhysicsRagdoll's ~86 kg build.

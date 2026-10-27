@@ -258,6 +258,10 @@ var _bump_dash_timer := 0.0
 var _bump_dash_direction := Vector3.FORWARD
 var _bump_dash_active := false
 
+## Seconds this dash has spent driving in on a carrier it reached, before
+## the bodies meet (Tuning.BUMP_IMPACT_DISTANCE) — see _try_bump_contact.
+var _bump_close_in_time := 0.0
+
 ## Seconds left before another Smother attempt can launch — see
 ## _update_smother.
 var _smother_dive_cooldown := 0.0
@@ -331,6 +335,10 @@ var _ragdoll: PlayerRagdoll = null
 ## jammed on the carrier's capsule — far enough behind its own body, on a
 ## long fall, to trip PlayerRagdoll's teleport check and snap upright.
 var _ragdoll_partner: PlayerController = null
+
+## A held Lunge's arms round the carrier while both fall (TackleWrap), on
+## the tackler; null otherwise.
+var _tackle_wrap: TackleWrap = null
 
 ## The last tackle this player made, for headless checks and readouts:
 ## TackleBalance.resolve's read of it (empty when it never landed) plus
@@ -520,6 +528,10 @@ func _physics_process(delta: float) -> void:
 		# get-up sets its own stun in on_ragdoll_getup.
 		if is_ragdolled() and _ragdoll.phase() != PlayerRagdoll.Phase.GETTING_UP:
 			_stun_timer = maxf(_stun_timer, 0.1)
+	if _tackle_wrap != null:
+		_tackle_wrap.step(delta)
+		if _tackle_wrap.is_done():
+			_tackle_wrap = null
 	if _ragdoll_partner != null and not is_ragdolled():
 		if is_instance_valid(_ragdoll_partner):
 			remove_collision_exception_with(_ragdoll_partner)
@@ -1336,8 +1348,8 @@ func _update_slide_dive(delta: float) -> void:
 ## TACKLE_TAKEDOWN/TACKLED are for Lunge just below. The tackler always
 ## keeps their feet. A human's Slide hard enough to pass
 ## Tuning.TACKLE_SLIDE_KNOCKDOWN_B knocks the carrier over instead of holding
-## them up — the held Lunge's ragdoll path — while the tackler drives low
-## (TACKLE_TAKEDOWN); an AI's never does, since AI tackles stay on their
+## them up — the held Lunge's ragdoll path — while the tackler slings them
+## down (TACKLE_SLING); an AI's never does, since AI tackles stay on their
 ## clips. A Slide that lands but breaks (_break_tackle) leaves the carrier
 ## running.
 func _try_tackle() -> void:
@@ -1387,18 +1399,18 @@ func _try_tackle() -> void:
 
 ## A Slide that holds, both sides of it. A human's hard enough to pass
 ## Tuning.TACKLE_SLIDE_KNOCKDOWN_B knocks the target over rather than
-## holding them up: down the held Lunge's path, tackler still on their feet
-## — so without the Lunge's leg drive (TACKLE_RAGDOLL_IMPULSE_SCALE) on the
-## push: a 10.5 m/s dive with it sent a standing carrier tumbling 4 m.
+## holding them up: the tackler slings them down on their feet
+## (Action.TACKLE_SLING, facing the hit) and the target goes down the held
+## Lunge's ragdoll path, thrown the way the swing goes (_sling_impact).
 ## `ruling` false is a tackle off the ball (_commit_foul): the same hit,
 ## minus the ball and the holding-the-ball call (see _get_tackled).
 func _slide_connect(target: PlayerController, impact: Dictionary, ruling: bool) -> void:
 	if _brain is HumanBrain and float(impact.b) >= Tuning.TACKLE_SLIDE_KNOCKDOWN_B:
 		last_tackle.knocked_down = true
 		_slide_dive_timer = 0.0
-		impact.impulse = (impact.impulse as Vector3) / Tuning.TACKLE_RAGDOLL_IMPULSE_SCALE
-		target._get_tackled(self, false, impact, ruling)
-		_begin(Tuning.Action.TACKLE_TAKEDOWN)
+		target._get_tackled(self, false, _sling_impact(impact, target), ruling)
+		_fall_toward(impact.direction)
+		_begin(Tuning.Action.TACKLE_SLING)
 	else:
 		target._get_tackled(self, true, {}, ruling)
 		# Never blocked here: both callers already require _action == NONE.
@@ -1410,16 +1422,44 @@ func _slide_connect(target: PlayerController, impact: Dictionary, ruling: bool) 
 		tackle_committed.emit(true)
 
 
+## The push for a sling (Tuning's "Sling"): the hit's push without the
+## Lunge's leg drive (TACKLE_RAGDOLL_IMPULSE_SCALE: with it a 10.5 m/s dive
+## sent a standing carrier tumbling 4 m), at SLING_PUSH_SCALE, turned off the
+## hit line toward the tackler's left (TACKLE_SLING swings that way) and
+## tipped down; the carrier's muscles at SLING_STRENGTH_SCALE. The tackler
+## plants and stays up, so whatever of the carrier's run was going into them
+## stops there. Left at their own, a head-on carrier ran on straight through
+## the tackler's (unsimulated, animated) body. The tackler's own dive isn't
+## handed on either: counted in (a shared velocity, as a bump's), a side-on
+## carrier slid 5.3 m.
+func _sling_impact(impact: Dictionary, target: PlayerController) -> Dictionary:
+	var out := impact.duplicate()
+	var line: Vector3 = impact.direction
+	var left := Vector3.UP.cross(line).normalized()
+	var throw := (line * Tuning.TACKLE_SLIDE_SLING_FORWARD + left * Tuning.TACKLE_SLIDE_SLING_SIDE).normalized()
+	throw = (throw + Vector3.DOWN * Tuning.TACKLE_RAGDOLL_DRAG_DOWN).normalized()
+	out.impulse = throw * (impact.impulse as Vector3).length() \
+		/ Tuning.TACKLE_RAGDOLL_IMPULSE_SCALE * Tuning.TACKLE_SLIDE_SLING_PUSH_SCALE
+	out.strength_scale = Tuning.TACKLE_SLIDE_SLING_STRENGTH_SCALE
+	var run := Vector3(target.velocity.x, 0.0, target.velocity.z)
+	out.start_velocity = run - line * minf(run.dot(line), 0.0)
+	return out
+
+
 ## A Lunge that holds, both sides of it: the target down (ragdoll on a
-## 6thbuild rig), and a big enough hit takes the tackler off their feet too
-## (Tuning's TACKLE_RAGDOLL_TACKLER_*), going down the way they were
-## running; otherwise the takedown beat on their feet. `ruling` as
+## 6thbuild rig), and the tackler down with them, arms wrapped round their
+## waist (Tuning's "Tackle wrap", TackleWrap), going the way they were
+## running. It used to take the tackler down only on a big hit (b past
+## TACKLE_RAGDOLL_TACKLER_MIN_B); playtest 2026-10-27 wanted every held X to
+## hug and fall together. Their strength is capped low so their balance
+## can't keep them up. A target that can't ragdoll (procedural rig) still
+## gets the takedown beat on the tackler's feet. `ruling` as
 ## _slide_connect's.
 func _lunge_connect(target: PlayerController, impact: Dictionary, ruling: bool) -> void:
 	target._get_tackled(self, false, impact, ruling)
 	var tackler_b: float = impact.tackler_b
-	if tackler_b <= 0.0 or not _begin_ragdoll({
-			"strength": 1.0 - tackler_b,
+	if not target.is_ragdolled() or not _begin_ragdoll({
+			"strength": minf(1.0 - tackler_b, Tuning.TACKLE_WRAP_TACKLER_MAX_STRENGTH),
 			"impulse": impact.tackler_impulse,
 			"bone": &"Chest",
 			"contact_offset": Vector3.ZERO,
@@ -1429,6 +1469,8 @@ func _lunge_connect(target: PlayerController, impact: Dictionary, ruling: bool) 
 			"mass_kg": body_mass,
 		}):
 		_begin(Tuning.Action.TACKLE_TAKEDOWN)
+	else:
+		_tackle_wrap = TackleWrap.new(_ragdoll, target.ragdoll_controller())
 	if ruling:
 		tackle_committed.emit(false)
 
@@ -1630,13 +1672,13 @@ func _get_tackled(by: PlayerController, is_slide: bool, impact := {}, ruling := 
 		_begin(Tuning.Action.TACKLE_HELD)
 	else:
 		var ragdolled := not impact.is_empty() and _begin_ragdoll({
-			"strength": 1.0 - float(impact.b),
+			"strength": (1.0 - float(impact.b)) * float(impact.get("strength_scale", 1.0)),
 			"impulse": impact.impulse,
 			"bone": impact.bone,
 			"contact_offset": impact.contact_offset,
 			"body_share": impact.body_share,
 			"partner": by,
-			"velocity": velocity,
+			"velocity": impact.get("start_velocity", velocity),
 			"mass_kg": body_mass,
 		})
 		if not ragdolled:
@@ -1760,6 +1802,10 @@ func _begin_ragdoll(hit: Dictionary) -> bool:
 		_ragdoll = PlayerRagdoll.new(self, rig, _animation)
 	if not _ragdoll.begin(hit):
 		return false
+	# Tackled out of a wrap of their own: those arms aren't holding anyone.
+	if _tackle_wrap != null:
+		_tackle_wrap.release()
+		_tackle_wrap = null
 	_action = Tuning.Action.NONE
 	_charging = false
 	_end_tackle_hold()
@@ -1951,6 +1997,7 @@ func _update_bump(delta: float) -> void:
 	_bump_dash_direction = _flick_world_direction(flick)
 	_bump_dash_timer = Tuning.BUMP_DASH_DURATION
 	_bump_dash_active = true
+	_bump_close_in_time = 0.0
 	_bump_cooldown = Tuning.BUMP_COOLDOWN
 
 
@@ -2026,6 +2073,8 @@ func _try_bump_contact() -> void:
 		if carrier.is_protected() and _brain is HumanBrain:
 			_commit_foul(carrier, &"bump")
 		elif not carrier.is_protected():
+			if _bump_closing_in(carrier):
+				return
 			_resolve_bump_contact(carrier)
 		_bump_dash_active = false
 		_bump_dash_timer = 0.0
@@ -2040,6 +2089,26 @@ func _try_bump_contact() -> void:
 	if _bump_dash_timer <= 0.0:
 		_resolve_bump_miss()
 		_bump_dash_active = false
+
+
+## A swing that's reached its carrier (BUMP_RANGE, so a bump is no harder to
+## land) drives the rest of the way in, straight at them, and hits when the
+## bodies meet: true while it's still closing. Resolved at BUMP_RANGE, a
+## ragdolled carrier was thrown back with the bumper still ~1.9 m off them
+## (Tuning's "Hit stick"). BUMP_CLOSE_IN_MAX_TIME caps the wait, so a carrier
+## who somehow keeps the gap still gets hit; the dash's own clock can't run
+## out to a whiff meanwhile.
+func _bump_closing_in(carrier: PlayerController) -> bool:
+	var to_carrier := carrier.global_position - global_position
+	to_carrier.y = 0.0
+	if to_carrier.length() <= Tuning.BUMP_IMPACT_DISTANCE \
+			or _bump_close_in_time >= Tuning.BUMP_CLOSE_IN_MAX_TIME:
+		return false
+	var delta := get_physics_process_delta_time()
+	_bump_close_in_time += delta
+	_bump_dash_direction = to_carrier.normalized()
+	_bump_dash_timer = maxf(_bump_dash_timer, delta)
+	return true
 
 
 ## Whether this frame's bump dash reaches `other`: in BUMP_RANGE and inside
@@ -2091,13 +2160,63 @@ func _resolve_bump_contact(carrier: PlayerController, always_clean := false) -> 
 		# reference, same shape as _get_tackled's Lunge spill.
 		var spilled_ball := carrier.carried_ball()
 		carrier.drop_ball()
-		carrier._knockdown(_bump_dash_direction, Tuning.BUMP_KNOCKDOWN_STUN_DURATION,
-			Tuning.Action.KNOCKED_BACK, false)
-		carrier._apply_knockdown_hop()
+		# A 6thbuild pair both ragdoll (Tuning's "Hit stick"): the carrier
+		# thrown along the dash, the bumper diving on after them. The
+		# procedural rig keeps the canned fall and hop.
+		if carrier._bump_ragdoll(self, _bump_dash_direction):
+			_bump_dive(carrier, _bump_dash_direction)
+		else:
+			carrier._knockdown(_bump_dash_direction, Tuning.BUMP_KNOCKDOWN_STUN_DURATION,
+				Tuning.Action.KNOCKED_BACK, false)
+			carrier._apply_knockdown_hop()
 		if is_instance_valid(spilled_ball):
 			spilled_ball.apply_central_impulse(
 				_bump_dash_direction * Tuning.BUMP_SPILL_SPEED * spilled_ball.mass)
 	bump_landed.emit(self, carrier, clean)
+
+
+## Called on the carrier of a clean bump by the bumper: thrown along the
+## dash `direction` as a ragdoll (Tuning's "Hit stick"). Their run along the
+## line is replaced by the collision's common velocity — the bumper at
+## BUMP_DASH_SPEED, both by mass — and the throw goes on top of that, lifted
+## off the turf. Their run across the line they keep. Returns false when this
+## rig can't ragdoll, so the caller plays the canned fall instead.
+func _bump_ragdoll(by: PlayerController, direction: Vector3) -> bool:
+	var along := velocity.dot(direction)
+	var common := (by.body_mass * Tuning.BUMP_DASH_SPEED + body_mass * along) / (by.body_mass + body_mass)
+	var flat := Vector3(velocity.x, 0.0, velocity.z)
+	return _begin_ragdoll({
+		"strength": Tuning.BUMP_RAGDOLL_STRENGTH,
+		"impulse": (direction + Vector3.UP * Tuning.BUMP_RAGDOLL_LIFT).normalized()
+			* body_mass * Tuning.BUMP_RAGDOLL_LAUNCH_SPEED,
+		"bone": &"Chest",
+		"contact_offset": -direction * Tuning.TACKLE_RAGDOLL_CONTACT_SIDE_OFFSET,
+		"body_share": Tuning.BUMP_RAGDOLL_BODY_SHARE,
+		"partner": by,
+		"velocity": flat - direction * flat.dot(direction) + direction * maxf(common, 0.0),
+		"mass_kg": body_mass,
+	})
+
+
+## The bumper's half of a clean ragdoll bump: on at the collision's common
+## velocity along the dash and diving after the carrier — the push mostly at
+## the chest pitches them forward over their feet (Tuning's "Hit stick"). If
+## this rig can't ragdoll they just stay up, as a bump always used to.
+func _bump_dive(carrier: PlayerController, direction: Vector3) -> void:
+	var along := carrier.velocity.dot(direction)
+	var common := (body_mass * Tuning.BUMP_DASH_SPEED + carrier.body_mass * along) \
+		/ (body_mass + carrier.body_mass)
+	var flat := Vector3(velocity.x, 0.0, velocity.z)
+	_begin_ragdoll({
+		"strength": Tuning.BUMP_DIVE_STRENGTH,
+		"impulse": direction * body_mass * Tuning.BUMP_DIVE_DRIVE,
+		"bone": &"Chest",
+		"contact_offset": Vector3.ZERO,
+		"body_share": Tuning.BUMP_DIVE_BODY_SHARE,
+		"partner": carrier,
+		"velocity": flat - direction * flat.dot(direction) + direction * maxf(common, 0.0),
+		"mass_kg": body_mass,
+	})
 
 
 ## The dash ran its full course without ever finding a target — a genuine
@@ -3218,7 +3337,8 @@ func _update_action(delta: float) -> void:
 					Tuning.Action.MARK_SAFE_MISS, Tuning.Action.MARK_RUNNING_MISS, \
 					Tuning.Action.TACKLED, Tuning.Action.TACKLE_GRAB, Tuning.Action.SMOTHERED, \
 					Tuning.Action.SMOTHER_DIVE, Tuning.Action.TACKLE_HELD, \
-					Tuning.Action.TACKLE_TAKEDOWN, Tuning.Action.KNOCKED_BACK:
+					Tuning.Action.TACKLE_TAKEDOWN, Tuning.Action.KNOCKED_BACK, \
+					Tuning.Action.TACKLE_SLING:
 				pass   # already resolved in _update_marking()/_get_tackled()/_get_smothered(); this leg is cosmetic only
 			_:
 				_dispose()

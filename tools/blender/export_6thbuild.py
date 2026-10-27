@@ -95,6 +95,7 @@ CLIP_RENAME = {
 	"knocked_back": "knocked_back",
 	"smothered": "smothered",
 	"smother_dive": "smother_dive",
+	"tackle_sling": "tackle_sling",
 }
 
 

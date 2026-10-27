@@ -73,6 +73,7 @@ ACTION_TIMING = {
 	"knocked_back": (1.3, 0.30),
 	"smothered": (0.45, 0.12),
 	"smother_dive": (0.55, 0.38),
+	"tackle_sling": (1.0, 0.12),
 }
 
 FK_BONES = ["pelvis", "spine1", "spine2", "head", "shoulder.l", "shoulder.r",
@@ -1081,6 +1082,62 @@ def clip_smother_dive():
 	])
 
 
+def clip_tackle_sling():
+	length, contact = ACTION_TIMING["tackle_sling"]
+	# The tackler's half of a Slide that knocks the carrier over (Tuning's
+	# TACKLE_SLING). Playtest: "the tackler animations needs more work because
+	# it looks like the old tackle animation". The tackler stays on their feet
+	# and swings the carrier down across their body to the LEFT, which is the
+	# way PlayerController._sling_impact throws the carrier's ragdoll: arms
+	# locked round the chest at contact, then the twist. Pelvis, spine and
+	# head turn together (~45 deg at the bottom), the torso drives forward and
+	# down, the hands drag left and low, and the right foot steps through
+	# across the body to carry the turn. Then up again by the end. Hands ride
+	# the chest frame (offsets from each shoulder), so they stay round the
+	# carrier's chest as the torso twists and leans.
+	return Clip("tackle_sling", [
+		(0.0, {}),
+		# contact: wrapped round the chest, stepping in on the left.
+		(contact, {
+			"pelvis": {"pos": P(0, 0.04, -0.08), "rot": lean(fwd=4, turn=-4)},
+			"spine1": lean(fwd=12, turn=-4), "spine2": lean(fwd=8), "head": lean(fwd=6),
+			"hands_in": "chest",
+			"hand_l": P(-0.10, 0.40, -0.30), "hand_r": P(0.10, 0.40, -0.30),
+			"elbow_l": P(1.0, 0.1, -0.3), "elbow_r": P(-1.0, 0.1, -0.3),
+			"foot_l": {"pos": P(0, 0.26, 0)}, "foot_r": {"pos": P(0, -0.14, 0.02), "pitch": 10},
+		}),
+		# the swing: turning left, driving down, hands dragging across.
+		(contact + (length - contact) * 0.25, {
+			"pelvis": {"pos": P(0.04, 0.08, -0.15), "rot": lean(fwd=8, turn=18)},
+			"spine1": lean(fwd=18, turn=12), "spine2": lean(fwd=10, turn=8), "head": lean(fwd=10, turn=10),
+			"hands_in": "chest",
+			"hand_l": P(0.10, 0.32, -0.44), "hand_r": P(0.24, 0.42, -0.40),
+			"elbow_l": P(1.0, -0.2, -0.3), "elbow_r": P(-0.8, 0.4, -0.4),
+			"foot_l": {"pos": P(0, 0.26, 0)}, "foot_r": {"pos": P(0.10, 0.10, 0.06), "pitch": 15, "turn": 20},
+		}),
+		# through and low: the throw finishes down by the left knee, right
+		# foot planted across.
+		(contact + (length - contact) * 0.48, {
+			"pelvis": {"pos": P(0.08, 0.10, -0.22), "rot": lean(fwd=12, turn=26)},
+			"spine1": lean(fwd=24, turn=12), "spine2": lean(fwd=12, turn=8), "head": lean(fwd=12, turn=6),
+			"hands_in": "chest",
+			"hand_l": P(0.16, 0.24, -0.56), "hand_r": P(0.30, 0.36, -0.54),
+			"elbow_l": P(1.0, -0.3, -0.2), "elbow_r": P(-0.6, 0.6, -0.4),
+			"foot_l": {"pos": P(0, 0.26, 0)}, "foot_r": {"pos": P(0.18, 0.20, 0), "turn": 30},
+		}),
+		# coming back up over the feet.
+		(contact + (length - contact) * 0.75, {
+			"pelvis": {"pos": P(0.06, 0.08, -0.10), "rot": lean(fwd=6, turn=16)},
+			"spine1": lean(fwd=12, turn=6), "spine2": lean(fwd=6, turn=4), "head": lean(fwd=4),
+			"hands_in": "chest",
+			"hand_l": P(0.06, 0.20, -0.48), "hand_r": P(-0.04, 0.22, -0.48),
+			"elbow_l": P(1.0, -0.2, -0.5), "elbow_r": P(-1.0, -0.2, -0.5),
+			"foot_l": {"pos": P(0, 0.16, 0)}, "foot_r": {"pos": P(0.10, 0.08, 0), "turn": 15},
+		}),
+		(length, {}),
+	])
+
+
 CLIPS = {
 	"mark_safe": clip_mark_safe,
 	"mark_running": clip_mark_running,
@@ -1094,6 +1151,7 @@ CLIPS = {
 	"knocked_back": clip_knocked_back,
 	"smothered": clip_smothered,
 	"smother_dive": clip_smother_dive,
+	"tackle_sling": clip_tackle_sling,
 }
 
 

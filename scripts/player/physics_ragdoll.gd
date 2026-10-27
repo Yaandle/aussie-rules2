@@ -293,6 +293,18 @@ var bodies := {}
 ## dial a caller turns — see the header's "Motors".
 var strength := 0.0
 
+## bone -> world direction its segment should point (body +Y), set fresh
+## each tick by whoever owns those limbs for now: TackleWrap's arms reaching
+## round a carrier. An aimed bone's motor swings it onto that direction at
+## no less than `aim_strength`, the way the arm brace swings arms along a
+## fall, and it skips the brace. Cleared by start().
+var aim_dirs := {}
+var aim_strength := 0.0
+
+## bone name -> half the body's segment length in world metres (scaled),
+## for segment_tip().
+var _half_span := {}
+
 var _skeleton: Skeleton3D
 
 ## Skeleton global scale at build() — see the header's "Scaled rigs".
@@ -391,6 +403,7 @@ func build(skeleton: Skeleton3D, mass_scale := 1.0, extra_mask := 0) -> bool:
 		_configure_joint(pb, spec, body_xform, bone_rest.origin, dir)
 		simulator.add_child(pb)
 		bodies[spec.bone] = pb
+		_half_span[spec.bone] = ((spec.span as Vector2).y - (spec.span as Vector2).x) * 0.5 * _scale
 
 	# Shapes deliberately overlap where they meet (a thigh's top cap sits
 	# inside the pelvis box, a shin's end cap inside the foot box) so there's
@@ -436,6 +449,7 @@ func start(initial_velocity := Vector3.ZERO) -> void:
 	_smoothed_speed = 0.0
 	_smoothed_spin = 0.0
 	_falling = false
+	aim_dirs.clear()
 	_sleep_snapshot.clear()
 	_set_settle_blend(0.0, true)
 	_capture_joint_zero()
@@ -638,6 +652,31 @@ func body(bone: StringName) -> PhysicalBone3D:
 	return bodies.get(String(bone))
 
 
+## The far end of `bone`'s segment, world space — a forearm's is the wrist.
+## Body +Y runs along the segment from the bone's origin (_body_rest_transform).
+func segment_tip(bone: StringName) -> Vector3:
+	var pb := body(bone)
+	return pb.global_position + pb.global_basis.y.normalized() * float(_half_span.get(String(bone), 0.0))
+
+
+## The near end — where the joint to its parent is (an upper arm's is the
+## shoulder).
+func segment_root(bone: StringName) -> Vector3:
+	var pb := body(bone)
+	return pb.global_position - pb.global_basis.y.normalized() * float(_half_span.get(String(bone), 0.0))
+
+
+## The segment's length, world metres.
+func segment_length(bone: StringName) -> float:
+	return float(_half_span.get(String(bone), 0.0)) * 2.0
+
+
+## How fast a point fixed to `bone`'s body is moving, world space.
+func point_velocity(bone: StringName, world_point: Vector3) -> Vector3:
+	var pb := body(bone)
+	return pb.linear_velocity + pb.angular_velocity.cross(world_point - pb.global_position)
+
+
 ## Where the skeleton's forward (the chest's front) / up points for `bone`'s
 ## body right now, world space.
 func front_of(bone: String) -> Vector3:
@@ -807,13 +846,18 @@ func _apply_motors(delta: float) -> void:
 		var s := base
 		if bone == "head":
 			s = maxf(s, HEAD_PROTECT_STRENGTH)
-		var bracing := brace_dir != Vector3.ZERO and ARM_BONES.has(bone)
+		var aimed := aim_dirs.has(bone)
+		var bracing := not aimed and brace_dir != Vector3.ZERO and ARM_BONES.has(bone)
 		if bracing:
 			s = maxf(s, ARM_BRACE_STRENGTH)
+		if aimed:
+			s = maxf(s, aim_strength)
 		if s <= 0.0:
 			continue
 		var err: Vector3
-		if bracing:
+		if aimed:
+			err = _swing_error(child.global_basis.y.normalized(), aim_dirs[bone])
+		elif bracing:
 			# Body +Y runs along the segment (see _body_rest_transform).
 			err = _swing_error(child.global_basis.y.normalized(), brace_dir)
 		else:

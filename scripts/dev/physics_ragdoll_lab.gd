@@ -21,8 +21,11 @@ extends Node3D
 ## speeds and the two masses, with the ML page's saved weights — except b
 ## isn't floored at Tuning.TACKLE_RAGDOLL_MIN_BALANCE_LOSS, so the staggers
 ## a match never shows can be explored. The tackler goes physical too when
-## b clears Tuning.TACKLE_RAGDOLL_TACKLER_MIN_B, as in a match; below it
-## they stay posed, as a match plays their takedown clip on their feet.
+## b clears Tuning.TACKLE_RAGDOLL_TACKLER_MIN_B; below it they stay posed.
+## A match no longer does that: since 2026-10-27 every held Lunge takes the
+## tackler down with their arms round the carrier (TackleWrap), which this
+## lab doesn't model. The live tackles' headless check was a scratch scene
+## driving PlayerController's own connects.
 ## The posed body is the 6thbuild skeleton's rest pose (arms in an A-pose),
 ## which is also the motors' target here; in a match it's whatever the
 ## animation was doing at contact. No get-up — that needs the AnimationTree

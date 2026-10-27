@@ -92,6 +92,20 @@ mostly superseded history. The full text lives outside the repo, in
   ~3.4 m/s of ground and the jog ~2.7, against 8.4 m/s sprints.
   PlayerAnimation measures each clip and scales cadence to match, capped
   at a realistic steps-per-second, so expect some foot skate at a sprint.
+- **Move a ragdoll limb with its joint motors, not a pull at its tip.** A
+  forearm is jointed to the whole body, so a wrist servo sized for the
+  forearm's own 2 kg barely moved it (TackleWrap closed at ~1.5 m/s).
+  Solve IK and aim the segments (`PhysicsRagdoll.aim_dirs`); keep the
+  point pull for holding on. Stop aiming once down: a target under the
+  other body is in the turf, and the arm thrashes at it.
+- **Resolve a ragdoll hit when the bodies meet, not at the trigger
+  range.** A bump resolved at `BUMP_RANGE` (2 m) threw the carrier with the
+  bumper still 1.9 m off them.
+- **A leg IK pole has to ride up with a raised foot.** 6thbuild's
+  `ikpole` sits at knee height in front; a kick's follow-through lifted
+  the boot past it and flipped the knee for 0.1 s. To find a glitch like
+  that, sample the clip's bones at 120 Hz in a scratch scene and look
+  for a per-step spin spike.
 - **Read a ragdoll's position from its bodies, not the skeleton.** In
   physics frames `get_bone_global_pose` didn't track the simulated bodies
   (1-3 m off after a fall), though the rendered skin did.
