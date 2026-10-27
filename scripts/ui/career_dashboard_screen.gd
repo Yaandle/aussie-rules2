@@ -66,6 +66,10 @@ var _new_career_button: Control
 var _next_game_card: Control
 var _confirm_overlay: Control
 var _confirm_cancel_button: Control
+## true once a wipe is in flight. SceneWipe.change_scene() has no re-entry
+## guard of its own, so A then B inside the 0.3 s cover started two scene
+## changes (Career review finding 5). Every exit goes through _leave().
+var _busy := false
 
 
 func _ready() -> void:
@@ -87,9 +91,11 @@ func _input(event: InputEvent) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if _busy:
+		return
 	if _is_dev_sim_press(event):
 		CareerProfile.sim_current_round()
-		SceneWipe.change_scene(DASHBOARD_SCENE)
+		_leave(DASHBOARD_SCENE)
 		return
 	if not (event.is_action_pressed(&"pause") or event.is_action_pressed(&"decline")):
 		return
@@ -169,7 +175,7 @@ func _build() -> void:
 	var edit_text := "Edit Player" if upgrades == 0 \
 		else "Edit Player  ·  %d upgrade%s to spend" % [upgrades, "" if upgrades == 1 else "s"]
 	var edit_button := _build_action_button(edit_text, &"figure", true,
-		func() -> void: SceneWipe.change_scene("res://scenes/ui/career_edit_player_screen.tscn"),
+		func() -> void: _leave("res://scenes/ui/career_edit_player_screen.tscn"),
 		Vector2(STACK_WIDTH, STACK_BUTTON_HEIGHT))
 	left.add_child(edit_button)
 
@@ -185,7 +191,7 @@ func _build() -> void:
 		_on_view_stats_pressed, third)
 	button_row.add_child(view_stats_button)
 	var view_fixture_button := _build_action_button("View Fixture", &"arrow_right", true,
-		func() -> void: SceneWipe.change_scene("res://scenes/ui/career_fixture_screen.tscn"), third)
+		func() -> void: _leave("res://scenes/ui/career_fixture_screen.tscn"), third)
 	button_row.add_child(view_fixture_button)
 	_link_focus([_next_game_card, edit_button, _view_roster_button],
 		[_view_roster_button, view_stats_button, view_fixture_button])
@@ -341,7 +347,7 @@ func _on_next_game_gui_input(event: InputEvent) -> void:
 	# pad) activates it the same way a click does, for the gamepad
 	# navigation that focus_mode exists for in the first place.
 	if clicked or event.is_action_pressed(&"confirm"):
-		SceneWipe.change_scene(SUMMARY_SCENE if CareerProfile.season_complete()
+		_leave(SUMMARY_SCENE if CareerProfile.season_complete()
 			else "res://scenes/ui/career_pregame_screen.tscn")
 
 
@@ -673,15 +679,22 @@ func _build_new_career_confirm() -> Control:
 
 
 func _on_start_new_career() -> void:
-	SceneWipe.change_scene("res://scenes/ui/career_character_screen.tscn")
+	_leave("res://scenes/ui/career_character_screen.tscn")
 
 
 func _on_view_stats_pressed() -> void:
-	SceneWipe.change_scene("res://scenes/ui/career_stats_screen.tscn")
+	_leave("res://scenes/ui/career_stats_screen.tscn")
 
 
 func _on_main_menu_pressed() -> void:
-	SceneWipe.change_scene("res://scenes/ui/main_menu.tscn")
+	_leave("res://scenes/ui/main_menu.tscn")
+
+
+func _leave(scene: String) -> void:
+	if _busy:
+		return
+	_busy = true
+	SceneWipe.change_scene(scene)
 
 
 ## Pixel-art exclamation mark: a tall stem block over a square dot, both

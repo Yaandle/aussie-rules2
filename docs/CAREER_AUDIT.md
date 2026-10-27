@@ -189,7 +189,8 @@ have Juniors-strength squads. F8 is the dev sim key (debug builds only).
   12 a Season Summary shows your ladder finish, your season line and
   promoted or not, then Start Next Season.
 - Leagues use P1's ladder. Generated attribute ranges rise with tier. The
-  Dashboard header shows league · season · round · ladder position.
+  Dashboard header shows league · season — player name; the round is on
+  the Next Game card and the ladder position on the ladder panel.
 - A headless harness sims 3 seasons and checks the ladder sums, promotion
   and save round-trips. Back up the real save first (see LESSONS).
 
@@ -214,7 +215,8 @@ Fixed in full_game.gd (`_dead_ball_at()`), and the two now agree.
   get +1 game (there's no interchange yet), and your player also gets
   career totals.
 - New VIEW STATS page in CareerTheme: ← → cycles the stat, and the table
-  is **PLAYER | TOTAL | AVG | GP**, sorted by total, with your row tinted.
+  is **PLAYER | TOTAL | AVERAGE | GAMES PLAYED**, sorted by total, with
+  your row tinted. (It first shipped as AVG | GP; spelled out after review.)
   A "Last Match" tab keeps the full-time card reachable.
 - The full-time card adds a "+5 upgrades" line.
 
@@ -343,8 +345,17 @@ different in a match. Headless checks can't judge any of these.
 
 Commits on `update`, oldest first: `f7cf90a` (0), `2cefede` (1), `d85863f`
 (2), `5fb7bd0` (stoppage dead ball, found through Phase 2), `7eea0f4` (3),
-`634d86d` (4), `549b432` (5), `9755693` (6), `2ff61e3` (7), and Phase 8.
+`634d86d` (4), `549b432` (5), `9755693` (6), `2ff61e3` (7), `93f79c4` (8).
 Each commit message lists what was verified headless and what needs eyes.
+
+A review agent went through all eight phases and found no crashes or
+broken paths. Its four small fixes landed in one follow-up commit: the
+Dashboard ignores input once a wipe starts (a double press started two
+scene changes), the full-time card's upgrades line shows only straight
+after a match, the stats headings are spelled out, and the Phase 1 header
+wording above. Left as the user's call: View Roster keeps the six Career
+fields rather than the TEAMS sheet's attribute columns, and the fixture's
+left arrow shows whenever there's an earlier round.
 
 Tuning numbers that are unplaytested feel guesses: `CAREER_HEIGHT_*`,
 `CAREER_LEAGUE_BAND_WIDTH`, `CAREER_SIM_*` (aimed at 27 points a side

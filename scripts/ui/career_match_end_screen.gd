@@ -85,9 +85,12 @@ func _ready() -> void:
 		CareerTheme.PANEL_TEXT, SoftBrutalist.WEIGHT_HEAVY, 1))
 	column.add_child(_build_scoreline())
 	# What the match earned (CareerProfile.record_result() notes it on the
-	# result); absent on a result from before upgrades existed.
+	# result); absent on a result from before upgrades existed. Only straight
+	# after the match: reopened from the stats page's LAST MATCH, the upgrades
+	# may be spent already, and "+5 UPGRADES" would read as five more
+	# (Career review finding 4).
 	var upgrades := int(_result.get("upgrades", 0))
-	if upgrades > 0:
+	if upgrades > 0 and return_scene == DASHBOARD_SCENE:
 		column.add_child(CareerTheme.label("+%d UPGRADES — spend them in Edit Player" % upgrades,
 			SoftBrutalist.SIZE_LABEL, CareerTheme.POSITIVE, SoftBrutalist.WEIGHT_BOLD, 1))
 	column.add_child(_build_rule())

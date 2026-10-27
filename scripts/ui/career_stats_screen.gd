@@ -3,8 +3,9 @@ extends CanvasLayer
 
 ## Career mode's VIEW STATS page — reached from the Dashboard. One stat at
 ## a time (← / → or a click on its tab cycles STATS below), as a
-## leaderboard of this season's squad: PLAYER | TOTAL | AVG | GP, highest
-## total first, your row tinted. The card on the left is your own line for
+## leaderboard of this season's squad: PLAYER | TOTAL | AVERAGE | GAMES
+## PLAYED (the playtest's own words, spelled out rather than AVG / GP),
+## highest total first, your row tinted. The card on the left is your own line for
 ## that stat, this season and across the whole career (CareerProfile.
 ## season_stats / career_stats). LAST MATCH (Enter/A) opens the full-time
 ## card for the most recent match, which comes back here.
@@ -26,12 +27,14 @@ const STATS := [
 	{"key": "hitouts", "label": "HIT-OUTS"},
 ]
 
+## Widths fit the spelled-out headings: CareerTable clips a cell to its
+## column, and the table has ~800 px beside the side column to give.
 const COLUMNS := [
 	{"label": "", "width": 22.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
 	{"label": "PLAYER", "width": 0.0, "align": HORIZONTAL_ALIGNMENT_LEFT},
-	{"label": "TOTAL", "width": 64.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
-	{"label": "AVG", "width": 64.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
-	{"label": "GP", "width": 44.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+	{"label": "TOTAL", "width": 72.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+	{"label": "AVERAGE", "width": 104.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+	{"label": "GAMES PLAYED", "width": 148.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
 ]
 
 const SCREEN_MARGIN_X := SoftBrutalist.SPACE_6
@@ -291,7 +294,8 @@ func _line_row(title: String, line: Dictionary) -> Control:
 	block.add_child(figures)
 	var games := CareerProfile.stat_total(line, "games")
 	var total := CareerProfile.stat_total(line, _stat_key())
-	for pair: Array in [["TOTAL", "%d" % total], ["AVG", _average(total, games)], ["GP", "%d" % games]]:
+	for pair: Array in [["TOTAL", "%d" % total], ["AVERAGE", _average(total, games)],
+			["GAMES PLAYED", "%d" % games]]:
 		var cell := VBoxContainer.new()
 		cell.add_theme_constant_override(&"separation", 0)
 		cell.mouse_filter = Control.MOUSE_FILTER_IGNORE
