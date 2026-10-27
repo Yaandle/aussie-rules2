@@ -208,10 +208,15 @@ func _physics_process(_delta: float) -> void:
 	# TackleTutorial.rep_active() is false while a step card is up or during
 	# the between-steps beat, so the dummy holds still until the player
 	# dismisses the card.
+	# A ragdolled rival also stays live until it's back on its feet: the
+	# tackle that clears a step ends the rep on the same frame, and freezing
+	# it then left its ragdoll parked mid-build — the carrier stood there
+	# untackled while only the tackler fell.
 	if is_instance_valid(_rival):
 		var rival_active := _coach_state == CoachState.NONE \
 			or (_coach_state == CoachState.CHALLENGE and _active_coach == CoachKind.TACKLING \
-				and is_instance_valid(_tackle_tutorial) and _tackle_tutorial.rep_active())
+				and is_instance_valid(_tackle_tutorial) and _tackle_tutorial.rep_active()) \
+			or _rival.is_ragdolled()
 		_rival.set_physics_process(rival_active)
 
 

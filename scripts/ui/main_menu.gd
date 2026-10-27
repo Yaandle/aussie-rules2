@@ -75,9 +75,12 @@ const TITLE_TEXT := "AUSSIE RULES 2"
 const SUBTITLE_TEXT := "CHOOSE YOUR GAME MODE"
 const LOCKED_SUBTITLE := "Not built yet"
 const ESTABLISHED_TEXT := "EST. 2025"
-## Placeholder — the project has no build-version source yet; update this
-## by hand until one exists.
-const VERSION_TEXT := "v.1.0"
+## Read from project.godot's application/config/version, so the tag on
+## this screen can't drift from the build number again (it read "v.1.0"
+## through the whole 1.2 release while project.godot already said 1.2.0).
+## Bump that one setting per release; the fallback only shows if it's unset.
+const VERSION_SETTING := "application/config/version"
+const VERSION_FALLBACK := "dev"
 
 ## Utility row below the mode cards — navigable via ↓/↑ (or d-pad),
 ## left/right to cycle, Enter/A to enter. Character and Team shortcuts
@@ -91,6 +94,12 @@ const UTIL_SEPARATION := 48
 
 const IMAGE_DIR := "res://assets/textures/images/"
 const IMAGE_EXTENSIONS := ["jpg", "jpeg", "png", "webp"]
+## Stand-in artwork for a card whose own image hasn't been made yet, so it
+## shows a real photo instead of the flat grey placeholder. CAREER has no
+## menuscreen_career image; the 3rd-person match capture centres on one
+## player, which suits "create a player". Drop a real menuscreen_career.png
+## in IMAGE_DIR and it takes over automatically.
+const IMAGE_FALLBACKS := {"menuscreen_career": "3rdperson"}
 
 # ── Layout ───────────────────────────────────────────────────────────
 # Sizes on SoftBrutalist's 8px spacing step. Only minimums and gaps are
@@ -104,9 +113,14 @@ const CARD_SEPARATION := int(SoftBrutalist.SPACE_5) ## 40
 ## Smaller than a full-bleed hero tile on purpose — these sit centred over
 ## the live 3D backdrop (menu_backdrop.tscn) with room left on every side,
 ## so the montage behind them stays visible rather than getting crowded out.
-const CARD_MIN_WIDTH := 152.0
-const CARD_MIN_HEIGHT := 188.0
-const CARD_PAD := 12.0
+## 216x288 (was 152x188): at 152 wide "FULL GAME" broke over two lines and
+## its subtitle wrapped to four, and the locked cards' "Not built yet" ran
+## under the arrow badge. Still a 3:4 portrait tile with plenty of backdrop
+## showing around the row; the band has ~380px of height to give, so the
+## selected card's 1.07 pop (~308px) still clears the util row.
+const CARD_MIN_WIDTH := 216.0
+const CARD_MIN_HEIGHT := 288.0
+const CARD_PAD := 16.0
 ## Sharp, matching RetroWindow's unrounded shell — the mode-select cards
 ## now read as the same "windowed retro console" family as the rest of
 ## the front end's borders (settings/pause/team-list/remap/character).
@@ -271,7 +285,20 @@ func _select() -> void:
 	var entry := _entries[_index]
 	if not entry.unlocked:
 		return
-	SceneWipe.change_scene(entry.scene_path)
+	SceneWipe.change_scene(_scene_for(entry))
+
+
+## CAREER continues a career in progress (its Dashboard) and only creates a
+## player when there isn't one. It used to open creation every time, and
+## CONFIRM there silently replaced the season — New Career on the
+## Dashboard is now the only way to start over.
+const CAREER_CREATE_SCENE := "res://scenes/ui/career_character_screen.tscn"
+const CAREER_DASHBOARD_SCENE := "res://scenes/ui/career_dashboard_screen.tscn"
+
+func _scene_for(entry: Entry) -> String:
+	if entry.scene_path == CAREER_CREATE_SCENE and CareerProfile.has_career():
+		return CAREER_DASHBOARD_SCENE
+	return entry.scene_path
 
 
 func _util_move(step: int) -> void:
@@ -344,7 +371,9 @@ func _build_corner_chrome(parent: Control) -> void:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(spacer)
 
-	row.add_child(SoftBrutalist.label(VERSION_TEXT, SoftBrutalist.SIZE_LABEL,
+	var version := String(ProjectSettings.get_setting(VERSION_SETTING, ""))
+	var version_text := "v" + version if not version.is_empty() else VERSION_FALLBACK
+	row.add_child(SoftBrutalist.label(version_text, SoftBrutalist.SIZE_LABEL,
 		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL))
 
 
@@ -534,6 +563,8 @@ func _build_card(entry: Entry, index: int) -> CardWidgets:
 	# past the bottom of their cards, straight over the footer.
 	image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	var texture := _find_card_image(entry.image_key)
+	if texture == null and IMAGE_FALLBACKS.has(entry.image_key):
+		texture = _find_card_image(IMAGE_FALLBACKS[entry.image_key])
 	if texture == null:
 		texture = _placeholder_texture(_placeholder_tints[index % _placeholder_tints.size()])
 	image.texture = texture
@@ -607,6 +638,10 @@ func _build_card(entry: Entry, index: int) -> CardWidgets:
 	widgets.arrow_badge.position = Vector2(-(CARD_PAD + ARROW_BADGE_SIZE),
 		-(CARD_PAD + ARROW_BADGE_SIZE))
 	widgets.arrow_icon = widgets.arrow_badge.get_child(0) as UIIcon
+	# A locked card has nowhere to go, so a "go" arrow on it is a false
+	# promise; the lock line already says why. Kept in the tree (hidden)
+	# so _refresh() can treat every card alike.
+	widgets.arrow_badge.visible = entry.unlocked
 	frame.add_child(widgets.arrow_badge)
 
 	# Border drawn last, on top of everything: a transparent-fill StyleBox

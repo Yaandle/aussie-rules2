@@ -73,6 +73,7 @@ ACTION_TIMING = {
 	"knocked_back": (1.3, 0.30),
 	"smothered": (0.45, 0.12),
 	"smother_dive": (0.55, 0.38),
+	"tackle_sling": (1.0, 0.12),
 }
 
 FK_BONES = ["pelvis", "spine1", "spine2", "head", "shoulder.l", "shoulder.r",
@@ -282,6 +283,13 @@ class Clip:
 	  "wrist_l", "wrist_r": lean(...) on the hand bone
 	  "foot_l", "foot_r": {"pos": P offset from the rest ankle, "pitch": deg
 	                       toe-down (negative = toe up), "turn": deg}
+	  "knee_l", "knee_r": P offset of that leg's ikpole from its rest spot
+	                      (1.04 m in front of the knee, at knee height). The
+	                      leg IK bends the knee toward the pole, so a foot
+	                      raised past it flips the knee down and back. Any
+	                      clip that lifts a foot above knee height out in
+	                      front (the kick's follow-through) has to carry the
+	                      pole up with it.
 	"""
 
 	def __init__(self, name, keys, legs_from=None, legs_offset=0.0):
@@ -343,6 +351,16 @@ def build_basis(rig, base, spec):
 		loc = f.get("pos", Vector())
 		q = rot((1, 0, 0), f.get("pitch", 0.0) * FOOT_PITCH_SIGN) @ rot((0, 0, 1), f.get("turn", 0.0))
 		basis["iktarget." + side] = (loc.copy(), q)
+	for side in ("l", "r"):
+		k = spec.get("knee_" + side)
+		if k is None:
+			continue
+		# Unlike iktarget's, the pole's rest frame isn't the armature's
+		# (its +Y runs forward), so the armature-axis offset is taken into
+		# it the same way the pelvis offset is.
+		name = "ikpole." + side
+		loc, q = basis[name]
+		basis[name] = (loc + rig.rest_rot[name].inverted() @ k, q)
 	return basis, reached
 
 
@@ -749,6 +767,13 @@ def clip_kick():
 	# hands, drop it, the right leg swings through on BootPoint's line
 	# (~0.5 m ahead, ~0.3 m up), follow through high with the body leaning
 	# back against it.
+	#
+	# The right pole rides up with the swing (knee_r). Left at its rest
+	# spot, it ended up under the hip-to-ankle line once the boot rose past
+	# knee height in the follow-through, and the knee flipped down and back
+	# for ~0.1 s (measured in Godot: the thigh and shin turned ~33° in a
+	# single 1/120 s step at 0.53 s, then flipped back at 0.63 s). Playtest:
+	# "kicking animation has a small glitch with the leg".
 	return Clip("kick", [
 		(0.0, {}),
 		# wind-up: right leg back and up, ball held out over the kicking foot.
@@ -779,8 +804,10 @@ def clip_kick():
 			"elbow_l": P(1.0, -0.2, -0.6), "elbow_r": P(-1.0, 0.4, -0.5),
 			"foot_l": {"pos": P(0, 0.14, 0), "pitch": 5},
 			"foot_r": {"pos": P(0.02, 0.50, 0.28), "pitch": 45},
+			"knee_r": P(0, -0.30, 0.60),
 		}),
-		# follow-through: boot finishes high, left heel lifting.
+		# follow-through: boot finishes high, left heel lifting. Pole well
+		# above the near-level leg, so the knee points up.
 		(contact + (length - contact) * 0.45, {
 			"pelvis": {"pos": P(0, 0.08, 0.02), "rot": lean(fwd=-10, turn=6)},
 			"spine1": lean(fwd=-6), "spine2": lean(fwd=-2), "head": lean(fwd=8),
@@ -788,6 +815,7 @@ def clip_kick():
 			"elbow_l": P(1.0, -0.2, -0.5), "elbow_r": P(-1.0, 0.4, -0.5),
 			"foot_l": {"pos": P(0, 0.14, 0.07), "pitch": 15},
 			"foot_r": {"pos": P(0.02, 0.66, 0.88), "pitch": 30},
+			"knee_r": P(0, -0.44, 1.20),
 		}),
 		(length, {}),
 	])
@@ -1054,6 +1082,62 @@ def clip_smother_dive():
 	])
 
 
+def clip_tackle_sling():
+	length, contact = ACTION_TIMING["tackle_sling"]
+	# The tackler's half of a Slide that knocks the carrier over (Tuning's
+	# TACKLE_SLING). Playtest: "the tackler animations needs more work because
+	# it looks like the old tackle animation". The tackler stays on their feet
+	# and swings the carrier down across their body to the LEFT, which is the
+	# way PlayerController._sling_impact throws the carrier's ragdoll: arms
+	# locked round the chest at contact, then the twist. Pelvis, spine and
+	# head turn together (~45 deg at the bottom), the torso drives forward and
+	# down, the hands drag left and low, and the right foot steps through
+	# across the body to carry the turn. Then up again by the end. Hands ride
+	# the chest frame (offsets from each shoulder), so they stay round the
+	# carrier's chest as the torso twists and leans.
+	return Clip("tackle_sling", [
+		(0.0, {}),
+		# contact: wrapped round the chest, stepping in on the left.
+		(contact, {
+			"pelvis": {"pos": P(0, 0.04, -0.08), "rot": lean(fwd=4, turn=-4)},
+			"spine1": lean(fwd=12, turn=-4), "spine2": lean(fwd=8), "head": lean(fwd=6),
+			"hands_in": "chest",
+			"hand_l": P(-0.10, 0.40, -0.30), "hand_r": P(0.10, 0.40, -0.30),
+			"elbow_l": P(1.0, 0.1, -0.3), "elbow_r": P(-1.0, 0.1, -0.3),
+			"foot_l": {"pos": P(0, 0.26, 0)}, "foot_r": {"pos": P(0, -0.14, 0.02), "pitch": 10},
+		}),
+		# the swing: turning left, driving down, hands dragging across.
+		(contact + (length - contact) * 0.25, {
+			"pelvis": {"pos": P(0.04, 0.08, -0.15), "rot": lean(fwd=8, turn=18)},
+			"spine1": lean(fwd=18, turn=12), "spine2": lean(fwd=10, turn=8), "head": lean(fwd=10, turn=10),
+			"hands_in": "chest",
+			"hand_l": P(0.10, 0.32, -0.44), "hand_r": P(0.24, 0.42, -0.40),
+			"elbow_l": P(1.0, -0.2, -0.3), "elbow_r": P(-0.8, 0.4, -0.4),
+			"foot_l": {"pos": P(0, 0.26, 0)}, "foot_r": {"pos": P(0.10, 0.10, 0.06), "pitch": 15, "turn": 20},
+		}),
+		# through and low: the throw finishes down by the left knee, right
+		# foot planted across.
+		(contact + (length - contact) * 0.48, {
+			"pelvis": {"pos": P(0.08, 0.10, -0.22), "rot": lean(fwd=12, turn=26)},
+			"spine1": lean(fwd=24, turn=12), "spine2": lean(fwd=12, turn=8), "head": lean(fwd=12, turn=6),
+			"hands_in": "chest",
+			"hand_l": P(0.16, 0.24, -0.56), "hand_r": P(0.30, 0.36, -0.54),
+			"elbow_l": P(1.0, -0.3, -0.2), "elbow_r": P(-0.6, 0.6, -0.4),
+			"foot_l": {"pos": P(0, 0.26, 0)}, "foot_r": {"pos": P(0.18, 0.20, 0), "turn": 30},
+		}),
+		# coming back up over the feet.
+		(contact + (length - contact) * 0.75, {
+			"pelvis": {"pos": P(0.06, 0.08, -0.10), "rot": lean(fwd=6, turn=16)},
+			"spine1": lean(fwd=12, turn=6), "spine2": lean(fwd=6, turn=4), "head": lean(fwd=4),
+			"hands_in": "chest",
+			"hand_l": P(0.06, 0.20, -0.48), "hand_r": P(-0.04, 0.22, -0.48),
+			"elbow_l": P(1.0, -0.2, -0.5), "elbow_r": P(-1.0, -0.2, -0.5),
+			"foot_l": {"pos": P(0, 0.16, 0)}, "foot_r": {"pos": P(0.10, 0.08, 0), "turn": 15},
+		}),
+		(length, {}),
+	])
+
+
 CLIPS = {
 	"mark_safe": clip_mark_safe,
 	"mark_running": clip_mark_running,
@@ -1067,6 +1151,7 @@ CLIPS = {
 	"knocked_back": clip_knocked_back,
 	"smothered": clip_smothered,
 	"smother_dive": clip_smother_dive,
+	"tackle_sling": clip_tackle_sling,
 }
 
 

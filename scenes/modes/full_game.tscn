@@ -54,6 +54,7 @@ directional_shadow_max_distance = 120.0
 directional_shadow_blend_splits = true
 
 [node name="Field" parent="." instance=ExtResource("2_field")]
+follow_field_style = true
 
 [node name="Ball" parent="." instance=ExtResource("3_ball")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)

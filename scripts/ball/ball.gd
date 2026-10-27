@@ -170,14 +170,20 @@ func _physics_process(delta: float) -> void:
 			and global_position.y <= Tuning.BOUNCE_REBOUND_HEIGHT:
 		_bounce_rebounded = true
 		_is_bounce_flight = false
-		# Keep a cut of the forward speed, then cap it outright — momentum
-		# transfer from a sprint (DISPOSAL_MOMENTUM_TRANSFER) otherwise sent
-		# the rebound further ahead the faster you were going, which
-		# overran the carrier. The cap makes "how far in front it lands"
-		# roughly the same whether you're jogging or flat out.
-		var horizontal := Vector3(linear_velocity.x, 0.0, linear_velocity.z) \
-			* Tuning.BOUNCE_REBOUND_KEEP
-		horizontal = horizontal.limit_length(Tuning.BOUNCE_REBOUND_MAX_AHEAD)
+		# Forward speed follows the bouncer, who keeps running through a
+		# bounce now (Tuning's "Bouncing at pace"): MATCH of their own pace
+		# along the bounce plus a little LEAD, so it comes up just ahead of
+		# them while they close on it gently at any speed. A fixed cap
+		# could only suit one pace, and an 11 m/s sprinter ran straight
+		# into a 3.8 m/s ball at thigh height. Without a bouncer to read,
+		# it keeps a cut of its own speed, capped (the old rule).
+		var horizontal := Vector3(linear_velocity.x, 0.0, linear_velocity.z)
+		var bouncer := _last_disposer as CharacterBody3D
+		if is_instance_valid(bouncer) and horizontal.length_squared() > 0.0001:
+			var along := maxf(0.0, Vector3(bouncer.velocity.x, 0.0, bouncer.velocity.z).dot(horizontal.normalized()))
+			horizontal = horizontal.normalized() * (along * Tuning.BOUNCE_REBOUND_MATCH + Tuning.BOUNCE_REBOUND_LEAD)
+		else:
+			horizontal = (horizontal * Tuning.BOUNCE_REBOUND_KEEP).limit_length(Tuning.BOUNCE_REBOUND_MAX_AHEAD)
 		linear_velocity = Vector3(horizontal.x, Tuning.BOUNCE_REBOUND_UP_SPEED, horizontal.z)
 
 	# One-shot "it came down" notice, for camera framing and audio later.
@@ -188,6 +194,9 @@ func _physics_process(delta: float) -> void:
 		# same as a kick that bounces before anyone takes it in real AFL.
 		_is_kick_flight = false
 		_is_handball_flight = false
+		# A rebounded bounce that comes back down untaken is just a loose
+		# ball now (see awaiting_own_bounce).
+		_bounce_rebounded = false
 		_kick_team = Tuning.Team.NONE
 	_was_airborne = airborne
 
@@ -279,7 +288,9 @@ func launch(direction: Vector3, speed: float, spin: Vector3, from: Node3D = null
 				remove_collision_exception_with(_carrier)
 			_carrier = from
 			add_collision_exception_with(from)
-		_release_grace = Tuning.RELEASE_GRACE
+		# A bounce is run onto, so the bouncer's legs would otherwise kick
+		# it on the way back up (Tuning's "Bouncing at pace").
+		_release_grace = Tuning.BOUNCE_RELEASE_GRACE if is_bounce else Tuning.RELEASE_GRACE
 	_last_disposer = from
 	freeze = false
 	sleeping = false
@@ -410,6 +421,21 @@ func distance_since_launch() -> float:
 	if is_held:
 		return 0.0
 	return global_position.distance_to(_flight_origin)
+
+
+## True while this is `player`'s own manual bounce and it isn't back up for
+## them yet: still going into the turf, or rebounded but below
+## Tuning.BOUNCE_REGATHER_HEIGHT and still rising. A bounce has to touch the
+## ground, and taking it straight off the turf read as the ball snapping up
+## from the shins. PlayerController._try_gather skips it until then, in
+## place of the usual GATHER_COOLDOWN (Tuning's "Bouncing at pace").
+func awaiting_own_bounce(player: Node3D) -> bool:
+	if player != _last_disposer or is_held:
+		return false
+	if _is_bounce_flight:
+		return true
+	return _bounce_rebounded and global_position.y < Tuning.BOUNCE_REGATHER_HEIGHT \
+		and linear_velocity.y > 0.0
 
 
 ## Whoever most recently launched this flight (see `_last_disposer`'s own

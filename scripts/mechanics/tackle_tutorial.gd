@@ -44,7 +44,7 @@ const STEPS: Array[Dictionary] = [
 	{
 		"kind": Kind.SLIDE_DIVE,
 		"title": "Slide tackle — dive in",
-		"instruction": "From just outside arm's reach, hold the tackle: you commit to a dive that closes the last step and wraps them up.",
+		"instruction": "From just outside arm's reach, hold the tackle: you commit to a dive that closes the last step and wraps them up. Hit them square and hard and they go down — you stay on your feet.",
 		"kb": [{"keys": "Hold E", "label": "Slide tackle"}],
 		"pad": [{"keys": "Hold B", "label": "Slide tackle"}],
 	},

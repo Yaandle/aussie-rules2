@@ -2,118 +2,175 @@ class_name CareerCharacterScreen
 extends Node
 
 ## Career mode's character creation screen — reached from the main menu's
-## CAREER card. Visually the same "retro windowed console" shell as
+## CAREER card when there's no career yet, and from the Dashboard's New
+## Career. Visually the same "retro windowed console" shell as
 ## character_screen.gd (reuses CharacterBackdrop/RetroWindow/StatRow/
-## ActionButton/KeyHintBar/UIStyle directly, no duplication of those), but
-## its own script/scene: the draft here binds to CareerProfile instead of
-## CharacterProfile, and the row list is different — NAME/POSITION/NUMBER/
-## FOOT ahead of the same five adjustable attributes CHARACTER has.
+## ActionButton/UIStyle directly, no duplication of those), but its own
+## script/scene: the draft here binds to CareerProfile instead of
+## CharacterProfile.
 ##
-## CONFIRM generates the player's own 18-player roster (RosterGenerator,
-## with this created character spliced into the slot matching their
-## chosen POSITION), a 12-fixture season, writes it all to CareerProfile,
-## persists it, and launches the Career Dashboard. There is no Customise
-## panel here (model/kit colours) — CareerProfile carries those fields for
-## when that's added, but this pass only asks for what the brief asked
-## for: name, position, number, foot, attributes.
+## docs/CAREER_AUDIT.md Phase 6 (playtest brief): the card asks only for
+## NAME, POSITION, NUMBER and FOOT — no attribute rows, because attributes
+## are earned now — then a divider and CAREER SETTINGS: DIFFICULTY, Easy
+## or Hard, which sets where every attribute starts (CareerProfile.
+## start_level(): one square on Easy, none on Hard) and is fixed for the
+## career. HEIGHT follows POSITION (CareerProfile.height_for_role()), so the
+## preview resizes as you pick one.
+##
+## CUSTOMISE PLAYER floats under the player, as CUSTOMISE does on the
+## CHARACTER screen (C): Y / Tab or a click swaps the card's rows for that
+## screen's own CUSTOMISE_ROWS (model and kit colours, from its SWATCHES)
+## and eases the camera in; B or the button again comes back. The kit is
+## Career's own (CareerProfile's colour fields), which TeamKit already uses
+## in Career matches.
+##
+## The player stands in the middle of the right third of the screen on
+## Field 2, the bush oval (CharacterBackdrop.subject_screen_x and
+## dress_field_2, set on this scene's backdrop instance).
+##
+## CONFIRM writes the draft to CareerProfile and calls its start_career()
+## (start levels, an 18-player roster with this character spliced into
+## their POSITION's slot, a 12-round season, persisted), then launches the
+## Career Dashboard.
+##
+## `edit_mode` (Phase 7) makes this the Dashboard's EDIT YOUR PLAYER page —
+## the same script on a second scene, so the two can't drift apart. Same
+## rows and Customise; the CAREER SETTINGS block becomes ATTRIBUTES: the
+## four trainable attributes as bars, where → spends one of
+## CareerProfile.upgrades_available on a square (up to attribute_cap() for
+## the league) and ← takes back only a square added on this visit.
+## Difficulty is fixed once a career starts, so it's in the subtitle, read
+## only. SAVE commits: a new POSITION moves your roster entry
+## (CareerProfile.set_position(), which is also where HEIGHT re-sets), a new
+## NUMBER swaps with whoever wore it (set_number()). Leaving without SAVE
+## drops the draft. This page replaces the pregame screen's YOUR POSITION.
 
 ## `kind` picks how _nudge()/_activate()/_row_value_text() treat the row:
 ## "text" (NAME, edited via a hidden LineEdit — see _build_name_edit),
 ## "role" (cycles TeamFormation.Role), "int" (NUMBER, ±1 clamped 1..99),
-## "foot" (two-value LEFT/RIGHT toggle), "stat" (the same numeric nudge
-## character_screen.gd's attribute rows use).
+## "foot" (two-value LEFT/RIGHT toggle). The Customise panel's rows are
+## CharacterScreen.CUSTOMISE_ROWS ("model" and "swatch" kinds).
+const ATTRIBUTE_ROWS := [
+	{"key": "speed", "icon": &"speed", "name": "SPEED", "format": "%.2f m/s"},
+	{"key": "kick_power", "icon": &"kick", "name": "KICKING POWER", "format": "%.2fx"},
+	{"key": "kick_accuracy", "icon": &"accuracy", "name": "KICKING ACCURACY", "format": "%.0f%%"},
+	{"key": "agility", "icon": &"agility", "name": "AGILITY", "format": "%.2fx"},
+]
+
 const CAREER_ROWS := [
 	{"key": "player_name", "icon": &"figure", "name": "NAME", "kind": "text", "bar": false},
 	{"key": "position", "icon": &"gear", "name": "POSITION", "kind": "role", "bar": false},
 	{"key": "number", "icon": &"gear", "name": "NUMBER", "kind": "int", "bar": false},
 	{"key": "foot", "icon": &"foot", "name": "FOOT", "kind": "foot", "bar": false},
-	{"key": "speed", "icon": &"speed", "name": "SPEED", "kind": "stat"},
-	{"key": "kick_power", "icon": &"kick", "name": "KICKING POWER", "kind": "stat"},
-	{"key": "kick_accuracy", "icon": &"accuracy", "name": "KICKING ACCURACY", "kind": "stat"},
-	{"key": "agility", "icon": &"agility", "name": "AGILITY", "kind": "stat"},
-	{"key": "height", "icon": &"height", "name": "HEIGHT", "kind": "stat"},
 ]
 
 const TITLE := "CREATE YOUR PLAYER"
+const EDIT_TITLE := "EDIT YOUR PLAYER"
 const SUBTITLE := "JUNIORS U18s CAREER"
 const ACTION_TEXT := "CONFIRM — START CAREER"
+const EDIT_ACTION_TEXT := "SAVE — BACK TO DASHBOARD"
+const SETTINGS_TITLE := "CAREER SETTINGS"
+const CUSTOMISE_TEXT := "CUSTOMISE PLAYER"
+const BACK_TEXT := "BACK"
 const DEFAULT_NAME := "PLAYER"
 const NAME_MAX_LENGTH := 20
 
 # ── Left column geometry, in design-resolution px (1280x720) ─────────
-# Same derivation as character_screen.gd's own CARD_* consts, just with
-# BUTTON_TOP pushed down to clear nine rows instead of eight-plus-APPLY.
+# Same derivation as character_screen.gd's own CARD_* consts: four rows,
+# then the CAREER SETTINGS block, then the button.
 const LEFT_MARGIN := 58.0
 const HEADER_TOP := 62.0
 const STAT_TOP := 160.0
 const ROW_SEPARATION := 8
-const BUTTON_TOP := 600.0
+const ROW_PITCH := StatRow.HEIGHT + ROW_SEPARATION
+const SETTINGS_TOP := STAT_TOP + ROW_PITCH * 4.0 + 8.0
+const BUTTON_TOP := SETTINGS_TOP + 140.0
+## Edit mode's block is a heading over four attribute rows.
+const EDIT_BUTTON_TOP := SETTINGS_TOP + 32.0 + ROW_PITCH * 4.0
 
 const CARD_PAD := 24.0
 const CARD_LEFT := LEFT_MARGIN - CARD_PAD
 const CARD_TOP := HEADER_TOP - CARD_PAD
-const CARD_WIDTH := StatRow.WIDTH + CARD_PAD * 2.0
-const CARD_HEIGHT := BUTTON_TOP + ActionButton.HEIGHT - CARD_TOP + CARD_PAD
+## Includes the selected row's right-hand nudge arrow, which StatRow
+## draws past its own WIDTH (ARROW_RIGHT_X) — without it the arrow sat on
+## the card's 4px border.
+const CARD_WIDTH := StatRow.WIDTH + StatRow.ARROW_GAP + StatRow.ARROW_SIZE + CARD_PAD * 2.0
 
-const HINTS_TOP := CARD_TOP + CARD_HEIGHT + RetroWindow.SHADOW_OFFSET.y + 6.0
+## Under the player: the middle of the right third (the backdrop's
+## subject_screen_x), low enough to clear the Customise zoom's shoes.
+const CUSTOMISE_CENTRE := Vector2(1280.0 * 0.833, 664.0)
 
+
+## The Edit Player page (see the header). Set on that scene's root.
+@export var edit_mode := false
 
 @onready var _ui: Control = $Overlay/UI
 @onready var _backdrop: CharacterBackdrop = $CharacterBackdrop
 
-var _stat_config := {}
 var _draft := {}
-var _rows: Array[StatRow] = []
+var _model_ids: Array[String] = ["procedural"]
+var _rows: Array[StatRow] = []   ## pool, sized for the longer of the two row lists
+var _settings_block: Control
+var _difficulty_row: StatRow
+var _difficulty_caption: Label
+var _attribute_rows: Array[StatRow] = []
+var _attribute_heading: Label
+var _base_levels := {}   ## levels on arrival — ← can't go below these
+var _upgrades_left := 0
 var _play: ActionButton
+var _customise_button: ActionButton
 var _hints: DeviceHintBar
 var _name_edit: LineEdit
 var _selected := 0
+var _customising := false
 var _busy := false   ## true while a wipe is in flight — input is inert
 var _editing_name := false   ## true while _name_edit holds keyboard focus
 
 
 func _ready() -> void:
-	_stat_config = {
-		"speed": {"min": Tuning.CHARACTER_SPEED_MIN, "max": Tuning.CHARACTER_SPEED_MAX,
-			"step": Tuning.CHARACTER_SPEED_STEP, "format": "%.2f m/s"},
-		"height": {"min": Tuning.CHARACTER_HEIGHT_MIN, "max": Tuning.CHARACTER_HEIGHT_MAX,
-			"step": Tuning.CHARACTER_HEIGHT_STEP, "format": "%.0f cm"},
-		"kick_power": {"min": Tuning.CHARACTER_KICK_POWER_MIN, "max": Tuning.CHARACTER_KICK_POWER_MAX,
-			"step": Tuning.CHARACTER_KICK_POWER_STEP, "format": "%.2fx"},
-		"kick_accuracy": {"min": Tuning.CHARACTER_KICK_ACCURACY_MIN,
-			"max": Tuning.CHARACTER_KICK_ACCURACY_MAX,
-			"step": Tuning.CHARACTER_KICK_ACCURACY_STEP, "format": "%.0f%%"},
-		"agility": {"min": Tuning.CHARACTER_AGILITY_MIN, "max": Tuning.CHARACTER_AGILITY_MAX,
-			"step": Tuning.CHARACTER_AGILITY_STEP, "format": "%.2fx"},
-	}
+	_model_ids.append_array(HumanoidRig.CHARACTER_MODELS.keys())
 	_draft = {
 		"player_name": CareerProfile.player_name,
 		"position": int(CareerProfile.position),
 		"number": CareerProfile.number,
 		"foot": CareerProfile.foot,
-		"speed": CareerProfile.speed,
-		"height": CareerProfile.height,
-		"kick_power": CareerProfile.kick_power,
-		"kick_accuracy": CareerProfile.kick_accuracy,
-		"agility": CareerProfile.agility,
+		"difficulty": CareerProfile.difficulty,
+		"model_id": CareerProfile.model_id,
+		"skin_color": CareerProfile.skin_color,
+		"jersey_color": CareerProfile.jersey_color,
+		"shorts_color": CareerProfile.shorts_color,
+		"boot_color": CareerProfile.boot_color,
+		"socks_color": CareerProfile.socks_color,
 	}
+	if edit_mode:
+		for key: String in CareerProfile.ATTRIBUTE_RANGES:
+			_draft[key] = CareerProfile.level(key)
+			_base_levels[key] = CareerProfile.level(key)
+		_upgrades_left = CareerProfile.upgrades_available
 	_build()
-	_backdrop.set_height_scale(_draft["height"] / Tuning.CHARACTER_HEIGHT_DEFAULT)
-	_backdrop.set_model(CareerProfile.model_id)
-	_backdrop.set_kit_colors(_resolved_hex(CareerProfile.skin_color),
-		_resolved_hex(CareerProfile.jersey_color), _resolved_hex(CareerProfile.shorts_color),
-		_resolved_hex(CareerProfile.boot_color))
+	_sync_backdrop_height()
+	_backdrop.set_model(_draft["model_id"])
+	_apply_kit_preview()
+	_apply_row_mode()
 	_refresh()
 
 
-func _resolved_hex(hex: String) -> Color:
-	return Color(hex) if not hex.is_empty() else Color(0.0, 0.0, 0.0, 0.0)
+func _draft_height() -> float:
+	return CareerProfile.height_for_role(_draft["position"])
+
+
+func _sync_backdrop_height() -> void:
+	_backdrop.set_height_scale(_draft_height() / Tuning.CHARACTER_HEIGHT_DEFAULT)
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if _busy or _editing_name:
 		return
-	if event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up"):
+	if _is_customise_press(event):
+		_toggle_customise()
+	elif _customising and event.is_action_pressed(&"decline"):
+		_toggle_customise()
+	elif event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up"):
 		_move(-1)
 	elif event.is_action_pressed(&"move_back") or event.is_action_pressed(&"ui_down"):
 		_move(1)
@@ -128,12 +185,42 @@ func _unhandled_input(event: InputEvent) -> void:
 		_exit_to_menu()
 
 
+## Y on a pad, Tab on a keyboard — the CHARACTER screen's own Customise
+## keys, read raw for the same reason it gives (character_screen.gd).
+func _is_customise_press(event: InputEvent) -> bool:
+	if event is InputEventJoypadButton:
+		return event.is_pressed() and (event as InputEventJoypadButton).button_index == JOY_BUTTON_Y
+	if event is InputEventKey:
+		var key := event as InputEventKey
+		return key.is_pressed() and not key.echo and key.physical_keycode == KEY_TAB
+	return false
+
+
+# ── Cursor ───────────────────────────────────────────────────────────
+
+func _active_rows() -> Array:
+	return CharacterScreen.CUSTOMISE_ROWS if _customising else CAREER_ROWS
+
+
+## The DIFFICULTY row's place in the cursor order, -1 while customising
+## (the CAREER SETTINGS block is hidden then) or editing (it's fixed).
+func _difficulty_index() -> int:
+	return -1 if _customising or edit_mode else CAREER_ROWS.size()
+
+
+## Where the ATTRIBUTES rows start in the cursor order, -1 unless editing.
+func _attributes_index() -> int:
+	return CAREER_ROWS.size() if edit_mode and not _customising else -1
+
+
 func _confirm_index() -> int:
-	return CAREER_ROWS.size()
+	if _customising:
+		return _active_rows().size()
+	return CAREER_ROWS.size() + (ATTRIBUTE_ROWS.size() if edit_mode else 1)
 
 
 func _row_count() -> int:
-	return CAREER_ROWS.size() + 1   # + the CONFIRM action row
+	return _confirm_index() + 1
 
 
 func _move(step: int) -> void:
@@ -142,108 +229,219 @@ func _move(step: int) -> void:
 
 
 func _nudge(direction: int) -> void:
-	if _selected >= CAREER_ROWS.size():
+	var attribute := _selected - _attributes_index()
+	if _attributes_index() >= 0 and attribute >= 0 and attribute < ATTRIBUTE_ROWS.size():
+		_spend(String(ATTRIBUTE_ROWS[attribute]["key"]), direction)
 		return
-	var row: Dictionary = CAREER_ROWS[_selected]
-	match row.get("kind", "stat"):
-		"text":
-			pass   # edited via Enter (_activate), not A/D
+	if _selected == _difficulty_index():
+		_draft["difficulty"] = CareerProfile.DIFFICULTY_HARD \
+			if _draft["difficulty"] == CareerProfile.DIFFICULTY_EASY else CareerProfile.DIFFICULTY_EASY
+		_refresh()
+		return
+	var rows := _active_rows()
+	if _selected >= rows.size():
+		return
+	var row: Dictionary = rows[_selected]
+	match row.get("kind", ""):
 		"role":
 			var count: int = TeamFormation.Role.size()
 			_draft["position"] = (_draft["position"] + direction + count) % count
-			_refresh()
+			_sync_backdrop_height()   # HEIGHT follows POSITION
 		"int":
 			_draft["number"] = clampi(_draft["number"] + direction, 1, 99)
-			_refresh()
 		"foot":
 			_draft["foot"] = CareerProfile.FOOT_LEFT if _draft["foot"] == CareerProfile.FOOT_RIGHT \
 				else CareerProfile.FOOT_RIGHT
-			_refresh()
+		"model":
+			_cycle_model(direction)
+		"swatch":
+			_cycle_swatch(row["key"], direction)
 		_:
-			var key: String = row["key"]
-			var config: Dictionary = _stat_config[key]
-			_draft[key] = clampf(_draft[key] + direction * float(config["step"]),
-				float(config["min"]), float(config["max"]))
-			if key == "height":
-				_backdrop.set_height_scale(_draft["height"] / Tuning.CHARACTER_HEIGHT_DEFAULT)
-			_refresh()
+			return   # NAME is edited via Enter (_activate), not A/D
+	_refresh()
+
+
+## → one square on `key` for an upgrade, up to the league's cap; ← gives
+## back only squares added since the page opened.
+func _spend(key: String, direction: int) -> void:
+	var level: int = _draft[key]
+	if direction > 0 and _upgrades_left > 0 and level < CareerProfile.attribute_cap():
+		_draft[key] = level + 1
+		_upgrades_left -= 1
+	elif direction < 0 and level > int(_base_levels[key]):
+		_draft[key] = level - 1
+		_upgrades_left += 1
+	else:
+		return
+	_refresh()
 
 
 func _activate() -> void:
 	if _selected == _confirm_index():
-		_confirm_and_create()
+		_confirm()
 		return
-	var row: Dictionary = CAREER_ROWS[_selected]
-	if row.get("kind", "stat") == "text":
+	var rows := _active_rows()
+	if _selected < rows.size() and rows[_selected].get("kind", "") == "text":
 		_name_edit.grab_focus()
 
 
-## Builds the 18-player roster (the created character spliced into the
-## slot matching their chosen POSITION) and the 12-fixture season, writes
-## everything to CareerProfile, persists it, and launches the Dashboard.
-## An empty NAME falls back to DEFAULT_NAME rather than blocking — no
-## validation-dialog machinery exists on this screen, and a lean fallback
-## beats building one just for this.
+# ── Customise ────────────────────────────────────────────────────────
+
+func _toggle_customise() -> void:
+	_customising = not _customising
+	_customise_button.set_text(BACK_TEXT if _customising else CUSTOMISE_TEXT)
+	_customise_button.set_icon(&"arrow_right" if _customising else &"gear")
+	if _customising:
+		_backdrop.zoom_in()
+	else:
+		_backdrop.zoom_out()
+	_selected = 0
+	_apply_row_mode()
+	_refresh()
+
+
+## The shared StatRow pool shows whichever list is active and hides the
+## rest; the CAREER SETTINGS block only shows outside Customise.
+func _apply_row_mode() -> void:
+	var rows := _active_rows()
+	for i in _rows.size():
+		_rows[i].visible = i < rows.size()
+		if i < rows.size():
+			var entry: Dictionary = rows[i]
+			# NAME is edited via Enter (grabs _name_edit), not A/D, so it's the
+			# one row without the left/right arrow cue.
+			_rows[i].configure(entry["icon"], entry["name"], false, entry.get("bar", true),
+				entry.get("kind", "") != "text")
+	_settings_block.visible = not _customising
+
+
+func _cycle_model(direction: int) -> void:
+	var idx := _model_ids.find(_draft["model_id"])
+	idx = (idx + direction + _model_ids.size()) % _model_ids.size()
+	_draft["model_id"] = _model_ids[idx]
+	_backdrop.set_model(_draft["model_id"])
+	_apply_kit_preview()   # set_model() rebuilt the rig — reapply the kit draft to it
+
+
+## Index of `key`'s draft colour within CharacterScreen.SWATCHES[key], 0
+## if unset or not in the list — the same fallback character_screen.gd's
+## own _swatch_index() has.
+func _swatch_index(key: String) -> int:
+	var hex: String = _draft[key]
+	if hex.is_empty():
+		return 0
+	var palette: Array = CharacterScreen.SWATCHES[key]
+	for i in palette.size():
+		if ("#" + (palette[i]["color"] as Color).to_html(false)).to_lower() == hex.to_lower():
+			return i
+	return 0
+
+
+func _cycle_swatch(key: String, direction: int) -> void:
+	var palette: Array = CharacterScreen.SWATCHES[key]
+	var idx := (_swatch_index(key) + direction + palette.size()) % palette.size()
+	_draft[key] = "#" + (palette[idx]["color"] as Color).to_html(false)
+	_apply_kit_preview()
+
+
+func _resolved_hex(hex: String) -> Color:
+	return Color(hex) if not hex.is_empty() else Color(0.0, 0.0, 0.0, 0.0)
+
+
+func _apply_kit_preview() -> void:
+	_backdrop.set_kit_colors(_resolved_hex(_draft["skin_color"]),
+		_resolved_hex(_draft["jersey_color"]), _resolved_hex(_draft["shorts_color"]),
+		_resolved_hex(_draft["boot_color"]), _resolved_hex(_draft["socks_color"]))
+
+
+# ── Confirm / leave ──────────────────────────────────────────────────
+
+func _confirm() -> void:
+	if edit_mode:
+		_save_and_return()
+	else:
+		_confirm_and_create()
+
+
+## Edit mode's SAVE: identity, kit and the spent upgrades onto
+## CareerProfile. Position and number go through the setters that keep the
+## roster right (they swap with the teammate in the way).
+func _save_and_return() -> void:
+	if _busy:
+		return
+	_busy = true
+	var player_name: String = _draft["player_name"]
+	CareerProfile.player_name = player_name if not player_name.strip_edges().is_empty() \
+		else CareerProfile.player_name
+	CareerProfile.foot = _draft["foot"]
+	for key: String in CareerProfile.ATTRIBUTE_RANGES:
+		CareerProfile.set_level(key, _draft[key])
+	CareerProfile.upgrades_available = _upgrades_left
+	_write_kit()
+	CareerProfile.set_position(_draft["position"])
+	CareerProfile.set_number(_draft["number"])   # saves
+	SceneWipe.change_scene("res://scenes/ui/career_dashboard_screen.tscn")
+
+
+## Writes the draft to CareerProfile, starts the career (start levels,
+## roster, season, save — see CareerProfile.start_career()), and launches
+## the Dashboard. An empty NAME falls back to DEFAULT_NAME rather than
+## blocking — no validation-dialog machinery exists on this screen, and a
+## lean fallback beats building one just for this.
 func _confirm_and_create() -> void:
 	if _busy:
 		return
 	_busy = true
-
 	var player_name: String = _draft["player_name"]
 	if player_name.strip_edges().is_empty():
 		player_name = DEFAULT_NAME
-	var role: TeamFormation.Role = _draft["position"]
-
-	var roster := RosterGenerator.generate_team(CareerProfile.DEFAULT_TEAM_NAME)
-	var slot_index := RosterGenerator.roster_index_for_role(roster, role)
-	# Carries the real drafted attributes (not a generated teammate's
-	# random ones) so the roster table's OVERALL and HEIGHT columns read
-	# true for the player's own slot — WEIGHT has no draft value to carry
-	# (no WEIGHT row on this screen, same as the quick-play CHARACTER
-	# screen), so it gets the same one-off random fill a teammate's does.
-	roster[slot_index] = {
-		"name": player_name, "role": role, "number": _draft["number"],
-		"height": _draft["height"], "weight": RosterGenerator.random_weight(),
-		"speed": _draft["speed"], "kick_power": _draft["kick_power"],
-		"kick_accuracy": _draft["kick_accuracy"], "agility": _draft["agility"],
-	}
-	var fixtures := RosterGenerator.generate_team_names(CareerProfile.SEASON_LENGTH)
-
 	CareerProfile.player_name = player_name
-	CareerProfile.position = role
+	CareerProfile.position = _draft["position"]
 	CareerProfile.number = _draft["number"]
 	CareerProfile.foot = _draft["foot"]
-	CareerProfile.speed = _draft["speed"]
-	CareerProfile.height = _draft["height"]
-	CareerProfile.kick_power = _draft["kick_power"]
-	CareerProfile.kick_accuracy = _draft["kick_accuracy"]
-	CareerProfile.agility = _draft["agility"]
-	CareerProfile.team_name = CareerProfile.DEFAULT_TEAM_NAME
-	CareerProfile.start_season(roster, fixtures)
-
+	CareerProfile.difficulty = _draft["difficulty"]
+	_write_kit()
+	CareerProfile.start_career()
 	SceneWipe.change_scene("res://scenes/ui/career_dashboard_screen.tscn")
 
 
+func _write_kit() -> void:
+	CareerProfile.model_id = _draft["model_id"]
+	for key in ["skin_color", "jersey_color", "shorts_color", "boot_color", "socks_color"]:
+		CareerProfile.set(key, _draft[key])
+
+
+## Back to the Dashboard when a career is already in progress (you came
+## here from its New Career, and backing out keeps that career), else the
+## main menu.
 func _exit_to_menu() -> void:
 	if _busy:
 		return
 	_busy = true
-	SceneWipe.change_scene("res://scenes/ui/main_menu.tscn")
+	SceneWipe.change_scene("res://scenes/ui/career_dashboard_screen.tscn" if CareerProfile.has_career()
+		else "res://scenes/ui/main_menu.tscn")
 
 
 # ── Build ────────────────────────────────────────────────────────────
 
+func _button_top() -> float:
+	return EDIT_BUTTON_TOP if edit_mode else BUTTON_TOP
+
+
+func _card_height() -> float:
+	return _button_top() + ActionButton.HEIGHT - CARD_TOP + CARD_PAD
+
+
 func _build() -> void:
-	var card_panel := RetroWindow.shell(_ui, Vector2(CARD_WIDTH, CARD_HEIGHT))
+	var card_panel := RetroWindow.shell(_ui, Vector2(CARD_WIDTH, _card_height()))
 	(card_panel.get_parent() as Control).position = Vector2(CARD_LEFT, CARD_TOP)
 
 	var header := VBoxContainer.new()
 	header.position = Vector2(CARD_PAD, CARD_PAD)
 	header.add_theme_constant_override(&"separation", 2)
 	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	header.add_child(UIStyle.label(TITLE, UIStyle.SIZE_TITLE, UIStyle.TEXT_PRIMARY,
+	header.add_child(UIStyle.label(_title(), UIStyle.SIZE_TITLE, UIStyle.TEXT_PRIMARY,
 		UIStyle.WEIGHT_HEAVY, UIStyle.TRACK_TITLE))
-
 	var underline := Panel.new()
 	underline.custom_minimum_size = Vector2(56.0, 4.0)
 	underline.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -251,8 +449,7 @@ func _build() -> void:
 	underline_style.bg_color = RetroWindow.ACCENT
 	underline.add_theme_stylebox_override(&"panel", underline_style)
 	header.add_child(underline)
-
-	header.add_child(UIStyle.label(SUBTITLE, UIStyle.SIZE_SUBTITLE, UIStyle.TEXT_MUTED,
+	header.add_child(UIStyle.label(_subtitle(), UIStyle.SIZE_SUBTITLE, UIStyle.TEXT_MUTED,
 		UIStyle.WEIGHT_REGULAR, UIStyle.TRACK_SUBTITLE))
 	card_panel.add_child(header)
 
@@ -261,36 +458,53 @@ func _build() -> void:
 	list.add_theme_constant_override(&"separation", ROW_SEPARATION)
 	list.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card_panel.add_child(list)
-	for entry: Dictionary in CAREER_ROWS:
+	for i in maxi(CAREER_ROWS.size(), CharacterScreen.CUSTOMISE_ROWS.size()):
 		var row := StatRow.new()
 		list.add_child(row)
-		# NAME is edited via Enter (grabs _name_edit), not A/D — the arrow
-		# cue would say "left/right changes this" for a row that A/D does
-		# nothing on, so it's the one row configured non-adjustable.
-		var adjustable: bool = entry.get("kind", "stat") != "text"
-		row.configure(entry["icon"], entry["name"], false, entry.get("bar", true), adjustable)
 		_rows.append(row)
 
-	_play = ActionButton.new(ACTION_TEXT)
+	if edit_mode:
+		_build_attributes_block(card_panel)
+	else:
+		_build_settings_block(card_panel)
+
+	_play = ActionButton.new(EDIT_ACTION_TEXT if edit_mode else ACTION_TEXT)
 	_play.mouse_filter = Control.MOUSE_FILTER_STOP
 	_play.gui_input.connect(_on_play_gui_input)
-	_play.position = Vector2(CARD_PAD, BUTTON_TOP - CARD_TOP)
+	_play.position = Vector2(CARD_PAD, _button_top() - CARD_TOP)
 	card_panel.add_child(_play)
 
+	_customise_button = ActionButton.new(CUSTOMISE_TEXT)
+	_customise_button.set_icon(&"gear")
+	_customise_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	_customise_button.gui_input.connect(func(event: InputEvent) -> void:
+		if not _busy and event is InputEventMouseButton and event.pressed \
+				and event.button_index == MOUSE_BUTTON_LEFT:
+			_toggle_customise())
+	# Centred under the player once it knows its own width (ActionButton
+	# sizes itself to its label after layout).
+	_customise_button.resized.connect(func() -> void:
+		_customise_button.position = CUSTOMISE_CENTRE - Vector2(_customise_button.size.x * 0.5, 0.0))
+	_customise_button.position = CUSTOMISE_CENTRE
+	_ui.add_child(_customise_button)
+
 	_hints = DeviceHintBar.new()
-	_hints.position = Vector2(LEFT_MARGIN, HINTS_TOP)
+	_hints.position = Vector2(LEFT_MARGIN,
+		CARD_TOP + _card_height() + RetroWindow.SHADOW_OFFSET.y + 6.0)
 	_ui.add_child(_hints)
 	_hints.set_hint_sets({
 		InputManager.Device.KEYBOARD: [
 			{"keys": "W / S", "label": "Select"},
 			{"keys": "A / D", "label": "Adjust"},
 			{"keys": "Enter", "label": "Edit / Confirm"},
-			{"keys": "B / Esc", "label": "Back"},
+			{"keys": "Tab", "label": "Customise"},
+			{"keys": "Esc", "label": "Back"},
 		],
 		InputManager.Device.GAMEPAD: [
 			{"keys": "D-Pad ↕", "label": "Select"},
 			{"keys": "D-Pad ↔", "label": "Adjust"},
 			{"keys": "A", "label": "Confirm"},
+			{"keys": "Y", "label": "Customise"},
 			{"keys": "B", "label": "Back"},
 		],
 	})
@@ -298,12 +512,71 @@ func _build() -> void:
 	_build_name_edit()
 
 
+func _title() -> String:
+	return EDIT_TITLE if edit_mode else TITLE
+
+
+## Edit mode shows the career's fixed difficulty here.
+func _subtitle() -> String:
+	if not edit_mode:
+		return SUBTITLE
+	return "%s CAREER · %s · SEASON %d" % [CareerProfile.DIFFICULTY_NAMES[CareerProfile.difficulty],
+		CareerSeason.league_name(CareerProfile.league_index), CareerProfile.season_index + 1]
+
+
+## A rule across the card, "CAREER SETTINGS", the DIFFICULTY row and a line
+## saying what the choice means.
+func _build_settings_block(card_panel: Control) -> void:
+	_settings_block = VBoxContainer.new()
+	_settings_block.position = Vector2(CARD_PAD, SETTINGS_TOP - CARD_TOP)
+	_settings_block.add_theme_constant_override(&"separation", 8)
+	_settings_block.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card_panel.add_child(_settings_block)
+
+	var rule := ColorRect.new()
+	rule.color = Color(RetroWindow.BORDER, 0.35)
+	rule.custom_minimum_size = Vector2(StatRow.WIDTH, 2.0)
+	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_settings_block.add_child(rule)
+	_settings_block.add_child(UIStyle.label(SETTINGS_TITLE, UIStyle.SIZE_SUBTITLE, UIStyle.TEXT_MUTED,
+		UIStyle.WEIGHT_BOLD, UIStyle.TRACK_SUBTITLE))
+	_difficulty_row = StatRow.new()
+	_settings_block.add_child(_difficulty_row)
+	_difficulty_row.configure(&"gear", "DIFFICULTY", false, false, true)
+	_difficulty_caption = UIStyle.label("", UIStyle.SIZE_SUBTITLE, UIStyle.TEXT_MUTED,
+		UIStyle.WEIGHT_REGULAR, 0)
+	_settings_block.add_child(_difficulty_caption)
+
+
+## Edit mode: a rule, the upgrades heading, and the four attribute bars.
+## Shares _settings_block so Customise hides it the same way.
+func _build_attributes_block(card_panel: Control) -> void:
+	_settings_block = VBoxContainer.new()
+	_settings_block.position = Vector2(CARD_PAD, SETTINGS_TOP - CARD_TOP)
+	_settings_block.add_theme_constant_override(&"separation", ROW_SEPARATION)
+	_settings_block.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card_panel.add_child(_settings_block)
+
+	var rule := ColorRect.new()
+	rule.color = Color(RetroWindow.BORDER, 0.35)
+	rule.custom_minimum_size = Vector2(StatRow.WIDTH, 2.0)
+	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_settings_block.add_child(rule)
+	_attribute_heading = UIStyle.label("", UIStyle.SIZE_SUBTITLE, UIStyle.TEXT_MUTED,
+		UIStyle.WEIGHT_BOLD, UIStyle.TRACK_SUBTITLE)
+	_settings_block.add_child(_attribute_heading)
+	for entry: Dictionary in ATTRIBUTE_ROWS:
+		var row := StatRow.new()
+		_settings_block.add_child(row)
+		row.configure(entry["icon"], entry["name"], false, true, true)
+		_attribute_rows.append(row)
+
+
 ## A LineEdit that's never actually seen — invisible (alpha 0) and
 ## MOUSE_FILTER_IGNORE, so it's never a click target, but it can still be
 ## grab_focus()'d programmatically from _activate() to capture real text
 ## input while the NAME row is selected. The NAME StatRow's own value
-## column shows the live text instead (see _row_value_text), so there's
-## no second visible text box to keep aligned with the row underneath it.
+## column shows the live text instead (see _row_value_text).
 func _build_name_edit() -> void:
 	_name_edit = LineEdit.new()
 	_name_edit.text = _draft["player_name"]
@@ -311,20 +584,13 @@ func _build_name_edit() -> void:
 	_name_edit.modulate = Color(1.0, 1.0, 1.0, 0.0)
 	_name_edit.size = Vector2(1.0, 1.0)
 	_name_edit.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_name_edit.text_changed.connect(_on_name_text_changed)
-	_name_edit.text_submitted.connect(_on_name_text_submitted)
+	_name_edit.text_changed.connect(func(new_text: String) -> void:
+		_draft["player_name"] = new_text
+		_refresh())
+	_name_edit.text_submitted.connect(func(_new_text: String) -> void: _name_edit.release_focus())
 	_name_edit.focus_entered.connect(func() -> void: _editing_name = true)
 	_name_edit.focus_exited.connect(func() -> void: _editing_name = false)
 	_ui.add_child(_name_edit)
-
-
-func _on_name_text_changed(new_text: String) -> void:
-	_draft["player_name"] = new_text
-	_refresh()
-
-
-func _on_name_text_submitted(_new_text: String) -> void:
-	_name_edit.release_focus()
 
 
 func _on_play_gui_input(event: InputEvent) -> void:
@@ -333,46 +599,60 @@ func _on_play_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed \
 			and event.button_index == MOUSE_BUTTON_LEFT:
 		_selected = _confirm_index()
-		_confirm_and_create()
+		_confirm()
 
 
 # ── Refresh ──────────────────────────────────────────────────────────
 
 func _refresh() -> void:
-	for i in CAREER_ROWS.size():
-		var entry: Dictionary = CAREER_ROWS[i]
-		_rows[i].set_state(i == _selected, _filled_segments(entry), _row_value_text(entry))
+	var rows := _active_rows()
+	for i in rows.size():
+		_rows[i].set_state(i == _selected, 0, _row_value_text(rows[i]))
+	if edit_mode:
+		for i in ATTRIBUTE_ROWS.size():
+			var entry: Dictionary = ATTRIBUTE_ROWS[i]
+			var key := String(entry["key"])
+			var value := CareerProfile.level_value(key, _draft[key])
+			_attribute_rows[i].set_state(_selected == _attributes_index() + i, _draft[key],
+				(entry["format"] as String) % (value * 100.0 if key == "kick_accuracy" else value))
+		_attribute_heading.text = "ATTRIBUTES  ·  %d UPGRADE%s TO SPEND  ·  MAX %d IN %s" % [
+			_upgrades_left, "" if _upgrades_left == 1 else "S", CareerProfile.attribute_cap(),
+			CareerSeason.league_name(CareerProfile.league_index)]
+	else:
+		_difficulty_row.set_state(_selected == _difficulty_index(), 0,
+			CareerProfile.DIFFICULTY_NAMES[_draft["difficulty"]])
+		_difficulty_caption.text = _difficulty_caption_text()
 	_play.set_selected(_selected == _confirm_index())
 
 
-func _filled_segments(entry: Dictionary) -> int:
-	if entry.get("kind", "stat") != "stat":
-		return 0
-	var key: String = entry["key"]
-	var config: Dictionary = _stat_config[key]
-	var vmin := float(config["min"])
-	var vmax := float(config["max"])
-	if vmax <= vmin:
-		return 0
-	var fraction := clampf((float(_draft[key]) - vmin) / (vmax - vmin), 0.0, 1.0)
-	return int(round(fraction * StatRow.SEGMENTS))
+func _difficulty_caption_text() -> String:
+	if _draft["difficulty"] == CareerProfile.DIFFICULTY_HARD:
+		return "Attributes start at the minimum · %d upgrades a match · tougher opposition." \
+			% Tuning.CAREER_UPGRADES_PER_GAME_HARD
+	return "Attributes start on one square · %d upgrades a match · softer opposition." \
+		% Tuning.CAREER_UPGRADES_PER_GAME_EASY
 
 
 func _row_value_text(entry: Dictionary) -> String:
 	var key: String = entry["key"]
-	match entry.get("kind", "stat"):
+	match entry.get("kind", ""):
 		"text":
 			var text: String = _draft[key]
 			return text if not text.is_empty() else "—"
 		"role":
-			var role_name: String = TeamFormation.Role.keys()[_draft[key]]
-			return role_name.replace("_", " ")
+			# The roster table's short labels (W R, HBF L, RK...): the full
+			# role name plus the height overran the value column.
+			var label := ""
+			for slot: Dictionary in TeamFormation.SLOTS:
+				if int(slot["role"]) == int(_draft[key]):
+					label = TeamFormation.position_label(slot)
+			return "%s · %.0f cm" % [label, _draft_height()]
 		"int":
 			return "#%d" % _draft[key]
 		"foot":
 			return _draft[key]
-		_:
-			var config: Dictionary = _stat_config[key]
-			var value: float = _draft[key]
-			var display_value := value * 100.0 if key == "kick_accuracy" else value
-			return (config["format"] as String) % display_value
+		"model":
+			return (_draft[key] as String).to_upper()
+		"swatch":
+			return CharacterScreen.SWATCHES[key][_swatch_index(key)]["name"]
+	return ""

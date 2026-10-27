@@ -3,12 +3,13 @@ extends CanvasLayer
 
 ## Career mode's pregame screen — reached from the Dashboard's NEXT GAME
 ## card. A trimmed, re-skinned relative of full_game_pregame_screen.gd:
-## the same match-feel settings (PLAYER CONTROL, CAMERA, FORMATION, BALL
-## MOVEMENT, DEFENSIVE PRESSURE) plus YOUR POSITION, reusing the exact
-## same Settings fields and SettingsScreen.Row cycling class that screen
-## already uses — a Career match is still just a Full Game match
-## underneath, so there's no reason to invent a second settings surface
-## for the same dials. What's dropped: the four decorative locked
+## the same match-feel settings (CAMERA, FORMATION, BALL MOVEMENT,
+## DEFENSIVE PRESSURE), reusing the exact same Settings
+## fields and SettingsScreen.Row cycling class that screen already uses —
+## a Career match is still just a Full Game match underneath, so there's
+## no reason to invent a second settings surface for the same dials. No
+## PLAYER CONTROL: Career is single-player only (full_game.gd's
+## _full_team_control() is false in Career). What's dropped: the four decorative locked
 ## placeholder cards and the two-level horizontal card cursor — this is a
 ## season fixture you glance at and start, not a settings screen, so a
 ## plain vertical list (the same keyboard-driven StatRow-style cursor
@@ -26,28 +27,24 @@ extends CanvasLayer
 ## normal row in the list (left/right steps it, clamped, no wrap); the
 ## chevrons stay for the mouse.
 ##
-## YOUR POSITION starts on the Career player's own slot (the position
-## picked at character creation, CareerProfile.position) every time this
-## screen opens, and stays changeable in both control modes: in SINGLE
-## PLAYER it's who you are, in FULL TEAM it's who you start the match on
-## (full_game.gd seeds the controlled player from Settings.home_human_slot
-## either way). It used to lock in FULL TEAM and read whatever slot the
-## quick-play pregame last saved.
+## No YOUR POSITION either: your position is part of your player now, set
+## on the Edit Player page (docs/CAREER_AUDIT.md Phase 7), and full_game.gd
+## puts the human on your own roster entry. The whiteboard still rings
+## your slot.
 ##
 ## START MATCH sets GameState.career_active so full_game.gd knows to pull
 ## rosters from CareerProfile/the generated opponent instead of the
 ## generic spawn, and launches the same full_game.tscn Full Game does.
 
-const PLAYER_CONTROL_ROW := 0
-const CAMERA_ROW := 1
-const CAMERA_ZOOM_ROW := 2
-const YOUR_POSITION_ROW := 6
+const CAMERA_ROW := 0
+const CAMERA_ZOOM_ROW := 1
 
 const SCREEN_MARGIN_X := SoftBrutalist.SPACE_6
 const SCREEN_MARGIN_Y := SoftBrutalist.SPACE_4
 const BAND_GAP := SoftBrutalist.SPACE_4
 const ROW_HEIGHT := 44.0
 const ROW_PAD := 16.0
+const SUB_ROW_INDENT := 28.0
 const PREVIEW_SIZE := Vector2(380.0, 460.0)
 const CAMERA_FIELD_HEIGHT := 190.0
 ## A real camera's own aspect, not this panel's own wide/short rect — see
@@ -75,15 +72,8 @@ var _busy := false
 
 func _ready() -> void:
 	GameState.phase = GameState.Phase.MENU
-	var career_slot := RosterGenerator.roster_index_for_role(CareerProfile.roster,
-		CareerProfile.position)
-	if career_slot >= 0 and Settings.home_human_slot != career_slot:
-		Settings.home_human_slot = career_slot
-		Settings.save()
 
 	_settings = [
-		SettingsScreen.Row.new("PLAYER CONTROL", ["1 PLAYER", "FULL TEAM"],
-			Settings.player_control_mode, _set_player_control),
 		SettingsScreen.Row.new("CAMERA", ["3RD PERSON", "FULL-SIDE"],
 			Settings.full_game_camera_mode, _set_camera_mode),
 		SettingsScreen.Row.new("CAMERA ZOOM", _zoom_options(),
@@ -94,8 +84,6 @@ func _ready() -> void:
 			Settings.home_ball_movement, _set_ball_movement),
 		SettingsScreen.Row.new("DEFENSIVE PRESSURE", ["LOOSE", "BALANCED", "TIGHT"],
 			Settings.home_defensive_pressure, _set_defensive_pressure),
-		SettingsScreen.Row.new("YOUR POSITION", _your_position_options(),
-			Settings.home_human_slot, _set_your_position),
 	]
 
 	_build()
@@ -107,15 +95,6 @@ func _formation_options() -> Array[String]:
 	var options: Array[String] = []
 	for preset: Dictionary in Settings.FORMATION_PRESETS:
 		options.append(String(preset["name"]))
-	return options
-
-
-## Same "<n> <label>" form full_game_pregame_screen.gd's own card uses —
-## see that file's header comment on why it's a static 18-entry list.
-func _your_position_options() -> Array[String]:
-	var options: Array[String] = []
-	for i in Tuning.TEAM_SIZE:
-		options.append("%d %s" % [i + 1, String(TeamFormation.roster_slot(i)["label"])])
 	return options
 
 
@@ -132,11 +111,6 @@ func _zoom_options() -> Array[String]:
 func _zoom_index(zoom: float) -> int:
 	return clampi(roundi((zoom - Tuning.CAM_ZOOM_MIN) / Tuning.CAM_ZOOM_STEP),
 		0, _zoom_options().size() - 1)
-
-
-## Never locked here any more — see this file's header on YOUR POSITION.
-func _your_position_locked() -> bool:
-	return false
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -168,29 +142,19 @@ func _move(step: int) -> void:
 func _nudge(direction: int) -> void:
 	if _selected >= _settings.size():
 		return
-	if _selected == YOUR_POSITION_ROW and _your_position_locked():
-		return
 	if _selected == CAMERA_ZOOM_ROW:
 		# Clamped, not wrapped: stepping past 140% shouldn't jump to 80%.
 		var row := _settings[CAMERA_ZOOM_ROW]
 		if row.index + direction < 0 or row.index + direction >= row.options.size():
 			return
 	_settings[_selected].cycle(direction)
-	if _selected == PLAYER_CONTROL_ROW:
-		_refresh()   # PLAYER CONTROL changing may lock/unlock YOUR POSITION
-	else:
-		_refresh_row(_selected)
+	_refresh_row(_selected)
 	_sync_preview()
 
 
 func _activate() -> void:
 	if _selected == _settings.size():
 		_start_match()
-
-
-func _set_player_control(index: int) -> void:
-	Settings.player_control_mode = index as Settings.PlayerControlMode
-	Settings.save()
 
 
 func _set_camera_mode(index: int) -> void:
@@ -215,11 +179,6 @@ func _set_ball_movement(index: int) -> void:
 
 func _set_defensive_pressure(index: int) -> void:
 	Settings.home_defensive_pressure = index as Settings.DefensivePressure
-	Settings.save()
-
-
-func _set_your_position(index: int) -> void:
-	Settings.home_human_slot = index
 	Settings.save()
 
 
@@ -268,8 +227,8 @@ func _build() -> void:
 	header.add_child(CareerTheme.label(opponent, SoftBrutalist.SIZE_TITLE,
 		CareerTheme.TEXT, SoftBrutalist.WEIGHT_HEAVY))
 	header.add_child(CareerTheme.label("ROUND %d OF %d — %s" % [
-		mini(CareerProfile.games_played + 1, CareerProfile.fixtures.size()),
-		CareerProfile.fixtures.size(), CareerProfile.team_name],
+		mini(CareerProfile.games_played + 1, CareerProfile.season_length()),
+		CareerProfile.season_length(), CareerProfile.team_name],
 		SoftBrutalist.SIZE_BODY, CareerTheme.TEXT_MUTED))
 	column.add_child(header)
 
@@ -427,8 +386,12 @@ func _build_settings_column() -> Control:
 	column.custom_minimum_size = Vector2(380.0, 0.0)
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	for row in _settings:
-		column.add_child(_build_setting_row(row))
+	for i in _settings.size():
+		var row_panel := _build_setting_row(_settings[i])
+		if i == CAMERA_ZOOM_ROW:
+			column.add_child(_indent_sub_row(row_panel, i))
+		else:
+			column.add_child(row_panel)
 
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -498,6 +461,21 @@ func _build_setting_row(row: SettingsScreen.Row) -> Panel:
 	return panel
 
 
+## ZOOM reads as a sub-option of CAMERA (playtest: "an indented smaller
+## option under camera, like a smaller sub header... as large as the other
+## buttons"): same row height, inset by SUB_ROW_INDENT, with a smaller
+## title. Navigation is unchanged — it's still an ordinary row index.
+func _indent_sub_row(row_panel: Panel, index: int) -> Control:
+	var title := _row_title_labels[index]
+	title.text = "ZOOM"
+	title.add_theme_font_size_override(&"font_size", SoftBrutalist.SIZE_CAPTION)
+	var indent := MarginContainer.new()
+	indent.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	indent.add_theme_constant_override(&"margin_left", int(SUB_ROW_INDENT))
+	indent.add_child(row_panel)
+	return indent
+
+
 func _build_start_row() -> Panel:
 	_start_panel = Panel.new()
 	_start_panel.custom_minimum_size = Vector2(0.0, ROW_HEIGHT + 8.0)
@@ -523,11 +501,12 @@ func _sync_preview() -> void:
 		_whiteboard.formation_index = Settings.home_formation_index
 		_whiteboard.ball_movement = Settings.home_ball_movement
 		_whiteboard.defensive_pressure = Settings.home_defensive_pressure
-		# See full_game_pregame_screen.gd's own _sync_preview() comment — YOUR
-		# POSITION's index is a ROSTER index, FormationWhiteboard.highlighted_
+		# See full_game_pregame_screen.gd's own _sync_preview() comment — your
+		# roster index is a ROSTER index, FormationWhiteboard.highlighted_
 		# slot wants a raw TeamFormation.SLOTS index, resolved through
 		# ROSTER_ORDER exactly the same way.
-		_whiteboard.highlighted_slot = TeamFormation.ROSTER_ORDER[Settings.home_human_slot]
+		_whiteboard.highlighted_slot = TeamFormation.ROSTER_ORDER[
+			maxi(CareerProfile.player_roster_index(), 0)]
 	_sync_camera_preview()
 
 
@@ -572,13 +551,8 @@ func _refresh() -> void:
 
 
 func _refresh_row(i: int) -> void:
-	var row := _settings[i]
-	var locked := i == YOUR_POSITION_ROW and _your_position_locked()
 	var selected := i == _selected
-	var fill := CareerTheme.PANEL.darkened(0.3) if locked else CareerTheme.PANEL
 	_row_panels[i].add_theme_stylebox_override(&"panel",
-		CareerTheme.panel_style(fill, CareerTheme.POSITIVE, SELECTED_BORDER_WIDTH if selected else 0))
-	var text_colour := Color(CareerTheme.PANEL_TEXT, 0.5 if locked else 1.0)
-	_row_title_labels[i].modulate = text_colour
-	_row_value_labels[i].text = row.value() + ("  •  LOCKED" if locked else "")
-	_row_value_labels[i].modulate = text_colour
+		CareerTheme.panel_style(CareerTheme.PANEL, CareerTheme.POSITIVE,
+			SELECTED_BORDER_WIDTH if selected else 0))
+	_row_value_labels[i].text = _settings[i].value()

@@ -34,8 +34,9 @@ const BAR_WIDTH := 14
 ## against it directly rather than guessed), so it's built once into
 ## _controls_text in _ready() instead of re-formatted every frame like the
 ## live state below it. Several actions deliberately share one physical
-## button (Q/X: handball, running mark, smother; LT: kick stance, spoil;
-## B: bounce, tackle) — that's this project's own "ball state + player
+## button (Q/X: handball, running mark, lunge tackle; J/RB: hit-out,
+## smother; LT: kick stance, spoil; B: bounce, tackle) — that's this
+## project's own "ball state + player
 ## state decides, not just the button" design (see player_controller.gd's
 ## Marking section header comment), not a conflict, so rows are grouped to
 ## read that way rather than hidden.
@@ -54,7 +55,7 @@ const CONTROLS := [
 	["Running mark", "Q", "X"],
 	["Aggressive mark (jump)", "H", "Y"],
 	["Spoil", "P", "LT"],
-	["Smother", "Q", "X"],
+	["Smother", "J", "RB"],
 	["Bump stance", "L (hold)", "LB (hold)"],
 	["Hit-out (ruck only)", "J", "RB"],
 	["Set shot for goal", "X", "Y"],

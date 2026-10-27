@@ -48,6 +48,19 @@ var camera_zoom := Tuning.CAM_ZOOM_DEFAULT:
 		camera_zoom = value
 		camera_zoom_changed.emit(value)
 
+## Which ground dressing Full Game, Career and Kick-to-Kick build (task
+## board 4B "stadium/field options"). CLASSIC is "Field 1", the park oval
+## (scenes/field/park_environment.tscn); it used to mean field.gd's generated
+## turf, fence and tree ring, which only the menu backdrops still show.
+## OVAL_1 is "Field 2", the bush oval (scenes/field/oval1_environment.tscn).
+## The enum names stay as they were. Only the dressing changes — lines,
+## goal posts, collision and every Tuning dimension stay identical, so this
+## is purely visual. Read at Field._ready(), so it applies from the next
+## scene load (the pregame screens are always one load away from a match).
+## Ordinal order is the save format: append, never reorder.
+enum FieldStyle { CLASSIC, OVAL_1 }
+var field_style: FieldStyle = FieldStyle.OVAL_1
+
 ## false (default): right-click holds kick stance/aim (like a gamepad's
 ## LT), left-click fires the kick (like RT). true: swapped, for players
 ## who expect the opposite convention (e.g. left-click-to-aim shooter
@@ -233,6 +246,8 @@ func _load() -> void:
 	home_defensive_pressure = config.get_value(SECTION, "home_defensive_pressure",
 		home_defensive_pressure) as DefensivePressure
 	master_volume = config.get_value(SECTION, "master_volume", master_volume) as float
+	field_style = clampi(config.get_value(SECTION, "field_style", field_style) as int,
+		0, FieldStyle.size() - 1) as FieldStyle
 	# Loaded as a plain dict here, not applied to the InputMap yet — _ready()
 	# does that once, after this returns, via _apply_keybind_to_inputmap()
 	# for every entry (keeping "read the save data" and "mutate the live
@@ -252,6 +267,7 @@ func save() -> void:
 	config.set_value(SECTION, "home_ball_movement", home_ball_movement)
 	config.set_value(SECTION, "home_defensive_pressure", home_defensive_pressure)
 	config.set_value(SECTION, "master_volume", master_volume)
+	config.set_value(SECTION, "field_style", field_style)
 	config.set_value(SECTION, "keybind_overrides", keybind_overrides)
 	config.save(SAVE_PATH)
 

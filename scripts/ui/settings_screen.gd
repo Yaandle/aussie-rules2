@@ -101,6 +101,14 @@ func _ready() -> void:
 			1 if Settings.mouse_kick_swapped else 0,
 			_set_mouse_kick_swapped
 		),
+		# Appended last so the FULL GAME CAMERA row keeps index 2, which
+		# _refresh() keys the camera preview off.
+		Row.new(
+			"FIELD",
+			["FIELD 1 · PARK", "FIELD 2 · BUSH"],
+			Settings.field_style,
+			_set_field_style
+		),
 	]
 
 	var root := Control.new()
@@ -110,7 +118,9 @@ func _ready() -> void:
 
 	root.add_child(SoftBrutalist.backdrop())
 
-	var card_height := 110.0 + _row_count() * (ROW_HEIGHT + ROW_GAP) + 40.0
+	# +56 below the rows (was +40): the hint bar sits 8px under the last row
+	# and is ~32px tall, so 40 left it touching the card's bottom border.
+	var card_height := 110.0 + _row_count() * (ROW_HEIGHT + ROW_GAP) + 56.0
 	var card_size := Vector2(CARD_WIDTH, card_height)
 
 	_card_wrapper = Control.new()
@@ -175,9 +185,17 @@ func _ready() -> void:
 			SoftBrutalist.WEIGHT_BOLD,
 			0
 		)
-		value_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-		value_label.position = Vector2(-180.0, 16.0)
-		value_label.size = Vector2(160.0, 24.0)
+		# Right edge pinned 20px in from the row's own edge (matching the
+		# title's 20px on the left), growing leftward. The old fixed 160px
+		# box grew rightward instead, so a long value ("LEFT AIM · RIGHT
+		# KICK") printed past the row's padding toward the card border.
+		value_label.anchor_left = 1.0
+		value_label.anchor_right = 1.0
+		value_label.offset_left = -300.0
+		value_label.offset_right = -20.0
+		value_label.offset_top = 16.0
+		value_label.offset_bottom = 40.0
+		value_label.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 		value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		panel.add_child(value_label)
 		_value_labels.append(value_label)
@@ -204,15 +222,18 @@ func _ready() -> void:
 	remap_label.position = Vector2(20.0, 16.0)
 	remap_panel.add_child(remap_label)
 
+	# "OPEN", not "ENTER": the row reads the same on a pad, where Enter
+	# means nothing. y 16 to sit on the title's baseline like every other
+	# row's value (it was 18, two pixels low).
 	var remap_arrow := SoftBrutalist.label(
-		"ENTER >",
+		"OPEN >",
 		SoftBrutalist.SIZE_BODY,
 		RetroWindow.ACCENT,
 		SoftBrutalist.WEIGHT_BOLD,
 		0
 	)
 	remap_arrow.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	remap_arrow.position = Vector2(-100.0, 18.0)
+	remap_arrow.position = Vector2(-100.0, 16.0)
 	remap_arrow.size = Vector2(80.0, 24.0)
 	remap_arrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	remap_panel.add_child(remap_arrow)
@@ -321,6 +342,11 @@ func _set_camera_mode(index: int) -> void:
 
 func _set_mouse_kick_swapped(index: int) -> void:
 	Settings.mouse_kick_swapped = index == 1
+
+
+## Takes effect from the next match/practice load (see Settings.field_style).
+func _set_field_style(index: int) -> void:
+	Settings.field_style = index as Settings.FieldStyle
 
 
 func _create_camera_preview(

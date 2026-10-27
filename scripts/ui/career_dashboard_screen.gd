@@ -1,22 +1,43 @@
 class_name CareerDashboardScreen
 extends CanvasLayer
 
-## Career mode's home screen — reached after character creation (Phase 4)
-## and again after every full-time screen. Left-anchored, not the centred
+## Career mode's home screen — reached after character creation, after
+## every full-time screen, and from the main menu's CAREER card whenever a
+## career is in progress. Left-anchored, not the centred
 ## layout main_menu.gd/the rest of the front end uses (the user's own
 ## note on this: "not everything in our code is centred to avoid ai
 ## look") — this is the one screen in the whole plan that note actually
 ## applies to, see career_character_screen.gd's sibling phases for why it
 ## doesn't apply there too.
 ##
-## This pass only ships game 1: VIEW ROSTER is real (an overlay reading
-## CareerProfile.roster, grouped by TeamFormation line same as team_list_
-## screen.gd's own legend), VIEW STATS reopens the last full-time result
-## (career_match_end_screen.gd, reading CareerProfile.last_result; a lock
-## until a match has been played), and once
-## CareerProfile.games_played >= 1 the whole dashboard renders behind a
-## dimmed scrim with a lock glyph and a single MAIN MENU action — nothing
-## past the first game exists yet (see _build_locked_overlay).
+## The NEXT GAME card walks the season round by round into the Career
+## pregame; once the last round is in it becomes SEASON COMPLETE and opens
+## the Season Summary (career_season_summary_screen.gd), which starts the
+## next season. The league ladder sits on the right (CareerLadderTable),
+## with a green line under the promotion places. VIEW ROSTER is an overlay
+## reading CareerProfile.roster, VIEW STATS opens the season stats page
+## (career_stats_screen.gd), whose LAST MATCH reopens the full-time card.
+## The lock screen that used to follow game 1 is gone.
+##
+## NEW CAREER is the only way to start over (the main menu's CAREER card
+## always continues). It asks first (_build_new_career_confirm()); nothing
+## is replaced until CONFIRM on the creation screen, and backing out of
+## that screen comes back here.
+##
+## F8 in a debug build sims the current round (CareerProfile.
+## sim_current_round()) — dev-only, for running seasons through quickly.
+##
+## Layout (docs/CAREER_AUDIT.md Phase 3): one STACK_WIDTH column — the
+## NEXT GAME card, a full-width Edit Player button under it, then View
+## Roster | View Stats | View Fixture sharing the same width — so the
+## controls read as one block; New Career sits up by the team name, away
+## from the things you press every week. Button labels are Title Case with
+## no letter tracking (playtest: "not all capitalised"). Edit Player opens
+## the Edit Player page (career_character_screen.gd in edit mode) and says
+## how many upgrades are waiting; View Fixture opens the fixture carousel
+## (career_fixture_screen.gd).
+## Focus neighbours are set by hand (_link_focus()) so a pad walks the
+## stack as a grid.
 
 const SCREEN_MARGIN_X := SoftBrutalist.SPACE_6
 const SCREEN_MARGIN_Y := SoftBrutalist.SPACE_4
@@ -25,20 +46,61 @@ const CARD_PAD := 20.0
 const BUTTON_HEIGHT := 48.0
 const BUTTON_WIDTH := 200.0
 const ICON_SIZE := 22.0
+## The left stack: the NEXT GAME card's width, and every button under it.
+const STACK_WIDTH := 520.0
+const STACK_BUTTON_HEIGHT := 40.0
+const STACK_GAP := 12.0
+const SMALL_BUTTON_SIZE := Vector2(140.0, 36.0)
+## Room beside the stack on the 1280 design width, with space to spare.
+const LADDER_WIDTH := 560.0
 
-var _locked := false
+const DASHBOARD_SCENE := "res://scenes/ui/career_dashboard_screen.tscn"
+const SUMMARY_SCENE := "res://scenes/ui/career_season_summary_screen.tscn"
+
 var _roster_overlay: Control
 var _roster_back_button: Control
+var _roster_scroll: ScrollContainer
+var _roster_scroll_tween: Tween
 var _view_roster_button: Control
+var _new_career_button: Control
+var _next_game_card: Control
+var _confirm_overlay: Control
+var _confirm_cancel_button: Control
+## true once a wipe is in flight. SceneWipe.change_scene() has no re-entry
+## guard of its own, so A then B inside the 0.3 s cover started two scene
+## changes (Career review finding 5). Every exit goes through _leave().
+var _busy := false
 
 
 func _ready() -> void:
-	_locked = CareerProfile.games_played >= 1
 	_build()
 
 
+## ↑/↓ scroll the roster page. Caught here, ahead of the GUI: with the
+## page's Back button focused, the GUI would otherwise spend ui_up/ui_down
+## walking focus onto the Dashboard buttons hidden behind the page.
+func _input(event: InputEvent) -> void:
+	if not (is_instance_valid(_roster_overlay) and _roster_overlay.visible):
+		return
+	if event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up"):
+		_scroll_roster(-1)
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed(&"move_back") or event.is_action_pressed(&"ui_down"):
+		_scroll_roster(1)
+		get_viewport().set_input_as_handled()
+
+
 func _unhandled_input(event: InputEvent) -> void:
+	if _busy:
+		return
+	if _is_dev_sim_press(event):
+		CareerProfile.sim_current_round()
+		_leave(DASHBOARD_SCENE)
+		return
 	if not (event.is_action_pressed(&"pause") or event.is_action_pressed(&"decline")):
+		return
+	if is_instance_valid(_confirm_overlay) and _confirm_overlay.visible:
+		_close_new_career_confirm()
 		return
 	# The roster table is its own page with its own BACK control (see
 	# _build_roster_table()) — Esc/B closing it straight to the main menu
@@ -73,39 +135,81 @@ func _build() -> void:
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	margin.add_child(column)
 
+	var header_row := HBoxContainer.new()
+	header_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(header_row)
 	var header := VBoxContainer.new()
 	header.add_theme_constant_override(&"separation", 4)
+	header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	column.add_child(header)
+	header_row.add_child(header)
 	header.add_child(CareerTheme.label(CareerProfile.team_name, SoftBrutalist.SIZE_TITLE,
 		CareerTheme.TEXT, SoftBrutalist.WEIGHT_HEAVY))
-	header.add_child(CareerTheme.label("JUNIORS U18s CAREER — %s" % CareerProfile.player_name,
-		SoftBrutalist.SIZE_BODY, CareerTheme.TEXT_MUTED))
+	header.add_child(CareerTheme.label("%s · SEASON %d — %s" % [
+		CareerSeason.league_name(CareerProfile.league_index), CareerProfile.season_index + 1,
+		CareerProfile.player_name], SoftBrutalist.SIZE_BODY, CareerTheme.TEXT_MUTED))
+	_new_career_button = _build_action_button("New Career", &"", true, _open_new_career_confirm,
+		SMALL_BUTTON_SIZE)
+	_new_career_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	header_row.add_child(_new_career_button)
 
-	var next_game_card := _build_next_game_card()
-	column.add_child(next_game_card)
+	var body := HBoxContainer.new()
+	body.add_theme_constant_override(&"separation", int(BAND_GAP))
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(body)
+
+	var left := VBoxContainer.new()
+	left.add_theme_constant_override(&"separation", int(STACK_GAP))
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	body.add_child(left)
+	body.add_child(_build_ladder_column())
+
+	_next_game_card = _build_next_game_card()
+	left.add_child(_next_game_card)
+
+	# The upgrades waiting to be spent ride on the label, so a finished match
+	# reads as "go and spend these" without a separate badge widget.
+	var upgrades := CareerProfile.upgrades_available
+	var edit_text := "Edit Player" if upgrades == 0 \
+		else "Edit Player  ·  %d upgrade%s to spend" % [upgrades, "" if upgrades == 1 else "s"]
+	var edit_button := _build_action_button(edit_text, &"figure", true,
+		func() -> void: _leave("res://scenes/ui/career_edit_player_screen.tscn"),
+		Vector2(STACK_WIDTH, STACK_BUTTON_HEIGHT))
+	left.add_child(edit_button)
 
 	var button_row := HBoxContainer.new()
-	button_row.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_4))
+	button_row.add_theme_constant_override(&"separation", int(STACK_GAP))
 	button_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	column.add_child(button_row)
-	var view_roster_button := _build_action_button("VIEW ROSTER", &"gear", true,
-		_on_view_roster_pressed)
-	_view_roster_button = view_roster_button
-	button_row.add_child(view_roster_button)
-	button_row.add_child(_build_view_stats_button())
+	left.add_child(button_row)
+	var third := Vector2((STACK_WIDTH - STACK_GAP * 2.0) / 3.0, STACK_BUTTON_HEIGHT)
+	_view_roster_button = _build_action_button("View Roster", &"gear", true,
+		_on_view_roster_pressed, third)
+	button_row.add_child(_view_roster_button)
+	var view_stats_button := _build_action_button("View Stats", &"goalpost", true,
+		_on_view_stats_pressed, third)
+	button_row.add_child(view_stats_button)
+	var view_fixture_button := _build_action_button("View Fixture", &"arrow_right", true,
+		func() -> void: _leave("res://scenes/ui/career_fixture_screen.tscn"), third)
+	button_row.add_child(view_fixture_button)
+	_link_focus([_next_game_card, edit_button, _view_roster_button],
+		[_view_roster_button, view_stats_button, view_fixture_button])
 
 	# Hint bar — no control legend existed on this screen at all
 	# (ui_audit.md finding #2, missed by the audit's own file list but the
 	# same gap every other screen there had).
 	var hints := DeviceHintBar.new()
-	column.add_child(hints)
+	left.add_child(hints)
+	var keyboard_hints: Array = [
+		{"keys": "Tab", "label": "Select"},
+		{"keys": "Enter", "label": "Confirm"},
+		{"keys": "Esc", "label": "Main menu"},
+	]
+	if OS.is_debug_build():
+		keyboard_hints.append({"keys": "F8", "label": "Sim round (dev)"})
 	hints.set_hint_sets({
-		InputManager.Device.KEYBOARD: [
-			{"keys": "Tab", "label": "Select"},
-			{"keys": "Enter", "label": "Confirm"},
-			{"keys": "Esc", "label": "Main menu"},
-		],
+		InputManager.Device.KEYBOARD: keyboard_hints,
 		InputManager.Device.GAMEPAD: [
 			{"keys": "D-Pad", "label": "Select"},
 			{"keys": "A", "label": "Confirm"},
@@ -113,24 +217,65 @@ func _build() -> void:
 		],
 	})
 
-	if _locked:
-		_build_locked_overlay()
-	else:
-		# Explicit default focus (mandatory per the UI brief) — whichever
-		# control is actually interactive first: the NEXT GAME card normally,
-		# VIEW ROSTER if there's no next game to set up.
-		var season_over := CareerProfile.season_complete()
-		if not season_over:
-			next_game_card.grab_focus.call_deferred()
-		else:
-			view_roster_button.grab_focus.call_deferred()
+	# Explicit default focus (mandatory per the UI brief): the NEXT GAME card,
+	# which is live in every state now — the next round, or the season
+	# summary once the season is over.
+	_next_game_card.grab_focus.call_deferred()
+
+
+## Up/down through the stack (`column`, top to bottom), left/right along
+## the button row (`row`), New Career above the card. Controls that can't
+## take focus (a locked button) are skipped, so down from the card goes
+## straight to the row while Edit Player is locked.
+func _link_focus(column: Array, row: Array) -> void:
+	var stack: Array = [_new_career_button]
+	for control: Control in column:
+		if control.focus_mode != Control.FOCUS_NONE:
+			stack.append(control)
+	for i in stack.size():
+		var control: Control = stack[i]
+		if i > 0:
+			control.focus_neighbor_top = control.get_path_to(stack[i - 1])
+		if i < stack.size() - 1:
+			control.focus_neighbor_bottom = control.get_path_to(stack[i + 1])
+	var live: Array = row.filter(func(c: Control) -> bool: return c.focus_mode != Control.FOCUS_NONE)
+	var above: Control = stack[stack.size() - 2] if stack.size() > 1 else null
+	for i in live.size():
+		var control: Control = live[i]
+		if i > 0:
+			control.focus_neighbor_left = control.get_path_to(live[i - 1])
+		if i < live.size() - 1:
+			control.focus_neighbor_right = control.get_path_to(live[i + 1])
+		if above != null:
+			control.focus_neighbor_top = control.get_path_to(above)
+
+
+## "LADDER" over the league table, your row tinted and the promotion places
+## (or, in the top league, first place) above a green line.
+func _build_ladder_column() -> Control:
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override(&"separation", 10)
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(CareerTheme.label("LADDER — %s" % CareerSeason.league_name(CareerProfile.league_index),
+		SoftBrutalist.SIZE_LABEL, CareerTheme.TEXT, SoftBrutalist.WEIGHT_BOLD, 1))
+	var cut := 1 if CareerSeason.is_top_league(CareerProfile.league_index) \
+		else Tuning.CAREER_PROMOTION_PLACES
+	column.add_child(CareerLadderTable.build(CareerProfile.ladder(), LADDER_WIDTH, cut))
+	return column
+
+
+func _is_dev_sim_press(event: InputEvent) -> bool:
+	return OS.is_debug_build() and event is InputEventKey and event.pressed \
+		and not event.echo and (event as InputEventKey).keycode == KEY_F8
 
 
 ## The "NEXT GAME" card: a yellow/black pixel-art exclamation mark beside
-## the heading (see ExclamationIcon below), the upcoming fixture's
-## generated opponent name, and a click-through to the Career pregame
-## screen — a plain Panel with gui_input wired directly, same mechanism
-## character_screen.gd's PLAY/CUSTOMISE buttons already proved works.
+## the heading (see ExclamationIcon below), the round and the upcoming
+## fixture's generated opponent name, and a click-through to the Career
+## pregame screen — a plain Panel with gui_input wired directly, same
+## mechanism character_screen.gd's PLAY/CUSTOMISE buttons already proved
+## works. After the last round it reads SEASON COMPLETE with your finish
+## and what it means, and clicks through to the Season Summary instead.
 func _build_next_game_card() -> Control:
 	var panel := Panel.new()
 	panel.custom_minimum_size = Vector2(520.0, 132.0)
@@ -139,24 +284,21 @@ func _build_next_game_card() -> Control:
 	# _set_next_game_hover().
 	panel.pivot_offset = panel.custom_minimum_size * 0.5
 	panel.add_theme_stylebox_override(&"panel", CareerTheme.panel_style())
-	if not _locked and not CareerProfile.season_complete():
-		panel.mouse_filter = Control.MOUSE_FILTER_STOP
-		panel.gui_input.connect(_on_next_game_gui_input)
-		panel.mouse_entered.connect(_set_next_game_hover.bind(panel, true))
-		panel.mouse_exited.connect(_set_next_game_hover.bind(panel, false))
-		# Real Control focus rather than this project's usual hand-rolled
-		# cursor index (user asked for this one button to react "for mouse
-		# or gamepad" — this screen has no existing gamepad navigation at
-		# all to hook into, and Control's own focus traversal already
-		# answers ui_up/down/left/right for free). The default focus
-		# stylebox is suppressed below so the only visible feedback is this
-		# same hover treatment, not a second overlapping outline.
-		panel.focus_mode = Control.FOCUS_ALL
-		panel.add_theme_stylebox_override(&"focus", StyleBoxEmpty.new())
-		panel.focus_entered.connect(_set_next_game_hover.bind(panel, true))
-		panel.focus_exited.connect(_set_next_game_hover.bind(panel, false))
-	else:
-		panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	panel.gui_input.connect(_on_next_game_gui_input)
+	panel.mouse_entered.connect(_set_next_game_hover.bind(panel, true))
+	panel.mouse_exited.connect(_set_next_game_hover.bind(panel, false))
+	# Real Control focus rather than this project's usual hand-rolled
+	# cursor index (user asked for this one button to react "for mouse
+	# or gamepad" — this screen has no existing gamepad navigation at
+	# all to hook into, and Control's own focus traversal already
+	# answers ui_up/down/left/right for free). The default focus
+	# stylebox is suppressed below so the only visible feedback is this
+	# same hover treatment, not a second overlapping outline.
+	panel.focus_mode = Control.FOCUS_ALL
+	panel.add_theme_stylebox_override(&"focus", StyleBoxEmpty.new())
+	panel.focus_entered.connect(_set_next_game_hover.bind(panel, true))
+	panel.focus_exited.connect(_set_next_game_hover.bind(panel, false))
 
 	var inner := MarginContainer.new()
 	inner.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -176,25 +318,27 @@ func _build_next_game_card() -> Control:
 	heading_row.add_theme_constant_override(&"separation", 8)
 	heading_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	rows.add_child(heading_row)
-	heading_row.add_child(CareerTheme.label("NEXT GAME", SoftBrutalist.SIZE_LABEL, CareerTheme.PANEL_TEXT,
-		SoftBrutalist.WEIGHT_BOLD, 1))
+	var season_over := CareerProfile.season_complete()
+	var heading := "Season Complete" if season_over else "Next Game · Round %d of %d" % [
+		CareerProfile.games_played + 1, CareerProfile.season_length()]
+	heading_row.add_child(CareerTheme.label(heading, SoftBrutalist.SIZE_LABEL, CareerTheme.PANEL_TEXT,
+		SoftBrutalist.WEIGHT_BOLD))
 	var icon := ExclamationIcon.new()
 	heading_row.add_child(icon)
 
-	var opponent_text := "SEASON COMPLETE" if CareerProfile.season_complete() \
+	var title := "Finished %s" % CareerSeason.ordinal(CareerProfile.ladder_position()) if season_over \
 		else CareerProfile.current_fixture()
-	rows.add_child(CareerTheme.label(opponent_text, SoftBrutalist.SIZE_TITLE, CareerTheme.PANEL_TEXT,
+	rows.add_child(CareerTheme.label(title, SoftBrutalist.SIZE_TITLE, CareerTheme.PANEL_TEXT,
 		SoftBrutalist.WEIGHT_HEAVY))
-	var hint_text := "" if CareerProfile.season_complete() else "Click to set up the match"
-	if not hint_text.is_empty():
-		rows.add_child(CareerTheme.label(hint_text, SoftBrutalist.SIZE_BODY, CareerTheme.PANEL_TEXT.lightened(0.3)))
+	var hint_text := "%s — click for the season summary" % CareerProfile.season_outcome_text() \
+		if season_over \
+		else "Click to set up the match"
+	rows.add_child(CareerTheme.label(hint_text, SoftBrutalist.SIZE_BODY, CareerTheme.PANEL_TEXT.lightened(0.3)))
 
 	return panel
 
 
 func _on_next_game_gui_input(event: InputEvent) -> void:
-	if _locked or CareerProfile.season_complete():
-		return
 	var clicked: bool = event is InputEventMouseButton and event.pressed \
 		and event.button_index == MOUSE_BUTTON_LEFT
 	# Control.gui_input also receives key/joypad input once the control has
@@ -203,7 +347,8 @@ func _on_next_game_gui_input(event: InputEvent) -> void:
 	# pad) activates it the same way a click does, for the gamepad
 	# navigation that focus_mode exists for in the first place.
 	if clicked or event.is_action_pressed(&"confirm"):
-		SceneWipe.change_scene("res://scenes/ui/career_pregame_screen.tscn")
+		_leave(SUMMARY_SCENE if CareerProfile.season_complete()
+			else "res://scenes/ui/career_pregame_screen.tscn")
 
 
 ## Hover highlight for the NEXT GAME card — user report: "it should
@@ -226,21 +371,23 @@ func _set_next_game_hover(panel: Panel, hovering: bool) -> void:
 
 
 ## A flat tan tile with an icon + label, mouse-clickable only when
-## `enabled` (VIEW STATS is a dimmed, inert lock glyph until a match has
-## been played — see the header note). Built with a fixed width rather than ActionButton's
+## `enabled` (a disabled one is dimmed and inert). Built with a fixed width rather than ActionButton's
 ## own measure-after-layout trick (character_screen.gd's PLAY button):
 ## these are short, known labels, and a fixed width keeps the row's
 ## spacing predictable.
 ##
 ## Real Control focus (FOCUS_ALL) when enabled, same treatment
 ## _build_next_game_card() already gives its own card — before this, VIEW
-## ROSTER, the roster table's BACK, and the locked overlay's MAIN MENU were
+## ROSTER, the roster table's BACK, and the old lock screen's MAIN MENU were
 ## all mouse-only with no way for a keyboard/gamepad player to reach them
 ## at all (ui_audit.md finding #3).
+##
+## `icon_name` empty draws the label alone; `size` defaults to the 200 x 48
+## dialog button.
 func _build_action_button(text: String, icon_name: StringName, enabled: bool,
-		on_pressed: Callable) -> Control:
+		on_pressed: Callable, size := Vector2(BUTTON_WIDTH, BUTTON_HEIGHT)) -> Control:
 	var panel := Panel.new()
-	panel.custom_minimum_size = Vector2(BUTTON_WIDTH, BUTTON_HEIGHT)
+	panel.custom_minimum_size = size
 	panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	var fill := CareerTheme.PANEL if enabled else CareerTheme.PANEL.darkened(0.35)
 	panel.add_theme_stylebox_override(&"panel", CareerTheme.panel_style(fill))
@@ -281,13 +428,14 @@ func _build_action_button(text: String, icon_name: StringName, enabled: bool,
 	panel.add_child(row)
 
 	var text_colour := CareerTheme.PANEL_TEXT if enabled else Color(CareerTheme.PANEL_TEXT, 0.5)
-	var icon := UIIcon.new()
-	icon.icon_name = icon_name
-	icon.custom_minimum_size = Vector2(ICON_SIZE, ICON_SIZE)
-	icon.line_colour = text_colour
-	row.add_child(icon)
+	if not icon_name.is_empty():
+		var icon := UIIcon.new()
+		icon.icon_name = icon_name
+		icon.custom_minimum_size = Vector2(ICON_SIZE, ICON_SIZE)
+		icon.line_colour = text_colour
+		row.add_child(icon)
 	row.add_child(CareerTheme.label(text, SoftBrutalist.SIZE_LABEL, text_colour,
-		SoftBrutalist.WEIGHT_BOLD, 1))
+		SoftBrutalist.WEIGHT_BOLD))
 
 	return panel
 
@@ -297,6 +445,13 @@ func _build_action_button(text: String, icon_name: StringName, enabled: bool,
 ## popup card over a dimmed dashboard, per the user's own "basic
 ## streamlit-like spreadsheet, not a pop up window" request. Built once,
 ## lazily, then just shown/hidden.
+##
+## Phase 4 of docs/CAREER_AUDIT.md's plan restyled it after the TEAMS
+## squad sheet (playtest: "sort it by position like how I do in the other
+## page"): a CareerTable card, players grouped BACK → FOLLOWERS under their
+## line's colour, L/R on the flank and pocket positions, your row tinted.
+## Same six fields as before. ↑/↓ scroll it (the page is taller than the
+## screen); the mouse wheel does too.
 func _on_view_roster_pressed() -> void:
 	if _roster_overlay == null:
 		_roster_overlay = _build_roster_table()
@@ -312,19 +467,20 @@ func _on_view_roster_pressed() -> void:
 		_view_roster_button.grab_focus.call_deferred()
 
 
-## Column spec for the roster table: label, minimum width, horizontal
-## alignment, and the roster-entry key/formatter that fills its cells.
-## Table-driven so a column is one more entry here, not a hand-placed
-## node — same reasoning character_screen.gd's ATTRIBUTE_ROWS gives for
-## its own row list.
+## Column spec for the roster table (CareerTable's shape): label, minimum
+## width (0 = NAME takes the slack), horizontal alignment.
 const ROSTER_COLUMNS := [
 	{"label": "#", "width": 36.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
-	{"label": "NAME", "width": 220.0, "align": HORIZONTAL_ALIGNMENT_LEFT},
-	{"label": "POS", "width": 70.0, "align": HORIZONTAL_ALIGNMENT_LEFT},
-	{"label": "HEIGHT", "width": 90.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
-	{"label": "WEIGHT", "width": 90.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
-	{"label": "OVERALL", "width": 90.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+	{"label": "NAME", "width": 0.0, "align": HORIZONTAL_ALIGNMENT_LEFT},
+	{"label": "POS", "width": 64.0, "align": HORIZONTAL_ALIGNMENT_LEFT},
+	{"label": "HEIGHT", "width": 84.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+	{"label": "WEIGHT", "width": 84.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+	{"label": "OVERALL", "width": 84.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
 ]
+const ROSTER_TABLE_WIDTH := 760.0
+## Pixels per ↑/↓ press, as TEAMS' squad sheet (three rows).
+const ROSTER_SCROLL_STEP := CareerTable.ROW_HEIGHT * 3.0
+const ROSTER_SCROLL_DURATION := 0.25
 
 
 func _build_roster_table() -> Control:
@@ -356,147 +512,196 @@ func _build_roster_table() -> Control:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	header_row.add_child(spacer)
-	var back_button := _build_action_button("BACK", &"arrow_left", true,
+	var back_button := _build_action_button("Back", &"arrow_left", true,
 		func() -> void:
 			_roster_overlay.visible = false
 			if is_instance_valid(_view_roster_button):
 				_view_roster_button.grab_focus.call_deferred())
 	_roster_back_button = back_button
 	header_row.add_child(back_button)
+	# The page's only control: left/right stay on it rather than walking
+	# onto the Dashboard behind (up/down are the scroll, see _input()).
+	for side in [SIDE_LEFT, SIDE_RIGHT, SIDE_TOP, SIDE_BOTTOM]:
+		back_button.set_focus_neighbor(side, NodePath("."))
 
 	var hints := DeviceHintBar.new()
 	column.add_child(hints)
 	hints.set_hint_sets({
-		InputManager.Device.KEYBOARD: [{"keys": "Esc", "label": "Back"}],
-		InputManager.Device.GAMEPAD: [{"keys": "B", "label": "Back"}],
+		InputManager.Device.KEYBOARD: [
+			{"keys": "↑ / ↓", "label": "Scroll"},
+			{"keys": "Esc", "label": "Back"},
+		],
+		InputManager.Device.GAMEPAD: [
+			{"keys": "D-Pad ↕", "label": "Scroll"},
+			{"keys": "B", "label": "Back"},
+		],
 	})
 
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.mouse_filter = Control.MOUSE_FILTER_PASS
-	column.add_child(scroll)
-
-	var grid := GridContainer.new()
-	grid.columns = ROSTER_COLUMNS.size()
-	grid.add_theme_constant_override(&"h_separation", 18)
-	grid.add_theme_constant_override(&"v_separation", 8)
-	grid.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	scroll.add_child(grid)
-
-	for col: Dictionary in ROSTER_COLUMNS:
-		var heading := CareerTheme.label(col["label"], SoftBrutalist.SIZE_LABEL,
-			CareerTheme.TEXT, SoftBrutalist.WEIGHT_BOLD, 1)
-		heading.custom_minimum_size.x = col["width"]
-		heading.horizontal_alignment = col["align"]
-		grid.add_child(heading)
-
-	var sorted_roster := CareerProfile.roster.duplicate()
-	sorted_roster.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return int(a["number"]) < int(b["number"]))
-
-	for entry: Dictionary in sorted_roster:
-		_add_roster_row(grid, entry)
+	# Scrollbar hidden, as on TEAMS (the hint bar names the scroll, and a
+	# default-theme bar is the one grey widget on the page); the wheel works.
+	_roster_scroll = ScrollContainer.new()
+	_roster_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_roster_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_roster_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
+	_roster_scroll.mouse_filter = Control.MOUSE_FILTER_PASS
+	column.add_child(_roster_scroll)
+	var table := CareerTable.build(ROSTER_COLUMNS, _roster_rows(), ROSTER_TABLE_WIDTH)
+	table.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	_roster_scroll.add_child(table)
 
 	return page
 
 
-func _add_roster_row(grid: GridContainer, entry: Dictionary) -> void:
-	var role_label: String = ""
-	for slot: Dictionary in TeamFormation.SLOTS:
-		if slot["role"] == entry["role"]:
-			role_label = slot["label"]
-			break
-	var cells := [
-		"%d" % entry["number"],
-		String(entry["name"]),
-		role_label,
-		"%.0f cm" % entry.get("height", Tuning.CHARACTER_HEIGHT_DEFAULT),
-		"%.0f kg" % entry.get("weight", 0.5 * (RosterGenerator.WEIGHT_MIN + RosterGenerator.WEIGHT_MAX)),
-		"%d" % RosterGenerator.overall(entry),
-	]
-	for i in ROSTER_COLUMNS.size():
-		var col: Dictionary = ROSTER_COLUMNS[i]
-		var cell := CareerTheme.label(cells[i], SoftBrutalist.SIZE_BODY, CareerTheme.TEXT)
-		cell.custom_minimum_size.x = col["width"]
-		cell.horizontal_alignment = col["align"]
-		grid.add_child(cell)
+## TeamFormation.SLOTS order (back line → followers, left → right within a
+## line), a divider at the top of each line — the squad sheet's grouping.
+## The roster itself is stored in roster-spawn order, so each slot is
+## looked up through ROSTER_ORDER.
+func _roster_rows() -> Array:
+	var rows: Array = []
+	for line: int in TeamFormation.LINE_NAMES.size():
+		rows.append({"divider": TeamFormation.LINE_NAMES[line],
+			"colour": FormationWhiteboard.LINE_COLOURS[line]})
+		for slot_index in TeamFormation.SLOTS.size():
+			var slot: Dictionary = TeamFormation.SLOTS[slot_index]
+			if int(slot["line"]) != line:
+				continue
+			var roster_index := TeamFormation.ROSTER_ORDER.find(slot_index)
+			if roster_index < 0 or roster_index >= CareerProfile.roster.size():
+				continue
+			var entry: Dictionary = CareerProfile.roster[roster_index]
+			rows.append({"you": int(entry.get("id", -1)) == CareerProfile.player_id, "cells": [
+				"%d" % entry["number"],
+				String(entry["name"]),
+				TeamFormation.position_label(slot),
+				"%.0f cm" % entry.get("height", Tuning.CHARACTER_HEIGHT_DEFAULT),
+				"%.0f kg" % entry.get("weight",
+					0.5 * (RosterGenerator.WEIGHT_MIN + RosterGenerator.WEIGHT_MAX)),
+				"%d" % RosterGenerator.overall(entry),
+			]})
+	return rows
 
 
-## Dims (not a true blur — a semi-transparent scrim, see the plan's own
-## "whichever is less code" allowance) the whole dashboard and shows a
-## lock glyph with the only action left: MAIN MENU. The scrim's own
-## MOUSE_FILTER_STOP already eats every click meant for the content
-## underneath, so there's no need to separately disable those buttons.
-func _build_locked_overlay() -> void:
+func _scroll_roster(direction: int) -> void:
+	if not is_instance_valid(_roster_scroll):
+		return
+	var bar := _roster_scroll.get_v_scroll_bar()
+	var limit := maxf(0.0, bar.max_value - _roster_scroll.size.y)
+	var target := clampf(_roster_scroll.scroll_vertical + direction * ROSTER_SCROLL_STEP, 0.0, limit)
+	if _roster_scroll_tween != null and _roster_scroll_tween.is_valid():
+		_roster_scroll_tween.kill()
+	_roster_scroll_tween = create_tween()
+	_roster_scroll_tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_roster_scroll_tween.tween_property(_roster_scroll, "scroll_vertical", int(target),
+		ROSTER_SCROLL_DURATION)
+
+
+func _open_new_career_confirm() -> void:
+	if _confirm_overlay == null:
+		_confirm_overlay = _build_new_career_confirm()
+		add_child(_confirm_overlay)
+	# Re-added last so it draws over the roster page as well.
+	move_child(_confirm_overlay, get_child_count() - 1)
+	_confirm_overlay.visible = true
+	_confirm_cancel_button.grab_focus.call_deferred()
+
+
+func _close_new_career_confirm() -> void:
+	_confirm_overlay.visible = false
+	if is_instance_valid(_new_career_button):
+		_new_career_button.grab_focus.call_deferred()
+
+
+## "Start a new career?" over a near-opaque scrim, CANCEL focused by
+## default so a stray A press can't throw a season away. Focus neighbours
+## are pinned to the two buttons: Control focus traversal ignores the
+## scrim's mouse filter, so a D-pad press would otherwise walk off onto the
+## dashboard underneath.
+func _build_new_career_confirm() -> Control:
 	var scrim := Panel.new()
 	scrim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	scrim.add_theme_stylebox_override(&"panel",
-		CareerTheme.panel_style(Color(CareerTheme.BACKGROUND, 0.82)))
+		CareerTheme.panel_style(Color(CareerTheme.BACKGROUND, 0.92)))
 	scrim.mouse_filter = Control.MOUSE_FILTER_STOP
-	add_child(scrim)
 
-	var centre_wrap := CenterContainer.new()
-	centre_wrap.set_anchors_preset(Control.PRESET_FULL_RECT)
-	centre_wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	scrim.add_child(centre_wrap)
-
-	var centre := VBoxContainer.new()
-	centre.add_theme_constant_override(&"separation", 16)
-	centre.alignment = BoxContainer.ALIGNMENT_CENTER
+	var centre := CenterContainer.new()
+	centre.set_anchors_preset(Control.PRESET_FULL_RECT)
 	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	centre_wrap.add_child(centre)
+	scrim.add_child(centre)
 
-	var lock_icon := UIIcon.new()
-	lock_icon.icon_name = &"lock"
-	lock_icon.custom_minimum_size = Vector2(56.0, 56.0)
-	lock_icon.line_colour = CareerTheme.TEXT
-	lock_icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	centre.add_child(lock_icon)
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override(&"panel",
+		CareerTheme.panel_style(CareerTheme.BACKGROUND, CareerTheme.PANEL, 2))
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	centre.add_child(card)
 
-	var message := CareerTheme.label("MORE OF THE SEASON IS ON THE WAY",
-		SoftBrutalist.SIZE_LABEL, CareerTheme.TEXT, SoftBrutalist.WEIGHT_BOLD, 1)
-	message.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	centre.add_child(message)
+	var inner := MarginContainer.new()
+	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for side in ["left", "right", "top", "bottom"]:
+		inner.add_theme_constant_override(StringName("margin_" + side), int(CARD_PAD + 8.0))
+	card.add_child(inner)
 
-	# VIEW STATS sits beside MAIN MENU here too: the locked state is exactly
-	# where a player lands after full time, so it's where the result has
-	# to be reachable from.
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override(&"separation", 16)
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	inner.add_child(column)
+
+	column.add_child(CareerTheme.label("START A NEW CAREER?", SoftBrutalist.SIZE_LABEL,
+		CareerTheme.TEXT, SoftBrutalist.WEIGHT_BOLD, 1))
+	var body := CareerTheme.label(
+		"This replaces %s's career: the roster, the fixture and every result so far." \
+			% CareerProfile.player_name,
+		SoftBrutalist.SIZE_BODY, CareerTheme.TEXT_MUTED)
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.custom_minimum_size.x = BUTTON_WIDTH * 2.0 + SoftBrutalist.SPACE_4
+	column.add_child(body)
+
 	var actions := HBoxContainer.new()
 	actions.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_4))
-	actions.alignment = BoxContainer.ALIGNMENT_CENTER
 	actions.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	centre.add_child(actions)
-	actions.add_child(_build_view_stats_button())
-	var menu_button := _build_action_button("MAIN MENU", &"exit", true, _on_main_menu_pressed)
-	actions.add_child(menu_button)
-	# The scrim's own MOUSE_FILTER_STOP already blocks every control
-	# underneath (see this function's own header note) — explicit default
-	# focus so a keyboard/gamepad player lands on the one live control here
-	# instead of on whatever the dashboard underneath last focused.
-	menu_button.grab_focus.call_deferred()
+	column.add_child(actions)
+	_confirm_cancel_button = _build_action_button("Cancel", &"arrow_left", true,
+		_close_new_career_confirm)
+	actions.add_child(_confirm_cancel_button)
+	var start_button := _build_action_button("Start New", &"figure", true, _on_start_new_career)
+	actions.add_child(start_button)
+
+	for pair: Array in [[_confirm_cancel_button, start_button], [start_button, _confirm_cancel_button]]:
+		var button: Control = pair[0]
+		var other: NodePath = button.get_path_to(pair[1])
+		var own: NodePath = button.get_path_to(button)
+		button.focus_neighbor_left = other
+		button.focus_neighbor_right = other
+		button.focus_neighbor_top = own
+		button.focus_neighbor_bottom = own
+		button.focus_next = other
+		button.focus_previous = other
+	return scrim
 
 
-## Live once a Career match has finished (CareerProfile.last_result), a
-## lock glyph before that.
-func _build_view_stats_button() -> Control:
-	var has_result := not CareerProfile.last_result.is_empty()
-	return _build_action_button("VIEW STATS", &"goalpost" if has_result else &"lock",
-		has_result, _on_view_stats_pressed)
+func _on_start_new_career() -> void:
+	_leave("res://scenes/ui/career_character_screen.tscn")
 
 
 func _on_view_stats_pressed() -> void:
-	SceneWipe.change_scene("res://scenes/ui/career_match_end_screen.tscn")
+	_leave("res://scenes/ui/career_stats_screen.tscn")
 
 
 func _on_main_menu_pressed() -> void:
-	SceneWipe.change_scene("res://scenes/ui/main_menu.tscn")
+	_leave("res://scenes/ui/main_menu.tscn")
+
+
+func _leave(scene: String) -> void:
+	if _busy:
+		return
+	_busy = true
+	SceneWipe.change_scene(scene)
 
 
 ## Pixel-art exclamation mark: a tall stem block over a square dot, both
 ## solid yellow with a black stroke — drawn rather than imported, same
 ## "no art pipeline yet" reasoning ui_icon.gd's glyphs already follow.
 class ExclamationIcon extends Control:
-	const FILL := Color("#F5C518")
+	const FILL := CareerTheme.MARKER
 	const STROKE := Color.BLACK
 
 	func _init() -> void:

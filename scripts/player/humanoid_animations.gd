@@ -147,6 +147,7 @@ static func build_library(hip_height: float) -> AnimationLibrary:
 	library.add_animation(&"tackle_grab", _build_tackle_grab(hip_height))
 	library.add_animation(&"tackle_held", _build_tackle_held(hip_height))
 	library.add_animation(&"tackle_takedown", _build_tackle_takedown(hip_height))
+	library.add_animation(&"tackle_sling", _build_tackle_sling(hip_height))
 	library.add_animation(&"knocked_back", _build_knocked_back(hip_height))
 	library.add_animation(&"smothered", _build_smothered(hip_height))
 	library.add_animation(&"smother_dive", _build_smother_dive(hip_height))
@@ -839,6 +840,40 @@ static func _build_tackle_takedown(hip_height: float) -> Animation:
 			"shoulder_r": Vector3(0.35, 0.0, 0.10), "elbow_r": Vector3(-0.55, 0.0, 0.0),
 			"hip_l": Vector3(0.30, 0.0, 0.0), "knee_l": Vector3(-0.55, 0.0, 0.0),
 			"hip_r": Vector3(-0.10, 0.0, 0.0), "knee_r": Vector3(-0.15, 0.0, 0.0),
+		})],
+		[length, _base_pose()],
+	], hip_height)
+
+
+## Fallback for the procedural rig only: 6thbuild ships its own authored
+## tackle_sling (tools/blender/author_6thbuild_clips.py). The Slide knockdown's
+## sling on the tackler's feet: arms in around the chest at contact, the
+## torso twisting left (+yaw) and down through the throw, then back up.
+static func _build_tackle_sling(hip_height: float) -> Animation:
+	var length := Tuning.action_duration(Tuning.Action.TACKLE_SLING)
+	var contact := Tuning.action_contact_time(Tuning.Action.TACKLE_SLING)
+	return _assemble(length, false, [
+		[0.0, _base_pose()],
+		[contact, _pose({
+			"hip_y": -0.10, "torso": Vector3(-0.30, -0.15, 0.0), "neck": Vector3(0.10, 0.0, 0.0),
+			"shoulder_l": Vector3(0.95, 0.0, -0.10), "elbow_l": Vector3(-0.90, 0.0, 0.0),
+			"shoulder_r": Vector3(0.95, 0.0, 0.10), "elbow_r": Vector3(-0.90, 0.0, 0.0),
+			"hip_l": Vector3(0.30, 0.0, 0.0), "knee_l": Vector3(-0.45, 0.0, 0.0),
+			"hip_r": Vector3(-0.10, 0.0, 0.0), "knee_r": Vector3(-0.25, 0.0, 0.0),
+		})],
+		[lerpf(contact, length, 0.30), _pose({
+			"hip_y": -0.28, "torso": Vector3(-0.60, 0.65, 0.20), "neck": Vector3(0.20, -0.20, 0.0),
+			"shoulder_l": Vector3(0.70, 0.0, -0.45), "elbow_l": Vector3(-0.60, 0.0, 0.0),
+			"shoulder_r": Vector3(1.10, 0.0, 0.40), "elbow_r": Vector3(-0.50, 0.0, 0.0),
+			"hip_l": Vector3(0.55, 0.0, 0.0), "knee_l": Vector3(-0.90, 0.0, 0.0),
+			"hip_r": Vector3(-0.25, 0.0, 0.0), "knee_r": Vector3(-0.35, 0.0, 0.0),
+		})],
+		[lerpf(contact, length, 0.65), _pose({
+			"hip_y": -0.15, "torso": Vector3(-0.30, 0.35, 0.10), "neck": Vector3(0.10, -0.10, 0.0),
+			"shoulder_l": Vector3(0.40, 0.0, -0.25), "elbow_l": Vector3(-0.50, 0.0, 0.0),
+			"shoulder_r": Vector3(0.50, 0.0, 0.25), "elbow_r": Vector3(-0.50, 0.0, 0.0),
+			"hip_l": Vector3(0.30, 0.0, 0.0), "knee_l": Vector3(-0.45, 0.0, 0.0),
+			"hip_r": Vector3(-0.10, 0.0, 0.0), "knee_r": Vector3(-0.20, 0.0, 0.0),
 		})],
 		[length, _base_pose()],
 	], hip_height)

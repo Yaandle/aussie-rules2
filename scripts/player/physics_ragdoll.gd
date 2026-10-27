@@ -1,11 +1,22 @@
 class_name PhysicsRagdoll
 extends RefCounted
 
-## Stage 1 of docs/MECHANICS_AUDIT.md §B4 ("Physics Ragdoll Lab"): a purely
-## PASSIVE ragdoll hung off an existing HumanoidRig's Skeleton3D. No motors,
-## no target pose, no animation hand-off — the body is posed (kinematic,
-## following the skeleton) until start() switches every bone to rigid, then
-## gravity, contacts and the joint limits below decide everything.
+## The ragdoll behind docs/MECHANICS_AUDIT.md §B4, hung off an existing
+## HumanoidRig's Skeleton3D. The body is posed (kinematic, following the
+## skeleton) until start() switches every bone to rigid, then gravity,
+## contacts and the joint limits below decide everything — plus, when
+## `strength` is above zero, the ACTIVE layer (stage 3+, see "Motors"
+## below): joint motors pulling toward a captured target pose, a balance
+## assist that tries to keep the body standing over its feet, and the
+## stage-5 protective reflexes (head held in line, arms braced into the
+## fall). `strength` is the one 0-1 dial on all of it, so a tackle's
+## balance loss b plugs straight in as 1 - b (PlayerRagdoll, TackleBalance).
+## At the default 0 this is exactly the stage-1 PASSIVE ragdoll, which is
+## what the lab's GO LIMP / PUSH / THROW and mark_landing_bake still use.
+##
+## Moved out of scripts/dev when live tackles started using it (stage 2,
+## PlayerRagdoll); the lab (scripts/dev/physics_ragdoll_lab.gd) is still
+## where it's tuned.
 ##
 ## Built in code rather than with the editor's Skeleton3D > "Create Physical
 ## Skeleton" tool because HumanoidRig assembles 6thbuild at runtime (it
@@ -48,6 +59,33 @@ extends RefCounted
 ##   penetration is ~1-1.5 cm, inside Jolt's 2 cm penetration slop.
 ##   A 120 Hz physics tick roughly halves both — a project-wide change, left
 ##   for whoever decides how this plugs into a match.
+##
+## ── Scaled rigs ──────────────────────────────────────────────────────
+## A match scales each player's Rig node by height (FullGame._apply_stats),
+## and a physics body can't carry scale (Jolt orthonormalises it away, so
+## the shapes would shrink back to rest size while the joints kept their
+## scaled spacing — a solver fight from the first tick). build() reads the
+## skeleton's global scale once and bakes it into the physical side
+## instead: shapes and joint anchors are sized in world metres, and each
+## body_offset carries the inverse scale, so skeleton * bone * body_offset
+## comes out orthonormal and the simulator's write-back (body *
+## body_offset⁻¹) lands the bone back in scaled skeleton space. The rig's
+## scale must not change after build().
+##
+## ── Motors (stage 3+) ────────────────────────────────────────────────
+## Velocity servos, not spring-dampers: each tick a joint's motor works out
+## the relative spin that would close its pose error at MOTOR_RATE, and
+## applies an equal-and-opposite angular impulse to child and parent sized
+## to close MOTOR_GAIN of the gap between that and the spin it has now.
+## With the gain under 1 that's stable at any stiffness, which a PD torque
+## at 60 Hz on a 2 kg forearm isn't. Equal and opposite means a joint
+## motor can't move the body as a whole — only the balance assist can, and
+## it's a deliberate cheat: a capsule-footed ragdoll can't make ankle
+## torque, so nothing else could keep it standing. It turns the whole body
+## as one rigid piece about the midpoint of its feet, toward upright, until
+## the lean passes an angle that grows with `strength` — past that, the
+## fall is committed and the assist lets go. Unplaytested feel guesses all
+## through; the lab's TACKLE mode is where they get tuned.
 
 enum Joint { NONE, BALL, HINGE }
 
@@ -77,11 +115,73 @@ const INERTIA_FLOOR := 0.35
 ## hardest case for the joint solver.
 const IMPACT_DIRECT_SHARE := 0.6
 
-## "players" layer (project.godot layer_2). Masks world + players + ball so
+## Its own "ragdoll" layer (project.godot layer_5), masking world + ragdoll:
 ## the body lands on the floor, non-adjacent limbs can't pass through each
-## other, and a thrown ball hits it.
-const COLLISION_LAYER := 1 << 1
-const COLLISION_MASK := (1 << 0) | (1 << 1) | (1 << 2)
+## other, and two players' ragdolls in the same tackle pile into each other.
+## Deliberately NOT the players layer: the player's own CharacterBody3D
+## capsule (and everyone else's) would otherwise shove the light limbs
+## around kinematically, and NOT the ball — a tackle spills the ball the
+## same frame the body goes rigid, and the spill is the gameplay outcome,
+## not something a flailing forearm gets to redirect. build()'s extra_mask
+## adds layers back (the lab adds the ball so THROW still lands).
+const COLLISION_LAYER := 1 << 4
+const COLLISION_MASK := (1 << 0) | (1 << 4)
+const BALL_LAYER := 1 << 2
+
+## ── Motor, balance and reflex constants (see header) ───────────────────
+## MOTOR_RATE: relative spin (rad/s) asked for per radian of pose error.
+## MOTOR_GAIN: share of the gap between that and the joint's current spin
+## closed each tick, at strength 1. MOTOR_MAX_TORQUE caps a joint's
+## motor (N·m, at strength 1) so a big error can't wrench a light link.
+const MOTOR_RATE := 30.0
+const MOTOR_GAIN := 0.7
+const MOTOR_MAX_RATE := 12.0
+const MOTOR_MAX_TORQUE := 420.0
+
+## Balance assist: lean (rad) -> tilt spin asked for, share of the gap
+## closed per tick at full authority, and the lean past which it gives up —
+## lerped from the first to the second as strength goes 0 -> 1, so a
+## stronger body recovers from further over. Only acts while a foot is
+## within UPRIGHT_FOOT_CONTACT of the floor (no balancing mid-air).
+## Its authority is strength SQUARED, not strength: being external, every
+## bit of tilt it takes out also takes out the hit's own momentum, and at a
+## linear 0.4 (a b = 0.6 tackle) it soaked up a 200 N·s side push before
+## letting go, so the body crumpled in place instead of falling away from
+## the hit. Squared, a weakened body barely fights it.
+const UPRIGHT_RATE := 5.0
+const UPRIGHT_GAIN := 0.35
+const UPRIGHT_GIVE_UP_DEG := Vector2(8.0, 48.0)
+const UPRIGHT_FOOT_CONTACT := 0.18
+
+## Share of each body's weight the balance assist carries while it holds
+## (times its authority). The joint motors are servos sized by each link's
+## own inertia, which is tiny next to the body weight a stance knee or hip
+## carries — measured in the lab, full-strength motors alone let a
+## standing body sink straight down onto its heels in under a second, knees
+## at 140°. Same cheat as the rest of the assist, and it stops the instant
+## the assist lets go, so it never slows a fall. 0.85 held a stance more
+## upright but unloaded the feet so far their friction gave out and a side
+## push slid them toward the hit.
+const SUPPORT_SHARE := 0.5
+const SUPPORT_RAMP := Vector2(0.3, 0.7)
+
+## "Down": hips centre below this (m, before rig scale). Once down the
+## motors relax to LYING_STRENGTH so a fallen player lies loose rather
+## than holding the running pose rigid on the ground.
+const DOWN_HIPS_HEIGHT := 0.45
+const LYING_STRENGTH := 0.08
+
+## Stage-5 reflexes, floors under `strength` that hold whatever the hit:
+## the neck keeps the head roughly in line with the chest (no whiplash into
+## the turf), and once the body is falling (lean past the give-up angle, or
+## dropping faster than BRACE_FALL_SPEED) the upper arms swing to reach
+## along the fall and down (BRACE_DOWN) to take it on the hands.
+const HEAD_PROTECT_STRENGTH := 0.6
+const ARM_BRACE_STRENGTH := 0.5
+const BRACE_FALL_SPEED := 0.9
+const BRACE_DOWN := 0.7
+const BRACE_LOOKAHEAD := 0.25   ## s — see _topple
+const ARM_BONES: Array[String] = ["LeftUpperArm", "RightUpperArm"]
 
 ## Contact feel. Friction high enough that a fallen body stops rather than
 ## skates; no bounce. A little angular damping stands in for the joint
@@ -189,7 +289,39 @@ var simulator: PhysicalBoneSimulator3D
 ## bone name -> PhysicalBone3D
 var bodies := {}
 
+## 0 = passive (stage 1), 1 = motors and balance at full strength. The one
+## dial a caller turns — see the header's "Motors".
+var strength := 0.0
+
+## bone -> world direction its segment should point (body +Y), set fresh
+## each tick by whoever owns those limbs for now: TackleWrap's arms reaching
+## round a carrier. An aimed bone's motor swings it onto that direction at
+## no less than `aim_strength`, the way the arm brace swings arms along a
+## fall, and it skips the brace. Cleared by start().
+var aim_dirs := {}
+var aim_strength := 0.0
+
+## bone name -> half the body's segment length in world metres (scaled),
+## for segment_tip().
+var _half_span := {}
+
 var _skeleton: Skeleton3D
+
+## Skeleton global scale at build() — see the header's "Scaled rigs".
+var _scale := 1.0
+
+## bone name -> skeleton-space forward / up (SKELETON_FORWARD, +Y) in that
+## body's own frame, for front_of()/up_of().
+var _front_local := {}
+var _up_local := {}
+
+## bone name -> floored principal inertia (body frame), set in start().
+var _inertia := {}
+
+## Motor targets from capture_target_pose(): bone -> Quaternion, the child
+## body's rotation in its parent body's frame. Empty = no motors.
+var _target_rel := {}
+var _falling := false
 
 ## One entry per jointed body, for joint_report(): the joint's axis and the
 ## segment direction in the child body's own frame, plus the same two
@@ -209,10 +341,24 @@ var _sleep_time := 0.0
 var _sleep_snapshot := {}
 
 
-## Builds every body under a new PhysicalBoneSimulator3D on `skeleton`.
-## The skeleton must be at its rest pose. Returns false (and builds
-## nothing) if a bone in BODIES is missing — i.e. not a 6thbuild skeleton.
-func build(skeleton: Skeleton3D) -> bool:
+## True if `skeleton` has every bone BODIES needs (i.e. it's 6thbuild).
+static func supports(skeleton: Skeleton3D) -> bool:
+	if skeleton == null:
+		return false
+	for spec: Dictionary in BODIES:
+		if skeleton.find_bone(spec.bone) < 0:
+			return false
+	return true
+
+
+## Builds every body under a new PhysicalBoneSimulator3D on `skeleton`,
+## which must be in the tree (its global scale is read — see the header's
+## "Scaled rigs"). Bodies are built from the skeleton's REST pose whatever
+## it's posed in now. `mass_scale` multiplies every BODIES mass (a 95 kg
+## player is BODIES * 95/86); `extra_mask` adds collision layers on top of
+## COLLISION_MASK. Returns false (and builds nothing) if a bone in BODIES
+## is missing — i.e. not a 6thbuild skeleton.
+func build(skeleton: Skeleton3D, mass_scale := 1.0, extra_mask := 0) -> bool:
 	_skeleton = skeleton
 	var missing: Array[String] = []
 	for spec: Dictionary in BODIES:
@@ -221,11 +367,13 @@ func build(skeleton: Skeleton3D) -> bool:
 	if not missing.is_empty():
 		push_error("PhysicsRagdoll: skeleton has no bone(s) %s" % [missing])
 		return false
+	_scale = skeleton.global_basis.get_scale().x
 
 	simulator = PhysicalBoneSimulator3D.new()
 	simulator.name = "PhysicalBoneSimulator3D"
 	skeleton.add_child(simulator)
 
+	var unscale := Transform3D(Basis.from_scale(Vector3.ONE / _scale), Vector3.ZERO)
 	for spec: Dictionary in BODIES:
 		var bone_rest := skeleton.get_bone_global_rest(skeleton.find_bone(spec.bone))
 		var dir := _segment_dir(spec, bone_rest)
@@ -234,24 +382,28 @@ func build(skeleton: Skeleton3D) -> bool:
 		var pb := PhysicalBone3D.new()
 		pb.name = "Physical_" + String(spec.bone)
 		pb.bone_name = spec.bone
-		pb.body_offset = bone_rest.affine_inverse() * body_xform
-		pb.mass = spec.mass
+		pb.body_offset = bone_rest.affine_inverse() * body_xform * unscale
+		pb.mass = spec.mass * mass_scale
 		pb.friction = FRICTION
 		pb.bounce = BOUNCE
 		pb.linear_damp = LINEAR_DAMP
 		pb.angular_damp = ANGULAR_DAMP
 		pb.collision_layer = COLLISION_LAYER
-		pb.collision_mask = COLLISION_MASK
+		pb.collision_mask = COLLISION_MASK | extra_mask
 
 		var shape := CollisionShape3D.new()
 		shape.name = "CollisionShape3D"
 		shape.shape = _make_shape(spec)
 		pb.add_child(shape)
 		_shapes[spec.bone] = {"shape": shape.shape, "xform": shape.transform}
+		var to_body := body_xform.basis.inverse()
+		_front_local[spec.bone] = (to_body * SKELETON_FORWARD).normalized()
+		_up_local[spec.bone] = (to_body * Vector3.UP).normalized()
 
 		_configure_joint(pb, spec, body_xform, bone_rest.origin, dir)
 		simulator.add_child(pb)
 		bodies[spec.bone] = pb
+		_half_span[spec.bone] = ((spec.span as Vector2).y - (spec.span as Vector2).x) * 0.5 * _scale
 
 	# Shapes deliberately overlap where they meet (a thigh's top cap sits
 	# inside the pelvis box, a shin's end cap inside the foot box) so there's
@@ -273,33 +425,86 @@ func is_simulating() -> bool:
 	return simulator != null and simulator.is_simulating_physics()
 
 
-## Goes limp: every body switches from following the skeleton to rigid.
-func start() -> void:
+## Goes rigid: every body switches from following the skeleton to
+## simulated, all moving at `initial_velocity` — a player tackled at a
+## sprint carries that momentum into the fall rather than stopping dead.
+## Motors (strength > 0) also need capture_target_pose() first.
+func start(initial_velocity := Vector3.ZERO) -> void:
+	simulator.active = true
+	simulator.influence = 1.0
 	snap_to_pose()
 	simulator.physical_bones_start_simulation()
 	for bone: String in bodies:
 		var pb: PhysicalBone3D = bodies[bone]
-		pb.linear_velocity = Vector3.ZERO
+		pb.linear_velocity = initial_velocity
 		pb.angular_velocity = Vector3.ZERO
+		_inertia[bone] = _floored_inertia(bone)
 		# Not exposed on PhysicalBone3D itself, only on the server.
 		PhysicsServer3D.body_set_param(pb.get_rid(), PhysicsServer3D.BODY_PARAM_INERTIA,
-			_floored_inertia(bone))
+			_inertia[bone])
+		PhysicsServer3D.body_set_state(pb.get_rid(), PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY,
+			initial_velocity)
 	_sim_time = 0.0
 	_quiet_time = 0.0
 	_smoothed_speed = 0.0
 	_smoothed_spin = 0.0
+	_falling = false
+	aim_dirs.clear()
 	_sleep_snapshot.clear()
 	_set_settle_blend(0.0, true)
 	_capture_joint_zero()
 
 
-## Back to kinematic, and the skeleton back to its rest pose (the
-## simulator's last written pose would otherwise stick).
-func stop() -> void:
+## Back to kinematic. `reset_pose` puts the skeleton back to its rest pose
+## (the simulator's last written pose would otherwise stick) — the lab
+## wants that; a player whose AnimationTree is about to write the next
+## pose anyway doesn't.
+func stop(reset_pose := true) -> void:
 	simulator.physical_bones_stop_simulation()
-	_skeleton.reset_bone_poses()
+	if reset_pose:
+		_skeleton.reset_bone_poses()
 	_set_settle_blend(0.0, true)
 	snap_to_pose()
+
+
+## Parks an idle ragdoll: the simulator stops processing at all, so the
+## kinematic bodies stop being re-posed every frame. start() wakes it.
+func park() -> void:
+	if is_simulating():
+		stop(false)
+	simulator.active = false
+	simulator.influence = 1.0
+
+
+## Records the skeleton's CURRENT pose (whatever the animation last wrote)
+## as the motors' target: each jointed body's rotation in its parent body's
+## frame. Call while posed, before start(). Rotations only, so the rig's
+## scale and where the player stands don't matter.
+func capture_target_pose() -> void:
+	_target_rel.clear()
+	var rot := {}
+	for bone: String in bodies:
+		var pb: PhysicalBone3D = bodies[bone]
+		var pose := _skeleton.get_bone_global_pose(_skeleton.find_bone(bone))
+		rot[bone] = (pose.basis * pb.body_offset.basis).orthonormalized().get_rotation_quaternion()
+	for bone: String in bodies:
+		var parent := _parent_body(bone)
+		if parent == null:
+			continue
+		_target_rel[bone] = ((rot[String(parent.bone_name)] as Quaternion).inverse()
+			* (rot[bone] as Quaternion)).normalized()
+
+
+func has_target_pose() -> bool:
+	return not _target_rel.is_empty()
+
+
+## Re-weights every body to BODIES * `mass_scale` (the lab's mass sliders;
+## a match builds at the player's mass and leaves it). Takes effect from
+## the next start().
+func set_mass_scale(mass_scale: float) -> void:
+	for spec: Dictionary in BODIES:
+		(bodies[spec.bone] as PhysicalBone3D).mass = float(spec.mass) * mass_scale
 
 
 ## Call every physics tick while simulating — drives the settle assist.
@@ -310,6 +515,8 @@ func step(delta: float) -> void:
 	# A sleeping body keeps reporting its last velocity — nothing to read.
 	if is_asleep():
 		return
+	if strength > 0.0 and has_target_pose():
+		_apply_motors(delta)
 	# Smoothed on the way down only: a real hit (a ball arriving at a
 	# sleeping, settle-damped body) has to drop the damping at once.
 	var k := 1.0 - exp(-delta / SETTLE_SMOOTHING)
@@ -335,7 +542,8 @@ func step(delta: float) -> void:
 	for bone: String in bodies:
 		var now := (bodies[bone] as PhysicalBone3D).global_transform
 		var then: Transform3D = _sleep_snapshot[bone]
-		if now.origin.distance_to(then.origin) > SLEEP_DRIFT 				or rad_to_deg(now.basis.get_rotation_quaternion().angle_to(
+		if now.origin.distance_to(then.origin) > SLEEP_DRIFT \
+				or rad_to_deg(now.basis.get_rotation_quaternion().angle_to(
 					then.basis.get_rotation_quaternion())) > SLEEP_TURN:
 			still = false
 			break
@@ -401,8 +609,104 @@ func apply_impact(bone: StringName, impulse: Vector3) -> void:
 		pb.apply_central_impulse(impulse * (1.0 - IMPACT_DIRECT_SHARE) * pb.mass / neighbour_mass)
 
 
+## apply_impact() with the hit body's share landing at `world_point` rather
+## than its centre, so a hit on one side of the chest also turns it.
+func apply_impact_at(bone: StringName, impulse: Vector3, world_point: Vector3) -> void:
+	var hit := body(bone)
+	_quiet_time = 0.0
+	_sleep_snapshot.clear()
+	_set_settle_blend(0.0)
+	var neighbours: Array[PhysicalBone3D] = []
+	var neighbour_mass := 0.0
+	for other: String in bodies:
+		var pb: PhysicalBone3D = bodies[other]
+		if pb != hit and (_parent_body(other) == hit or _parent_body(String(bone)) == pb):
+			neighbours.append(pb)
+			neighbour_mass += pb.mass
+	var direct := impulse if neighbours.is_empty() else impulse * IMPACT_DIRECT_SHARE
+	hit.apply_impulse(direct, world_point - hit.global_position)
+	for pb in neighbours:
+		pb.apply_central_impulse(impulse * (1.0 - IMPACT_DIRECT_SHARE) * pb.mass / neighbour_mass)
+
+
+## A tackle's push for one tick: `body_share` of it moves the whole body as
+## one (every body by its share of the mass, so the centre of mass takes it
+## without anything turning), the rest lands on `bone` at `world_point` via
+## apply_impact_at. All of it on the hit link, as a pure apply_impact_at,
+## put a hard hit's worth of momentum into the 17 kg chest alone: it shot
+## back at 15 m/s while the legs carried on, and the body backflipped and
+## landed face down, the wrong way round for a hit from the front. Moving
+## the body as a whole lets the feet's grip on the turf do the toppling,
+## which always topples it the way it was pushed; the contact share adds
+## the turn a hit high on one side gives.
+func apply_tackle_push(bone: StringName, impulse: Vector3, world_point: Vector3, body_share: float) -> void:
+	body_share = clampf(body_share, 0.0, 1.0)
+	if body_share > 0.0:
+		var mass := total_mass()
+		for pb: PhysicalBone3D in bodies.values():
+			pb.apply_central_impulse(impulse * body_share * pb.mass / mass)
+	apply_impact_at(bone, impulse * (1.0 - body_share), world_point)
+
+
 func body(bone: StringName) -> PhysicalBone3D:
 	return bodies.get(String(bone))
+
+
+## The far end of `bone`'s segment, world space — a forearm's is the wrist.
+## Body +Y runs along the segment from the bone's origin (_body_rest_transform).
+func segment_tip(bone: StringName) -> Vector3:
+	var pb := body(bone)
+	return pb.global_position + pb.global_basis.y.normalized() * float(_half_span.get(String(bone), 0.0))
+
+
+## The near end — where the joint to its parent is (an upper arm's is the
+## shoulder).
+func segment_root(bone: StringName) -> Vector3:
+	var pb := body(bone)
+	return pb.global_position - pb.global_basis.y.normalized() * float(_half_span.get(String(bone), 0.0))
+
+
+## The segment's length, world metres.
+func segment_length(bone: StringName) -> float:
+	return float(_half_span.get(String(bone), 0.0)) * 2.0
+
+
+## How fast a point fixed to `bone`'s body is moving, world space.
+func point_velocity(bone: StringName, world_point: Vector3) -> Vector3:
+	var pb := body(bone)
+	return pb.linear_velocity + pb.angular_velocity.cross(world_point - pb.global_position)
+
+
+## Where the skeleton's forward (the chest's front) / up points for `bone`'s
+## body right now, world space.
+func front_of(bone: String) -> Vector3:
+	return ((bodies[bone] as PhysicalBone3D).global_basis.orthonormalized() * (_front_local[bone] as Vector3)).normalized()
+
+
+func up_of(bone: String) -> Vector3:
+	return ((bodies[bone] as PhysicalBone3D).global_basis.orthonormalized() * (_up_local[bone] as Vector3)).normalized()
+
+
+## Hips below DOWN_HIPS_HEIGHT (scaled with the rig): on the ground.
+func is_down() -> bool:
+	return (bodies["Hips"] as PhysicalBone3D).global_position.y < DOWN_HIPS_HEIGHT * _scale
+
+
+## True once the balance assist has let go or the body is dropping fast —
+## the arms are bracing. For readouts.
+func is_falling() -> bool:
+	return _falling
+
+
+func rig_scale() -> float:
+	return _scale
+
+
+func linear_momentum() -> Vector3:
+	var sum := Vector3.ZERO
+	for pb: PhysicalBone3D in bodies.values():
+		sum += pb.linear_velocity * pb.mass
+	return sum
 
 
 func total_mass() -> float:
@@ -520,6 +824,166 @@ func build_debug_meshes() -> Array[MeshInstance3D]:
 	return out
 
 
+# ── Motors ───────────────────────────────────────────────────────────
+
+func _apply_motors(delta: float) -> void:
+	var down := is_down()
+	var base := minf(strength, LYING_STRENGTH) if down else strength
+	var balancing := _apply_balance(base, delta)
+	var hips: PhysicalBone3D = bodies["Hips"]
+	_falling = not down and (not balancing or hips.linear_velocity.y < -BRACE_FALL_SPEED)
+	var brace_dir := Vector3.ZERO
+	if _falling:
+		var flat := _topple()
+		if flat.length_squared() > 0.0001:
+			brace_dir = (flat.normalized() + Vector3.DOWN * BRACE_DOWN).normalized()
+	for j: Dictionary in _joints:
+		var bone: String = j.bone
+		var parent: PhysicalBone3D = j.get("parent")
+		if parent == null or not _target_rel.has(bone):
+			continue
+		var child: PhysicalBone3D = bodies[bone]
+		var s := base
+		if bone == "head":
+			s = maxf(s, HEAD_PROTECT_STRENGTH)
+		var aimed := aim_dirs.has(bone)
+		var bracing := not aimed and brace_dir != Vector3.ZERO and ARM_BONES.has(bone)
+		if bracing:
+			s = maxf(s, ARM_BRACE_STRENGTH)
+		if aimed:
+			s = maxf(s, aim_strength)
+		if s <= 0.0:
+			continue
+		var err: Vector3
+		if aimed:
+			err = _swing_error(child.global_basis.y.normalized(), aim_dirs[bone])
+		elif bracing:
+			# Body +Y runs along the segment (see _body_rest_transform).
+			err = _swing_error(child.global_basis.y.normalized(), brace_dir)
+		else:
+			var goal := parent.global_basis.get_rotation_quaternion() * (_target_rel[bone] as Quaternion)
+			err = _rotation_vector(goal * child.global_basis.get_rotation_quaternion().inverse())
+		_drive_joint(child, parent, err, s, delta)
+
+
+## One joint's velocity servo (see header): an equal-and-opposite angular
+## impulse on child and parent, sized by their reduced inertia about the
+## correction axis.
+func _drive_joint(child: PhysicalBone3D, parent: PhysicalBone3D, err: Vector3, s: float,
+		delta: float) -> void:
+	var goal := err * MOTOR_RATE
+	if goal.length() > MOTOR_MAX_RATE:
+		goal = goal.normalized() * MOTOR_MAX_RATE
+	var dw := (goal - (child.angular_velocity - parent.angular_velocity)) * MOTOR_GAIN * s
+	var size := dw.length()
+	if size < 0.00001:
+		return
+	var axis := dw / size
+	var ic := _inertia_along(child, axis)
+	var ip := _inertia_along(parent, axis)
+	var impulse := dw * (ic * ip / (ic + ip))
+	var cap := MOTOR_MAX_TORQUE * s * delta
+	if impulse.length() > cap:
+		impulse = impulse.normalized() * cap
+	PhysicsServer3D.body_apply_torque_impulse(child.get_rid(), impulse)
+	PhysicsServer3D.body_apply_torque_impulse(parent.get_rid(), -impulse)
+
+
+## The balance assist (see header). Returns whether it's still holding the
+## body up — false once the lean is past the give-up angle, both feet are
+## off the floor, or there's no strength to hold with.
+func _apply_balance(s: float, delta: float) -> bool:
+	if s <= 0.0:
+		return false
+	var contact := UPRIGHT_FOOT_CONTACT * _scale
+	if lowest_point_of("LeftFoot") > contact and lowest_point_of("RightFoot") > contact:
+		return false
+	var pivot := _feet_midpoint()
+	var r := centre_of_mass() - pivot
+	var height := r.length()
+	if height < 0.3 * _scale:
+		return false
+	var lean := r / height
+	var angle := lean.angle_to(Vector3.UP)
+	if angle > deg_to_rad(lerpf(UPRIGHT_GIVE_UP_DEG.x, UPRIGHT_GIVE_UP_DEG.y, s)):
+		return false
+	# Weight support isn't squared — it's vertical, so it takes nothing out
+	# of a sideways hit — but ramps in over SUPPORT_RAMP: linear in strength,
+	# a 0.6 body sank onto its heels with no push at all, so whether a
+	# middling hit stays up came down to its knees giving way rather than
+	# the lean. Full support from the ramp's top keeps those standing until
+	# the give-up angle decides; under its bottom (every live tackle sits at
+	# 0.4 or less) there's next to none, so a connected tackle goes down.
+	var support := Vector3.UP * _gravity() * delta * SUPPORT_SHARE \
+		* smoothstep(SUPPORT_RAMP.x, SUPPORT_RAMP.y, s)
+	s *= s   # tilt authority — see UPRIGHT_*
+	var axis := lean.cross(Vector3.UP)
+	var err := axis.normalized() * angle if axis.length_squared() > 1e-10 else Vector3.ZERO
+	# The whole body's tilt rate about the pivot, from its centre of mass.
+	var spin := r.cross(linear_momentum() / total_mass()) / (height * height)
+	var dw := (err * UPRIGHT_RATE - spin) * UPRIGHT_GAIN * s
+	dw.y = 0.0
+	var turning := dw.length_squared() > 1e-10
+	var axis_dw := dw.normalized() if turning else Vector3.ZERO
+	for pb: PhysicalBone3D in bodies.values():
+		var impulse := support * pb.mass
+		if turning:
+			impulse += pb.mass * dw.cross(pb.global_position - pivot)
+			PhysicsServer3D.body_apply_torque_impulse(pb.get_rid(), dw * _inertia_along(pb, axis_dw))
+		pb.apply_central_impulse(impulse)
+	return true
+
+
+## Which way the body is going over, flat (not normalised): how far the
+## centre of mass already leans past the feet, plus where it's heading
+## relative to them over the next BRACE_LOOKAHEAD. The arms reach along
+## this. They used to reach along the body's momentum, but a tackled
+## runner's momentum is mostly their own run: hit side-on, or from the
+## front, they'd brace forward while toppling sideways or back.
+func _topple() -> Vector3:
+	var feet_vel := ((bodies["LeftFoot"] as PhysicalBone3D).linear_velocity
+		+ (bodies["RightFoot"] as PhysicalBone3D).linear_velocity) * 0.5
+	var lean := centre_of_mass() - _feet_midpoint()
+	lean += (linear_momentum() / total_mass() - feet_vel) * BRACE_LOOKAHEAD
+	lean.y = 0.0
+	return lean
+
+
+static func _gravity() -> float:
+	return ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)
+
+
+func _feet_midpoint() -> Vector3:
+	return ((bodies["LeftFoot"] as PhysicalBone3D).global_position
+		+ (bodies["RightFoot"] as PhysicalBone3D).global_position) * 0.5
+
+
+## Moment of inertia of `pb` about a world `axis` through its centre.
+func _inertia_along(pb: PhysicalBone3D, axis: Vector3) -> float:
+	var local := pb.global_basis.orthonormalized().inverse() * axis
+	var inertia: Vector3 = _inertia.get(String(pb.bone_name), Vector3.ONE * 0.1)
+	return inertia.x * local.x * local.x + inertia.y * local.y * local.y + inertia.z * local.z * local.z
+
+
+## Axis * angle (rad) of the shortest rotation `q`.
+static func _rotation_vector(q: Quaternion) -> Vector3:
+	q = q.normalized()
+	if q.w < 0.0:
+		q = -q
+	var s := sqrt(maxf(1.0 - q.w * q.w, 0.0))
+	if s < 0.00001:
+		return Vector3.ZERO
+	return Vector3(q.x, q.y, q.z) / s * 2.0 * acos(clampf(q.w, -1.0, 1.0))
+
+
+## Axis * angle swinging direction `from` onto `to`.
+static func _swing_error(from: Vector3, to: Vector3) -> Vector3:
+	var axis := from.cross(to)
+	if axis.length_squared() < 1e-10:
+		return Vector3.ZERO
+	return axis.normalized() * from.angle_to(to)
+
+
 # ── Construction ─────────────────────────────────────────────────────
 
 func _segment_dir(spec: Dictionary, bone_rest: Transform3D) -> Vector3:
@@ -554,10 +1018,11 @@ func _body_rest_transform(spec: Dictionary, bone_rest: Transform3D, dir: Vector3
 	return Transform3D(Basis(x, dir, z), bone_rest.origin + dir * (span.x + span.y) * 0.5)
 
 
+## Sized in world metres (skeleton units * _scale) — see "Scaled rigs".
 func _make_shape(spec: Dictionary) -> Shape3D:
-	var span: Vector2 = spec.span
+	var span: Vector2 = spec.span * _scale
 	var length := span.y - span.x
-	var size: Vector2 = spec.size
+	var size: Vector2 = spec.size * _scale
 	if spec.shape == &"capsule":
 		var capsule := CapsuleShape3D.new()
 		capsule.radius = size.x
@@ -579,7 +1044,9 @@ func _make_shape(spec: Dictionary) -> Shape3D:
 func _configure_joint(pb: PhysicalBone3D, spec: Dictionary, body_xform: Transform3D,
 		pivot: Vector3, dir: Vector3) -> void:
 	var to_body := body_xform.affine_inverse()
-	var origin := to_body * pivot
+	# The body frame is in world metres (see "Scaled rigs"), the rest pose
+	# in skeleton units.
+	var origin := (to_body * pivot) * _scale
 	var dir_body := (to_body.basis * dir).normalized()
 	match spec.joint:
 		Joint.BALL:

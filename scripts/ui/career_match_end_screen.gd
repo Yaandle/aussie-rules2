@@ -13,7 +13,7 @@ extends CanvasLayer
 ## RETURN TO MENU clears GameState.career_active — the one place that
 ## actually happens (see GameState.gd's own header note on why it isn't
 ## cleared any earlier) — then goes back to the Dashboard, which by now
-## sees CareerProfile.games_played >= 1 and renders its locked state.
+## shows the next round (or SEASON COMPLETE) and the updated ladder.
 ##
 ## 2026-10-24 playtest ("still cannot see the stats page at end of career
 ## or game"): the screen worked, but it closed on the first A/Enter/B with
@@ -32,6 +32,14 @@ const CARD_WIDTH := 520.0
 ## Covers a press still in flight from the last seconds of play plus the
 ## scene wipe (Tuning.CHARACTER_TRANSITION_TIME).
 const INPUT_GRACE := 1.0
+
+const DASHBOARD_SCENE := "res://scenes/ui/career_dashboard_screen.tscn"
+
+## Where RETURN TO MENU goes: the Dashboard after a match, or the season
+## stats page when its LAST MATCH opened this card (it sets this first).
+## Put back to the Dashboard on the way out, so the next full time can't
+## inherit it.
+static var return_scene := DASHBOARD_SCENE
 
 var _busy := false
 var _elapsed := 0.0
@@ -76,6 +84,15 @@ func _ready() -> void:
 	column.add_child(CareerTheme.label("FULL TIME", SoftBrutalist.SIZE_TITLE,
 		CareerTheme.PANEL_TEXT, SoftBrutalist.WEIGHT_HEAVY, 1))
 	column.add_child(_build_scoreline())
+	# What the match earned (CareerProfile.record_result() notes it on the
+	# result); absent on a result from before upgrades existed. Only straight
+	# after the match: reopened from the stats page's LAST MATCH, the upgrades
+	# may be spent already, and "+5 UPGRADES" would read as five more
+	# (Career review finding 4).
+	var upgrades := int(_result.get("upgrades", 0))
+	if upgrades > 0 and return_scene == DASHBOARD_SCENE:
+		column.add_child(CareerTheme.label("+%d UPGRADES — spend them in Edit Player" % upgrades,
+			SoftBrutalist.SIZE_LABEL, CareerTheme.POSITIVE, SoftBrutalist.WEIGHT_BOLD, 1))
 	column.add_child(_build_rule())
 	column.add_child(_build_leaderboard("TOP GOALKICKERS", _entries("goals")))
 	column.add_child(_build_rule())
@@ -222,4 +239,6 @@ func _return_to_dashboard() -> void:
 		return
 	_busy = true
 	GameState.career_active = false
-	SceneWipe.change_scene("res://scenes/ui/career_dashboard_screen.tscn")
+	var destination := return_scene
+	return_scene = DASHBOARD_SCENE
+	SceneWipe.change_scene(destination)

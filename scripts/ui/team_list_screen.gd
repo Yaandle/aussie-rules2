@@ -45,6 +45,21 @@ extends CanvasLayer
 ## drawing all 18 named AFL slots and ringing whichever 4 the preset used
 ## (see HANDOVER.md (archived, see docs/LESSONS.md) for that design's own history).
 ##
+## ── Squad sheet (release 1.3) ───────────────────────────────────────
+## The page now scrolls: below the board sits a SQUAD card, a minimal
+## spreadsheet of all 18 HOME players grouped by position line (the same
+## BACK → FOLLOWERS order as the legend, each group under its line colour)
+## in the style of Career's VIEW ROSTER table. Down past the last tactics
+## row scrolls to it; up from its top comes back. Mouse wheel scrolls too.
+##
+## The stat columns show what a quick-play match will actually field, not
+## invented numbers: CharacterProfile's stats on every player when
+## apply_all, else on the start slot (Settings.home_human_slot) only and
+## Tuning defaults elsewhere — the exact rule FullGame._apply_character_
+## profile() applies at kickoff. Names and numbers are display-only:
+## quick play has no named roster, so they come from RosterGenerator
+## seeded off SQUAD_SEED (stable between visits, never persisted).
+##
 ## ── Layout ──────────────────────────────────────────────────────────
 ## One centred content column, not a full-width spread. The board is a
 ## portrait oval and it sizes itself to the available *height*, so when
@@ -112,6 +127,30 @@ const TACTICS_ROW_GAP := 6.0
 const TACTICS_CARD_HEIGHT := TACTICS_ROW_HEIGHT * 3.0 + TACTICS_ROW_GAP * 2.0 \
 	+ CARD_PAD * 2.0
 
+## Seed for the display-only squad names/numbers — see the header.
+const SQUAD_SEED := "HOME"
+const SQUAD_ROW_HEIGHT := 30.0
+## Pixels per up/down press while the cursor is in the squad sheet.
+const SQUAD_SCROLL_STEP := SQUAD_ROW_HEIGHT * 3.0
+const SCROLL_TWEEN_DURATION := 0.25
+## Fixed column widths for the squad sheet; PLAYER (width 0) takes what's
+## left. Short headers on purpose: units live in the caption above, so
+## each cell reads as a bare number the way a spreadsheet's would.
+const SQUAD_COLUMNS := [
+	{"label": "POS", "width": 64.0, "align": HORIZONTAL_ALIGNMENT_LEFT},
+	{"label": "#", "width": 36.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+	{"label": "PLAYER", "width": 0.0, "align": HORIZONTAL_ALIGNMENT_LEFT},
+	{"label": "HT", "width": 56.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+	{"label": "SPD", "width": 56.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+	{"label": "AGI", "width": 56.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+	{"label": "KICK", "width": 56.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+	{"label": "ACC", "width": 56.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+	{"label": "OVR", "width": 48.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+]
+## Faint zebra stripe and the YOU row's tint on the parchment card.
+const SQUAD_STRIPE := Color(0.11, 0.10, 0.09, 0.045)
+const SQUAD_YOU_TINT := Color(RetroWindow.ACCENT, 0.12)
+
 var _busy := false
 var _whiteboard: FormationWhiteboard
 
@@ -119,6 +158,14 @@ var _rows: Array[SettingsScreen.Row] = []
 var _row_index := 0
 var _row_panels: Array[Panel] = []
 var _row_value_labels: Array[Label] = []
+
+var _scroll: ScrollContainer
+var _squad_card: Control
+var _scroll_tween: Tween
+## True while up/down scrolls the squad sheet instead of moving between
+## the tactics rows.
+var _in_squad := false
+var _hints: DeviceHintBar
 
 
 func _ready() -> void:
@@ -153,8 +200,26 @@ func _ready() -> void:
 	bands.add_theme_constant_override(&"separation", BAND_GAP)
 	margin.add_child(bands)
 
-	_build_header(bands)
-	_build_body(bands)
+	# Header, board and squad sheet scroll together; the hint bar stays put
+	# below. The scrollbar is hidden (the hint bar names the scroll, and a
+	# default-theme bar is the one grey widget on the page) but the wheel
+	# still works.
+	_scroll = ScrollContainer.new()
+	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
+	_scroll.mouse_filter = Control.MOUSE_FILTER_PASS
+	bands.add_child(_scroll)
+
+	var page := VBoxContainer.new()
+	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	page.add_theme_constant_override(&"separation", BAND_GAP)
+	_scroll.add_child(page)
+
+	_build_header(page)
+	_build_body(page)
+	_build_squad(page)
 	_build_hint(bands)
 
 	_refresh_rows()
@@ -168,9 +233,19 @@ func _unhandled_input(event: InputEvent) -> void:
 			or event.is_action_pressed(&"decline"):
 		_exit_to_menu()
 	elif event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up"):
-		_move_row(-1)
+		if _in_squad:
+			_scroll_squad(-1)
+		else:
+			_move_row(-1)
 	elif event.is_action_pressed(&"move_back") or event.is_action_pressed(&"ui_down"):
-		_move_row(1)
+		if _in_squad:
+			_scroll_squad(1)
+		elif _row_index == _rows.size() - 1:
+			_enter_squad()
+		else:
+			_move_row(1)
+	elif _in_squad:
+		return
 	elif event.is_action_pressed(&"ui_left"):
 		_rows[_row_index].cycle(-1)
 		_refresh_rows()
@@ -190,9 +265,57 @@ func _exit_to_menu() -> void:
 	SceneWipe.change_scene("res://scenes/ui/main_menu.tscn")
 
 
+## Clamped, not wrapping like it used to: down off the last row now goes
+## to the squad sheet (see _unhandled_input), so wrapping up off the first
+## row back to the last would make "down" mean two different things.
 func _move_row(step: int) -> void:
-	_row_index = (_row_index + step + _rows.size()) % _rows.size()
+	_row_index = clampi(_row_index + step, 0, _rows.size() - 1)
 	_refresh_rows()
+
+
+# ── Squad scroll ─────────────────────────────────────────────────────
+
+func _enter_squad() -> void:
+	_in_squad = true
+	_refresh_rows()
+	_scroll_to(_squad_top())
+
+
+func _leave_squad() -> void:
+	_in_squad = false
+	_refresh_rows()
+	_scroll_to(0.0)
+
+
+## Steps through the sheet; up from its top edge hands the cursor back to
+## the tactics rows (and the page back to the board).
+func _scroll_squad(direction: int) -> void:
+	var current := float(_scroll.scroll_vertical)
+	if direction < 0 and current <= _squad_top() + 1.0:
+		_leave_squad()
+		return
+	_scroll_to(clampf(current + direction * SQUAD_SCROLL_STEP, _squad_top(), _max_scroll()))
+
+
+func _max_scroll() -> float:
+	return maxf(0.0, _scroll.get_v_scroll_bar().max_value - _scroll.size.y)
+
+
+## Where the scroll lands to show the squad card at the top of the view,
+## clamped to the real scroll range so a short sheet doesn't overshoot.
+func _squad_top() -> float:
+	if not is_instance_valid(_squad_card):
+		return 0.0
+	return minf(_squad_card.position.y, _max_scroll())
+
+
+func _scroll_to(target: float) -> void:
+	if _scroll_tween != null and _scroll_tween.is_valid():
+		_scroll_tween.kill()
+	_scroll_tween = create_tween()
+	_scroll_tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_scroll_tween.tween_property(_scroll, "scroll_vertical", int(target),
+		SCROLL_TWEEN_DURATION)
 
 
 # ── Tactics rows ─────────────────────────────────────────────────────
@@ -222,13 +345,18 @@ func _sync_whiteboard() -> void:
 	_whiteboard.formation_index = Settings.home_formation_index
 	_whiteboard.ball_movement = Settings.home_ball_movement
 	_whiteboard.defensive_pressure = Settings.home_defensive_pressure
+	# Ring the human's slot, same lookup and SINGLE_PLAYER condition as
+	# full_game_pregame_screen.gd (home_human_slot is a ROSTER index).
+	_whiteboard.highlighted_slot = TeamFormation.ROSTER_ORDER[Settings.home_human_slot] \
+		if Settings.player_control_mode == Settings.PlayerControlMode.SINGLE_PLAYER else -1
 
 
 func _refresh_rows() -> void:
 	for i in _rows.size():
-		var selected := i == _row_index
+		var selected := i == _row_index and not _in_squad
 		_row_panels[i].add_theme_stylebox_override(&"panel", _row_panel_style(selected))
 		_row_value_labels[i].text = _rows[i].value()
+	_refresh_hints()
 
 
 ## Transparent when not selected (the row reads as plain text sitting on
@@ -276,7 +404,7 @@ func _build_header(parent: Control) -> void:
 	underline_style.bg_color = RETRO_ACCENT
 	underline.add_theme_stylebox_override(&"panel", underline_style)
 	column.add_child(underline)
-	column.add_child(SoftBrutalist.label("STARTING FORMATION PREVIEW",
+	column.add_child(SoftBrutalist.label("HOME  ·  STARTING FORMATION & SQUAD",
 		SoftBrutalist.SIZE_LABEL, SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_REGULAR,
 		SoftBrutalist.TRACK_LABEL))
 
@@ -287,7 +415,10 @@ func _build_body(parent: Control) -> void:
 	# Neither child expands, so ALIGNMENT_CENTER centres the pair as a
 	# group and the leftover width becomes even margin on both sides.
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	# Fixed rather than expanding now the page scrolls: the first screenful
+	# is still exactly header + board (BOARD_BAND_HEIGHT is that leftover),
+	# and the squad sheet starts below the fold.
+	row.custom_minimum_size.y = BOARD_BAND_HEIGHT
 	row.add_theme_constant_override(&"separation", PANEL_GAP)
 	parent.add_child(row)
 
@@ -418,6 +549,210 @@ func _build_whiteboard(parent: Control) -> void:
 	inner.add_child(_whiteboard)
 
 
+## The SQUAD card: a caption line (squad averages and which players carry
+## the profile stats), a header row, then one group per position line —
+## a coloured line-name divider over that line's players. Rows are plain
+## HBoxes of fixed-width labels on a faint zebra stripe, the minimal
+## spreadsheet look Career's VIEW ROSTER table has, re-skinned for the
+## parchment card.
+func _build_squad(parent: Control) -> void:
+	var squad := _squad_entries()
+
+	var inner := _card(parent, Vector2(CONTENT_WIDTH, 0.0))
+	var wrapper := inner.get_parent().get_parent() as Control
+	wrapper.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_squad_card = wrapper
+
+	var column := VBoxContainer.new()
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_theme_constant_override(&"separation", 0)
+	inner.add_child(column)
+
+	var title_row := HBoxContainer.new()
+	title_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(title_row)
+	title_row.add_child(SoftBrutalist.label("SQUAD", SoftBrutalist.SIZE_HEADING, RETRO_BORDER,
+		SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_TITLE))
+	var title_spacer := Control.new()
+	title_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	title_row.add_child(title_spacer)
+	var summary := SoftBrutalist.label(_squad_summary(squad), SoftBrutalist.SIZE_LABEL,
+		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL)
+	summary.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	summary.size_flags_vertical = Control.SIZE_FILL
+	title_row.add_child(summary)
+
+	var caption := SoftBrutalist.label(
+		"HT cm  ·  SPD m/s  ·  AGI / KICK multiplier  ·  ACC %  ·  " + _profile_scope_text(),
+		SoftBrutalist.SIZE_CAPTION, SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_REGULAR,
+		SoftBrutalist.TRACK_LABEL)
+	column.add_child(caption)
+
+	var gap := Control.new()
+	gap.custom_minimum_size.y = SoftBrutalist.SPACE_2
+	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(gap)
+
+	var headings: Array[String] = []
+	for col: Dictionary in SQUAD_COLUMNS:
+		headings.append(String(col["label"]))
+	column.add_child(_squad_row(headings, Color(0, 0, 0, 0), RETRO_BORDER, true))
+	column.add_child(_rule(RETRO_BORDER, 2.0))
+
+	for line: int in TeamFormation.LINE_NAMES.size():
+		column.add_child(_line_divider(line))
+		var stripe := false
+		for entry: Dictionary in squad:
+			if int(entry["line"]) != line:
+				continue
+			var fill := SQUAD_YOU_TINT if entry["you"] else (SQUAD_STRIPE if stripe \
+				else Color(0, 0, 0, 0))
+			column.add_child(_squad_row(_squad_cells(entry), fill, SoftBrutalist.INK,
+				entry["you"]))
+			stripe = not stripe
+
+	# RetroWindow's wrapper is a plain Control sized only by its minimum,
+	# so it has to be told the sheet's height or the scroll range is ~0.
+	wrapper.custom_minimum_size.y = inner.get_combined_minimum_size().y
+	# Room under the card for its hard shadow at the very end of the scroll.
+	var tail := Control.new()
+	tail.custom_minimum_size.y = RetroWindow.SHADOW_OFFSET.y + 2.0
+	tail.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(tail)
+
+
+## One sheet row: fixed-width cells per SQUAD_COLUMNS over a flat fill.
+func _squad_row(cells: Array, fill: Color, colour: Color, bold: bool) -> Control:
+	var panel := Panel.new()
+	panel.custom_minimum_size.y = SQUAD_ROW_HEIGHT
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style := StyleBoxFlat.new()
+	style.bg_color = fill
+	panel.add_theme_stylebox_override(&"panel", style)
+
+	var line := HBoxContainer.new()
+	line.set_anchors_preset(Control.PRESET_FULL_RECT)
+	line.offset_left = 8.0
+	line.offset_right = -8.0
+	line.add_theme_constant_override(&"separation", 8)
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(line)
+
+	for i in SQUAD_COLUMNS.size():
+		var col: Dictionary = SQUAD_COLUMNS[i]
+		var cell := SoftBrutalist.label(String(cells[i]),
+			SoftBrutalist.SIZE_LABEL if bold and colour == RETRO_BORDER else SoftBrutalist.SIZE_BODY,
+			colour, SoftBrutalist.WEIGHT_BOLD if bold else SoftBrutalist.WEIGHT_REGULAR,
+			SoftBrutalist.TRACK_LABEL if colour == RETRO_BORDER else SoftBrutalist.TRACK_NONE)
+		cell.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		cell.size_flags_vertical = Control.SIZE_FILL
+		cell.horizontal_alignment = col["align"]
+		cell.clip_text = true
+		if float(col["width"]) > 0.0:
+			cell.custom_minimum_size.x = col["width"]
+		else:
+			cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		line.add_child(cell)
+	return panel
+
+
+## Position-line group header: the legend's swatch colour as a short bar
+## beside the line name, so the sheet and the board read as one key.
+func _line_divider(line: int) -> Control:
+	var row := HBoxContainer.new()
+	row.custom_minimum_size.y = SQUAD_ROW_HEIGHT + 4.0
+	row.add_theme_constant_override(&"separation", 8)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var bar := Panel.new()
+	bar.custom_minimum_size = Vector2(4.0, 14.0)
+	bar.size_flags_vertical = Control.SIZE_SHRINK_END
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style := StyleBoxFlat.new()
+	style.bg_color = FormationWhiteboard.LINE_COLOURS[line]
+	bar.add_theme_stylebox_override(&"panel", style)
+	row.add_child(bar)
+
+	var name_label := SoftBrutalist.label(TeamFormation.LINE_NAMES[line],
+		SoftBrutalist.SIZE_CAPTION, SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_BOLD,
+		SoftBrutalist.TRACK_TITLE)
+	name_label.size_flags_vertical = Control.SIZE_SHRINK_END
+	row.add_child(name_label)
+	return row
+
+
+func _rule(colour: Color, thickness: float) -> Control:
+	var rule := ColorRect.new()
+	rule.color = colour
+	rule.custom_minimum_size.y = thickness
+	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return rule
+
+
+## The 18 HOME players as {pos, number, name, line, you, height, speed,
+## agility, kick_power, kick_accuracy, overall}, in TeamFormation.SLOTS
+## order (which already runs back line → followers, left → right), with
+## the stats a quick-play match will really use — see the header.
+func _squad_entries() -> Array[Dictionary]:
+	var generated := RosterGenerator.generate_team(SQUAD_SEED)
+	var start_idx := clampi(Settings.home_human_slot, 0, generated.size() - 1)
+	var entries: Array[Dictionary] = []
+	for slot_index in TeamFormation.SLOTS.size():
+		var slot: Dictionary = TeamFormation.SLOTS[slot_index]
+		var roster_idx := TeamFormation.ROSTER_ORDER.find(slot_index)
+		var base: Dictionary = generated[roster_idx]
+		var you := roster_idx == start_idx
+		var profiled := CharacterProfile.apply_all or you
+		var entry := {
+			"pos": TeamFormation.position_label(slot),
+			"number": int(base["number"]),
+			"name": "YOU" if you else String(base["name"]),
+			"line": int(slot["line"]),
+			"you": you,
+			"height": CharacterProfile.height if profiled else Tuning.CHARACTER_HEIGHT_DEFAULT,
+			"speed": CharacterProfile.speed if profiled else Tuning.CHARACTER_SPEED_DEFAULT,
+			"agility": CharacterProfile.agility if profiled else Tuning.CHARACTER_AGILITY_DEFAULT,
+			"kick_power": CharacterProfile.kick_power if profiled \
+				else Tuning.CHARACTER_KICK_POWER_DEFAULT,
+			"kick_accuracy": CharacterProfile.kick_accuracy if profiled \
+				else Tuning.CHARACTER_KICK_ACCURACY_DEFAULT,
+		}
+		entry["overall"] = RosterGenerator.overall(entry)
+		entries.append(entry)
+	return entries
+
+
+func _squad_cells(entry: Dictionary) -> Array:
+	return [
+		entry["pos"],
+		"%d" % entry["number"],
+		entry["name"],
+		"%.0f" % entry["height"],
+		"%.1f" % entry["speed"],
+		"%.2f" % entry["agility"],
+		"%.2f" % entry["kick_power"],
+		"%.0f" % (float(entry["kick_accuracy"]) * 100.0),
+		"%d" % entry["overall"],
+	]
+
+
+func _squad_summary(squad: Array[Dictionary]) -> String:
+	var overall := 0.0
+	var height := 0.0
+	for entry in squad:
+		overall += float(entry["overall"])
+		height += float(entry["height"])
+	var count := maxf(1.0, float(squad.size()))
+	return "%d PLAYERS   ·   AVG OVR %d   ·   AVG HT %.0f cm" % [squad.size(),
+		roundi(overall / count), height / count]
+
+
+func _profile_scope_text() -> String:
+	return "PROFILE STATS ON ALL 18" if CharacterProfile.apply_all \
+		else "PROFILE STATS ON YOU, DEFAULTS ELSEWHERE"
+
+
 func _build_hint(parent: Control) -> void:
 	var row := HBoxContainer.new()
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -425,13 +760,34 @@ func _build_hint(parent: Control) -> void:
 	row.custom_minimum_size.y = HINT_HEIGHT
 	parent.add_child(row)
 
-	var hints := DeviceHintBar.new()
-	hints.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(hints)
-	hints.set_hint_sets({
+	_hints = DeviceHintBar.new()
+	_hints.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(_hints)
+	_refresh_hints()
+
+
+## Two legends: the tactics one (with "Squad" on down, since down off the
+## last row now scrolls to the sheet) and a short one for the sheet.
+func _refresh_hints() -> void:
+	if not is_instance_valid(_hints):
+		return
+	if _in_squad:
+		_hints.set_hint_sets({
+			InputManager.Device.KEYBOARD: [
+				{"keys": "↑ / ↓", "label": "Scroll"},
+				{"keys": "T / Esc", "label": "Back to menu"},
+			],
+			InputManager.Device.GAMEPAD: [
+				{"keys": "D-Pad ↕", "label": "Scroll"},
+				{"keys": "B", "label": "Back to menu"},
+			],
+		})
+		return
+	_hints.set_hint_sets({
 		InputManager.Device.KEYBOARD: [
 			{"keys": "↑ / ↓", "label": "Select"},
 			{"keys": "← / →", "label": "Change"},
+			{"keys": "↓", "label": "Squad list"},
 			{"keys": "O", "label": "Opposition"},
 			{"keys": "T / Esc", "label": "Back to menu"},
 		],
@@ -444,6 +800,7 @@ func _build_hint(parent: Control) -> void:
 		InputManager.Device.GAMEPAD: [
 			{"keys": "D-Pad ↕", "label": "Select"},
 			{"keys": "D-Pad ↔", "label": "Change"},
+			{"keys": "D-Pad ↓", "label": "Squad list"},
 			{"keys": "LB", "label": "Opposition"},
 			{"keys": "B", "label": "Back to menu"},
 		],

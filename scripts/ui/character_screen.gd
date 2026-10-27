@@ -69,13 +69,14 @@ const CUSTOMISE_ROWS := [
 	{"key": "skin_color", "icon": &"swatch", "name": "SKIN", "kind": "swatch", "bar": false},
 	{"key": "jersey_color", "icon": &"swatch", "name": "JERSEY", "kind": "swatch", "bar": false},
 	{"key": "shorts_color", "icon": &"swatch", "name": "SHORTS", "kind": "swatch", "bar": false},
+	{"key": "socks_color", "icon": &"swatch", "name": "SOCKS", "kind": "swatch", "bar": false},
 	{"key": "boot_color", "icon": &"foot", "name": "SHOES", "kind": "swatch", "bar": false},
 ]
 
-## Fixed swatch palettes for the "swatch"-kind CUSTOMISE_ROWS, by key. Only
-## ever visible on the procedural body — an imported model brings its own
-## baked materials (see humanoid_rig.gd's kit_* header note) and a swatch
-## here previews no change on one, same existing limitation kit_torso has.
+## Fixed swatch palettes for the "swatch"-kind CUSTOMISE_ROWS, by key. The
+## kit rows (jersey/shorts/socks/shoes) become HOME's team kit in every mode
+## (TeamKit) and recolour imported models too, by material name; AWAY picks
+## its own contrasting kit. SKIN shows on this preview only.
 const SWATCHES := {
 	"skin_color": [
 		{"name": "FAIR", "color": Color("#ecc9a0")},
@@ -99,6 +100,14 @@ const SWATCHES := {
 		{"name": "WHITE", "color": Color("#f0ece0")},
 		{"name": "NAVY", "color": Color("#1f2d4a")},
 		{"name": "CRIMSON", "color": Color("#c0392b")},
+	],
+	"socks_color": [
+		{"name": "WHITE", "color": Color("#f0ece0")},
+		{"name": "BLACK", "color": Color("#1c1a17")},
+		{"name": "GOLD", "color": Color("#e9c95e")},
+		{"name": "CRIMSON", "color": Color("#c0392b")},
+		{"name": "BLUE", "color": Color("#2e5fa3")},
+		{"name": "GREEN", "color": Color("#2e7d4f")},
 	],
 	"boot_color": [
 		{"name": "BLACK", "color": Color("#22241d")},
@@ -130,7 +139,10 @@ const BUTTON_TOP := 613.0
 const CARD_PAD := 24.0
 const CARD_LEFT := LEFT_MARGIN - CARD_PAD
 const CARD_TOP := HEADER_TOP - CARD_PAD
-const CARD_WIDTH := StatRow.WIDTH + CARD_PAD * 2.0
+## Includes the selected row's right-hand nudge arrow, which StatRow
+## draws past its own WIDTH (ARROW_RIGHT_X) — without it the arrow sat on
+## the card's 4px border.
+const CARD_WIDTH := StatRow.WIDTH + StatRow.ARROW_GAP + StatRow.ARROW_SIZE + CARD_PAD * 2.0
 const CARD_HEIGHT := BUTTON_TOP + ActionButton.HEIGHT - CARD_TOP + CARD_PAD
 
 ## Below the card's own hard shadow (RetroWindow.SHADOW_OFFSET.y), clear of
@@ -190,6 +202,7 @@ func _ready() -> void:
 		"jersey_color": CharacterProfile.jersey_color,
 		"shorts_color": CharacterProfile.shorts_color,
 		"boot_color": CharacterProfile.boot_color,
+		"socks_color": CharacterProfile.socks_color,
 	}
 	_build()
 	_backdrop.set_height_scale(_draft["height"] / Tuning.CHARACTER_HEIGHT_DEFAULT)
@@ -200,7 +213,13 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if _busy:
 		return
-	if event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up"):
+	if _is_customise_press(event):
+		_toggle_customise()
+	elif _customising and event.is_action_pressed(&"decline"):
+		# B inside the Customise panel steps back to the stats, the way the
+		# on-screen BACK button does, rather than leaving the screen.
+		_toggle_customise()
+	elif event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up"):
 		_move(-1)
 	elif event.is_action_pressed(&"move_back") or event.is_action_pressed(&"ui_down"):
 		_move(1)
@@ -213,6 +232,20 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed(&"pause") or event.is_action_pressed(&"character_menu") \
 			or event.is_action_pressed(&"decline"):
 		_exit_to_menu()
+
+
+## CUSTOMISE was mouse-only: the one control on the front end a pad
+## couldn't reach. Y on a pad, Tab on a keyboard, checked as raw events
+## (same approach main_menu.gd's _is_gamepad_a_press takes) rather than a
+## new InputMap action, since nothing else on this screen uses either and
+## a project-wide action would show up in the remap screen for one button.
+func _is_customise_press(event: InputEvent) -> bool:
+	if event is InputEventJoypadButton:
+		return event.is_pressed() and (event as InputEventJoypadButton).button_index == JOY_BUTTON_Y
+	if event is InputEventKey:
+		var key := event as InputEventKey
+		return key.is_pressed() and not key.echo and key.physical_keycode == KEY_TAB
+	return false
 
 
 ## ATTRIBUTE_ROWS normally, CUSTOMISE_ROWS while the Customise panel is
@@ -328,7 +361,8 @@ func _apply_kit_preview() -> void:
 		_resolved_kit_color("skin_color"),
 		_resolved_kit_color("jersey_color"),
 		_resolved_kit_color("shorts_color"),
-		_resolved_kit_color("boot_color"))
+		_resolved_kit_color("boot_color"),
+		_resolved_kit_color("socks_color"))
 
 
 ## Copy the whole draft onto CharacterProfile and persist it. Shared by
@@ -346,6 +380,7 @@ func _commit_draft() -> void:
 	CharacterProfile.jersey_color = _draft["jersey_color"]
 	CharacterProfile.shorts_color = _draft["shorts_color"]
 	CharacterProfile.boot_color = _draft["boot_color"]
+	CharacterProfile.socks_color = _draft["socks_color"]
 	CharacterProfile.save()
 
 
@@ -429,12 +464,14 @@ func _build() -> void:
 			{"keys": "W / S", "label": "Select"},
 			{"keys": "A / D", "label": "Adjust"},
 			{"keys": "Enter", "label": "Play"},
+			{"keys": "Tab", "label": "Customise"},
 			{"keys": "B / Esc / C", "label": "Back"},
 		],
 		InputManager.Device.GAMEPAD: [
 			{"keys": "D-Pad ↕", "label": "Select"},
 			{"keys": "D-Pad ↔", "label": "Adjust"},
 			{"keys": "A", "label": "Play"},
+			{"keys": "Y", "label": "Customise"},
 			{"keys": "B", "label": "Back"},
 		],
 	})
