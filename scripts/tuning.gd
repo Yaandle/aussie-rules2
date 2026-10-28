@@ -1060,7 +1060,10 @@ const TACKLE_RAGDOLL_BUILD_FRAMES := 2
 # tackler is down the grip only holds what it has: DOWN_GRIP of the force,
 # and inside DOWN_DEADZONE of its grip a wrist is damped, not pulled (one
 # pinned against the turf buzzed at 8-12 m/s), and it lets go once both
-# have been down HOLD_DOWN_TIME. Unplaytested feel guesses.
+# have been down HOLD_DOWN_TIME. The grip and the hug come on over
+# GRIP_RAMP from the bind (TackleWrap._hold says why). Unplaytested feel
+# guesses.
+const TACKLE_WRAP_GRIP_RAMP := 0.12        # s
 const TACKLE_WRAP_DOWN_GRIP := 0.35
 const TACKLE_WRAP_DOWN_DEADZONE := 0.25    # m
 const TACKLE_WRAP_HOLD_DOWN_TIME := 0.4    # s

@@ -155,6 +155,32 @@ const STRIDE_FADE := 0.08
 const STRIDE_PLANT_TOLERANCE := 0.03
 const STRIDE_SAMPLE_STEP := 1.0 / 60.0
 
+## ── Gait phase lock ─────────────────────────────────────────────────
+## A blend space mixes poses, not gaits: two stepping clips blend cleanly
+## only while both are at the same point of the stride. Nothing in Godot's
+## blend space lines that up — its `sync` only keeps a clip's clock running
+## while its weight is zero — so each clip loops on its own length, and
+## 6thbuild's don't match: the jog family (jog_fwd, run_back, the strafes)
+## is 0.708 s a cycle, the run family (run_fwd and its diagonals) 0.542 s.
+## Every 1.2 s of running between jog and sprint pace the two drift half a
+## stride apart, and the blend averages a planted foot with a swinging one:
+## both feet hover and slide. The strafes and run_back weren't even in step
+## at the start (left foot down at 36% / 63% / 12% of their cycles against
+## 3% for the forward clips).
+## So the stepping clips are rebuilt once per model, before anything else
+## reads them: each is stretched to PHASE_LOCK_REFERENCE's length and turned
+## round its loop so the middle of its left foot's stance lands at time 0.
+## Same length, same start, and `sync` keeping every clock running, they stay
+## in step for as long as the player runs. Stride matching measures the
+## rebuilt clips, so the cadence it sets is unchanged. The reference is the
+## jog: a jog-family clip only turns, and the run family is played back up
+## to speed by the stride rate anyway. idle has no stride and keeps its own
+## slow loop.
+const PHASE_LOCK_CLIPS: Array[StringName] = [&"jog_fwd", &"run_fwd", &"run_back", &"strafe_l",
+	&"strafe_r", &"run_fwd_l", &"run_fwd_r"]
+const PHASE_LOCK_REFERENCE := &"jog_fwd"
+const PHASE_LOCK_SAMPLE_RATE := 60.0
+
 ## ── Drive lean ──────────────────────────────────────────────────────
 ## A runner leans into acceleration and sits back to brake; constant-speed
 ## clips do neither, so getting going looked like the legs speeding up
@@ -167,6 +193,28 @@ const LEAN_PER_ACCEL_DEG := 1.1     ## per m/s² of speed gained
 const LEAN_AT_SPRINT_DEG := 4.0
 const LEAN_LIMITS_DEG := Vector2(-6.0, 12.0)
 const LEAN_SMOOTHING := 10.0
+## Easing back toward upright while still running is slower. Speed climbs at
+## a constant Tuning.ACCELERATION and stops dead at the top, so the drive
+## lean fell from 12° to 4° in a couple of frames the moment a sprint
+## topped out, a visible pop upright. A sprinter rises out of the drive over
+## a few strides instead. Leaving locomotion (a kick, a mark) still clears
+## the lean at LEAN_SMOOTHING, so it doesn't ride into the action clip.
+const LEAN_RELEASE_SMOOTHING := 3.5
+
+## ── Turn bank ───────────────────────────────────────────────────────
+## A runner cutting at pace tips into the turn: to stay balanced while the
+## feet push sideways, the body leans toward the inside of the curve by
+## atan(sideways acceleration / g). The clips all run straight, so a hard
+## cut at a sprint swung the legs round under a bolt-upright torso. Taken
+## from the body's real sideways acceleration (its velocity changing across
+## its facing — the same velocity the blend space reads), at BANK_SHARE of
+## the balanced angle (the legs and arms already show some of the turn),
+## capped at BANK_MAX_DEG, and rolled into LEAN_BONE in the same post-mix
+## pass as the drive lean. A tackle hold, a dash and every other
+## non-locomotion state get none. Degrees. Unplaytested feel guesses.
+const BANK_SHARE := 0.6
+const BANK_MAX_DEG := 14.0
+const BANK_SMOOTHING := 8.0
 
 const LOCOMOTION_STATE := &"locomotion"
 const BLEND_SMOOTHING := 14.0     ## exponential rate; stops the blend snapping
@@ -205,6 +253,12 @@ var _stride_parameter := ""
 ## STRIDE_CLIPS — see "Stride matching". Every rig on one model has the
 ## same clips, so it's measured once per model and shared.
 static var _stride_cache := {}
+## model -> {clip -> Animation}, the phase-locked gait clips (see "Gait
+## phase lock"), built once per model and shared like _stride_cache. Shared
+## because they must be: an imported clip is the glb's own resource, the same
+## object in every rig, so rebuilding in place would stretch it once per
+## player.
+static var _phase_lock_cache := {}
 var _strides := {}
 var _stride_rate := 1.0
 
@@ -213,6 +267,9 @@ var _stride_rate := 1.0
 var _lean_bone := -1
 var _lean_deg := 0.0
 var _last_speed := 0.0
+## See "Turn bank": degrees, positive = toward the body's right.
+var _bank_deg := 0.0
+var _last_velocity := Vector3.ZERO
 
 ## Snapshot from note_mark_ball() (ball relative to the player, its flight,
 ## the nearest opponent's side), consumed by the next play_action().
@@ -328,16 +385,38 @@ func _stride_rate_for(speed: float) -> float:
 func _update_lean(speed: float, delta: float) -> void:
 	var accel := (speed - _last_speed) / maxf(delta, 0.0001)
 	_last_speed = speed
+	var running := _blend.y > 0.1 and current_state() == LOCOMOTION_STATE and not ragdoll_active
 	var target := 0.0
-	if _blend.y > 0.1 and current_state() == LOCOMOTION_STATE and not ragdoll_active:
+	if running:
 		target = clampf(accel * LEAN_PER_ACCEL_DEG + speed / Tuning.SPRINT_SPEED * LEAN_AT_SPRINT_DEG,
 			LEAN_LIMITS_DEG.x, LEAN_LIMITS_DEG.y)
-	_lean_deg = lerpf(_lean_deg, target, 1.0 - exp(-LEAN_SMOOTHING * delta))
+	var rate := LEAN_SMOOTHING
+	if running and absf(target) < absf(_lean_deg) and signf(target) != -signf(_lean_deg):
+		rate = LEAN_RELEASE_SMOOTHING
+	_lean_deg = lerpf(_lean_deg, target, 1.0 - exp(-rate * delta))
+
+	# Turn bank, off the velocity the body really has (a bare blend from the
+	# animation viewer has no body, so no bank).
+	var body := get_parent() as CharacterBody3D
+	var bank := 0.0
+	if body != null:
+		var velocity := Vector3(body.velocity.x, 0.0, body.velocity.z)
+		var sideways := (velocity - _last_velocity).dot(body.global_basis.x.normalized()) / maxf(delta, 0.0001)
+		_last_velocity = velocity
+		if running:
+			bank = clampf(rad_to_deg(atan(sideways / Tuning.GRAVITY)) * BANK_SHARE, -BANK_MAX_DEG, BANK_MAX_DEG)
+	_bank_deg = lerpf(_bank_deg, bank, 1.0 - exp(-(BANK_SMOOTHING if running else LEAN_SMOOTHING) * delta))
 
 
 ## The drive lean right now, degrees — see "Drive lean".
 func lean_degrees() -> float:
 	return _lean_deg
+
+
+## The turn bank right now, degrees, positive toward the right — see "Turn
+## bank".
+func bank_degrees() -> float:
+	return _bank_deg
 
 
 ## Runs on the render frame (AnimationTree's own default process timing,
@@ -354,26 +433,33 @@ func _process(_delta: float) -> void:
 	_clamp_feet_to_ground()
 
 
-## Tips the Spine by _lean_deg about the body's own left-right axis, on top
-## of whatever the tree just wrote — see "Drive lean". The tree rewrites the
-## bone every frame (_find_lean_bone checked it can), so this never stacks.
+## Tips the Spine by _lean_deg about the body's own left-right axis and
+## rolls it by _bank_deg about its forward axis, on top of whatever the tree
+## just wrote — see "Drive lean" and "Turn bank". The tree rewrites the bone
+## every frame (_find_lean_bone checked it can), so this never stacks.
 func _apply_lean() -> void:
-	if _rig == null or ragdoll_active or _lean_bone < 0 or absf(_lean_deg) < 0.05:
+	if _rig == null or ragdoll_active or _lean_bone < 0 \
+			or (absf(_lean_deg) < 0.05 and absf(_bank_deg) < 0.05):
 		return
 	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
 	var body := get_parent() as Node3D
 	if skeleton == null or body == null:
 		return
-	# The body's right in skeleton space, then in the bone's parent's frame:
+	# The body's axes in skeleton space, then in the bone's parent's frame:
 	# a rotation about a skeleton-space axis applied to the bone's global
 	# pose is the same rotation about that axis taken into its parent's
 	# frame, applied to its local pose. Forward is -Z, so tipping +Y toward
-	# it is a negative turn about +X.
-	var right := (skeleton.global_basis.orthonormalized().inverse() * body.global_basis.x).normalized()
+	# it is a negative turn about +X, and tipping it toward +X a positive
+	# turn about -Z.
+	var to_skeleton := skeleton.global_basis.orthonormalized().inverse()
+	var right := (to_skeleton * body.global_basis.x).normalized()
+	var forward := (to_skeleton * -body.global_basis.z).normalized()
 	var parent := skeleton.get_bone_parent(_lean_bone)
 	if parent >= 0:
-		right = (skeleton.get_bone_global_pose(parent).basis.orthonormalized().inverse() * right).normalized()
-	var turn := Quaternion(right, -deg_to_rad(_lean_deg))
+		var to_parent := skeleton.get_bone_global_pose(parent).basis.orthonormalized().inverse()
+		right = (to_parent * right).normalized()
+		forward = (to_parent * forward).normalized()
+	var turn := Quaternion(right, -deg_to_rad(_lean_deg)) * Quaternion(forward, deg_to_rad(_bank_deg))
 	skeleton.set_bone_pose_rotation(_lean_bone, turn * skeleton.get_bone_pose_rotation(_lean_bone))
 
 
@@ -615,8 +701,7 @@ func _measure_strides() -> Dictionary:
 	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
 	if skeleton == null:
 		return {}
-	var rig := _rig as HumanoidRig
-	var key := rig.selected_model() if rig != null and rig.is_imported() else "procedural"
+	var key := _model_key()
 	if _stride_cache.has(key):
 		return _stride_cache[key]
 	var out := {}
@@ -682,6 +767,120 @@ static func _measure_stride(skeleton: Skeleton3D, anim: Animation) -> Dictionary
 	return {"speed": swept / planted, "cadence": 2.0 / anim.length}
 
 
+## Which model this rig's clips came from, for the per-model caches.
+func _model_key() -> String:
+	var rig := _rig as HumanoidRig
+	return rig.selected_model() if rig != null and rig.is_imported() else "procedural"
+
+
+## Swaps `library`'s PHASE_LOCK_CLIPS for their phase-locked rebuilds — see
+## "Gait phase lock". Leaves the library alone when there's no skeleton to
+## measure on or no reference clip.
+func _phase_lock(library: AnimationLibrary) -> void:
+	var key := _model_key()
+	if not _phase_lock_cache.has(key):
+		var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
+		if skeleton == null or not library.has_animation(PHASE_LOCK_REFERENCE):
+			return
+		var length := library.get_animation(PHASE_LOCK_REFERENCE).length
+		var locked := {}
+		for clip: StringName in PHASE_LOCK_CLIPS:
+			if not library.has_animation(clip):
+				continue
+			var anim := library.get_animation(clip)
+			var stance := _stance_phase(skeleton, anim, &"LeftFoot")
+			if stance >= 0.0:
+				locked[clip] = _relooped(anim, length, stance)
+		skeleton.reset_bone_poses()
+		_phase_lock_cache[key] = locked
+	var locked_clips: Dictionary = _phase_lock_cache[key]
+	for clip: StringName in locked_clips:
+		library.remove_animation(clip)
+		library.add_animation(clip, locked_clips[clip])
+
+
+## Where `foot`'s stance is centred in one loop of `anim`, 0-1: the middle of
+## the longest stretch (round the loop) it spends within
+## STRIDE_PLANT_TOLERANCE of its lowest point. -1 if the clip doesn't move it.
+static func _stance_phase(skeleton: Skeleton3D, anim: Animation, foot: StringName) -> float:
+	var bone := skeleton.find_bone(foot)
+	if bone < 0 or anim.length <= 0.0:
+		return -1.0
+	var tracks := []
+	for i in anim.get_track_count():
+		var type := anim.track_get_type(i)
+		if type != Animation.TYPE_ROTATION_3D and type != Animation.TYPE_POSITION_3D:
+			continue
+		var target := skeleton.find_bone(String(anim.track_get_path(i).get_concatenated_subnames()))
+		if target >= 0:
+			tracks.append([i, target, type])
+	var count := maxi(ceili(anim.length / STRIDE_SAMPLE_STEP), 4)
+	var heights: Array[float] = []
+	for s in count:
+		var t := anim.length * s / count
+		for track: Array in tracks:
+			if track[2] == Animation.TYPE_ROTATION_3D:
+				skeleton.set_bone_pose_rotation(track[1], anim.rotation_track_interpolate(track[0], t))
+			else:
+				skeleton.set_bone_pose_position(track[1], anim.position_track_interpolate(track[0], t))
+		heights.append(skeleton.get_bone_global_pose(bone).origin.y)
+	var lowest: float = heights.min()
+	if heights.max() - lowest <= STRIDE_PLANT_TOLERANCE:
+		return -1.0
+	# Longest run of planted samples, round the loop: start just after an
+	# unplanted one so no run is split across the end.
+	var start := 0
+	while heights[start] <= lowest + STRIDE_PLANT_TOLERANCE:
+		start += 1
+	var best_from := 0
+	var best_len := 0
+	var run := 0
+	for n in count:
+		var s := (start + 1 + n) % count
+		if heights[s] <= lowest + STRIDE_PLANT_TOLERANCE:
+			run += 1
+			if run > best_len:
+				best_len = run
+				best_from = s - run + 1
+		else:
+			run = 0
+	return fposmod((best_from + (best_len - 1) * 0.5) / count, 1.0)
+
+
+## A copy of looping `anim`, `length` seconds long, that starts `phase` (0-1)
+## of the way into the original: every transform track resampled at
+## PHASE_LOCK_SAMPLE_RATE. Any other track keeps its keys, moved the same way.
+static func _relooped(anim: Animation, length: float, phase: float) -> Animation:
+	var out := Animation.new()
+	out.length = length
+	out.loop_mode = Animation.LOOP_LINEAR
+	var count := maxi(roundi(length * PHASE_LOCK_SAMPLE_RATE), 2)
+	var source_offset := phase * anim.length
+	for i in anim.get_track_count():
+		var type := anim.track_get_type(i)
+		var track := out.add_track(type)
+		out.track_set_path(track, anim.track_get_path(i))
+		out.track_set_interpolation_type(track, anim.track_get_interpolation_type(i))
+		out.track_set_interpolation_loop_wrap(track, anim.track_get_interpolation_loop_wrap(i))
+		if type == Animation.TYPE_ROTATION_3D or type == Animation.TYPE_POSITION_3D \
+				or type == Animation.TYPE_SCALE_3D:
+			for s in count + 1:
+				var t := length * s / count
+				var from := fposmod(source_offset + t / length * anim.length, anim.length)
+				match type:
+					Animation.TYPE_ROTATION_3D:
+						out.rotation_track_insert_key(track, t, anim.rotation_track_interpolate(i, from))
+					Animation.TYPE_POSITION_3D:
+						out.position_track_insert_key(track, t, anim.position_track_interpolate(i, from))
+					_:
+						out.scale_track_insert_key(track, t, anim.scale_track_interpolate(i, from))
+		else:
+			for k in anim.track_get_key_count(i):
+				var t := fposmod(anim.track_get_key_time(i, k) - source_offset, anim.length) / anim.length * length
+				out.track_insert_key(track, t, anim.track_get_key_value(i, k), anim.track_get_key_transition(i, k))
+	return out
+
+
 ## LEAN_BONE's index if every locomotion clip animates its rotation, else -1.
 func _find_lean_bone() -> int:
 	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
@@ -728,6 +927,7 @@ func _build_merged_library() -> AnimationLibrary:
 		if library.has_animation(clip_name):
 			library.remove_animation(clip_name)
 		library.add_animation(clip_name, anim)
+	_phase_lock(library)
 	# Situational mark variants, bent off the import's OWN mark clips only —
 	# a rig still on the procedural fallbacks gets none, and play_action()
 	# falls back to the base state.
@@ -843,15 +1043,12 @@ func _build_blend_space() -> AnimationNodeBlendSpace2D:
 	space.snap = Vector2(0.05, 0.05)
 	space.blend_mode = AnimationNodeBlendSpace2D.BLEND_MODE_INTERPOLATED
 	space.auto_triangles = true
-	# Without this, each blended-in clip advances its own timeline by real
-	# elapsed time independent of the others — since every gait clip here is
-	# built by the same _gait_pose(phase, g) generator but scaled to its own
-	# `cycle` length (jog_fwd 0.72s vs run_fwd 0.58s, say), the same wall-
-	# clock instant lands at a *different* phase (different foot position)
-	# in each. Mid-transition, when two clips are both weighted, that phase
-	# mismatch is what reads as feet slipping/juddering rather than a clean
-	# cross-fade. `sync` keeps every blended point's internal playback
-	# locked to a shared normalised phase instead.
+	# Keeps every clip's clock running while its weight is zero, so a clip
+	# blending back in is still where the others are. That's all it does: it
+	# doesn't match phases across clips of different lengths, which is why
+	# the stepping clips are rebuilt to one length and one start first (see
+	# "Gait phase lock"). Without it a clip would pause at weight zero and
+	# come back out of step.
 	space.sync = true
 	space.x_label = "strafe"
 	space.y_label = "forward"

@@ -59,6 +59,11 @@ extends RefCounted
 ##   penetration is ~1-1.5 cm, inside Jolt's 2 cm penetration slop.
 ##   A 120 Hz physics tick roughly halves both — a project-wide change, left
 ##   for whoever decides how this plugs into a match.
+## * A 6DOF joint's zero is the pose its two bodies were in when it was
+##   made, and asymmetric bend limits work (Jolt holds a spine pushed both
+##   ways at 35° forward / 15° back) — but a bend limit much past ~75° comes
+##   apart, and wide ranges cost stability in real falls. See build() and
+##   BODIES. scenes/dev/tackle_sweep.tscn is the regression check.
 ##
 ## ── Scaled rigs ──────────────────────────────────────────────────────
 ## A match scales each player's Rig node by height (FullGame._apply_stats),
@@ -100,6 +105,10 @@ const SKELETON_FORWARD := Vector3(0.0, 0.0, 1.0)
 ## Godot lower/upper of -140..0. Confirmed in the lab's headless check: a
 ## limp fall buckles the knees to +110..+140 (measured by joint_report()).
 const HINGE_ANGLE_SIGN := -1.0
+
+## The same for a 6DOF joint's bend axes, which only matters where a BALL
+## joint's limits aren't symmetric (BODIES' "flexion").
+const SIX_DOF_ANGLE_SIGN := -1.0
 
 ## Every principal moment of inertia is raised to at least this fraction of
 ## the body's largest one. A limb capsule's moment about its own long axis
@@ -238,45 +247,74 @@ const SLEEP_TURN := 4.0
 ##   joint  — to the nearest ancestor bone that has a body
 ##   limits — BALL: (swing, twist) in degrees — swing is the per-axis limit
 ##            on both bend axes, twist about the bone itself. HINGE: (min,
-##            max) in degrees, positive = the anatomical bend direction
+##            max) in degrees from the rest pose, positive = the anatomical
+##            bend direction (negative = straighter than rest)
+##   flexion — BALL only, optional: (back, forward) in degrees, replacing
+##            `swing` on the bend axis that swings the segment toward
+##            SKELETON_FORWARD. Hips and spine bend much further forward than
+##            back, and a symmetric limit gets both ends wrong (see below).
 ##   flex   — HINGE only: skeleton-space direction the segment swings toward
 ##            when the joint bends (elbow forward, knee back, toes up)
+##
+## Every limit is measured from 6thbuild's REST pose (an A-pose: arms ~53°
+## off the sides, knees 12° and elbows 27° bent), which is what build()
+## makes the joints from. Audit 2026-10-28, against every clip's own range
+## (sampled at 60 Hz) and adult ranges of motion: the hips were ±60°, which
+## let a leg swing 60° behind the body (a real hip stops at ~20-30°, the run
+## clips reach 26°) while capping it at 60° forward (the falls reach 120°);
+## the spine bent as far back as forward; a knee or elbow could never
+## straighten past its rest bend, and an elbow could fold to 166°; the run
+## clips put the ankle at 33° of dorsiflexion against a 25° limit, so a body
+## going rigid mid-stride snapped its foot on the first tick.
+## The hips stop at 65° forward, not the ~110° a real one reaches: pushing a
+## floating thigh steadily forward, Jolt's 6DOF swing limit held clean at
+## 65°, bounced at 70-75° and came apart from 80° (the thigh snapped back
+## through 100° at 20+ rad/s, the same failure whatever the back limit).
+## Building the hip bent to the middle of its range, so a symmetric ±70°
+## gave 30° back / 110° forward, held in that push test but not in real
+## falls: across the 24 Lunges of scenes/dev/tackle_sweep.tscn's kind, spin
+## spikes past 60 rad/s tripled and one thigh tore round to 172° behind the
+## body. Bent to the middle at 65° forward was no better than this.
 const BODIES := [
 	{"bone": "Hips", "tip": "Spine", "shape": &"box", "size": Vector2(0.34, 0.22),
 		"span": Vector2(-0.13, 0.19), "mass": 12.0, "joint": Joint.NONE},
 	{"bone": "Spine", "tip": "Chest", "shape": &"box", "size": Vector2(0.30, 0.20),
-		"span": Vector2(0.0, 0.25), "mass": 10.0, "joint": Joint.BALL, "limits": Vector2(25.0, 20.0)},
+		"span": Vector2(0.0, 0.25), "mass": 10.0, "joint": Joint.BALL, "limits": Vector2(20.0, 20.0),
+		"flexion": Vector2(15.0, 35.0)},
 	{"bone": "Chest", "tip": "head", "shape": &"box", "size": Vector2(0.36, 0.22),
-		"span": Vector2(-0.02, 0.19), "mass": 17.0, "joint": Joint.BALL, "limits": Vector2(25.0, 20.0)},
+		"span": Vector2(-0.02, 0.19), "mass": 17.0, "joint": Joint.BALL, "limits": Vector2(20.0, 20.0),
+		"flexion": Vector2(15.0, 35.0)},
 	{"bone": "head", "tip": "", "shape": &"capsule", "size": Vector2(0.11, 0.0),
 		"span": Vector2(0.0, 0.37), "mass": 6.0, "joint": Joint.BALL, "limits": Vector2(40.0, 50.0)},
 
 	{"bone": "LeftUpperArm", "tip": "LeftLowerArm", "shape": &"capsule", "size": Vector2(0.06, 0.0),
 		"span": Vector2(0.0, 0.374), "mass": 2.6, "joint": Joint.BALL, "limits": Vector2(75.0, 60.0)},
 	{"bone": "LeftLowerArm", "tip": "LeftHand", "shape": &"capsule", "size": Vector2(0.05, 0.0),
-		"span": Vector2(0.0, 0.445), "mass": 2.0, "joint": Joint.HINGE, "limits": Vector2(0.0, 140.0),
+		"span": Vector2(0.0, 0.445), "mass": 2.0, "joint": Joint.HINGE, "limits": Vector2(-25.0, 120.0),
 		"flex": SKELETON_FORWARD},
 	{"bone": "RightUpperArm", "tip": "RightLowerArm", "shape": &"capsule", "size": Vector2(0.06, 0.0),
 		"span": Vector2(0.0, 0.374), "mass": 2.6, "joint": Joint.BALL, "limits": Vector2(75.0, 60.0)},
 	{"bone": "RightLowerArm", "tip": "RightHand", "shape": &"capsule", "size": Vector2(0.05, 0.0),
-		"span": Vector2(0.0, 0.445), "mass": 2.0, "joint": Joint.HINGE, "limits": Vector2(0.0, 140.0),
+		"span": Vector2(0.0, 0.445), "mass": 2.0, "joint": Joint.HINGE, "limits": Vector2(-25.0, 120.0),
 		"flex": SKELETON_FORWARD},
 
 	{"bone": "LeftUpperLeg", "tip": "LeftLowerLeg", "shape": &"capsule", "size": Vector2(0.085, 0.0),
-		"span": Vector2(0.0, 0.484), "mass": 10.0, "joint": Joint.BALL, "limits": Vector2(60.0, 25.0)},
+		"span": Vector2(0.0, 0.484), "mass": 10.0, "joint": Joint.BALL, "limits": Vector2(45.0, 25.0),
+		"flexion": Vector2(30.0, 65.0)},
 	{"bone": "LeftLowerLeg", "tip": "LeftFoot", "shape": &"capsule", "size": Vector2(0.065, 0.0),
-		"span": Vector2(0.0, 0.521), "mass": 4.5, "joint": Joint.HINGE, "limits": Vector2(0.0, 140.0),
+		"span": Vector2(0.0, 0.521), "mass": 4.5, "joint": Joint.HINGE, "limits": Vector2(-10.0, 135.0),
 		"flex": -SKELETON_FORWARD},
 	{"bone": "LeftFoot", "tip": "", "shape": &"foot", "size": Vector2(0.045, 0.0),
-		"span": Vector2(-0.05, 0.34), "mass": 1.3, "joint": Joint.HINGE, "limits": Vector2(-40.0, 25.0),
+		"span": Vector2(-0.05, 0.34), "mass": 1.3, "joint": Joint.HINGE, "limits": Vector2(-45.0, 35.0),
 		"flex": Vector3.UP},
 	{"bone": "RightUpperLeg", "tip": "RightLowerLeg", "shape": &"capsule", "size": Vector2(0.085, 0.0),
-		"span": Vector2(0.0, 0.484), "mass": 10.0, "joint": Joint.BALL, "limits": Vector2(60.0, 25.0)},
+		"span": Vector2(0.0, 0.484), "mass": 10.0, "joint": Joint.BALL, "limits": Vector2(45.0, 25.0),
+		"flexion": Vector2(30.0, 65.0)},
 	{"bone": "RightLowerLeg", "tip": "RightFoot", "shape": &"capsule", "size": Vector2(0.065, 0.0),
-		"span": Vector2(0.0, 0.521), "mass": 4.5, "joint": Joint.HINGE, "limits": Vector2(0.0, 140.0),
+		"span": Vector2(0.0, 0.521), "mass": 4.5, "joint": Joint.HINGE, "limits": Vector2(-10.0, 135.0),
 		"flex": -SKELETON_FORWARD},
 	{"bone": "RightFoot", "tip": "", "shape": &"foot", "size": Vector2(0.045, 0.0),
-		"span": Vector2(-0.05, 0.34), "mass": 1.3, "joint": Joint.HINGE, "limits": Vector2(-40.0, 25.0),
+		"span": Vector2(-0.05, 0.34), "mass": 1.3, "joint": Joint.HINGE, "limits": Vector2(-45.0, 35.0),
 		"flex": Vector3.UP},
 ]
 
@@ -315,6 +353,10 @@ var _scale := 1.0
 var _front_local := {}
 var _up_local := {}
 
+## bone name -> the body's rest rotation in skeleton space: the pose its
+## joint was built in, so the joint's zero (see build()).
+var _rest_basis := {}
+
 ## bone name -> floored principal inertia (body frame), set in start().
 var _inertia := {}
 
@@ -325,8 +367,8 @@ var _falling := false
 
 ## One entry per jointed body, for joint_report(): the joint's axis and the
 ## segment direction in the child body's own frame, plus the same two
-## vectors expressed in the parent body's frame at the moment the
-## simulation started (the joint's zero).
+## vectors (and a BALL joint's forward-bend axis) expressed in the parent
+## body's frame at rest (the joint's zero — see build()).
 var _joints: Array[Dictionary] = []
 
 ## bone name -> {"shape": Shape3D, "xform": Transform3D (shape in body space)}
@@ -358,6 +400,16 @@ static func supports(skeleton: Skeleton3D) -> bool:
 ## player is BODIES * 95/86); `extra_mask` adds collision layers on top of
 ## COLLISION_MASK. Returns false (and builds nothing) if a bone in BODIES
 ## is missing — i.e. not a 6thbuild skeleton.
+##
+## The skeleton is put in its rest pose for the build and handed back as it
+## was. A PhysicalBone3D makes its joint the moment it enters the tree, from
+## where it and its parent body are right then (the simulator places them on
+## the skeleton's CURRENT pose), and the joint's zero never moves after. A
+## match builds a player's ragdoll mid-run at their first tackle, so every
+## limit was centred on that one frame of animation: measured, an elbow
+## built bent 90° snapped back to 115° when the body later went rigid
+## straight-armed, and every fall that player took after kept it. The lab
+## and the bakes reset to rest first, which is why they never showed it.
 func build(skeleton: Skeleton3D, mass_scale := 1.0, extra_mask := 0) -> bool:
 	_skeleton = skeleton
 	var missing: Array[String] = []
@@ -368,6 +420,8 @@ func build(skeleton: Skeleton3D, mass_scale := 1.0, extra_mask := 0) -> bool:
 		push_error("PhysicsRagdoll: skeleton has no bone(s) %s" % [missing])
 		return false
 	_scale = skeleton.global_basis.get_scale().x
+	var posed := _bone_poses(skeleton)
+	skeleton.reset_bone_poses()
 
 	simulator = PhysicalBoneSimulator3D.new()
 	simulator.name = "PhysicalBoneSimulator3D"
@@ -399,6 +453,7 @@ func build(skeleton: Skeleton3D, mass_scale := 1.0, extra_mask := 0) -> bool:
 		var to_body := body_xform.basis.inverse()
 		_front_local[spec.bone] = (to_body * SKELETON_FORWARD).normalized()
 		_up_local[spec.bone] = (to_body * Vector3.UP).normalized()
+		_rest_basis[spec.bone] = body_xform.basis
 
 		_configure_joint(pb, spec, body_xform, bone_rest.origin, dir)
 		simulator.add_child(pb)
@@ -418,6 +473,8 @@ func build(skeleton: Skeleton3D, mass_scale := 1.0, extra_mask := 0) -> bool:
 		var grandparent := _parent_body(String(parent.bone_name))
 		if grandparent != null:
 			(bodies[bone] as PhysicalBone3D).add_collision_exception_with(grandparent)
+	_capture_joint_zero()
+	_set_bone_poses(skeleton, posed)
 	return true
 
 
@@ -452,7 +509,6 @@ func start(initial_velocity := Vector3.ZERO) -> void:
 	aim_dirs.clear()
 	_sleep_snapshot.clear()
 	_set_settle_blend(0.0, true)
-	_capture_joint_zero()
 
 
 ## Back to kinematic. `reset_pose` puts the skeleton back to its rest pose
@@ -768,12 +824,12 @@ func lowest_point_of(bone: String) -> float:
 
 
 ## Worst joint-limit overshoot right now, in degrees, plus which joint and
-## its current angle — {"bone", "over", "angle"}. BALL angle is the swing
-## off the start direction, checked against the diagonal of the 6DOF
-## limits' swing pyramid (two axes each at `swing` reach further than
-## `swing` together); HINGE angle is the signed bend (positive = the spec's
-## `flex` direction), so a knee reading -30 is bending backwards. Twist
-## isn't measured. Only meaningful while simulating.
+## its current angle — {"bone", "over", "angle"}, all from the rest pose
+## the joints were built in. BALL angle is the swing off the rest
+## direction, split onto its forward/back and sideways bend axes and each
+## checked against its own limit; HINGE angle is the signed bend (positive =
+## the spec's `flex` direction), so a knee reading -30 is bending backwards.
+## Twist isn't measured. Only meaningful while simulating.
 func joint_report() -> Dictionary:
 	var worst := {"bone": "", "over": 0.0, "angle": 0.0}
 	for j: Dictionary in _joints:
@@ -1051,17 +1107,30 @@ func _configure_joint(pb: PhysicalBone3D, spec: Dictionary, body_xform: Transfor
 	match spec.joint:
 		Joint.BALL:
 			var limits: Vector2 = spec.limits
+			var frame := _basis_with_x(dir_body)
 			pb.joint_type = PhysicalBone3D.JOINT_TYPE_6DOF
-			pb.joint_offset = Transform3D(_basis_with_x(dir_body), origin)
+			pb.joint_offset = Transform3D(frame, origin)
+			# The forward bend: a right-hand turn about dir x forward swings
+			# the segment toward SKELETON_FORWARD. Whichever of the joint's two
+			# bend axes lies along it takes BODIES' "flexion", signed by which
+			# way round that axis points.
+			var bend := (to_body.basis * dir.cross(SKELETON_FORWARD)).normalized()
+			var flexion: Vector2 = spec.get("flexion", Vector2(limits.x, limits.x))
+			var flex_axis := "y" if absf(bend.dot(frame.y)) >= absf(bend.dot(frame.z)) else "z"
+			var flex_sign := signf(bend.dot(frame.y if flex_axis == "y" else frame.z)) * SIX_DOF_ANGLE_SIGN
 			# Linear limits default to enabled at 0 (locked) — only angular
 			# needs setting.
 			for axis: String in ["x", "y", "z"]:
-				var span := limits.y if axis == "x" else limits.x
+				var lower := -limits.y if axis == "x" else -limits.x
+				var upper := limits.y if axis == "x" else limits.x
+				if axis == flex_axis:
+					lower = -flexion.x if flex_sign > 0.0 else -flexion.y
+					upper = flexion.y if flex_sign > 0.0 else flexion.x
 				pb.set("joint_constraints/%s/angular_limit_enabled" % axis, true)
-				pb.set("joint_constraints/%s/angular_limit_upper" % axis, span)
-				pb.set("joint_constraints/%s/angular_limit_lower" % axis, -span)
+				pb.set("joint_constraints/%s/angular_limit_upper" % axis, upper)
+				pb.set("joint_constraints/%s/angular_limit_lower" % axis, lower)
 			_joints.append({"bone": spec.bone, "kind": Joint.BALL, "limits": limits,
-				"axis_c": dir_body, "dir_c": dir_body})
+				"flexion": flexion, "axis_c": dir_body, "dir_c": dir_body, "bend_c": bend})
 		Joint.HINGE:
 			var limits: Vector2 = spec.limits
 			var flex: Vector3 = spec.flex
@@ -1107,6 +1176,22 @@ func _floored_inertia(bone: String) -> Vector3:
 	return Vector3(maxf(inertia.x, floor_value), maxf(inertia.y, floor_value), maxf(inertia.z, floor_value))
 
 
+## Every bone's local pose, for build() to hand back.
+static func _bone_poses(skeleton: Skeleton3D) -> Array:
+	var out := []
+	for i in skeleton.get_bone_count():
+		out.append([skeleton.get_bone_pose_position(i), skeleton.get_bone_pose_rotation(i),
+			skeleton.get_bone_pose_scale(i)])
+	return out
+
+
+static func _set_bone_poses(skeleton: Skeleton3D, poses: Array) -> void:
+	for i in mini(poses.size(), skeleton.get_bone_count()):
+		skeleton.set_bone_pose_position(i, poses[i][0])
+		skeleton.set_bone_pose_rotation(i, poses[i][1])
+		skeleton.set_bone_pose_scale(i, poses[i][2])
+
+
 func _set_settle_blend(blend: float, force := false) -> void:
 	if is_equal_approx(blend, _settle_blend) and not force:
 		return
@@ -1130,14 +1215,16 @@ func _parent_body(bone: String) -> PhysicalBone3D:
 	return null
 
 
+## The joints' zero is the rest pose they were built in (see build()).
 func _capture_joint_zero() -> void:
 	for j: Dictionary in _joints:
-		var child: PhysicalBone3D = bodies[j.bone]
 		var parent := _parent_body(j.bone)
 		j.parent = parent
-		var rel := parent.global_basis.orthonormalized().inverse() * child.global_basis.orthonormalized()
+		var rel: Basis = (_rest_basis[String(parent.bone_name)] as Basis).inverse() * (_rest_basis[j.bone] as Basis)
 		j.axis_p = rel * (j.axis_c as Vector3)
 		j.dir_p = rel * (j.dir_c as Vector3)
+		if j.has("bend_c"):
+			j.bend_p = rel * (j.bend_c as Vector3)
 
 
 func _joint_reading(j: Dictionary) -> Dictionary:
@@ -1150,10 +1237,21 @@ func _joint_reading(j: Dictionary) -> Dictionary:
 	var dir_now := rel * (j.dir_c as Vector3)
 	var dir_zero: Vector3 = j.dir_p
 	if j.kind == Joint.BALL:
+		# The swing split onto the two bend axes, each against its own limit
+		# (the 6DOF limit is per axis): forward/back against "flexion",
+		# sideways against `swing`.
 		var swing := rad_to_deg(dir_zero.angle_to(dir_now))
-		var c := cos(deg_to_rad(limits.x))
-		var bound := rad_to_deg(acos(c * c))
-		return {"bone": j.bone, "over": maxf(swing - bound, 0.0), "angle": swing}
+		var turn := dir_zero.cross(dir_now)
+		if turn.length_squared() < 1e-10:
+			return {"bone": j.bone, "over": 0.0, "angle": swing}
+		turn = turn.normalized()
+		var bend: Vector3 = j.bend_p
+		var side_axis := dir_zero.cross(bend).normalized()
+		var forward := swing * turn.dot(bend)
+		var side := absf(swing * turn.dot(side_axis))
+		var flexion: Vector2 = j.flexion
+		var over := maxf(maxf(forward - flexion.y, -forward - flexion.x), side - limits.x)
+		return {"bone": j.bone, "over": maxf(over, 0.0), "angle": swing}
 	var axis: Vector3 = j.axis_p
 	var flat := (dir_now - axis * dir_now.dot(axis)).normalized()
 	var bend := rad_to_deg(dir_zero.signed_angle_to(flat, axis))

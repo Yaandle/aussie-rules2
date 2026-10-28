@@ -277,6 +277,13 @@ working first):**
    the head/limbs, or transition into a controlled fall rather than a
    flat collapse.
 
+**2026-10-28: audit of the ragdoll and movement animation.** See
+`docs/ANIMATION_RAGDOLL_AUDIT.md`. In a match the joints had been centred
+on whatever frame of running the first tackle caught (fixed: built at
+rest), the limits are now anatomical where Jolt holds them, the wrap's grip
+ramps in, and the gait clips are phase-locked. `scenes/dev/tackle_sweep.tscn`
+is the regression check.
+
 **2026-10-26: hold-or-break and fall direction, unplaytested.** A landed
 tackle (X Lunge or B Slide) now holds or breaks on the model: p(break) =
 1 − b against `Tuning.TACKLE_LUNGE_BREAK_P` / `TACKLE_SLIDE_BREAK_P`. A

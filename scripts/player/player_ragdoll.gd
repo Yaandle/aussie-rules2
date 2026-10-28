@@ -241,10 +241,13 @@ func _begin_getup() -> void:
 	_phase = Phase.GETTING_UP
 
 
+## Eased, not linear: a straight ramp starts and stops the hand-over at full
+## rate, so the body visibly jerks into motion at the start of the get-up and
+## lands on the clip with a kink at the end.
 func _step_getting_up(delta: float) -> void:
 	_blend += delta
 	var t := clampf(_blend / Tuning.TACKLE_RAGDOLL_GETUP_BLEND, 0.0, 1.0)
-	_ragdoll.simulator.influence = 1.0 - t
+	_ragdoll.simulator.influence = 1.0 - smoothstep(0.0, 1.0, t)
 	if t >= 1.0:
 		cancel()
 

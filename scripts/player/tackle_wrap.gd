@@ -148,7 +148,13 @@ func _hold(delta: float) -> void:
 	var waist := target.body(WAIST)
 	var xf := waist.global_transform
 	var line := (xf.basis * _line_local).normalized()
-	var cap := Tuning.TACKLE_WRAP_MAX_FORCE * delta
+	# The grip comes on over TACKLE_WRAP_GRIP_RAMP. At the bind the wrist is
+	# still moving with the tackler's run and arm swing, up to the whole
+	# closing speed off the carrier's waist, and a full-strength servo
+	# cancelled that in one tick at the wrist: the arms whipped round at
+	# 45-105 rad/s for a frame (measured) before the reach even began.
+	var cap := Tuning.TACKLE_WRAP_MAX_FORCE * delta \
+		* smoothstep(0.0, Tuning.TACKLE_WRAP_GRIP_RAMP, _time)
 	var margin := Tuning.TACKLE_WRAP_SIDE_MARGIN * target.rig_scale()
 	for forearm: StringName in _grips:
 		var upper: StringName = ARMS[forearm]

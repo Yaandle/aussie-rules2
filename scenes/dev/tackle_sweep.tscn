@@ -1,0 +1,10 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/dev/tackle_sweep.gd" id="1_sweep"]
+
+; Dev-only headless regression sweep for ragdoll tackles (not on any menu):
+; real Lunge / Sling / bump connects between running 6thbuild players and
+; how every body falls. See the script header for how to run and read it.
+
+[node name="TackleSweep" type="Node3D"]
+script = ExtResource("1_sweep")

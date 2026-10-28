@@ -11,6 +11,8 @@ This is a Godot 4.6 (Jolt) Aussie Rules football game. Work on branch
   decided by physics and timing, **never a probability roll**.
 - `docs/MECHANICS_AUDIT.md`: the mechanics audit; §B4 is the 5-stage
   ragdoll plan (stage 1 done).
+- `docs/ANIMATION_RAGDOLL_AUDIT.md`: movement animation and ragdoll tackle
+  audit (2026-10-28): what was fixed, what's left, what needs a playtest.
 - `docs/ML_AI_AUDIT.md`: the ML ladder (LR, GA, MLP marking cue in §9).
 - `docs/CAREER_AUDIT.md`: Career mode audit, the user's decisions, and the
   8-phase plan (all eight phases done; see its "For review").

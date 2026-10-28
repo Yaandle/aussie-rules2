@@ -109,6 +109,22 @@ mostly superseded history. The full text lives outside the repo, in
 - **Read a ragdoll's position from its bodies, not the skeleton.** In
   physics frames `get_bone_global_pose` didn't track the simulated bodies
   (1-3 m off after a fall), though the rendered skin did.
+- **A `PhysicalBone3D` joint's zero is the pose it was built in.** The
+  joint is made when the body enters the tree, from where the bodies are
+  then. A match built ragdolls mid-run, so every limit was centred on one
+  frame of running until `PhysicsRagdoll.build` started resetting to rest
+  first.
+- **Jolt's 6DOF swing limits won't go wide.** Asymmetric limits work, but a
+  bend limit past ~75° from the joint's zero comes apart. Wide ranges cost
+  stability in real falls even when a push test holds, so check limit
+  changes with `scenes/dev/tackle_sweep.tscn`.
+- **Ramp in any servo that grabs a ragdoll limb.** At full strength on its
+  first tick, TackleWrap's wrist grip cancelled the whole closing speed at
+  the wrist and whipped the arms at up to 105 rad/s.
+- **A blend space's `sync` doesn't line up phases.** It only keeps
+  zero-weight clips' clocks running. Clips of different lengths drift, so
+  `PlayerAnimation` rebuilds the stepping clips to one length and one
+  stance phase ("Gait phase lock").
 - **Python edits on Windows corrupt files.** `open()` defaults to cp1252
   and CRLF: an em dash came out as a raw 0x97 byte, which stopped
   `tuning.gd` loading at all. Use the Edit tool, or
@@ -163,6 +179,9 @@ mostly superseded history. The full text lives outside the repo, in
   Their hunks stay unstaged in the working tree (Career Phases 7-8).
 - At render rates below the physics rate, `_process` skips physics ticks.
   Sample physics state on `SceneTree.physics_frame` instead.
+- **Ragdoll tackles:** `scenes/dev/tackle_sweep.tscn` runs real X, B and
+  bump connects between running 6thbuild players and prints how every body
+  fell. Its header holds the 2026-10-28 baseline.
 - Nobody in this project's history has had a live GUI session during an
   agent run. Anything about feel, framing or camera needs the user's eyes:
   say so rather than claiming it.
