@@ -2002,6 +2002,16 @@ const CALL_FOR_BALL_RANGE_PENALTY := 0.20
 const CALL_FOR_BALL_MIN_CHANCE := 0.05
 const CALL_FOR_BALL_MAX_CHANCE := 0.95
 
+# FULL_TEAM control: after the human's own kick, control moves to whoever is
+# nearest where it'll land (FullGame._on_home_kick_disposed). Playtest
+# 2026-10-28: "it is a little to fast I should see the player kicking
+# animation complete before it switches". So it waits out the rest of the
+# kick clip (ACTION_DURATION - ACTION_CONTACT of KICK, 0.36 s) and then
+# this much more, for the follow-through to settle. The teammate it hands to
+# is already running to the ball under its AI meanwhile. Unplaytested feel
+# guess.
+const FULL_TEAM_KICK_SWITCH_HOLD := 0.2   # s
+
 
 # ── Training coaches ────────────────────────────────────────────────
 # All three now exist (design brief): kicking, marking, and tackling —

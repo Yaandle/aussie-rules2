@@ -89,6 +89,11 @@ var _prev_ball_pos_valid := false
 ## action is routed in at all.
 var _call_for_ball_cooldown := 0.0
 
+## FULL_TEAM: the human's kicker, kept until their kick has played out
+## before control moves on (_on_home_kick_disposed), and how long is left.
+var _kick_switch_from: PlayerController = null
+var _kick_switch_timer := 0.0
+
 
 func _ready() -> void:
 	GameState.mode = GameState.Mode.FULL_GAME
@@ -132,6 +137,7 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	_check_out_of_bounds()
+	_update_kick_switch(delta)
 	# Ticked ahead of the pause gate below, not inside the live-play branch:
 	# a call made just before a goal/ball-up shouldn't stay on cooldown for
 	# the whole stoppage as well.
@@ -808,16 +814,19 @@ func _on_player_disposed(action: Tuning.Action, player: PlayerController) -> voi
 		_on_home_kick_disposed(player)
 
 
-## FULL_TEAM: the instant the human's own kick leaves the boot there is
-## nothing left to control at the kicker's own feet while the ball is in
-## the air — jump straight to whoever on HOME is nearest the kick's
-## predicted landing spot (user report: "after I kick it, I should control
-## the player closest to the ball's landing trajectory"). Same "control
-## whoever matters" idea _on_home_gained_possession already applies once
-## someone actually gathers the ball, just applied immediately instead of
-## waiting for that gather — Ball.predicted_landing_position() is the same
-## simple-projectile estimate LandingShadow already shows on screen, so
-## this follows the same cue the player can see.
+## FULL_TEAM: once the human's own kick has left the boot there is nothing
+## left to control at the kicker's own feet while the ball is in the air —
+## move to whoever on HOME is nearest the kick's predicted landing spot
+## (user report: "after I kick it, I should control the player closest to
+## the ball's landing trajectory"). Same "control whoever matters" idea
+## _on_home_gained_possession already applies once someone actually
+## gathers the ball, just applied before that gather —
+## Ball.predicted_landing_position() is the same simple-projectile estimate
+## LandingShadow already shows on screen, so this follows the same cue the
+## player can see. Not at the boot, though: playtest 2026-10-28, "I should
+## see the player kicking animation complete before it switches". It waits
+## out the rest of the kick clip plus Tuning.FULL_TEAM_KICK_SWITCH_HOLD,
+## then _update_kick_switch hands over.
 ##
 ## Only for the human's own kick — an AI teammate disposing of the ball
 ## should not drag the human's control away from whatever they're doing —
@@ -836,8 +845,30 @@ func _on_home_kick_disposed(kicker: PlayerController) -> void:
 	var landing := _ball.predicted_landing_position()
 	if _is_shot_at_goal(_ball.global_position, landing, 1):
 		return
-	var next := ControlMode.next_in_roster(Tuning.Team.HOME, kicker, landing)
-	_assign_human_to(next)
+	_kick_switch_from = kicker
+	_kick_switch_timer = Tuning.action_duration(Tuning.Action.KICK) \
+		- Tuning.action_contact_time(Tuning.Action.KICK) + Tuning.FULL_TEAM_KICK_SWITCH_HOLD
+
+
+## The hand-over _on_home_kick_disposed set up: to whoever on HOME is
+## nearest where the ball will come down, or where it is if someone has it.
+## Dropped if the human has already been moved (a teammate gathered it, a
+## manual switch) or play stopped meanwhile.
+func _update_kick_switch(delta: float) -> void:
+	if _kick_switch_from == null:
+		return
+	if GameState.phase != GameState.Phase.PLAY or _pause_timer > 0.0:
+		_kick_switch_from = null
+		return
+	_kick_switch_timer -= delta
+	if _kick_switch_timer > 0.0:
+		return
+	var kicker := _kick_switch_from
+	_kick_switch_from = null
+	if not is_instance_valid(kicker) or ControlMode.controlled_player(Tuning.Team.HOME) != kicker:
+		return
+	var target := _ball.global_position if _ball.is_held else _ball.predicted_landing_position()
+	_assign_human_to(ControlMode.next_in_roster(Tuning.Team.HOME, kicker, target))
 
 
 ## Whether a flight from `from` to `landing` crosses the goal line at the

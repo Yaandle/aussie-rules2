@@ -216,6 +216,49 @@ const BANK_SHARE := 0.6
 const BANK_MAX_DEG := 14.0
 const BANK_SMOOTHING := 8.0
 
+## ── Ball carry ──────────────────────────────────────────────────────
+## Playtest 2026-10-28: "the ball is also not in the players hands it is
+## just sitting on its hip floating ... it should be in players hands with
+## the arms closer to body holding the ball". The ball rode
+## PlayerController's CarryPoint, a fixed spot by the right hip, while the
+## gait clips swung the arms and idle held them out in the rest A-pose.
+##
+## Two parts. The arms: while the player has the ball, a filtered Blend2 in
+## the locomotion tree lays the "carry" clip (6thbuild's two-hand hold,
+## tools/blender/author_6thbuild_clips.py) over CARRY_BONES only, so the
+## legs and torso keep running underneath. It fades at CARRY_BLEND_RATE.
+## The ball: PlayerController carries it on BallHold, which this moves every
+## frame to where the hands have it. Each hand's grip is measured once from
+## the carry clip (the ball's centre in that hand's own frame), so a clip
+## that parts the hands leaves the ball in the hand that keeps it. Gameplay
+## still measures reach from CarryPoint; this is presentation. A rig with no
+## carry clip (the procedural one) keeps the ball on CarryPoint.
+const CARRY_CLIP := &"carry"
+const CARRY_NODE := &"carry"
+const CARRY_POSE_NODE := &"carry_pose"
+const CARRY_BONES: Array[StringName] = [&"LeftShoulder", &"LeftUpperArm", &"LeftLowerArm",
+	&"LeftHand", &"RightShoulder", &"RightUpperArm", &"RightLowerArm", &"RightHand"]
+const CARRY_BLEND_RATE := 12.0     ## 1/s, exponential: ~0.2 s to settle
+## A palm is this far along the hand from the wrist (m). In the carry clip
+## the ball's centre is midway between the two palms.
+const PALM_REACH := 0.06
+## Once each hand would put the ball more than this far from the other (m),
+## the ball is in one hand: the one ONE_HAND_STATES names for the clip, else
+## whichever had it last.
+const GRIP_SPLIT := Vector2(0.04, 0.12)
+const ONE_HAND_STATES := {&"handball": &"LeftHand", &"bounce": &"RightHand"}
+## The ball's nose above level while carried (deg), and on the drop: near
+## upright with the top tipped back toward the kicker, a drop punt's grip.
+const BALL_CARRY_PITCH_DEG := 25.0
+const BALL_DROP_PITCH_DEG := 105.0
+## The kick lets go of the ball this far into it (s; the "release" key of
+## clip_kick in author_6thbuild_clips.py), and the ball falls under gravity
+## onto BootPoint by Tuning's ACTION_CONTACT[KICK], where the boot meets it.
+## Before, it sat at the hip until contact and jumped to the boot. Timed on
+## the gameplay clock (PlayerController.action_elapsed), so it's at
+## BootPoint on the very frame it's launched from there.
+const KICK_RELEASE_TIME := 0.16
+
 const LOCOMOTION_STATE := &"locomotion"
 const BLEND_SMOOTHING := 14.0     ## exponential rate; stops the blend snapping
 const ACTION_BLEND_IN := 0.10     ## s
@@ -240,6 +283,9 @@ const GROUND_CLAMP_FEET: Array[StringName] = [&"LeftFoot", &"RightFoot"]
 @export var rig_path: NodePath = ^"../Rig"
 @export var animation_player_path: NodePath = ^"../AnimationPlayer"
 @export var animation_tree_path: NodePath = ^"../AnimationTree"
+## See "Ball carry". Both are optional.
+@export var ball_hold_path: NodePath = ^"../BallHold"
+@export var boot_point_path: NodePath = ^"../BootPoint"
 
 var _rig: Node3D
 var _player: AnimationPlayer
@@ -270,6 +316,21 @@ var _last_speed := 0.0
 ## See "Turn bank": degrees, positive = toward the body's right.
 var _bank_deg := 0.0
 var _last_velocity := Vector3.ZERO
+
+## See "Ball carry". _grip is {hand bone: {"bone": index, "centre": the
+## ball's centre in that hand's frame}}, empty without a carry clip.
+## model -> {hand bone: centre}, measured once per model like the strides.
+static var _grip_cache := {}
+var _carry_layer := false
+var _carry_parameter := ""
+var _carry_blend := 0.0
+var _grip := {}
+var _ball_hold: Node3D
+var _ball_hold_rest := Transform3D.IDENTITY
+var _boot_point: Node3D
+var _last_hold := Vector3.ZERO
+var _drop_from := Vector3.ZERO
+var _dropping := false
 
 ## Snapshot from note_mark_ball() (ball relative to the player, its flight,
 ## the nearest opponent's side), consumed by the next play_action().
@@ -303,6 +364,12 @@ func _ready() -> void:
 	_player.add_animation_library(&"", _build_merged_library())
 	_strides = _measure_strides()
 	_lean_bone = _find_lean_bone()
+	_carry_layer = _player.has_animation(CARRY_CLIP)
+	_grip = _measure_grip()
+	_ball_hold = get_node_or_null(ball_hold_path) as Node3D
+	if _ball_hold != null:
+		_ball_hold_rest = _ball_hold.transform
+	_boot_point = get_node_or_null(boot_point_path) as Node3D
 
 	_tree.tree_root = _build_state_machine()
 	_tree.anim_player = _tree.get_path_to(_player)
@@ -310,6 +377,7 @@ func _ready() -> void:
 	_playback = _tree.get("parameters/playback")
 	_blend_parameter = "parameters/%s/%s/blend_position" % [LOCOMOTION_STATE, GAIT_NODE]
 	_stride_parameter = "parameters/%s/%s/scale" % [LOCOMOTION_STATE, STRIDE_NODE]
+	_carry_parameter = "parameters/%s/%s/blend_amount" % [LOCOMOTION_STATE, CARRY_NODE]
 
 	var controller := get_parent() as PlayerController
 	if controller != null:
@@ -330,6 +398,11 @@ func drive(blend: Vector2, delta: float, speed := -1.0) -> void:
 	_stride_rate = _stride_rate_for(speed)
 	_tree.set(_stride_parameter, _stride_rate)
 	_update_lean(speed, delta)
+	if _carry_layer:
+		var controller := get_parent() as PlayerController
+		var holding := controller != null and controller.is_carrying()
+		_carry_blend = lerpf(_carry_blend, 1.0 if holding else 0.0, 1.0 - exp(-CARRY_BLEND_RATE * delta))
+		_tree.set(_carry_parameter, _carry_blend)
 
 
 ## The locomotion playback rate right now — see "Stride matching".
@@ -431,6 +504,7 @@ func bank_degrees() -> float:
 func _process(_delta: float) -> void:
 	_apply_lean()
 	_clamp_feet_to_ground()
+	_update_ball_hold()
 
 
 ## Tips the Spine by _lean_deg about the body's own left-right axis and
@@ -496,6 +570,75 @@ func _clamp_feet_to_ground() -> void:
 	skeleton.set_bone_pose_position(hips_idx, hips_pos + Vector3(0.0, -deepest, 0.0))
 
 
+## Puts BallHold where the hands have the ball, or, for a kick past
+## KICK_RELEASE_TIME, partway down the drop onto BootPoint (see "Ball
+## carry"). After the foot clamp, which can lift the whole rig. BallHold is
+## a child of the player, so the ball rides the body's own physics motion
+## and only this offset is a frame behind.
+func _update_ball_hold() -> void:
+	if _ball_hold == null:
+		return
+	var controller := get_parent() as PlayerController
+	var skeleton: Skeleton3D = null
+	if _rig != null:
+		skeleton = _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
+	# Kept on the hands with no ball too, so a gather or a mark lands the
+	# ball straight in them: from the rest spot it showed at the hip for a
+	# frame first.
+	if ragdoll_active or _grip.is_empty() or skeleton == null or controller == null:
+		_ball_hold.transform = _ball_hold_rest
+		_dropping = false
+		return
+	var to_body := controller.global_transform.affine_inverse() * skeleton.global_transform
+	var state := current_state()
+	var pitch := BALL_CARRY_PITCH_DEG
+	var at: Vector3
+	if controller.current_action() == Tuning.Action.KICK:
+		var t := controller.action_elapsed()
+		pitch = lerpf(BALL_CARRY_PITCH_DEG, BALL_DROP_PITCH_DEG, smoothstep(0.0, KICK_RELEASE_TIME, t))
+		if t >= KICK_RELEASE_TIME and _boot_point != null:
+			if not _dropping:
+				_dropping = true
+				_drop_from = _last_hold
+			at = _drop_point(t - KICK_RELEASE_TIME)
+		else:
+			at = _hands_hold(skeleton, to_body, state)
+	else:
+		_dropping = false
+		at = _hands_hold(skeleton, to_body, state)
+	_last_hold = at
+	_ball_hold.transform = Transform3D(Basis(Vector3.RIGHT, deg_to_rad(pitch)), at)
+
+
+## Where the hands have the ball, body space: between the two grips while
+## they agree, in one hand once they part (GRIP_SPLIT, ONE_HAND_STATES).
+func _hands_hold(skeleton: Skeleton3D, to_body: Transform3D, state: StringName) -> Vector3:
+	var left: Dictionary = _grip[&"LeftHand"]
+	var right: Dictionary = _grip[&"RightHand"]
+	var from_left := to_body * (skeleton.get_bone_global_pose(int(left.bone)) * (left.centre as Vector3))
+	var from_right := to_body * (skeleton.get_bone_global_pose(int(right.bone)) * (right.centre as Vector3))
+	var keeper: StringName = ONE_HAND_STATES.get(state, &"")
+	var one := from_left
+	if keeper == &"RightHand" or (keeper == &"" \
+			and from_right.distance_squared_to(_last_hold) < from_left.distance_squared_to(_last_hold)):
+		one = from_right
+	var split := smoothstep(GRIP_SPLIT.x, GRIP_SPLIT.y, from_left.distance_to(from_right))
+	return ((from_left + from_right) * 0.5).lerp(one, split)
+
+
+## The dropped ball `since` seconds after the kick let go of it, body
+## space: a fall under gravity from where the hands had it, solved to meet
+## BootPoint at contact. Body space is the runner's own frame, so the ball
+## keeps the body's pace the way a real drop does.
+func _drop_point(since: float) -> Vector3:
+	var span := Tuning.action_contact_time(Tuning.Action.KICK) - KICK_RELEASE_TIME
+	var gravity := Vector3.DOWN * float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
+	var boot := _boot_point.position
+	var launch := (boot - _drop_from - 0.5 * gravity * span * span) / span
+	var s := minf(since, span)
+	return _drop_from + launch * s + 0.5 * gravity * s * s
+
+
 func play_action(action: Tuning.Action) -> void:
 	if _playback == null:
 		return
@@ -507,6 +650,14 @@ func play_action(action: Tuning.Action) -> void:
 			state = _select_mark_state(action, state)
 	_mark_context = {}
 	_playback.travel(state)
+	# Lands the travel now, one physics step in. Left to the tree's own next
+	# update, the clip started ~2 frames behind the action's gameplay clock
+	# (PlayerController._action_elapsed counts the tick it began on), so the
+	# kick's boot reached the ball after it had already gone (measured: the
+	# instep 0.4 m short on the launch frame). Every action's contact keys
+	# now land on the gameplay contact.
+	if _tree.active:
+		_tree.advance(get_physics_process_delta_time())
 
 
 ## Plays any state by name if the graph has it (the animation viewer's
@@ -765,6 +916,47 @@ static func _measure_stride(skeleton: Skeleton3D, anim: Animation) -> Dictionary
 	if planted <= 0.0:
 		return {}
 	return {"speed": swept / planted, "cadence": 2.0 / anim.length}
+
+
+## Each hand's grip on the ball (see "Ball carry"): poses the skeleton in
+## the carry clip, puts the ball's centre midway between the palms, and
+## keeps it in each hand's own frame. Cached per model like the strides;
+## empty without a carry clip. Resets the skeleton to rest after.
+func _measure_grip() -> Dictionary:
+	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
+	if not _carry_layer or skeleton == null:
+		return {}
+	var hands: Array[StringName] = [&"LeftHand", &"RightHand"]
+	for hand: StringName in hands:
+		if skeleton.find_bone(hand) < 0:
+			return {}
+	var key := _model_key()
+	if not _grip_cache.has(key):
+		var anim := _player.get_animation(CARRY_CLIP)
+		for i in anim.get_track_count():
+			var bone := skeleton.find_bone(String(anim.track_get_path(i).get_concatenated_subnames()))
+			if bone < 0:
+				continue
+			match anim.track_get_type(i):
+				Animation.TYPE_ROTATION_3D:
+					skeleton.set_bone_pose_rotation(bone, anim.rotation_track_interpolate(i, 0.0))
+				Animation.TYPE_POSITION_3D:
+					skeleton.set_bone_pose_position(bone, anim.position_track_interpolate(i, 0.0))
+		var poses := {}
+		var centre := Vector3.ZERO
+		for hand: StringName in hands:
+			var pose := skeleton.get_bone_global_pose(skeleton.find_bone(hand))
+			poses[hand] = pose
+			centre += (pose.origin + pose.basis.y.normalized() * PALM_REACH) * 0.5
+		var grip := {}
+		for hand: StringName in hands:
+			grip[hand] = (poses[hand] as Transform3D).affine_inverse() * centre
+		skeleton.reset_bone_poses()
+		_grip_cache[key] = grip
+	var out := {}
+	for hand: StringName in hands:
+		out[hand] = {"bone": skeleton.find_bone(hand), "centre": (_grip_cache[key] as Dictionary)[hand]}
+	return out
 
 
 ## Which model this rig's clips came from, for the per-model caches.
@@ -1032,7 +1224,21 @@ func _build_locomotion() -> AnimationNodeBlendTree:
 	tree.add_node(GAIT_NODE, _build_blend_space(), Vector2(0.0, 0.0))
 	tree.add_node(STRIDE_NODE, AnimationNodeTimeScale.new(), Vector2(260.0, 0.0))
 	tree.connect_node(STRIDE_NODE, 0, GAIT_NODE)
-	tree.connect_node(&"output", 0, STRIDE_NODE)
+	if not _carry_layer:
+		tree.connect_node(&"output", 0, STRIDE_NODE)
+		return tree
+	# See "Ball carry": the carry pose over the arms only, faded by drive().
+	var pose := AnimationNodeAnimation.new()
+	pose.animation = CARRY_CLIP
+	tree.add_node(CARRY_POSE_NODE, pose, Vector2(260.0, 160.0))
+	var layer := AnimationNodeBlend2.new()
+	layer.filter_enabled = true
+	for bone: StringName in CARRY_BONES:
+		layer.set_filter_path(NodePath("Skeleton3D:" + String(bone)), true)
+	tree.add_node(CARRY_NODE, layer, Vector2(520.0, 0.0))
+	tree.connect_node(CARRY_NODE, 0, STRIDE_NODE)
+	tree.connect_node(CARRY_NODE, 1, CARRY_POSE_NODE)
+	tree.connect_node(&"output", 0, CARRY_NODE)
 	return tree
 
 

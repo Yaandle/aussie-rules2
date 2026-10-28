@@ -174,6 +174,46 @@ does. A sprint cut banks ~13° and settles as the turn completes.
 Physics' influence now fades out on a smoothstep, so the body doesn't
 jerk into motion at the start or kink onto the clip at the end.
 
+### 8. The kick, the ball carry and the hand-off (playtest, fixed)
+
+Playtest 2026-10-28: the kick's "knee comes up high but the leg isn't doing
+the kicking motion", the ball "is just sitting on its hip floating" with
+the arms out in a "45 degree sort of t-pose", and control switched before
+the kick finished.
+
+- **Kick.** Sampled on 6thbuild, the old clip's contact had the thigh 70°
+  up, the shin hanging straight down and the knee bent 79°. The
+  follow-through had the thigh at 134° (past horizontal) and the knee bent
+  114°. Its boot targets sat 0.5 m ahead of the hip, out of a straight
+  leg's reach. The clip is re-authored as a right-foot drop punt from the
+  two-hand carry, the kicking leg keyed by joint angles (`solve_leg`):
+  - **Step and drop:** step onto the left foot, then let the ball go over
+    the right foot at 0.16 s.
+  - **Swing:** the heel kicks up behind, then the knee drives through.
+  - **Contact:** thigh 61°, knee 37°, foot pointed 69° past square, the
+    ankle 0.78 m out and 0.33 m up.
+  - **Follow-through:** the leg straight (knee 0-5°) and high, with the
+    toes forward.
+
+  `BootPoint` moved onto the instep at contact (0.95 m out, 0.34 m up, was
+  0.52/0.32), so kicks now launch from there.
+- **Carry.** A `carry` clip (both hands on the ball in front of the
+  belly, elbows in) is laid over the arm bones by a filtered Blend2 while
+  the player has the ball. The ball rides `BallHold`, which
+  `PlayerAnimation` moves to where the hands have it each frame. On the
+  kick it falls from the hands onto `BootPoint`, timed on the gameplay
+  clock. Handballs and bounces now launch from the hands. From
+  `CarryPoint` they jumped 0.33-0.38 m back at release, and the bounce is
+  still re-gathered at 0.6×-1.4× pace. Gameplay reach still measures from
+  `CarryPoint`.
+- **Clip lag.** Every action clip ran ~2 frames behind the gameplay clock
+  (an AnimationTree travel lands on its next update). `play_action` now
+  advances the tree right after it, so the boot meets the ball on the
+  launch frame (instep 0.92 m out against `BootPoint`'s 0.95, was 0.53).
+- **Hand-off.** FULL_TEAM control now waits out the rest of the kick clip
+  plus `Tuning.FULL_TEAM_KICK_SWITCH_HOLD` (0.2 s): 0.57 s after the ball
+  leaves the boot, measured in a quick-play match. It was the same frame.
+
 ### Before and after, ragdoll
 
 `scenes/dev/tackle_sweep.tscn` gives each pair of already-running 6thbuild
@@ -227,6 +267,10 @@ are chaotic, so watch for it.
 9. **Root motion for contest outcomes** (MECHANICS_AUDIT §A5), as before.
 
 ## Needs your eyes
+
+- **The kick and the carry** (section 8): the drop punt's look, the ball's
+  drop, the carry pose while sprinting, and the 0.2 s hold before the
+  hand-off. Kicks launch 0.43 m further forward than before.
 
 - **The phase lock:** accelerate from a jog to a sprint and cut. The feet
   should stop scissoring.

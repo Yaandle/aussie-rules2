@@ -96,6 +96,8 @@ CLIP_RENAME = {
 	"smothered": "smothered",
 	"smother_dive": "smother_dive",
 	"tackle_sling": "tackle_sling",
+	# The two-hand ball carry PlayerAnimation lays over the arms.
+	"carry": "carry",
 }
 
 

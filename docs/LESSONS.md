@@ -127,6 +127,15 @@ mostly superseded history. The full text lives outside the repo, in
   too much each tick. It whipped forearms at 40-335 rad/s and broke elbows
   past their stops, which looked like a "pinned wrist" until a per-frame
   probe showed it happened mid-reach.
+- **An AnimationTree `travel` lands on the tree's next update.** An action
+  clip started ~2 frames behind the gameplay clock that fires its contact,
+  so the kick's boot arrived after the ball had gone (0.4 m short on the
+  launch frame). `PlayerAnimation.play_action` advances the tree one
+  physics step right after the travel.
+- **Key a kick's leg by joint angles, not boot positions.** A contact point
+  0.5 m ahead of a 1.05 m hip is out of a straight leg's reach, so the leg
+  IK folded the knee 80° and lifted it ("the knee comes up high"). See
+  `solve_leg` in `tools/blender/author_6thbuild_clips.py`.
 - **A blend space's `sync` doesn't line up phases.** It only keeps
   zero-weight clips' clocks running. Clips of different lengths drift, so
   `PlayerAnimation` rebuilds the stepping clips to one length and one

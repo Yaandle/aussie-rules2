@@ -148,6 +148,12 @@ var camera_rig: BroadcastCamera = null
 
 @onready var _animation: PlayerAnimation = $PlayerAnimation
 @onready var _carry_point: Marker3D = $CarryPoint
+## Where the carried ball is drawn: PlayerAnimation moves it into the hands
+## every frame ("Ball carry"). Gameplay reach still measures from
+## _carry_point; at rest the two are the same spot.
+@onready var _ball_hold: Marker3D = $BallHold
+## Where the kick meets the ball: on the instep at contact in 6thbuild's
+## drop punt (author_6thbuild_clips.py's clip_kick), ~0.95 m out.
 @onready var _boot_point: Marker3D = $BootPoint
 @onready var _gather_zone: Area3D = $GatherZone
 @onready var _kick_trajectory: KickTrajectory = $KickTrajectory
@@ -1013,6 +1019,19 @@ func carried_ball() -> Ball:
 	return _carried_ball
 
 
+## The action under way and how far into it, on the gameplay clock that
+## fires its contact (Tuning.action_contact_time). PlayerAnimation times the
+## kick's ball drop on this rather than the clip's own clock, which only
+## advances on render frames: the ball has to reach BootPoint on the very
+## physics tick it's launched from there.
+func current_action() -> Tuning.Action:
+	return _action
+
+
+func action_elapsed() -> float:
+	return _action_elapsed
+
+
 ## True while a stand-the-mark protection window (Tuning.MARK_HOLD_DURATION)
 ## from a legal mark is still running — _try_tackle() skips a protected
 ## carrier entirely. Also the hook a future protected kick-in state reuses
@@ -1204,7 +1223,7 @@ func _complete_gather(ball: Ball) -> void:
 	# ground puts them on their feet with the ball.
 	_end_tackle_hold()
 	_cancel_ragdoll()
-	ball.attach_to(_carry_point, self)
+	ball.attach_to(_ball_hold, self)
 	_carried_ball = ball
 	_carry_distance = 0.0
 	_run_too_far_latched = false
@@ -3435,12 +3454,15 @@ func _dispose() -> void:
 			if _hip_fire_kick:
 				launch = _apply_spread(launch, right, Tuning.KICK_HIP_FIRE_SPREAD_DEG)
 			_hip_fire_kick = false
+		# A handball and a bounce leave from where the hands have the ball
+		# (_ball_hold), not CarryPoint by the hip: with the ball drawn in the
+		# hands, launching from the hip jumped it 0.33-0.38 m back at release.
 		Tuning.Action.HANDBALL:
-			launch = _launch_from(_carry_point.global_position, _handball_aim_dir,
+			launch = _launch_from(_ball_hold.global_position, _handball_aim_dir,
 				Tuning.HANDBALL_ANGLE, Tuning.HANDBALL_SPEED)
 			spin = right * Tuning.HANDBALL_SPIN
 		Tuning.Action.BOUNCE:
-			launch = _launch_from(_carry_point.global_position, -global_transform.basis.z,
+			launch = _launch_from(_ball_hold.global_position, -global_transform.basis.z,
 				Tuning.BOUNCE_ANGLE, Tuning.BOUNCE_SPEED)
 			spin = right * Tuning.HANDBALL_SPIN
 		_:
