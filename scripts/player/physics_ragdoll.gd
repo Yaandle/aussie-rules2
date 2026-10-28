@@ -733,6 +733,22 @@ func point_velocity(bone: StringName, world_point: Vector3) -> Vector3:
 	return pb.linear_velocity + pb.angular_velocity.cross(world_point - pb.global_position)
 
 
+## How heavy a point on `bone`'s body feels to a push along `dir` (kg): the
+## body's own mass and inertia, as if it were free. Pushed sideways, a
+## wrist is the tip of a 2 kg forearm and feels about 0.5 kg; pushed along
+## the bone it feels the whole 2 kg. A body jointed to others only feels
+## heavier, so a servo sized on this can under-correct but never overshoot.
+func point_mass(bone: StringName, world_point: Vector3, dir: Vector3) -> float:
+	var pb := body(bone)
+	if dir.length_squared() < 1e-12:
+		return pb.mass
+	var lever := (world_point - pb.global_position).cross(dir.normalized())
+	var local := pb.global_basis.orthonormalized().inverse() * lever
+	var inertia: Vector3 = _inertia.get(String(bone), Vector3.ONE * 0.1)
+	return 1.0 / (1.0 / pb.mass + local.x * local.x / inertia.x + local.y * local.y / inertia.y
+		+ local.z * local.z / inertia.z)
+
+
 ## Where the skeleton's forward (the chest's front) / up points for `bone`'s
 ## body right now, world space.
 func front_of(bone: String) -> Vector3:

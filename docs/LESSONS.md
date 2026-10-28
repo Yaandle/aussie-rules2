@@ -121,6 +121,12 @@ mostly superseded history. The full text lives outside the repo, in
 - **Ramp in any servo that grabs a ragdoll limb.** At full strength on its
   first tick, TackleWrap's wrist grip cancelled the whole closing speed at
   the wrist and whipped the arms at up to 105 rad/s.
+- **Size a point servo on the point's own mass in the pull's direction**
+  (`PhysicsRagdoll.point_mass`), not the limb's. Sideways, a wrist feels
+  ~0.5 kg, not the arm's 4.6. Sized on the arm, TackleWrap's grip did ~6×
+  too much each tick. It whipped forearms at 40-335 rad/s and broke elbows
+  past their stops, which looked like a "pinned wrist" until a per-frame
+  probe showed it happened mid-reach.
 - **A blend space's `sync` doesn't line up phases.** It only keeps
   zero-weight clips' clocks running. Clips of different lengths drift, so
   `PlayerAnimation` rebuilds the stepping clips to one length and one

@@ -27,12 +27,14 @@ extends Node3D
 ##                  in, and where
 ## The SUMMARY line totals the falls and the worst of each.
 ##
-## Baseline 2026-10-28 (docs/ANIMATION_RAGDOLL_AUDIT.md): every carrier and
-## tackler down; hip_back worst 48° (c) / 53° (t); start worst 30 / 45;
-## joint overshoots of 10-45° for a frame or two at ground impact, mostly
-## Spine/Chest as the torso lands; one wrapped tackler's forearm whipped to
-## 335 rad/s once it was pinned. The code it replaced, on the same cases:
-## hip_back ~100°, knees folding to ~180°, start up to 62 (t).
+## Baseline 2026-10-28 (docs/ANIMATION_RAGDOLL_AUDIT.md), after the wrap's
+## grip was sized on the wrist's real mass: every carrier and tackler down;
+## hip_back worst 60° (c) / 54° (t); start worst 27 / 23; peak spin worst
+## 74 / 52 rad/s; joint overshoots of 10-40° for a frame or two at ground
+## impact, mostly Spine/Chest/feet as the body lands. Before that grip fix
+## the tacklers' worst joint was an elbow in 8 of 12 Lunges (up to +47°)
+## and a forearm whipped to 335 rad/s. The code before the audit, on the
+## same cases: hip_back ~100°, knees folding to ~180°, start up to 62 (t).
 
 const PlayerScene := preload("res://scenes/player/player.tscn")
 const MODEL_ID := "6thbuild"

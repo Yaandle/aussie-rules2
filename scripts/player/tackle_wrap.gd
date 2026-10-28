@@ -21,7 +21,12 @@ extends RefCounted
 ## * The grip. A pull from the wrist to its grip point, PhysicsRagdoll's
 ##   motor recipe applied to a point: a velocity servo asking for a closing
 ##   speed proportional to the gap, closing TACKLE_WRAP_GAIN (< 1) of the
-##   shortfall a tick, so it can't overshoot, capped at the grip force. Equal
+##   shortfall a tick, capped at the grip force. It's sized by how heavy the
+##   wrist really feels in the direction it's pulled (PhysicsRagdoll.
+##   point_mass), so it can't overshoot. Sized on the whole arm's mass
+##   instead, it did ~6x too much sideways, where a wrist is the tip of a
+##   2 kg forearm: the forearm whipped at 40-50 rad/s in every reach, up to
+##   335, and slammed the elbow 20-47° past its stop. Equal
 ##   and opposite, so the pair's momentum is only what the hit gave it. Not a
 ##   Joint3D: one made mid-fall between two separately simulated chains
 ##   snaps to its anchor on the first tick, the same violent correction that
@@ -41,6 +46,10 @@ const WAIST := &"Spine"
 const CHEST := &"Chest"
 ## forearm -> its upper arm.
 const ARMS := {&"LeftLowerArm": &"LeftUpperArm", &"RightLowerArm": &"RightUpperArm"}
+## The most the reach bends an elbow (deg, 0 = straight). PhysicsRagdoll's
+## elbow hinge stops at 120° from a rest pose already bent a few degrees;
+## this leaves the motors room short of the stop.
+const ELBOW_MAX_BEND := 100.0
 
 var _tackler: PlayerRagdoll
 var _target: PlayerRagdoll
@@ -180,9 +189,11 @@ func _hold(delta: float) -> void:
 		# full-strength pull at it buzzed the forearm at 8-12 m/s.
 		var down := tackler.is_down()
 		var slack := Tuning.TACKLE_WRAP_DOWN_DEADZONE * target.rig_scale() if down else 0.0
-		var j := _servo(wrist, goal, tackler.point_velocity(forearm, wrist), target.point_velocity(WAIST, goal),
-			1.0 / (1.0 / (fore.mass + tackler.body(upper).mass) + 1.0 / waist.mass),
-			cap * (Tuning.TACKLE_WRAP_DOWN_GRIP if down else 1.0), slack)
+		var change := _closing_change(wrist, goal, tackler.point_velocity(forearm, wrist),
+			target.point_velocity(WAIST, goal), slack)
+		var mass := 1.0 / (1.0 / tackler.point_mass(forearm, wrist, change)
+			+ 1.0 / target.point_mass(WAIST, goal, change))
+		var j := (change * mass).limit_length(cap * (Tuning.TACKLE_WRAP_DOWN_GRIP if down else 1.0))
 		fore.apply_impulse(j, wrist - fore.global_position)
 		waist.apply_impulse(-j, goal - waist.global_position)
 	# The hug: only ever draws the chests together, never shoves them apart.
@@ -193,14 +204,17 @@ func _hold(delta: float) -> void:
 	var reach := Tuning.TACKLE_WRAP_HUG_DISTANCE * target.rig_scale()
 	if gap.length() > reach:
 		var goal := chest_t.global_position + gap.normalized() * (gap.length() - reach)
-		var j := _servo(chest_t.global_position, goal, chest_t.linear_velocity, chest_c.linear_velocity,
-			1.0 / (1.0 / chest_t.mass + 1.0 / chest_c.mass), cap)
+		var j := (_closing_change(chest_t.global_position, goal, chest_t.linear_velocity,
+			chest_c.linear_velocity) / (1.0 / chest_t.mass + 1.0 / chest_c.mass)).limit_length(cap)
 		chest_t.apply_central_impulse(j)
 		chest_c.apply_central_impulse(-j)
 
 
 ## Two-bone IK from the shoulder to `goal`, elbow toward `out` and a little
-## down; hands the two segment directions to the arm motors.
+## down; hands the two segment directions to the arm motors. A goal close to
+## the shoulder is reached with the elbow at ELBOW_MAX_BEND, not folded
+## flat: asked for more than the hinge allows, the motors drove the forearm
+## into its stop.
 static func _aim_arm(rd: PhysicsRagdoll, upper: StringName, fore: StringName, goal: Vector3,
 		out: Vector3) -> void:
 	var shoulder := rd.segment_root(upper)
@@ -210,7 +224,8 @@ static func _aim_arm(rd: PhysicsRagdoll, upper: StringName, fore: StringName, go
 	if to.length_squared() < 1e-6:
 		return
 	var u := to.normalized()
-	var d := clampf(to.length(), absf(l1 - l2) + 0.02, l1 + l2 - 0.01)
+	var tightest := sqrt(l1 * l1 + l2 * l2 + 2.0 * l1 * l2 * cos(deg_to_rad(ELBOW_MAX_BEND)))
+	var d := clampf(to.length(), tightest, l1 + l2 - 0.01)
 	var pole := out + Vector3.DOWN * 0.5
 	var v := pole - u * pole.dot(u)
 	v = v.normalized() if v.length_squared() > 1e-6 else u.cross(Vector3.UP).normalized()
@@ -221,15 +236,14 @@ static func _aim_arm(rd: PhysicsRagdoll, upper: StringName, fore: StringName, go
 	rd.aim_dirs[String(fore)] = (shoulder + u * d - elbow).normalized()
 
 
-## The impulse on the moving point (the other gets minus it) that closes
+## The change in the two points' relative velocity that closes
 ## TACKLE_WRAP_GAIN of the gap between the closing speed asked for and the
 ## one it has — see the header. Inside `slack` of the goal it asks for no
 ## closing at all and only damps the two points' relative motion.
-static func _servo(point: Vector3, goal: Vector3, point_vel: Vector3, goal_vel: Vector3,
-		reduced_mass: float, cap: float, slack := 0.0) -> Vector3:
+static func _closing_change(point: Vector3, goal: Vector3, point_vel: Vector3, goal_vel: Vector3,
+		slack := 0.0) -> Vector3:
 	var gap := goal - point
 	var want := gap * Tuning.TACKLE_WRAP_RATE if gap.length() > slack else Vector3.ZERO
 	if want.length() > Tuning.TACKLE_WRAP_MAX_SPEED:
 		want = want.normalized() * Tuning.TACKLE_WRAP_MAX_SPEED
-	var j := (want - (point_vel - goal_vel)) * Tuning.TACKLE_WRAP_GAIN * reduced_mass
-	return j.limit_length(cap)
+	return (want - (point_vel - goal_vel)) * Tuning.TACKLE_WRAP_GAIN

@@ -91,6 +91,40 @@ wrap off, going rigid is smooth (~5 rad/s).
 **Fix:** the grip and the hug ramp in over `TACKLE_WRAP_GRIP_RAMP` (0.12 s).
 The worst first-frame spin dropped to 45 rad/s.
 
+### 3b. The wrap's grip was sized ~6× too strong sideways (fixed)
+
+This was the "pinned forearm" left open below, and it wasn't a pin. A probe
+logged every frame a tackler's elbow was past its limit. 38 of 42 were
+during the reach, still on their feet, not once down. The grip servo
+worked out its pull from the forearm and upper arm's mass (3.15 kg against
+the waist). Pushed sideways, a wrist is the tip of a 2 kg forearm and
+feels about 0.5 kg, so each tick the pull did ~6× the correction it meant
+to. Every tackler's forearm whipped at 40-50 rad/s in the reach, and a
+folded arm slammed its elbow 20-47° past the stop.
+
+**Fix:** `PhysicsRagdoll.point_mass()` gives how heavy a point on a body
+feels along a direction (its mass and inertia, as if free). The grip sizes
+each pull on it. A free body is the lightest the jointed arm can feel, so
+the servo can under-correct but not overshoot. The reach's IK also stops
+asking for more than 100° of elbow bend (`TackleWrap.ELBOW_MAX_BEND`),
+which on its own made little difference.
+
+| Tackler, 12 Lunges | Before | After |
+|---|---|---|
+| Worst spin | 335 rad/s | 52 |
+| Spin in first 0.1 s | 45 rad/s | 23 |
+| Fastest body | 21 m/s | 12 |
+| Frames an elbow is >5° past its stop, reaching | 37 | 5 |
+| Worst elbow overshoot | 47° | 8° |
+| Went down | all | all |
+
+The cost: the grip is looser. The wrist's mean gap to its grip point went
+from 0.34 to 0.40 m while reaching and 0.20 to 0.32 m once down, and 23 of
+24 arms got round the carrier (24 before). A higher gain to win it back
+brought the whipping back (0.65 and 0.8 both did), and the down-phase
+grip settings (`TACKLE_WRAP_DOWN_GRIP`, `DOWN_DEADZONE`) no longer change
+anything, because the grip never reaches its force cap now.
+
 ### 4. The gait clips drifted out of step (bug, fixed)
 
 The comment on the blend space said `sync = true` locks every clip to a
@@ -161,12 +195,8 @@ are chaotic, so watch for it.
 
 ## What's left, in priority order
 
-1. **Pinned forearms in the wrap.** Once a wrapped tackler's wrist is
-   pinned between the bodies and the turf, the grip can force the elbow
-   past its limit. One case bent it 151° backwards, and one forearm spun
-   at 335 rad/s for a frame. It happens on the old code too, where the
-   elbow had no effective limit to fight. Next step: ease the grip off as
-   the elbow nears a limit, or let go of a wrist that's pinned.
+1. ~~Pinned forearms in the wrap.~~ Fixed: it was the grip's sizing
+   (3b above), not a pin.
 2. **Overshoot at ground impact.** Spine and chest overshoot their limits
    by 10-45° for a frame or two as the torso lands. Options: raise Jolt's
    solver iterations (`physics/jolt_physics_3d/simulation/velocity_steps`
@@ -203,7 +233,8 @@ are chaotic, so watch for it.
 - **The bank:** 14° max, `BANK_SHARE` 0.6, both guesses. **The lean
   release:** 3.5/s.
 - **Tackles:** legs no longer fold behind the body, and the tackler's arms
-  close a beat softer. Check the X wrap still reads as a grab.
+  close a beat softer. Check the X wrap still reads as a grab: since 3b
+  the hands sit a few centimetres further off the carrier's waist.
 - **Tacklers propped on their knees:** watch for any that rise straight
   back up.
 
