@@ -182,8 +182,10 @@ mostly superseded history. The full text lives outside the repo, in
   `--script`, which skips autoloads), with `--fixed-fps 60`, `--quit-after N`
   and an explicit `get_tree().quit()`. Delete it afterwards.
 - For visual checks, run windowed with
-  `--write-movie <dir>/x.png --fixed-fps 30 --resolution 1280x720` and read
-  the frames. This caught a skinning bug the numbers missed.
+  `--write-movie <dir>/x.png --fixed-fps 30` and read the frames. This
+  caught a skinning bug the numbers missed. Frames come out at the
+  project's 1600x900 window override; `--resolution` doesn't change that.
+  `scenes/dev/demo_recorder.tscn` is a worked example (the README's GIFs).
 - **A scratch scene that plays a Career match writes the real save**
   (`user://career_profile.cfg`, `settings.cfg`, under
   `%APPDATA%\Godot\app_userdata\Aussie Rules 2`). Back them up first, or

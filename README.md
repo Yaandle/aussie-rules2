@@ -73,14 +73,14 @@ Use your own Godot path and project path. No build step is needed.
 
 ## Feature demos
 
-Each demo can be replayed in the [animation viewer](#dev-tools). It runs the
-real gameplay code on real players, not canned poses.
+Each demo was recorded in the [animation viewer](#dev-tools)'s studio by
+`scenes/dev/demo_recorder.tscn`. It runs the real gameplay code on real
+players, not canned poses. The recorder only presses the buttons and moves
+the camera.
 
 ### Marking
 
-<!-- Demo GIF, add once recorded: ![Marking demo](docs/media/marking.gif)
-     Record: animation viewer → CONTESTS → MARK DELIVERY, one take each of
-     AUTO (PROMPT), SAFE, RUNNING and AGGRESSIVE. Save as docs/media/marking.gif. -->
+![Marking demo](docs/media/marking.gif)
 
 There are three ways to take a mark. Each trades reach against commitment.
 
@@ -108,9 +108,7 @@ There are three ways to take a mark. Each trades reach against commitment.
 
 ### Tackling
 
-<!-- Demo GIF, add once recorded: ![Tackling demo](docs/media/tackling.gif)
-     Record: animation viewer → CONTESTS → TACKLE — LUNGE, TACKLE — SLIDE,
-     BUMP — CLEAN HIT. Save as docs/media/tackling.gif. -->
+![Tackling demo](docs/media/tackling.gif)
 
 | Tackle | Keyboard | Pad | What it does |
 |---|---|---|---|
@@ -144,9 +142,7 @@ animation clips.
 
 ### Ruck
 
-<!-- Demo GIF, add once recorded: ![Ruck demo](docs/media/ruck.gif)
-     Record: animation viewer → SEQUENCES → UMPIRE — BALL-UP, then
-     ACTIONS → hit_out. Save as docs/media/ruck.gif. -->
+![Ruck demo](docs/media/ruck.gif)
 
 | Action | Keyboard | Pad |
 |---|---|---|
@@ -169,9 +165,7 @@ animation clips.
 
 ### Kicking
 
-<!-- Demo GIF, add once recorded: ![Kicking demo](docs/media/kicking.gif)
-     Record: animation viewer → ACTIONS → kick, plus a set shot from a
-     Kick-to-Kick mark. Save as docs/media/kicking.gif. -->
+![Kicking demo](docs/media/kicking.gif)
 
 | Action | Keyboard / mouse | Pad |
 |---|---|---|
@@ -568,7 +562,8 @@ None of these are on the main menu. Open the scene in the editor and press
 
 | Scene | What it's for |
 |---|---|
-| `scenes/dev/animation_viewer.tscn` | Every clip and blend point, and contests between two real players (tackles, bumps, smother, mark deliveries). Also has sequences (bounce on the run, mark retreat, umpire ball-up) and the ML page (tackle LR/GA, MLP marking cue). |
+| `scenes/dev/animation_viewer.tscn` | Every clip and blend point, contests between two real players (tackles, bumps, smother, mark deliveries) and the ML page (tackle LR/GA, MLP marking cue). The SEQUENCES buttons have done nothing since 2026-10-08. |
+| `scenes/dev/demo_recorder.tscn` | Records the demo GIFs above (`-- demo=marking`, `tackling`, `ruck` or `kicking`); `tools/make_demo_gifs.py` builds them. Its header has the commands. |
 | `scenes/dev/physics_ragdoll_lab.tscn` | One ragdoll you can push, throw at or tackle |
 | `scenes/dev/tackle_sweep.tscn` | Headless regression check for ragdoll tackles |
 | `scenes/dev/mark_cue_harness.tscn` | Records marking attempts for the ML datasets |
