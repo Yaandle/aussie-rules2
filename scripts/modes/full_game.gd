@@ -311,8 +311,9 @@ func _on_focus_changed(team: Tuning.Team, previous: PlayerController, next: Play
 ## keep receiving input while get_tree().paused freezes everything else
 ## (players, ball, this node's own _physics_process) exactly where they are.
 func _open_pause_menu() -> void:
-	var pause_screen := PAUSE_SCREEN_SCENE.instantiate()
+	var pause_screen := PAUSE_SCREEN_SCENE.instantiate() as PauseScreen
 	pause_screen.process_mode = Node.PROCESS_MODE_ALWAYS
+	pause_screen.show_camera_zoom = true
 	add_child(pause_screen)
 	get_tree().paused = true
 

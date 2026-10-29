@@ -46,9 +46,41 @@ extends Node3D
 ## Meshes flatter than this (paths, painted decals) don't cast shadows. A
 ## shadow from something lying on the grass is invisible and costs atlas.
 const FLAT_MESH_HEIGHT := 0.05
+## The layout object FieldScoreboard goes on (build_oval1_layout.py and
+## build_park_oval.py both name it this).
+const SCOREBOARD_NODE := &"Scoreboard"
+
+## ── Broadcast side ──────────────────────────────────────────────────
+## Playtest 2026-10-29: "I can't see past some of the trees when the ball is
+## in either 50m arc". The FULL_SIDE camera rides a rail CAM_FULL_SIDE_
+## SIDE_OFFSET (90 m) up the +Z wing, 20 m high. Level with the middle the
+## tree band is behind it, but out at the arcs the fence curves in and the
+## band lies between the lens and the play. A ground's broadcast side is
+## its open stand, so when that camera comes on (BroadcastCamera.set_mode
+## calls clear_broadcast_side) every prop standing taller than
+## BROADCAST_CLEAR_MIN_TOP between the fence and the rail on that wing is
+## dropped from its MultiMesh. Bushes, benches and the rest of the ring
+## stay; a Chase-camera match keeps every tree. One way: the trees don't
+## pop back for a set shot's brief Chase cut.
+const GROUP := &"oval_environment"
+## The fence ellipse, semi-axes along X and Z (assets/blender/scripts/
+## field_kit.py FENCE_A / FENCE_B, the same for both ovals).
+const FENCE_AXES := Vector2(91.5, 76.5)
+## Lower than this (m, the top of the instance) doesn't block a lens 20 m up.
+const BROADCAST_CLEAR_MIN_TOP := 3.0
+## The corridor: from the fence out to this far past the rail (the camera
+## sits 6 m behind it on its arm), on the rail's half of the ground
+## (z > MIN_Z), not past the ends' pockets (|x| < MAX_X).
+const BROADCAST_CLEAR_PAST_RAIL := 8.0
+const BROADCAST_CLEAR_MIN_Z := 30.0
+const BROADCAST_CLEAR_MAX_X := 105.0
+
+var _broadcast_cleared := false
 
 
 func _ready() -> void:
+	if not Engine.is_editor_hint():
+		add_to_group(GROUP)
 	var placements: Array = [eucalyptus, basic_trees, simple_trees_a, simple_trees_b]
 	for i in mini(tree_scenes.size(), placements.size()):
 		if tree_scenes[i] != null and not (placements[i] as Array).is_empty():
@@ -56,6 +88,45 @@ func _ready() -> void:
 	for i in layout_scenes.size():
 		if layout_scenes[i] != null:
 			_build_layout(layout_scenes[i], "Layout%d" % i)
+
+
+## See "Broadcast side". Rebuilds each MultiMesh without the instances in
+## the corridor, so nothing is left drawing at zero scale.
+func clear_broadcast_side() -> void:
+	if _broadcast_cleared:
+		return
+	_broadcast_cleared = true
+	var removed := 0
+	for child in get_children():
+		var layer := child as MultiMeshInstance3D
+		if layer == null or layer.multimesh == null or layer.multimesh.mesh == null:
+			continue
+		var multimesh := layer.multimesh
+		var aabb := multimesh.mesh.get_aabb()
+		var kept: Array[Transform3D] = []
+		for i in multimesh.instance_count:
+			var t := multimesh.get_instance_transform(i)
+			if not _blocks_broadcast(layer.global_transform * t, aabb):
+				kept.append(t)
+		if kept.size() == multimesh.instance_count:
+			continue
+		removed += multimesh.instance_count - kept.size()
+		multimesh.instance_count = kept.size()
+		for i in kept.size():
+			multimesh.set_instance_transform(i, kept[i])
+	print_verbose("OvalEnvironment: cleared %d props off the broadcast side" % removed)
+
+
+func _blocks_broadcast(world: Transform3D, aabb: AABB) -> bool:
+	var top := (world * aabb).end.y
+	if top < BROADCAST_CLEAR_MIN_TOP:
+		return false
+	var p := world.origin
+	if p.z < BROADCAST_CLEAR_MIN_Z or absf(p.x) > BROADCAST_CLEAR_MAX_X \
+			or p.z > Tuning.CAM_FULL_SIDE_SIDE_OFFSET + BROADCAST_CLEAR_PAST_RAIL:
+		return false
+	var across := clampf(p.x / FENCE_AXES.x, -1.0, 1.0)
+	return p.z > FENCE_AXES.y * sqrt(1.0 - across * across)
 
 
 ## One MultiMeshInstance3D per MeshInstance3D in the tree glb (a trunk and a
@@ -94,6 +165,13 @@ func _build_layout(scene: PackedScene, layer_name: String) -> void:
 	var groups := {}   # Mesh -> [MeshInstance3D, Array[Transform3D]]
 	for part: Array in parts:
 		var mi: MeshInstance3D = part[0]
+		# The ground's scoreboard gets the live score on its face (in a
+		# running game; the editor shows the prop as built).
+		if mi.name == SCOREBOARD_NODE and not Engine.is_editor_hint():
+			var board := FieldScoreboard.new()
+			board.name = "FieldScoreboard"
+			board.transform = part[1]
+			add_child(board)
 		if not groups.has(mi.mesh):
 			var fresh: Array[Transform3D] = []
 			groups[mi.mesh] = [mi, fresh]

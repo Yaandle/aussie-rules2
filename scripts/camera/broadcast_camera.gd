@@ -121,6 +121,10 @@ func set_mode(new_mode: Mode) -> void:
 	if mode == new_mode:
 		return
 	mode = new_mode
+	if mode == Mode.FULL_SIDE:
+		# The rig's wing of the ground loses the trees between it and the
+		# fence (OvalEnvironment.clear_broadcast_side).
+		get_tree().call_group(OvalEnvironment.GROUP, &"clear_broadcast_side")
 	recenter()
 
 

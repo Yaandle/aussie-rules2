@@ -17,7 +17,9 @@ tackle that lands holds or breaks on a trained tackle model. There's also a
 **Career** mode: create a player and play a season with a ladder, fixture,
 roster and stats. A solo **Kick-to-Kick** mode has kicking, marking and
 tackling coaches. Players use an imported Blender model with 26 clips, and
-the two ovals are generated in Blender. Sound is still synthesized in code.
+the two ovals are generated in Blender. A seven-segment scoreboard (goals,
+behinds and total for each side) is on screen and on the ground's own
+board. Sound is still synthesized in code.
 
 ![Screenshot](assets/textures/images/screenshot.png)
 
@@ -99,6 +101,12 @@ There are three ways to take a mark. Each trades reach against commitment.
   is graded on (`PlayerController.mark_timing_offset`). With the current
   `GATED` cue, the Aggressive ring won't finish until the leap can reach the
   ball.
+- **Hands on the ball.** Reach is measured from where the hands take a mark
+  (`CatchPoint`, in front of the chest) and is about an arm's length: 0.9 m
+  for Safe, 0.8 m for Running, 1.1 m for Aggressive. You have to get to
+  the ball. An Aggressive leap can take it any time across the top of the
+  jump, and a caught ball travels into the hands rather than appearing in
+  them.
 - **Timing sets reach.** A press inside the ideal window gets full reach. A
   press in the contested window gets less, and a press outside it gets none.
   The catch then checks the ball's real position against that reach. The
@@ -505,6 +513,7 @@ Most buttons do different things depending on whether you have the ball.
 | Toggle Single Player / Team Command scheme | `M` | D-pad right |
 | Issue a move-here order (Team Command) | `B` | Share / Create |
 | Pause | `Esc` | Start |
+| Camera zoom (Full Game pause menu) | `←` / `→` on CAMERA ZOOM | D-pad ↔ on CAMERA ZOOM |
 | Reset ball · debug HUD | `R` · `F3` | Back · D-pad up |
 
 **Modes.** **Full Game** is a quick match, with the camera, control mode,

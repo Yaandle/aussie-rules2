@@ -42,7 +42,14 @@ mostly superseded history. The full text lives outside the repo, in
   the layouts link its meshes. Godot's glTF importer gives every node that
   shares a glTF mesh the same `ArrayMesh`, so `OvalEnvironment` turns a
   layout of ~500 linked copies into ~14 MultiMeshes. Don't commit `.blend1`
-  backups.
+  backups. A layout object can still be found by name while it's batched:
+  that's how `FieldScoreboard` lands on the prop named "Scoreboard".
+- **Mark reach is measured from the hands.** `CatchPoint` (in front of the
+  chest, 1.4 m) and about an arm's length, not `CarryPoint` by the right
+  hip with 2-3 m of reach. Judge a reach change by how close the ball's
+  uncaught flight passes the hands, not by where it was when the catch was
+  called: the ball is still flying toward the hands then. Mark reach also
+  sets the AI's catch rate.
 - **One context-sensitive tap.** Keyboard Q / gamepad X is Handball when
   carrying, Running Mark when the ball is airborne and reachable, Lunge
   tackle against a carrier, and Smother against a kicker already in stance.
@@ -118,6 +125,13 @@ mostly superseded history. The full text lives outside the repo, in
   bend limit past ~75° from the joint's zero comes apart. Wide ranges cost
   stability in real falls even when a push test holds, so check limit
   changes with `scenes/dev/tackle_sweep.tscn`.
+- **Check what else a Tuning constant feeds before changing it.**
+  `RUCK_HIT_OUT_REACH` was defined as the Aggressive mark's reach, so
+  cutting mark reach would have cut the ruck tap from 3.1 m to 1.4 m.
+- **`git stash` here rewrites the files it restores with CRLF**
+  (`core.autocrlf=true`), and several UI scripts are CRLF in the working
+  tree anyway. A script edit that expects LF finds nothing; the Edit tool
+  copes with either.
 - **Ramp in any servo that grabs a ragdoll limb.** At full strength on its
   first tick, TackleWrap's wrist grip cancelled the whole closing speed at
   the wrist and whipped the arms at up to 105 rad/s.

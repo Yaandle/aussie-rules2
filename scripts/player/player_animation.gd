@@ -259,6 +259,17 @@ const BALL_DROP_PITCH_DEG := 105.0
 ## BootPoint on the very frame it's launched from there.
 const KICK_RELEASE_TIME := 0.16
 
+## ── Catch glide ─────────────────────────────────────────────────────
+## Playtest 2026-10-29: "make sure I can see the player grab the ball". A
+## caught ball was in the hands the frame the catch was decided, so it
+## jumped from wherever it was. Now BallHold starts where the ball was
+## (note_catch) and eases into the hands over CATCH_GLIDE_TIME, while the
+## mark clip brings them up to meet it. Presentation only: the catch is
+## already decided and possession is already the catcher's. Reach is
+## Tuning's "Hands on the ball", so the gap this closes is short.
+## Unplaytested feel guess.
+const CATCH_GLIDE_TIME := 0.1
+
 const LOCOMOTION_STATE := &"locomotion"
 const BLEND_SMOOTHING := 14.0     ## exponential rate; stops the blend snapping
 const ACTION_BLEND_IN := 0.10     ## s
@@ -331,6 +342,9 @@ var _boot_point: Node3D
 var _last_hold := Vector3.ZERO
 var _drop_from := Vector3.ZERO
 var _dropping := false
+## See "Catch glide": where the ball was caught (world), INF when not gliding.
+var _catch_from := Vector3.INF
+var _catch_glide := 0.0
 
 ## Snapshot from note_mark_ball() (ball relative to the player, its flight,
 ## the nearest opponent's side), consumed by the next play_action().
@@ -588,6 +602,7 @@ func _update_ball_hold() -> void:
 	if ragdoll_active or _grip.is_empty() or skeleton == null or controller == null:
 		_ball_hold.transform = _ball_hold_rest
 		_dropping = false
+		_catch_from = Vector3.INF
 		return
 	var to_body := controller.global_transform.affine_inverse() * skeleton.global_transform
 	var state := current_state()
@@ -606,8 +621,21 @@ func _update_ball_hold() -> void:
 	else:
 		_dropping = false
 		at = _hands_hold(skeleton, to_body, state)
+	if _catch_from.is_finite():
+		_catch_glide += get_process_delta_time()
+		var from := controller.global_transform.affine_inverse() * _catch_from
+		at = from.lerp(at, smoothstep(0.0, 1.0, _catch_glide / CATCH_GLIDE_TIME))
+		if _catch_glide >= CATCH_GLIDE_TIME:
+			_catch_from = Vector3.INF
 	_last_hold = at
 	_ball_hold.transform = Transform3D(Basis(Vector3.RIGHT, deg_to_rad(pitch)), at)
+
+
+## See "Catch glide": the ball's world position the instant it was caught,
+## before the gather puts it on BallHold.
+func note_catch(world_position: Vector3) -> void:
+	_catch_from = world_position
+	_catch_glide = 0.0
 
 
 ## Where the hands have the ball, body space: between the two grips while

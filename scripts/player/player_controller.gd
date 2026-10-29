@@ -148,6 +148,12 @@ var camera_rig: BroadcastCamera = null
 
 @onready var _animation: PlayerAnimation = $PlayerAnimation
 @onready var _carry_point: Marker3D = $CarryPoint
+## Where the hands take a mark: in front of the chest at the height 6thbuild's
+## mark clips catch at (~1.4 m). Mark reach and mark timing measure from
+## here, not from CarryPoint by the right hip, which put a ball on the left
+## 0.3 m further away than one on the right (Tuning's "Hands on the ball").
+## Gathers, spoils and the ruck still use CarryPoint.
+@onready var _catch_point: Marker3D = $CatchPoint
 ## Where the carried ball is drawn: PlayerAnimation moves it into the hands
 ## every frame ("Ball carry"). Gameplay reach still measures from
 ## _carry_point; at rest the two are the same spot.
@@ -2574,6 +2580,9 @@ func _complete_mark(ball: Ball, tier: Tuning.Action) -> void:
 ## still mid-air and resolves contact here.
 func _finish_mark_catch(ball: Ball, tier: Tuning.Action) -> void:
 	var legal_mark := ball.is_mark_eligible()
+	# Cosmetic: the ball eases into the hands from here (PlayerAnimation's
+	# "Catch glide") instead of appearing in them.
+	_animation.note_catch(ball.global_position)
 	_complete_gather(ball)
 	if legal_mark:
 		grant_protection(Tuning.MARK_HOLD_DURATION)
@@ -2714,10 +2723,17 @@ func _begin_aggressive_mark() -> void:
 	_begin(Tuning.Action.MARK_AGGRESSIVE)
 
 
-## Fires at the jump's contact instant (Tuning.ACTION_CONTACT), timed to
-## land near its peak reach — see _update_action's dispatch. A clean miss
-## leaves the ball untouched: no contact happened, so nothing about its
-## flight changes.
+## Runs every physics frame of the top of the jump: from
+## Tuning.MARK_AGGRESSIVE_CATCH_WINDOW before the contact instant
+## (ACTION_CONTACT) to that long after it — see _update_action. The first
+## frame the ball is in the hands' reach is the catch. Returns whether the
+## leap is resolved: caught, or `last_chance` (the window's far end) with
+## nothing caught, which is a miss. A clean miss leaves the ball untouched:
+## no contact happened, so nothing about its flight changes.
+##
+## It used to be one frame at the contact instant, and the ball's closest
+## pass often fell either side of it, which is why the reach had grown to
+## 2.7x (Tuning's "Hands on the ball").
 ##
 ## Timing is graded *here*, fresh, rather than captured back at the tap in
 ## _begin_aggressive_mark — the jump always takes the same fixed
@@ -2728,7 +2744,7 @@ func _begin_aggressive_mark() -> void:
 ## reward the real skill (committing with the right lead time before the
 ## ball arrives, not stabbing the button as it lands) with no extra state
 ## carried between the two functions.
-func _resolve_aggressive_mark() -> void:
+func _resolve_aggressive_mark(last_chance: bool) -> bool:
 	var ball := _live_ball()
 	var mult := 0.0
 	if is_instance_valid(ball) and not ball.is_held:
@@ -2736,10 +2752,13 @@ func _resolve_aggressive_mark() -> void:
 			Tuning.MARK_AGGRESSIVE_IDEAL_WINDOW, Tuning.MARK_AGGRESSIVE_OK_WINDOW)
 	if mult > 0.0 and _ball_in_catch_reach(ball, Tuning.MARK_AGGRESSIVE_REACH_SCALE * mult):
 		_finish_mark_catch(ball, Tuning.Action.MARK_AGGRESSIVE)
-	else:
-		if _brain is HumanBrain:
-			InputManager.rumble(Tuning.RUMBLE_MARK_MISS)
-		mark_missed.emit(Tuning.Action.MARK_AGGRESSIVE)
+		return true
+	if not last_chance:
+		return false
+	if _brain is HumanBrain:
+		InputManager.rumble(Tuning.RUMBLE_MARK_MISS)
+	mark_missed.emit(Tuning.Action.MARK_AGGRESSIVE)
+	return true
 
 
 ## MARK_ASSIST_RADIUS_BONUS is added after the per-tier scale, not before —
@@ -2749,7 +2768,7 @@ func _ball_in_catch_reach(ball: Ball, reach_scale: float) -> bool:
 	if not ball.is_airborne():
 		return false
 	var reach := Tuning.MARK_CATCH_RADIUS * reach_scale + Tuning.MARK_ASSIST_RADIUS_BONUS
-	return ball.global_position.distance_to(_carry_point.global_position) <= reach
+	return ball.global_position.distance_to(_catch_point.global_position) <= reach
 
 
 ## Live estimate of seconds until the ball reaches this player's hands —
@@ -2783,7 +2802,7 @@ func _ball_in_catch_reach(ball: Ball, reach_scale: float) -> bool:
 ## as ideal-timed while still genuinely out of reach — the ring cue itself
 ## would tell a real player to press before the ball had actually arrived.
 func mark_timing_offset(ball: Ball, tier: Tuning.Action = Tuning.Action.NONE) -> float:
-	var to_catch := ball.global_position - _carry_point.global_position
+	var to_catch := ball.global_position - _catch_point.global_position
 	var dist := to_catch.length()
 	if dist < 0.001:
 		return 0.0
@@ -2868,11 +2887,11 @@ func _timing_reach_mult(offset: float, ideal_window: float, ok_window: float) ->
 
 
 ## World position of this player's catch point (their hands, for marking
-## purposes) — the same Marker3D carrying already uses. Exposed so Ball's
-## catch-gravity assist (_apply_catch_gravity) can find the nearest live
-## target without needing its own copy of where "the hands" are.
+## purposes: CatchPoint, see _catch_point). Exposed so Ball's catch-gravity
+## assist (_apply_catch_gravity) can find the nearest live target without
+## needing its own copy of where "the hands" are.
 func catch_point_position() -> Vector3:
-	return _carry_point.global_position
+	return _catch_point.global_position
 
 
 ## Madden-style contest prompt (polish-pass brief) — the single tier
@@ -3345,11 +3364,15 @@ func _update_action(delta: float) -> void:
 	_action_elapsed += delta
 
 	var contact := Tuning.action_contact_time(_action)
-	if not _action_fired and _action_elapsed >= contact:
+	if _action == Tuning.Action.MARK_AGGRESSIVE:
+		# The leap's hands are up across the top of the jump, not at one
+		# instant (Tuning.MARK_AGGRESSIVE_CATCH_WINDOW).
+		var window := Tuning.MARK_AGGRESSIVE_CATCH_WINDOW
+		if not _action_fired and _action_elapsed >= contact - window:
+			_action_fired = _resolve_aggressive_mark(_action_elapsed >= contact + window)
+	elif not _action_fired and _action_elapsed >= contact:
 		_action_fired = true
 		match _action:
-			Tuning.Action.MARK_AGGRESSIVE:
-				_resolve_aggressive_mark()
 			Tuning.Action.HIT_OUT:
 				_resolve_hit_out()
 			Tuning.Action.MARK_SAFE, Tuning.Action.MARK_RUNNING, \

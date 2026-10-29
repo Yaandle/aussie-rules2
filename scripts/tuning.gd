@@ -1399,40 +1399,29 @@ const MARK_STAND_ARRIVE_RADIUS := 0.3      # m — close enough, snap and hold
 # your hands".
 const MARK_CATCH_RADIUS := 1.15         # m
 
-## Buffed from 1.0, then again from 1.4 — "I cannot catch ball" playability
-## pass (see MARK_RUNNING_REACH_SCALE/MARK_AGGRESSIVE_REACH_SCALE's own
-## comments for the harness this and the other two came out of): Safe is
-## meant to be the generous, no-timing-skill-required default, so it should
-## be the *most* forgiving of the three on reach, not merely tied with a
-## tight baseline. The second bump was needed because the harness's own
-## misses at 1.4 traced to ordinary delivery-aim scatter (the same one-pass
-## inverse-ballistics MarkChallenge itself uses, ~1-2m of miss at typical
-## coach-drill distances — see MarkChallenge._launch_speed_for's own
-## comment) landing just outside reach, not a timing problem — reach is the
-## only thing that can absorb that for a tier that's supposed to need no
-## timing skill at all.
-const MARK_SAFE_REACH_SCALE := 2.2
-## Buffed from 0.8 — same "still bugging, I cannot catch ball" report that
-## drove the other tiers' second widening pass below. A scripted multi-trial
-## harness run at pace (real Field/Player/Ball physics, not anecdote) found
-## Running's own reach envelope was the tightest of all three tiers, on top
-## of demanding a same-frame press while sprinting — not a fair combination.
-const MARK_RUNNING_REACH_SCALE := 1.15
-## Buffed from 1.55 — a fresh multi-trial scripted verification (real
-## Field/Player/Ball physics, many geometries + a timing spread, not one
-## anecdote) after the previous pass's mark_timing_offset() ETA fix still
-## measured 0% catches at the ring cue's own advertised "press now" instant:
-## the jump's fixed ACTION_CONTACT[MARK_AGGRESSIVE] rise time (0.4s) reliably
-## outlasts the ball's genuine close-approach window for a typical 16-28m
-## coach-drill-style delivery, so by the time the jump peaks and resolution
-## actually runs, the ball's carry-point distance has already grown back out
-## past the old reach (observed regularly landing ~2.5-2.8m at resolution,
-## against the old reach's 2.28m) even off a well-timed commit. Since
-## reworking the jump's fixed rise time is out of scope (it's real gravity-
-## integrated jump physics, not a tunable delay) and the timing-window widen
-## below only helps once the ball is *within* reach, reach itself has to
-## carry the rest of the fix.
-const MARK_AGGRESSIVE_REACH_SCALE := 2.7   # a genuinely full-stretch, ball-still-a-bit-out grab
+## Hands on the ball (playtest 2026-10-29: "I can mark it too easily and
+## sometimes I mark it without the players grabbing the ball"). The three
+## scales below had been widened over several "I cannot catch the ball"
+## passes, to 2.2 / 1.15 / 2.7 with a 0.5 m bonus. That's a Safe catch with
+## the ball 3.0 m from the chest and an Aggressive one at 3.6 m, and the
+## ball then appeared in the hands. A probe of MARK DELIVERY's cue-timed
+## presses (18 deliveries a row) caught every Safe ball even 2.6 m wide of
+## the player, with the ball 2.8 m from the hands when it was called.
+## Now each tier is about an arm's reach from the chest, and a catch shows
+## the ball going into the hands (PlayerAnimation's "Catch glide"). Safe
+## is a hold, so it catches as the ball comes in; reach no longer has to
+## absorb a delivery 1-2 m off target, and the player has to get to it.
+## The Aggressive leap is graded across the top of the jump
+## (MARK_AGGRESSIVE_CATCH_WINDOW) instead of one instant, which is what the
+## old 2.7 was making up for. Probe after: see the 2026-10-29 commit.
+## Unplaytested feel guesses; AI Safe marks use the same reach.
+const MARK_SAFE_REACH_SCALE := 0.7         # 0.9 m from CatchPoint with the bonus
+const MARK_RUNNING_REACH_SCALE := 0.61      # 0.8 m
+const MARK_AGGRESSIVE_REACH_SCALE := 0.87   # 1.1 m
+## Seconds either side of ACTION_CONTACT[MARK_AGGRESSIVE] that the leap's
+## hands are up and can take the ball. The first physics frame in it with
+## the ball in reach is the catch; none is a miss at its far end.
+const MARK_AGGRESSIVE_CATCH_WINDOW := 0.14   # s, unplaytested feel guess
 
 # Movement cost while committed to each tier — see
 # PlayerController._update_locomotion / Tuning.action_speed_scale. Safe
@@ -1674,7 +1663,11 @@ const MARK_TIMING_ARRIVED_RADIUS := MARK_CATCH_RADIUS * MARK_AGGRESSIVE_REACH_SC
 # _pending_jump — no separate arc code, see _begin_hit_out), so REACH is
 # deliberately the aggressive mark's own catch radius, not a new number:
 # it is the identical leap, just resolved as a palm instead of a grab.
-const RUCK_HIT_OUT_REACH := MARK_CATCH_RADIUS * MARK_AGGRESSIVE_REACH_SCALE
+## Pinned at that radius's old value (1.15 x 2.7) when the mark reach came
+## in for "Hands on the ball" (2026-10-29): the ruck wasn't part of that
+## playtest note and still measures from CarryPoint, not the CatchPoint the
+## marks moved to. Bringing it in too is a separate call.
+const RUCK_HIT_OUT_REACH := 3.105   # m
 ## How far out a hit-out attempt can even be committed from — tighter than
 ## MARK_CONTEST_RANGE, since a ruck contest is point-blank by nature (two
 ## players standing either side of where the ball is about to come down),
@@ -1725,21 +1718,20 @@ const GROUND_PICKUP_LUNGE_PER_SPEED := 0.05    # m of extra reach per m/s of cur
 # safe/running/aggressive risk relationship — the whole point of having
 # three tiers — doesn't get flattened out by making them all easier by
 # the same multiple.
-## Nudged up from 0.35 — still a flat, tier-independent bonus (see the
-## comment above), just a bit more forgiving so a reasonably-timed mark
-## attempt isn't lost purely to reach.
-const MARK_ASSIST_RADIUS_BONUS := 0.5    # m
+## Was 0.5 (nudged up from 0.35); cut with the reach scales above, for the
+## same "marks too easy" playtest. Unplaytested feel guess.
+const MARK_ASSIST_RADIUS_BONUS := 0.1    # m
 
 # "Catch gravity": a genuine small attractive force pulling the ball
 # toward whichever uncontested (not-carrying) player is nearest while
 # it's airborne — the same physical-forces mechanism drag/Magnus already
 # are (Ball._integrate_forces), not a scripted snap onto a player. Full
 # strength at point-blank range, fading to nothing at CATCH_GRAVITY_RADIUS.
-# Both widened a little from 2.75/2.2 — the assist now reaches out and
-# pulls a shade harder, so a pass that lands near but not exactly on a
-# receiver still has a real chance of ending up in their hands.
-const CATCH_GRAVITY_RADIUS := 3.25       # m
-const CATCH_GRAVITY_ACCEL := 2.6         # m/s^2 at point-blank range
+## Was 3.25 m / 2.6 m/s² (widened from 2.75 / 2.2). Pulled back with the
+## mark reach for the "marks too easy" playtest (2026-10-29): it bent a
+## ball 3 m wide in toward whoever stood nearest. Unplaytested feel guess.
+const CATCH_GRAVITY_RADIUS := 2.0        # m
+const CATCH_GRAVITY_ACCEL := 1.6         # m/s^2 at point-blank range
 
 
 # ── Character screen ─────────────────────────────────────────────────
