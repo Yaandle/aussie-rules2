@@ -42,15 +42,12 @@ in [docs/LESSONS.md](docs/LESSONS.md).
 ### Windows: play the game
 
 1. Go to the [latest release](https://github.com/Yaandle/aussie-rules2/releases).
-2. Download **`Aussie-Rules-2-v1.2.0-Windows.zip`**.
-3. Extract the ZIP and run **`Aussie Rules 2.exe`**.
-4. Select **FULL GAME** from the main menu.
+2. Download **`Aussie-Rules-2-v1.4.0-Windows.zip`**.
+3. Extract the ZIP, open its `builds` folder and run **`Aussie Rules 2.exe`**.
+4. Select **FULL GAME** or **CAREER** from the main menu.
 
-No Godot, Python, Git or other setup is needed.
-
-v1.2.0 came out on 2026-10-21. It's older than the full Career season,
-the active ragdoll tackles and the Field 1 / Field 2 ovals. To play those,
-run from source.
+No Godot, Python, Git or other setup is needed. What's in each release is
+in [docs/RELEASE_NOTES.md](docs/RELEASE_NOTES.md).
 
 ### Development: Godot editor
 
