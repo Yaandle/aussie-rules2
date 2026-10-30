@@ -17,9 +17,9 @@ tackle that lands holds or breaks on a trained tackle model. There's also a
 **Career** mode: create a player and play a season with a ladder, fixture,
 roster and stats. A solo **Kick-to-Kick** mode has kicking, marking and
 tackling coaches. Players use an imported Blender model with 26 clips, and
-the two ovals are generated in Blender. A seven-segment scoreboard (goals,
-behinds and total for each side) is on screen and on the ground's own
-board. Sound is still synthesized in code.
+the two ovals are generated in Blender. A scoreboard card in the corner of
+the screen and the ground's own seven-segment board show goals, behinds and
+total for each side. Sound is still synthesized in code.
 
 ![Screenshot](assets/textures/images/screenshot.png)
 

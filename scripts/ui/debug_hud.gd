@@ -63,22 +63,23 @@ const CONTROLS := [
 	["Toggle this HUD", "F3", "D-Pad Up"],
 ]
 
-## Where the persistent Reset Ball chip sits — bottom-left, clear of
-## _panel's own top-left ~640x400 box (see debug_hud.tscn) and of the
-## centred crosshair/mark-prompt overlays. Fixed pixel position, same as
-## character_screen.gd's own KeyHintBar placement — the project's viewport
-## is a fixed 1280x720 canvas under "canvas_items" stretch (project.godot's
-## [display] section), so an absolute position scales correctly with the
-## window instead of needing anchor math.
-const RESET_HINT_POSITION := Vector2(16.0, 680.0)
+## Where the persistent Reset Ball chip sits — bottom-right, clear of
+## _panel's own top-left ~640x400 box (see debug_hud.tscn), of the
+## centred crosshair/mark-prompt overlays, and of the Scoreboard card,
+## which took the bottom-left corner in the 2026-10-30 playtest. The chip's
+## right edge is pinned this far in from the screen's right and bottom
+## edges (px at the 1280x720 base), and it grows leftward, so a longer
+## label or a rebound key never runs off the screen.
+const HINT_EDGE_MARGIN := 16.0
+const RESET_HINT_RISE := HINT_EDGE_MARGIN
 
 ## Set shot for goal hint — same always-on-independent-of-F3 chip as Reset
-## Ball just above (RESET_HINT_POSITION), stacked one row higher. Only
+## Ball just below (RESET_HINT_RISE), stacked one row higher. Only
 ## visible while PlayerController.can_take_goal_set_shot() is actually true
 ## for the controlled player (carrying, under mark/free-kick protection,
 ## within Tuning.GOAL_SET_SHOT_MAX_DISTANCE) and not already mid-kick, so
 ## it reads as "you can do this right now", not a permanent reference row.
-const GOAL_SHOT_HINT_POSITION := Vector2(16.0, 644.0)
+const GOAL_SHOT_HINT_RISE := HINT_EDGE_MARGIN + 36.0
 
 var player: PlayerController
 var ball: Ball
@@ -139,7 +140,7 @@ func _ready() -> void:
 		InputManager.Device.GAMEPAD: [{"keys": "Back / View", "label": "Reset Ball"}],
 	}
 	_reset_hint = KeyHintBar.new()
-	_reset_hint.position = RESET_HINT_POSITION
+	_pin_bottom_right(_reset_hint, RESET_HINT_RISE)
 	add_child(_reset_hint)
 	_apply_reset_hint()
 
@@ -148,7 +149,7 @@ func _ready() -> void:
 		InputManager.Device.GAMEPAD: [{"keys": "Y", "label": "Set Shot for Goal"}],
 	}
 	_goal_shot_hint = KeyHintBar.new()
-	_goal_shot_hint.position = GOAL_SHOT_HINT_POSITION
+	_pin_bottom_right(_goal_shot_hint, GOAL_SHOT_HINT_RISE)
 	_goal_shot_hint.visible = false
 	add_child(_goal_shot_hint)
 	_apply_goal_shot_hint()
@@ -167,6 +168,19 @@ func _process(_delta: float) -> void:
 	if not _debug_info_visible:
 		return
 	_label.text = _compose()
+
+
+## Anchors a chip row to the bottom-right corner, `rise` px up from the
+## bottom edge, growing left and up from that corner as its chips change.
+func _pin_bottom_right(bar: KeyHintBar, rise: float) -> void:
+	bar.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	bar.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	bar.alignment = BoxContainer.ALIGNMENT_END
+	bar.offset_left = -HINT_EDGE_MARGIN
+	bar.offset_right = -HINT_EDGE_MARGIN
+	bar.offset_top = -rise
+	bar.offset_bottom = -rise
 
 
 func _on_device_changed(_device: int) -> void:
