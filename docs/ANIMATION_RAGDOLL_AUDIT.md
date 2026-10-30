@@ -31,6 +31,13 @@ capsule follows the hips while they fall. Once the body settles (or after
 lying frame. Physics then fades out over 0.3 s. A held X also puts the
 tackler down with their arms round the carrier (`TackleWrap`).
 
+A whiffed bump (2026-10-30) is a stumble on the same ragdoll, for a human
+on a 6thbuild rig: strong motors (0.75), the balance assist carrying 80%
+of the weight and reading tilt against the feet, a forward pitch at the
+chest, and a hand-back to locomotion after 0.5 s while still up
+(`PlayerController._bump_miss_stumble`, Tuning's "Bump miss"). The
+procedural rig and any AI keep the canned fall.
+
 ## Findings and fixes
 
 ### 1. Ragdoll joints were centred on a random frame of animation (bug, fixed)

@@ -1117,6 +1117,31 @@ const BUMP_RAGDOLL_STRENGTH := 0.15
 const BUMP_DIVE_DRIVE := 2.5               # m/s
 const BUMP_DIVE_BODY_SHARE := 0.5
 const BUMP_DIVE_STRENGTH := 0.25
+# Bump miss (playtest 2026-10-30): a human's whiffed hit-stick on a 6thbuild
+# rig is a stumble on the active ragdoll, not the canned TACKLED fall. The
+# body is still going at STUMBLE_CARRY of BUMP_DASH_SPEED, gets a
+# STUMBLE_DRIVE m/s pitch at the chest along the dash (tipped down by
+# STUMBLE_DIP, BODY_SHARE of it on the whole body), and its motors are
+# strong (STRENGTH) with the balance assist carrying SUPPORT of its weight,
+# so it lurches forward and stays on its feet. After STUMBLE_TIME it hands
+# back to locomotion while still up (PlayerRagdoll's "max_time"); the
+# balance assist reads its tilt against the feet ("tilt_from_feet"), or it
+# cancels the run and sits the body back. Measured on a sprinting player:
+# hips no lower than ~0.85 m (from 1.0), a forward lurch to ~26° by 0.2 s
+# and upright again by 0.5 s, ~1.1 m carried. More carry slid the frozen
+# stride along the turf (it can't step); STUMBLE_STUN is the
+# time from the miss until the bumper has control back: still the biggest
+# miss in the kit, under the old fall's BUMP_MISS_STUN_DURATION plus its
+# clip. The procedural rig and any AI keep that fall. Unplaytested feel
+# guesses.
+const BUMP_MISS_STUMBLE_STRENGTH := 0.75
+const BUMP_MISS_STUMBLE_SUPPORT := 0.8
+const BUMP_MISS_STUMBLE_CARRY := 0.4
+const BUMP_MISS_STUMBLE_DRIVE := 1.6       # m/s
+const BUMP_MISS_STUMBLE_DIP := 0.3
+const BUMP_MISS_STUMBLE_BODY_SHARE := 0.2
+const BUMP_MISS_STUMBLE_TIME := 0.5        # s
+const BUMP_MISS_STUMBLE_STUN := 1.4        # s
 # Every PlayerController's body mass when nothing sets it — Career sets it
 # from the roster's weight (RosterGenerator 58-92 kg). The ragdoll's
 # segment masses scale from PhysicsRagdoll's ~86 kg build.

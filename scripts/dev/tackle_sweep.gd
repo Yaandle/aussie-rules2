@@ -2,7 +2,8 @@ extends Node3D
 
 ## Headless regression sweep for ragdoll tackles: real held-Lunge (X),
 ## Sling (B) and clean-bump connects between pairs of 6thbuild players who
-## are already running, and how every body falls. Each pair's hit is its
+## are already running, and how every body falls; and a whiffed bump (the
+## bumper's stumble, which should end "up"). Each pair's hit is its
 ## FIRST, so each ragdoll builds on the spot, mid-animation — the path a
 ## match takes. Nothing here runs in gameplay and nothing is saved
 ## (CharacterProfile.model_id is only set in memory).
@@ -35,6 +36,14 @@ extends Node3D
 ## the tacklers' worst joint was an elbow in 8 of 12 Lunges (up to +47°)
 ## and a forearm whipped to 335 rad/s. The code before the audit, on the
 ## same cases: hip_back ~100°, knees folding to ~180°, start up to 62 (t).
+##
+## 2026-10-30: the bump_miss case added (t: up, 2.1 m on, back at 0.47 s,
+## peak spin 15). The sweep is deterministic run to run, but a new case
+## moves every pair's spawn point, and the falls are chaotic enough that
+## the old cases' rows shift with it: same worst-of numbers for the
+## carriers (74 spin, 60 hip_back, +42 joint), and lunge standing from 90°
+## left its tackler up (DOWN before). Without the new case the code of
+## 2026-10-30 reproduces the 10-28 rows exactly. Compare like with like.
 
 const PlayerScene := preload("res://scenes/player/player.tscn")
 const MODEL_ID := "6thbuild"
@@ -59,6 +68,7 @@ const CASES := [
 	[&"sling", 0.0, 1.0, 90.0, 1.0],
 	[&"bump", 0.0, 1.0, 0.0, 0.7],
 	[&"bump", 0.0, 1.0, 90.0, 0.7],
+	[&"bump_miss", 0.0, 1.0, 0.0, 1.0],
 ]
 ## Physics frames of running before the hit (long enough to be mid-stride at
 ## pace), then frames watched after it (past the longest get-up).
@@ -184,6 +194,15 @@ func _hit(pair: Dictionary) -> void:
 			tackler._bump_dash_direction = -from
 			pair.direction = -from
 			tackler._resolve_bump_contact(carrier, true)
+		&"bump_miss":
+			# A whiffed dash: nobody there. The tackler's own run line, well
+			# clear of the carrier, at the dash's speed when it ran out.
+			tackler.global_position = (pair.contact as Vector3) + Vector3(12.0, 0.0, 0.0)
+			pair.contact = tackler.global_position
+			tackler._bump_dash_direction = -from
+			tackler.velocity = -from * Tuning.BUMP_DASH_SPEED
+			pair.direction = -from
+			tackler._resolve_bump_miss()
 	(carrier.brain() as ScriptedBrain).direction = Vector3.ZERO
 	(tackler.brain() as ScriptedBrain).direction = Vector3.ZERO
 

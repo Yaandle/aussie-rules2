@@ -2282,11 +2282,43 @@ func _bump_dive(carrier: PlayerController, direction: Vector3) -> void:
 ## that left off) — zeroing horizontal velocity here means the fall starts
 ## from a dead stop exactly where the whiff happened, not several metres
 ## further on.
+##
+## Since 2026-10-30 a human on a 6thbuild rig stumbles on the active ragdoll
+## instead (_bump_miss_stumble): carried on by the dash, pitched forward,
+## strong enough to keep their feet. The canned fall above is what the
+## procedural rig, and any AI, still gets.
 func _resolve_bump_miss() -> void:
+	if _brain is HumanBrain and _bump_miss_stumble():
+		return
 	velocity.x = 0.0
 	velocity.z = 0.0
 	_knockdown(_bump_dash_direction, Tuning.BUMP_MISS_STUN_DURATION)
 	_apply_knockdown_hop()
+
+
+## The whiffed bumper's stumble (Tuning's "Bump miss"): the dash carries the
+## body on, a push at the chest pitches it forward, and strong motors with
+## most of the weight held up keep it on its feet until the ragdoll hands
+## back to locomotion, still standing, after BUMP_MISS_STUMBLE_TIME.
+## Returns false when this rig can't ragdoll.
+func _bump_miss_stumble() -> bool:
+	var direction := _bump_dash_direction
+	if not _begin_ragdoll({
+		"strength": Tuning.BUMP_MISS_STUMBLE_STRENGTH,
+		"support": Tuning.BUMP_MISS_STUMBLE_SUPPORT,
+		"tilt_from_feet": true,
+		"impulse": (direction + Vector3.DOWN * Tuning.BUMP_MISS_STUMBLE_DIP).normalized()
+			* body_mass * Tuning.BUMP_MISS_STUMBLE_DRIVE,
+		"bone": &"Chest",
+		"contact_offset": Vector3.ZERO,
+		"body_share": Tuning.BUMP_MISS_STUMBLE_BODY_SHARE,
+		"velocity": direction * Tuning.BUMP_DASH_SPEED * Tuning.BUMP_MISS_STUMBLE_CARRY,
+		"mass_kg": body_mass,
+		"max_time": Tuning.BUMP_MISS_STUMBLE_TIME,
+	}):
+		return false
+	_stun_timer = maxf(_stun_timer, Tuning.BUMP_MISS_STUMBLE_STUN)
+	return true
 
 
 ## The vertical half of "add a bit of gravity" (playtest feedback on the
