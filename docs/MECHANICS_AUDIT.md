@@ -1,7 +1,7 @@
 # Mechanics ("skills") code audit + next-features brief
 
-**Date:** 2026-08-30 · **Branch:** `debug` · Companion to `docs/FEATURE_AUDIT.md`
-(feature inventory / roadmap) and `docs/HANDOVER.md` (session log).
+**Date:** 2026-08-30 · **Branch:** `debug` · Companion to `FEATURE_AUDIT.md (archived)`
+(feature inventory / roadmap) and `HANDOVER.md (archived, see docs/LESSONS.md)` (session log).
 
 ## Context
 
@@ -22,7 +22,7 @@ structural / performance / headroom findings.
 
 ## Part A — Code audit
 
-> **Progress (2026-08-30):** A1, A2, A6 done — see `docs/HANDOVER.md`.
+> **Progress (2026-08-30):** A1, A2, A6 done — see `HANDOVER.md (archived, see docs/LESSONS.md)`.
 > `PlayerRegistry` + `SpatialQuery` (`scripts/ai/`) replaced every
 > `get_nodes_in_group(&"players")` gameplay scan; the `&"players"` group is
 > gone. `ACTION_DURATION`/`ACTION_CONTACT` are now enum-keyed Dictionaries.
@@ -276,6 +276,33 @@ working first):**
 5. **Recovery and control.** Ways to regain a standing posture, protect
    the head/limbs, or transition into a controlled fall rather than a
    flat collapse.
+
+**2026-10-28: audit of the ragdoll and movement animation.** See
+`docs/ANIMATION_RAGDOLL_AUDIT.md`. In a match the joints had been centred
+on whatever frame of running the first tackle caught (fixed: built at
+rest), the limits are now anatomical where Jolt holds them, the wrap's grip
+ramps in, and the gait clips are phase-locked. `scenes/dev/tackle_sweep.tscn`
+is the regression check.
+
+**2026-10-26: hold-or-break and fall direction, unplaytested.** A landed
+tackle (X Lunge or B Slide) now holds or breaks on the model: p(break) =
+1 − b against `Tuning.TACKLE_LUNGE_BREAK_P` / `TACKLE_SLIDE_BREAK_P`. A
+broken tackle leaves the carrier running with the ball, no ragdoll. The
+push now runs along the hit vector (the contact line), mostly as a
+whole-body shove, at the chest whatever the side. The tackler ragdolls at
+their post-collision velocity and goes down the way they ran. Headless:
+every case hit from front, either side, behind, standing and running,
+lands along the hit, and every tackler along their run.
+
+**Stages 2-5 status (2026-10-25): built, unplaytested.** A Lunge connect on
+a 6thbuild rig now ragdolls instead of playing TACKLED (`PlayerRagdoll`,
+`scripts/player/player_ragdoll.gd`). The tackle check still decides whether
+it holds. `TackleBalance` turns the hit into balance loss b with the ML
+page's saved weights (`data/ml/tackle_weights.json`), and motor strength is
+1 − b. Big hits take the tackler down too, then a face-up or face-down
+get-up blends in where the hips landed. The lab has a MUSCLE slider and a
+two-player TACKLE mode. Tunables are in Tuning's "Active ragdoll tackles".
+Slide (AI's only tackle) and bumps still use their clips.
 
 **Stage 1 status (2026-10-20): built.** `scenes/dev/physics_ragdoll_lab.tscn`
 (F6 in the editor; not on the main menu) — one passive 6thbuild ragdoll,

@@ -4,7 +4,7 @@ Written against two source documents handed to this pass: an internal
 "AFL Game AI — Audit, ML Approaches and Stage 1 Progress" writeup (the
 "ML doc" below), and a set of ML-methods notes from Dakota Nugent (the
 "Dakota notes" below). Scope is gameplay/mechanics + the ML sandbox only
-— no UI files touched (see `docs/ui_audit.md` / `docs/RELEASE_NOTES.md`
+— no UI files touched (see `ui_audit.md (archived)` / `docs/RELEASE_NOTES.md`
 for the separate 1.2 UI pass this precedes).
 
 ## Correction to the Dakota notes: Stage 1 is logistic, not linear
@@ -349,9 +349,286 @@ rolls — this is the concrete "apply the stage to help the simulation"
 step, kept inside the dev/ML sandbox like everything else here (§3's
 live-gameplay question is still untouched).
 
+## 9. Stage 3 (MLP): marking-cue timing
+
+Built from `NEXT_AGENT_MARKING_BRIEF.md (archived)` Part 2. The MLP placeholder
+tab is now a working stage.
+
+### What it predicts
+
+**The model decides only *when* to press, never *whether* a mark
+succeeds.** Its output is the number of seconds until the best press for a
+tier. Nothing in contest resolution reads it. The catch is still
+`_ball_in_catch_reach` plus `_timing_reach_mult` at the real press
+(RULES_REFERENCE §3).
+
+The model is `MarkCueModel` (`scripts/mechanics/mark_cue_model.gd`), a
+5 → 8 → 8 → 1 network. Its hidden layers use tanh and its output is linear.
+It's written in plain packed arrays with a hand-written forward pass and
+backprop, trained with Adam from a fixed seed.
+
+"Best press" means the catching press whose contact frame puts the ball
+nearest the hands, which is what the brief's "contact frame meets the ball"
+asks for. A first version used the centre of the catching band instead.
+That version caught as often, but put the ball 1.0–1.6 m from the hands at
+contact, where the ring put it 0.5–0.8 m away. The contact minimum sits
+early in the band, not in the middle.
+
+Two weight sets are trained:
+
+- **MARK_AGGRESSIVE.** The leap commits `ACTION_CONTACT` (0.4 s) ahead of
+  contact, so its cue is a real forward prediction.
+- **MARK_RUNNING.** The tap resolves on the frame it's read.
+
+Safe is a held button that catches on reach entry anywhere inside its
+0.55 s window, so it has no press instant to learn.
+
+### Inputs
+
+- Ball height.
+- Ball distance to the catch point.
+- Player speed.
+- Time to arrival. This is the analytic `-mark_timing_offset()` itself, so
+  the net learns a correction rather than ballistics.
+- **Approach cos (the fifth input).** This is cos of the bearing the flight
+  comes FROM, in APPROACH FROM's convention. It's the one thing the other
+  four can't see: the same distance, height and ETA mean different things
+  when the player runs into the flight than when the ball overtakes from
+  behind. cos rather than degrees, because left and right are mirror images
+  and the value is smooth through 0°.
+
+Both runtime and the harness compute these with
+`MarkCueModel.raw_state()`, so the dataset and the live cue can't drift.
+
+### Data
+
+The data is real physics, labelled from real signals
+(`scenes/dev/mark_cue_harness.tscn`). Columns are documented in
+`data/ml/mark_cue/README.md`.
+
+**Staging.** Each delivery is a real kick flight at a real
+`PlayerController` with a HumanBrain-based brain, so it gets the human
+timing grade. A press is held live for `INPUT_BUFFER_WINDOW`, exactly like
+a real buffered press. Replays of one delivery are bit-identical once the
+ball is pinned in the air before launch (the harness's `determinism` mode
+checks this). Launching from the ground gave about 1e-4 m of drift through
+Jolt's contact warm-start.
+
+**Dataset.** 48 deliveries, Latin-hypercube seeded across:
+
+- bearing: 0–360°
+- run speed: 0–8.4 m/s
+- arrival height: 0.6–3.2 m
+- hang time: 0.9–2.0 s
+- kick pace: 12–28 m/s
+- lateral miss: ±1.2 m
+- lead error: ±1.5 m
+
+That gave **464 real attempts**:
+
+- 416 Aggressive: seed, bracket, bisection and verify presses.
+- 48 Running rule checks.
+
+161 of them caught.
+
+**Aggressive label.** For each delivery, bisection finds the outer band.
+Every attempt records its ball-to-hands distance on the contact frame. A
+quadratic through the catching attempts gives the closest-contact press,
+and one more real press verifies it, so the label is always a press a real
+attempt caught on.
+
+**Running label.** A Running tap catches exactly when the ball is inside
+Running's reach on that frame, because inside that radius
+`mark_timing_offset` is 0. So the band and its closest-approach target can
+be read straight off the no-press trace. This is checked against real taps,
+not assumed: **48/48 agreed**.
+
+### Findings that changed the design
+
+**1. Catching bands have holes.** The ball collides with player bodies
+(the ball's collision mask includes the players layer), so a leap at the
+wrong instant puts the body in the ball's path. An every-frame sweep of a
+knee-high ball at a standing player reads `1111111111..1.1..111111111`. A
+label taken from the band's midpoint landed in that hole, which is why
+every label is now verified by a real press.
+
+Of the dataset deliveries:
+
+- 35 have a verified Aggressive label (2 with holes).
+- 13 have no catching press.
+
+**2. Most of the shipped ring's failures are the range gate, not the ETA.**
+On fast run-ins from in front, the analytic ring completes while the ball
+is still outside `MARK_CONTEST_RANGE`. The buffered press then expires
+before the controller will read it.
+
+`MarkCueModel.press_registers()` copies the controller's own gates into the
+cue. With that gate, the ring can't complete until a press could register.
+"GATED" is that fix applied to the analytic ring alone, reported separately
+so the gate's gain and the model's gain aren't conflated.
+
+**3. The probe grid caught a coverage gap.** The 27-delivery probe grid
+covers bearing {0, 90, 180} × run {0, 4.8, 8.4} × height {0.9, 1.8, 2.8},
+so each axis is walked end to end (the §7 lesson). The first band search
+only seeded presses earlier than closest approach − 0.4 s. On gate-limited
+deliveries, where the band starts late, that labelled real bands as
+uncatchable, and the "from front, running" corner had almost no training
+data. The seeds now start from the gated cue and try later presses first.
+
+### Results
+
+These are seed 1 with defaults (150 epochs, learning rate 0.01, batch 32),
+keeping the weights from the best-validation epoch (117). Validation is a
+1-in-5 split by delivery: 28 train and 7 val Aggressive deliveries.
+
+**Aggressive.** Each cell is MLP / shipped ring / gated ring.
+
+| | MLP | Shipped | Gated |
+|---|---|---|---|
+| Val cue in band | 7/7 | 6/7 | 7/7 |
+| Val cue error | 0.048 s | 0.067 s | 0.050 s |
+| Probe cue in band (trace) | 25/26 | 23/26 | 24/26 |
+| Probe cue error | 0.060 s | 0.067 s | 0.063 s |
+| **Probe, real presses on each cue** | **25/27 caught** | **23/27** | **24/27** |
+| Probe, ball-to-hands at contact (resolved presses) | 1.32 m | 1.15 m (23) | 1.29 m |
+
+- **Caught presses.** Every cue lands within 0.05–0.06 m of the closest
+  contact any real attempt achieved on that delivery. The ring's timing is
+  already near the physical optimum when it catches.
+- **Misses.** Every miss is in the "from front, running" corner:
+  - Probe 8 (8.4 m/s, 2.8 m ball) has no catching press at all.
+  - The shipped ring's other three misses are presses that expired before
+    the gate opened.
+- **Seeds.** Seeds 1–5 give 24–25/26 probe in-band and a cue error of
+  0.060–0.065 s, so the result isn't seed noise.
+- **Axis sweep.** Ball distance (0.66 s) and time to arrival (0.81 s) carry
+  the model. Approach cos moves it 0.15 s. Ball height and player speed
+  barely do (0.04, 0.03).
+
+**"Off by several tenths".** The analytic countdown's error grows with time
+to go:
+
+| Time to best press | Val (MLP / analytic) | Probe (MLP / analytic) |
+|---|---|---|
+| 0–0.25 s | 0.041 / 0.070 s | 0.080 / 0.067 s |
+| 0.5–1.0 s | 0.051 / 0.091 s | 0.071 / 0.083 s |
+| 1.0–1.5 s | 0.052 / 0.135 s | 0.072 / 0.172 s |
+
+So on these deliveries it's under two tenths, not several. The MLP's real
+gain is a more truthful ring sweep far out. In the final quarter-second on
+the probe it is no better than the analytic.
+
+**Running.** The model does not beat the analytic cue:
+
+- Probe cue in band: 26/27 vs 27/27.
+- Real presses on the probe: 26/27 vs 27/27.
+- Contact distance is the same for both (1.72 m).
+
+Inside Running's reach the time-to-arrival input is pinned at 0, and none
+of the five inputs says how deep into the band the ball is. **Running
+stays analytic under every cue source.**
+
+### What it's applied to
+
+All of these go through one function, `MarkCueModel.cue_time_to_press()` /
+`cue_press_now()`, so the dev pages' numbers are the in-game cue's numbers.
+
+- **MarkPrompt ring and `RUMBLE_MARK_TIMING_CUE`.** `MarkPrompt.cue_source`
+  starts from `Tuning.MARK_CUE_SOURCE`, which is **1, GATED** (the
+  user's call on 2026-10-24; see "Stage closed" below).
+  - 0 = the shipped ring, its arithmetic unchanged.
+  - 1 = GATED.
+  - 2 = MLP (Aggressive only) plus the gate.
+- **Clip start.** Aggressive's clip starts on the press, so the cue's press
+  instant is the clip start; its contact frame plays `ACTION_CONTACT`
+  later.
+  - MARK DELIVERY (animation viewer) has a CUE selector (SHIPPED / GATED /
+    MLP). It drives both the scripted press and a real MarkPrompt ring over
+    B.
+  - Its readout gives the ball-to-hands distance on the leap's contact
+    frame.
+  - Neither touches real matches.
+- **AI, behind `Tuning.AI_MARK_USE_CUE_MODEL = false`.** With the flag on,
+  AIBrain stops being Safe-only:
+  - It leaps (Aggressive) on a contested kick at the MLP cue.
+  - It takes the ball in stride (Running) at pace when a straight-line
+    closest approach is inside 0.75 × Running's reach.
+  - Otherwise it holds Safe.
+  
+  The tier choice is a rule; there is no learned catchability.
+  
+  Headless check, AI marker with a passive opponent at its shoulder, 12
+  deliveries:
+  - flag off: Safe 11/12 caught
+  - flag on: Aggressive 7 caught, 5 missed
+  
+  So leaping on every contest is worse than Safe against a passive
+  opponent. The model was trained on straight-line runs, and an AI arrives
+  at odd angles. Leave it off until it has a catchability gate and has
+  been played.
+
+### The ML page
+
+The MLP tab has:
+
+- tier, epochs, learning rate, batch, near-press weight and seed controls
+- TRAIN, which runs across frames with a live train/validation loss chart
+  (`mlp_loss_chart.gd`) and marks the epoch it keeps
+- SELF-TEST (gradient check over all 129 parameters, a toy fit, and a
+  same-seed reproducibility check)
+- held-out cue error against the analytic ring
+- the probe-grid region breakdown and the closed-loop line from the last
+  harness probe
+- APPLY TO PREVIEW, which sets the model MARK DELIVERY's CUE MLP uses this
+  session
+- SAVE WEIGHTS, which writes `res://data/ml/mark_cue_weights/`
+
+The headless version is `scenes/dev/mark_cue_selftest.tscn`; `-- train`
+also saves the weights. A near-press loss weight (rows close to the press
+up-weighted) was tried and didn't help either tier, so it defaults to 0.
+
+### Not done, and what's open
+
+- **Catchability.** No "is this catchable" model exists. Choosing the AI's
+  tier from one is the obvious next step: 13 of 48 dataset deliveries have
+  no catching Aggressive press, so the data is already there.
+- **Feel.** None of this has been felt at match speed.
+
+### Stage closed (2026-10-24)
+
+Real matches now cue on **GATED** (`Tuning.MARK_CUE_SOURCE = 1`). It
+recovers the shipped ring's expired-press misses on fast run-ins from in
+front, with no model in the loop. On the probe it caught 24/27, against
+23/27 shipped and 25/27 for the MLP.
+
+What stays as it was:
+
+- The MLP is not in real matches. It's a dev-page option only: MARK
+  DELIVERY's CUE MLP, and source 2.
+- Running and Safe cue exactly as before. GATED only changes Aggressive.
+- The AI is unchanged (`AI_MARK_USE_CUE_MODEL = false`).
+- Catch resolution is untouched.
+
+Open:
+
+- A learned catchability model, before any AI tier choice.
+- Playtest notes on how the gated ring feels.
+
 ## Scope note
 
 §1–§5 were an audit only, per the original brief ("before pushing now
 do an audit") — no code changed for those findings. §6–§8 are later,
 separate passes that did add code, entirely within `scripts/dev/*` (the
 ML sandbox) — no gameplay/mechanics files were touched by any of them.
+
+§9 does touch gameplay files. All of it sits behind switches; since
+2026-10-24 the cue switch is on GATED, and the AI switch is still off:
+
+- `mark_prompt.gd`: the countdown now goes through
+  `MarkCueModel.cue_time_to_press`, which under source 0 is the ring's
+  original arithmetic.
+- `ai_brain.gd`: `_think_mark_tier`, gated on `AI_MARK_USE_CUE_MODEL`.
+- `tuning.gd`: the two switches plus one feel guess.
+- `player_controller.gd`: one comment only.
+
+Catch resolution is untouched.

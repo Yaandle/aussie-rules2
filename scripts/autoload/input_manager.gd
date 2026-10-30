@@ -255,6 +255,12 @@ func consume_buffered_press(action: StringName) -> bool:
 	return false
 
 
+## consume_buffered_press without the consuming: whether a press is still
+## waiting in the buffer.
+func has_buffered_press(action: StringName) -> bool:
+	return gameplay_input_enabled and _buffer_timers.get(action, 0.0) > 0.0
+
+
 func rumble(profile: Vector3) -> void:
 	if device != Device.GAMEPAD:
 		return

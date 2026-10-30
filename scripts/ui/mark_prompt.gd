@@ -39,9 +39,25 @@ extends CanvasLayer
 ## own — a physical "now" cue on top of the visual one, once per live
 ## window (_ring_completed guards against repeating it every frame the
 ## ring stays full while the ball's still arriving).
+##
+## 2026-10-24 playtest pass, three changes:
+## * The badge shows the button you pressed. It starts on live_mark_
+##   prompt()'s recommendation, then switches to A/X/Y the moment one is
+##   pressed and holds it for the rest of that ball's flight, including
+##   while A is held and through the Y jump (PlayerController.
+##   committed_mark_tier). Before, holding A still showed whatever the
+##   recommendation was, often Y, and a Y jump hid the badge entirely.
+## * The cue is a ring closing in on the badge, not a sweep: a thick ring
+##   starts RING_CLOSE_START_RADIUS out and shrinks onto a faint target
+##   ring around the badge, landing on it at press-now. Same countdown
+##   (MarkCueModel.cue_time_to_press), drawn bigger and outlined in ink so
+##   it reads over grass ("make this easier to see").
+## * No mark prompt for an opponent's kick until it is
+##   MARK_STAND_MIN_DISTANCE off the boot (live_mark_prompt()). The SMOTHER
+##   badge that used to show there is gone (playtest: not wanted).
 
-const BADGE_RADIUS := 15.0
-const LABEL_SIZE := 16
+const BADGE_RADIUS := 18.0
+const LABEL_SIZE := 19
 
 ## Fixed ring radius (no longer animated in/out — see this file's own
 ## header) and how many seconds of live offset the sweep's full lap spans.
@@ -58,10 +74,17 @@ const RING_RADIUS := BADGE_RADIUS + 9.0
 ## the sweep room to start well before the ball is even close and still
 ## finish its lap at the same honest instant (mark_timing_offset() is
 ## unchanged — only how much runway the sweep gets to visualise it grew).
-const RING_LEAD_TIME := 1.8        ## s of live offset mapped across the sweep's full lap
-const RING_THICKNESS := 3.0
-const RING_SEGMENTS := 40
-const RING_SWEEP_START := -PI / 2.0   ## 12 o'clock; sweeps clockwise from there
+const RING_LEAD_TIME := 1.8        ## s of live offset mapped across the closing ring
+const RING_THICKNESS := 5.0
+const RING_SEGMENTS := 48
+## Where the closing ring starts, at the beginning of the RING_LEAD_TIME
+## countdown. It shrinks to RING_RADIUS, landing on the target ring at
+## press-now.
+const RING_CLOSE_START_RADIUS := RING_RADIUS + 58.0
+const TARGET_RING_THICKNESS := 2.0
+const TARGET_RING_ALPHA := 0.55
+## Ink outline drawn under the closing ring so it reads over turf.
+const RING_OUTLINE_EXTRA := 3.0
 
 ## Brief post-resolution flash so the result reads as clearly as the
 ## countdown did — connects directly to the player's own mark_caught/
@@ -91,12 +114,28 @@ var player: PlayerController = null:
 
 var ball: Ball = null
 
+## Which countdown the ring sweeps on — a MarkCueModel.CueSource. Real
+## matches get Tuning.MARK_CUE_SOURCE (GATED since 2026-10-24); a dev page
+## can set its own instance's without touching matches. See
+## MarkCueModel.cue_time_to_press.
+var cue_source: int = Tuning.MARK_CUE_SOURCE
+
 var _canvas: Control
 var _tier := Tuning.Action.NONE
 var _screen_pos := Vector2.ZERO
 var _visible_this_frame := false
 var _ring_visible_this_frame := false
-var _ring_progress := 0.0   ## 0 = sweep just started, 1 = a full lap — press now
+var _ring_progress := 0.0   ## 0 = ring just started closing, 1 = on the badge — press now
+
+## The button pressed during this ball's live window, or NONE until one is.
+## Overrides the recommendation for display (see this file's header) and is
+## cleared once the window closes.
+var _chosen_tier := Tuning.Action.NONE
+## True from the first frame live_mark_prompt() goes live until neither it
+## nor a committed attempt is left. A held A or an airborne Y only keeps the
+## badge up inside an open window, so holding A while a ball is in the air
+## somewhere else doesn't conjure a badge.
+var _window_open := false
 
 ## Guards the completion rumble/pop to firing once per live window, not
 ## every frame the sweep sits at a full lap waiting for the ball to
@@ -133,7 +172,7 @@ func _process(delta: float) -> void:
 	if is_instance_valid(player) and is_instance_valid(ball):
 		var camera := player.camera as Camera3D
 		if is_instance_valid(camera):
-			var tier := player.live_mark_prompt(ball)
+			var tier := _display_tier()
 			if tier != Tuning.Action.NONE:
 				var world := player.global_position + Vector3.UP * Tuning.MARK_PROMPT_HEIGHT
 				if not camera.is_position_behind(world):
@@ -145,7 +184,8 @@ func _process(delta: float) -> void:
 					_screen_pos = camera.unproject_position(world)
 					_tier = tier
 					live_now = true
-					_update_ring()
+					if tier != Tuning.Action.SMOTHER_DIVE:
+						_update_ring()
 	_visible_this_frame = live_now
 
 	if not live_now or _tier != previous_tier:
@@ -156,6 +196,33 @@ func _process(delta: float) -> void:
 		InputManager.rumble(Tuning.RUMBLE_MARK_TIMING_CUE)
 
 	_canvas.queue_redraw()
+
+
+## What the badge should show this frame: the pressed (or still-committed)
+## tier inside an open mark window, else the recommendation, else NONE.
+## (There was a SMOTHER badge too; playtest didn't want it.)
+func _display_tier() -> Tuning.Action:
+	var live := player.live_mark_prompt(ball)
+	var committed := player.committed_mark_tier()
+	if live != Tuning.Action.NONE:
+		_window_open = true
+	elif committed == Tuning.Action.NONE:
+		_window_open = false
+		_chosen_tier = Tuning.Action.NONE
+	if _window_open:
+		if live != Tuning.Action.NONE:
+			# Read, not consumed: PlayerController's own buffered reads of
+			# the same actions are untouched by this.
+			if Input.is_action_just_pressed(&"mark_safe"):
+				_chosen_tier = Tuning.Action.MARK_SAFE
+			elif Input.is_action_just_pressed(&"mark_running"):
+				_chosen_tier = Tuning.Action.MARK_RUNNING
+			elif Input.is_action_just_pressed(&"mark_aggressive"):
+				_chosen_tier = Tuning.Action.MARK_AGGRESSIVE
+		if committed != Tuning.Action.NONE:
+			_chosen_tier = committed
+		return _chosen_tier if _chosen_tier != Tuning.Action.NONE else live
+	return Tuning.Action.NONE
 
 
 ## Aggressive's catch resolves ACTION_CONTACT[MARK_AGGRESSIVE] seconds
@@ -197,15 +264,18 @@ func _update_ring() -> void:
 	# call site does — see mark_timing_offset()'s own comment for why a
 	# generic/tier-agnostic radius drew the ring's own "press now" instant
 	# too early for Running.
-	var offset := player.mark_timing_offset(ball, _tier)
-	if offset >= Tuning.MARK_TIMING_PAST_PEAK_OFFSET:
-		_ring_progress = 0.0   # nothing meaningful to count down yet — sweep hasn't started
+	#
+	# The countdown itself comes from MarkCueModel.cue_time_to_press. Under
+	# the ANALYTIC source that's this ring's original arithmetic, unchanged:
+	# _press_target_offset(_tier) - mark_timing_offset(), with NAN on the
+	# not-closing sentinel.
+	var to_press := MarkCueModel.cue_time_to_press(player, ball, _tier, cue_source)
+	if is_nan(to_press):
+		_ring_progress = 0.0   # nothing meaningful to count down yet — ring hasn't started closing
 		return
-	var to_press := offset - _press_target_offset(_tier)
-	# 0 at the start of the countdown window, 1 (a full lap) right at the
-	# press-now instant — see this file's own header for why a sweep reads
-	# more directly as "go" than the old shrinking-ring version did.
-	_ring_progress = clampf(1.0 + to_press / RING_LEAD_TIME, 0.0, 1.0)
+	# 0 at the start of the countdown window, 1 (ring on the badge) right
+	# at the press-now instant.
+	_ring_progress = clampf(1.0 - to_press / RING_LEAD_TIME, 0.0, 1.0)
 
 
 func _draw_badge(canvas: Control) -> void:
@@ -222,15 +292,26 @@ func _draw_badge(canvas: Control) -> void:
 		canvas.draw_arc(_screen_pos, radius, 0.0, TAU, RING_SEGMENTS, _flash_colour(),
 			RING_THICKNESS, true)
 	elif _ring_visible_this_frame:
-		var radius := RING_RADIUS
+		var ring_colour := _badge_colour(_tier)
+		var target_radius := RING_RADIUS
 		if _cue_timer > 0.0:
-			# The completion pop — a quick outward flick right as the sweep
-			# finishes its lap, on top of the rumble fired the same instant
-			# (see _process()).
-			radius += CUE_RING_GROW * (_cue_timer / CUE_DURATION)
-		var sweep_end := RING_SWEEP_START + _ring_progress * TAU
-		canvas.draw_arc(_screen_pos, radius, RING_SWEEP_START, sweep_end,
-			RING_SEGMENTS, _badge_colour(_tier), RING_THICKNESS, true)
+			# The completion pop — a quick outward flick right as the ring
+			# lands, on top of the rumble fired the same instant (see
+			# _process()).
+			target_radius += CUE_RING_GROW * (_cue_timer / CUE_DURATION)
+		canvas.draw_arc(_screen_pos, target_radius, 0.0, TAU, RING_SEGMENTS,
+			Color(ring_colour, TARGET_RING_ALPHA), TARGET_RING_THICKNESS, true)
+		if _ring_progress > 0.0 and _ring_progress < 1.0:
+			var radius := lerpf(RING_CLOSE_START_RADIUS, RING_RADIUS, _ring_progress)
+			# Fades in over the first part of the countdown so it doesn't pop.
+			var alpha := clampf(_ring_progress * 4.0, 0.0, 1.0)
+			canvas.draw_arc(_screen_pos, radius, 0.0, TAU, RING_SEGMENTS,
+				Color(SoftBrutalist.INK, alpha), RING_THICKNESS + RING_OUTLINE_EXTRA, true)
+			canvas.draw_arc(_screen_pos, radius, 0.0, TAU, RING_SEGMENTS,
+				Color(ring_colour, alpha), RING_THICKNESS, true)
+		elif _ring_progress >= 1.0:
+			canvas.draw_arc(_screen_pos, target_radius, 0.0, TAU, RING_SEGMENTS,
+				ring_colour, RING_THICKNESS, true)
 
 	var font := SoftBrutalist.font(SoftBrutalist.WEIGHT_HEAVY)
 	var colour := _badge_colour(_tier)

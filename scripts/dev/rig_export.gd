@@ -53,7 +53,7 @@ func _ready() -> void:
 	# WITHOUT this: HumanoidRig's meshes hang off BoneAttachment3D nodes with
 	# no per-vertex bone weights at all (rigid "follow this bone" parenting,
 	# not skinning — see humanoid_rig.gd's own header, "Stubbed" note in
-	# docs/HANDOVER.md). GLTFDocument only emits a glTF `skin` for an actual
+	# HANDOVER.md (archived, see docs/LESSONS.md)). GLTFDocument only emits a glTF `skin` for an actual
 	# skinned MeshInstance3D (ARRAY_BONES/ARRAY_WEIGHTS + .skeleton + .skin
 	# set); with none anywhere in the tree, append_from_scene() exports
 	# the Skeleton3D as a plain hierarchy of empty transform nodes instead of

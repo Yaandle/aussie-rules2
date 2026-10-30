@@ -18,9 +18,37 @@ extends SubViewportContainer
 ## few lines worth copying twice the way the screenshot-era private
 ## _CameraPreviewField class in each screen used to be.
 
+##
+## Playtest 2026-10-29: "the camera preview settings still look bad". It
+## rendered its own world with no sun and no WorldEnvironment (those live in
+## full_game.tscn, not field.tscn), so the grass came out near-black and the
+## full-side view was unreadable, and it showed field.gd's generated ground
+## rather than the oval the match will use. Now it carries the match's own
+## sun and broadcast_environment, follows Settings.field_style, and stands a
+## few players and the ball round the centre so FULL_SIDE has something to
+## frame.
+
 const FIELD_SCENE := preload("res://scenes/field/field.tscn")
 const PLAYER_SCENE := preload("res://scenes/player/player.tscn")
+const BALL_SCENE := preload("res://scenes/ball/ball.tscn")
 const CAMERA_SCENE := preload("res://scenes/camera/broadcast_camera.tscn")
+const ENVIRONMENT := preload("res://materials/broadcast_environment.tres")
+## full_game.tscn's Sun, copied (transform, energy, softness, shadow).
+const SUN_TRANSFORM := Transform3D(Basis(Vector3(0.8637, 0.0, -0.5039), Vector3(-0.3627, 0.6943, -0.6216),
+	Vector3(0.3499, 0.7197, 0.5998)), Vector3(0.0, 40.0, 0.0))
+const SUN_ENERGY := 1.05
+const SUN_ANGULAR_DISTANCE := 2.2
+const SUN_SHADOW_OPACITY := 0.72
+## Shorter than the match's 120 m: the preview's subject is at the centre.
+const SUN_SHADOW_DISTANCE := 60.0
+## The rest of the centre-bounce picture: [team, position, facing yaw deg].
+const EXTRAS := [
+	[Tuning.Team.AWAY, Vector3(3.0, 0.0, 0.5), -90.0],
+	[Tuning.Team.HOME, Vector3(-9.0, 0.0, 6.0), 70.0],
+	[Tuning.Team.AWAY, Vector3(10.0, 0.0, -5.0), -110.0],
+	[Tuning.Team.HOME, Vector3(-4.0, 0.0, -14.0), 20.0],
+	[Tuning.Team.AWAY, Vector3(6.0, 0.0, 15.0), -150.0],
+]
 
 ## CHASE ("3RD PERSON") or FULL_SIDE — which mode this preview renders.
 ## Settable at any time; BroadcastCamera.set_mode() re-centres itself.
@@ -68,14 +96,29 @@ func _ready() -> void:
 	_viewport.transparent_bg = false
 	add_child(_viewport)
 
-	_viewport.add_child(FIELD_SCENE.instantiate())
+	var world_environment := WorldEnvironment.new()
+	world_environment.environment = ENVIRONMENT
+	_viewport.add_child(world_environment)
+	var sun := DirectionalLight3D.new()
+	sun.transform = SUN_TRANSFORM
+	sun.light_energy = SUN_ENERGY
+	sun.light_angular_distance = SUN_ANGULAR_DISTANCE
+	sun.shadow_enabled = true
+	sun.shadow_opacity = SUN_SHADOW_OPACITY
+	sun.directional_shadow_max_distance = SUN_SHADOW_DISTANCE
+	sun.directional_shadow_blend_splits = true
+	_viewport.add_child(sun)
 
-	_dummy = PLAYER_SCENE.instantiate()
-	_dummy.team = Tuning.Team.HOME
-	(_dummy.get_node("Rig") as HumanoidRig).away_kit = false
-	_dummy.position = Vector3.ZERO
-	_viewport.add_child(_dummy)
-	_dummy.set_brain(PlayerBrain.new())
+	var field := FIELD_SCENE.instantiate() as Field
+	field.follow_field_style = true
+	_viewport.add_child(field)
+
+	_dummy = _spawn(Tuning.Team.HOME, Vector3.ZERO, 0.0)
+	for extra: Array in EXTRAS:
+		_spawn(extra[0], extra[1], extra[2])
+	var ball := BALL_SCENE.instantiate() as Ball
+	_viewport.add_child(ball)
+	ball.reset_at(Vector3(1.0, 0.2, -0.8))
 
 	_camera_rig = CAMERA_SCENE.instantiate()
 	_camera_rig.target = _dummy
@@ -84,3 +127,15 @@ func _ready() -> void:
 	_viewport.add_child(_camera_rig)
 	_camera_rig.recenter()
 	_camera_rig.camera().current = true
+
+
+## A standing player that never moves (base PlayerBrain), in its team's kit.
+func _spawn(team: Tuning.Team, at: Vector3, yaw_deg: float) -> PlayerController:
+	var player := PLAYER_SCENE.instantiate() as PlayerController
+	player.team = team
+	(player.get_node("Rig") as HumanoidRig).away_kit = team == Tuning.Team.AWAY
+	player.position = at
+	player.rotation.y = deg_to_rad(yaw_deg)
+	_viewport.add_child(player)
+	player.set_brain(PlayerBrain.new())
+	return player

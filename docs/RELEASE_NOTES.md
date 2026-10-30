@@ -1,5 +1,53 @@
 # Release notes
 
+## v1.4.0 — Career seasons, active ragdoll tackles, new ovals
+
+Everything since v1.2.0 (the 1.3 UI pass was never released on its own).
+
+### Career
+- Full 12-round seasons with a ladder and promotion through six leagues,
+  per-player season stats, a fixture carousel, a roster grouped by
+  position, and continuing a saved career.
+- Create Your Player (identity, Easy/Hard, kit), Edit Player with upgrades
+  to spend, and Easy/Hard setting the opposition's strength.
+
+### Contests
+- Tackles and bumps hand players to an active ragdoll. The X wrap takes
+  both players down together, the B sling throws the carrier while the
+  tackler stays up, and a clean hit stick ragdolls both. Whether a landed
+  tackle holds is the trained tackle model's formula against a threshold,
+  never a roll.
+- Marks need the hands on the ball. Reach is about an arm's length from
+  the hands (it was 2-3 m from the hip), an aggressive leap can take the
+  ball across the top of the jump, and a caught ball travels into the
+  hands. The AI's marks use the same reach.
+- Off-the-ball tackles and late hits give a free kick, a hit on a
+  protected player gives a 50. Holding the ball and running too far stop
+  the ball for the pause.
+- Ruck: only the two ruckmen contest, an early RB press waits for the toss
+  to peak, and the right stick aims the tap. Set shots pace back and walk
+  in. Kicks after the siren still get their shot.
+
+### Movement and animation
+- Drop-punt kick, the ball carried in both hands, phase-locked gaits,
+  stride cadence that matches speed, turn bank and drive lean.
+- Situational marking variants (low, overhead, over the shoulder).
+
+### Look
+- Field 1 park oval and Field 2 bush oval, and kit colours with an away
+  kit that contrasts.
+- A seven-segment scoreboard (goals | behinds | total, quarter and clock)
+  on screen and on the ground's own board.
+- The pregame camera preview renders the real ground, lit as in a match.
+- The full-side camera's wing is clear of the trees that blocked the play
+  at either 50 m arc.
+- Camera zoom can be changed from the Full Game pause menu.
+
+### Known follow-ups (not in this release)
+- Marking contests on the ragdoll (aggressive marks against an opponent).
+- The new mark reach, the AI's lower mark rate and the scoreboard's look
+  still need a playtest.
+
 ## v1.2.0 — UI & accessibility consistency pass
 
 Focus of this release: presentation only. No gameplay, physics, or AI
@@ -27,7 +75,7 @@ a consistency and completion pass on top of it, not a redesign:
   were wired up on only 2 of 11 player-facing screens, several controls
   were reachable by mouse only, one screen (`match_end_screen`) was a
   visually-orphaned placeholder, and one gamepad binding never fired. Full
-  detail in [`ui_audit.md`](ui_audit.md).
+  detail in `ui_audit.md` (archived).
 
 ### Accessibility fixes
 
@@ -98,5 +146,5 @@ the project in a GUI.
   using `DeviceHintBar`. Left alone — not worth the risk for consistency
   alone on a dev-only screen.
 
-See [`ui_audit.md`](ui_audit.md) and `HANDOVER.md`'s matching entry for
+See `ui_audit.md` (archived) and `HANDOVER.md`'s matching entry for
 full file-by-file detail.

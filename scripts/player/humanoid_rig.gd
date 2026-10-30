@@ -68,19 +68,21 @@ extends Node3D
 ##    custom import code needed on that side.
 ##
 ## NOT YET VERIFIED: axis convention. This rig's "-Y hangs down the limb"
-## local convention (docs/HANDOVER.md's own "Rest-pose axis convention for
+## local convention (HANDOVER.md (archived, see docs/LESSONS.md)'s own "Rest-pose axis convention for
 ## retargeting is also unverified" note) has never been checked against a
 ## real Blender/glTF import land correctly without a 90-degree twist per
 ## limb — if bone #2 above still looks wrong after a careful rest-pose
 ## export, this is the next thing to check, via Godot's BoneMap retarget
 ## UI or a manual per-bone rotation fixup in Blender before export.
 ##
-## kit_torso/kit_shorts/kit_stripes/away_kit (below) only ever recolour the
-## procedural primitives — an imported mesh brings its own materials from
-## Blender, so those exports become no-ops once a character is imported.
-## Umpire needs the stripe override, so it sets allow_imported_character
-## = false before add_child() to stay on the procedural path regardless of
-## whether a player character has been imported.
+## Kit colours (task board 4B): jersey/shorts/socks/boot resolve from the
+## kit_* overrides below, else TeamKit (HOME = the CHARACTER screen's kit,
+## AWAY = a preset picked to contrast with it). An imported mesh is
+## recoloured by material name (_recolour_imported: "Shirt"/"Jersey",
+## "Short", "Shoe"/"Boot", "Sock", "Skin") and, since neither Blender build
+## has socks, gets a sock tube per lower leg (_add_imported_socks). Only
+## kit_stripes stays procedural-only, so Umpire still sets
+## allow_imported_character = false before add_child() to keep its stripes.
 
 const HIP_HEIGHT := 0.99
 const THIGH_LENGTH := 0.44
@@ -118,6 +120,7 @@ const COLOUR_TREAD := Color("#141513")
 ## CHARACTER screen's Customise skin/boot colour rows.
 @export var kit_skin := Color(0.0, 0.0, 0.0, 0.0)
 @export var kit_boot := Color(0.0, 0.0, 0.0, 0.0)
+@export var kit_socks := Color(0.0, 0.0, 0.0, 0.0)
 
 ## Vertical stripes across the torso, for the boundary umpire's black and
 ## white uniform (rulebook §10). 0 = none, which is every player. Each is
@@ -239,16 +242,17 @@ func selected_model() -> String:
 
 
 func _build() -> void:
+	var kit := _resolved_kit()
 	if allow_imported_character and _try_build_from_import():
 		_imported = true
+		_recolour_imported(self, kit)
+		_add_imported_socks(kit["socks"])
 		return
 
-	var guernsey := COLOUR_GUERNSEY_AWAY if away_kit else COLOUR_GUERNSEY
-	if kit_torso.a > 0.0:
-		guernsey = kit_torso
-	var shorts := kit_shorts if kit_shorts.a > 0.0 else COLOUR_SHORTS
-	var skin := kit_skin if kit_skin.a > 0.0 else COLOUR_SKIN
-	var boot := kit_boot if kit_boot.a > 0.0 else COLOUR_BOOT
+	var guernsey: Color = kit["jersey"]
+	var shorts: Color = kit["shorts"]
+	var skin: Color = kit["skin"]
+	var boot: Color = kit["boot"]
 
 	_skeleton = Skeleton3D.new()
 	_skeleton.name = "Skeleton3D"
@@ -322,7 +326,7 @@ func _build() -> void:
 		_capsule_on("UpperLeg" + suffix, "Thigh" + suffix, 0.085, THIGH_LENGTH,
 			Vector3(0.0, -THIGH_LENGTH * 0.5, 0.0), skin)
 		_capsule_on("LowerLeg" + suffix, "Shin" + suffix, 0.062, SHIN_LENGTH,
-			Vector3(0.0, -SHIN_LENGTH * 0.5, 0.0), COLOUR_TRIM)
+			Vector3(0.0, -SHIN_LENGTH * 0.5, 0.0), kit["socks"])
 		_box_on("Foot" + suffix, "Boot" + suffix, Vector3(0.10, 0.07, 0.26),
 			Vector3(0.0, -0.035, -0.06), boot)
 		# Tread: a wider, flush-with-the-sole slab (bottom edge lines up
@@ -398,6 +402,91 @@ func _try_build_from_import() -> bool:
 	imported.queue_free()
 	_fix_imported_forward_axis(hoisted)
 	return true
+
+
+## slot -> Color for this body: each kit_* override that's set (alpha > 0),
+## else TeamKit's team colour. Skin isn't a team colour, so it falls back to
+## the rig constant rather than the profile (in-match skin is per player).
+func _resolved_kit() -> Dictionary:
+	var kit := TeamKit.colours(away_kit)
+	var overrides := {"jersey": kit_torso, "shorts": kit_shorts, "socks": kit_socks, "boot": kit_boot}
+	for slot: String in overrides:
+		var c: Color = overrides[slot]
+		if c.a > 0.0:
+			kit[slot] = c
+	kit["skin"] = kit_skin if kit_skin.a > 0.0 else COLOUR_SKIN
+	return kit
+
+
+## Material resource_name fragment (lower case) -> kit slot, first match
+## wins. Covers both builds' Blender names (6thbuild: Shirt_Mat/Shorts_Mat/
+## Shoes_Mat/Skin.001, fifthbuild: JerseyColour/ShortsColour/BootsColour/
+## SkinColour). A future export with a "Sock" material gets recoloured too;
+## an unmatched material keeps its Blender colour.
+const IMPORTED_MATERIAL_SLOTS := [
+	["sock", "socks"], ["short", "shorts"], ["shirt", "jersey"], ["jersey", "jersey"],
+	["guernsey", "jersey"], ["shoe", "boot"], ["boot", "boot"], ["skin", "skin"],
+]
+
+## (source material, colour) -> recoloured duplicate, shared across every
+## rig so 32 players in two kits share two sets of materials, not 32.
+static var _imported_material_cache := {}
+
+func _recolour_imported(node: Node, kit: Dictionary) -> void:
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		if mi.mesh != null:
+			for surface in mi.mesh.get_surface_count():
+				var source := mi.mesh.surface_get_material(surface) as BaseMaterial3D
+				if source == null:
+					continue
+				var slot := _imported_slot(source.resource_name)
+				# Unset skin keeps the model's own authored tone rather
+				# than snapping to the procedural COLOUR_SKIN.
+				if slot == "skin" and kit_skin.a <= 0.0:
+					continue
+				if slot != "":
+					mi.set_surface_override_material(surface, _imported_material(source, kit[slot]))
+	for child in node.get_children():
+		_recolour_imported(child, kit)
+
+
+func _imported_slot(material_name: String) -> String:
+	var lower := material_name.to_lower()
+	for pair: Array in IMPORTED_MATERIAL_SLOTS:
+		if lower.contains(pair[0]):
+			return pair[1]
+	return ""
+
+
+func _imported_material(source: BaseMaterial3D, colour: Color) -> BaseMaterial3D:
+	var key := "%d|%s" % [source.get_instance_id(), colour.to_html()]
+	if _imported_material_cache.has(key):
+		return _imported_material_cache[key]
+	var material := source.duplicate() as BaseMaterial3D
+	material.albedo_color = colour
+	_imported_material_cache[key] = material
+	return material
+
+
+## Neither Blender build models socks (bare skinned legs), so a capsule per
+## lower leg stands in, riding the same BoneAttachment3D path the procedural
+## parts use. Placed along the real LowerLeg -> Foot rest vector rather than
+## the procedural rig's "-Y hangs down the limb" convention, which is
+## unverified for imported skeletons (see the axis note in the header).
+func _add_imported_socks(colour: Color) -> void:
+	for suffix: String in ["L", "R"]:
+		var foot := _skeleton.find_bone(_bone_name("Foot" + suffix))
+		if foot < 0 or _skeleton.find_bone(_bone_name("LowerLeg" + suffix)) < 0:
+			continue
+		var to_ankle := _skeleton.get_bone_rest(foot).origin
+		var length := to_ankle.length() * Tuning.IMPORTED_SOCK_COVERAGE
+		var axis := to_ankle.normalized()
+		var sock := _capsule_on("LowerLeg" + suffix, "Sock" + suffix, Tuning.IMPORTED_SOCK_RADIUS,
+			length, to_ankle - axis * length * 0.5, colour)
+		# CapsuleMesh runs along its own Y; turn that onto the shin.
+		if absf(axis.dot(Vector3.UP)) < 0.999:
+			sock.basis = Basis(Quaternion(Vector3.UP, axis))
 
 
 ## Blender's glTF export puts a model's forward-facing geometry at +Z (the

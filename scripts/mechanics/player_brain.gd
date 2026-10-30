@@ -81,6 +81,15 @@ func wants_lunge_tackle() -> bool:
 	return false
 
 
+## Whether a Lunge press is waiting, without spending it — so
+## PlayerController._try_lunge_tackle can leave a press made a moment
+## before a carrier is in reach buffered rather than wasting it. Brains with
+## no buffer (AI, scripted test brains) report false and keep the old
+## spend-on-read behaviour.
+func lunge_tackle_pending() -> bool:
+	return false
+
+
 ## Held-down semantics, exactly like wants_kick(): true for as long as a
 ## Safe Mark should stay readied (A on a pad) — see
 ## PlayerController._update_aerial_contest. The same query, unchanged, is
@@ -111,7 +120,8 @@ func wants_spoil() -> bool:
 
 
 ## Edge-triggered: true for the one frame a Smother should be attempted
-## (X tap, not carrying) — see PlayerController._try_smother.
+## (RB tap, not carrying — shared with the ruck Hit-Out, which only a ruck
+## contestant can use) — see PlayerController._update_smother.
 func wants_smother() -> bool:
 	return false
 
@@ -141,3 +151,12 @@ func wants_bump_stance() -> bool:
 ## false there same as every other human-only want above.
 func wants_goal_set_shot() -> bool:
 	return false
+
+
+## World-space direction to palm a ruck tap toward, or Vector3.ZERO for
+## "no opinion" — PlayerController then falls back to the move stick
+## (_wish_dir), then body-forward. A human aims it with the right stick
+## (playtest: RB + right stick, so moving and aiming the tap are separate
+## hands); AI has no second stick and keeps the move-direction fallback.
+func hit_out_aim(_controller: PlayerController) -> Vector3:
+	return Vector3.ZERO

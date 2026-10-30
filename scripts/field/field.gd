@@ -92,6 +92,22 @@ const COLOUR_TRUNK := Color("#6B5B4A")
 const COLOUR_CANOPY_A := Color("#4F6B45")
 const COLOUR_CANOPY_B := Color("#6C8752")
 
+## Off when a scene supplies its own Blender-modelled fence / tree ring
+## instead of these generated ones. follow_field_style sets both for you.
+@export var build_fence := true
+@export var build_trees := true
+
+## Set on the match/practice instances (full_game.tscn, kick_to_kick.tscn)
+## so they dress the ground per Settings.field_style; off by default so the
+## menu/character/camera-preview backdrops stay the cheap generated field.
+## Either style hides the generated turf mesh (its collision stays, on
+## Ground), skips the generated fence and trees, and adds that style's
+## environment scene: Field 1 (CLASSIC) the park, Field 2 (OVAL_1) the bush.
+## Runtime only: the editor always shows the generated field.
+@export var follow_field_style := false
+const PARK_SCENE_PATH := "res://scenes/field/park_environment.tscn"
+const OVAL1_SCENE_PATH := "res://scenes/field/oval1_environment.tscn"
+
 
 func _ready() -> void:
 	if not Engine.is_editor_hint():
@@ -100,8 +116,24 @@ func _ready() -> void:
 	_build_goals()
 	if not Engine.is_editor_hint():
 		_build_umpires()
-	_build_fence()
-	_build_trees()
+		if follow_field_style:
+			_apply_environment()
+	if build_fence:
+		_build_fence()
+	if build_trees:
+		_build_trees()
+
+
+## load() rather than preload: the backdrop fields never pay for the
+## environment glbs.
+func _apply_environment() -> void:
+	var path := OVAL1_SCENE_PATH if Settings.field_style == Settings.FieldStyle.OVAL_1 \
+		else PARK_SCENE_PATH
+	build_fence = false
+	build_trees = false
+	($Ground/Turf as MeshInstance3D).visible = false
+	var environment := (load(path) as PackedScene).instantiate()
+	add_child(environment)
 
 
 ## The ground slab and its shader both take their extents from Tuning, so
@@ -346,11 +378,22 @@ func _post(parent: Node3D, base: Vector3, height: float) -> void:
 # ── Scoring ──────────────────────────────────────────────────────────
 # Three Area3D triggers per end: one goal-mouth box between the goal
 # posts, two behind boxes either side of it out to the behind posts. No
-# post-hit or crossing-height distinction (design doc scope for the Full
-# Game milestone) — whichever box the ball enters decides the outcome.
+# post-hit distinction (design doc scope for the Full Game milestone) —
+# whichever box the ball enters decides the outcome.
+#
+# Height: the posts count as running on up forever, as the real rule has
+# it. The zones were 12 m tall ("no realistic kick clears it"), but a big
+# kick does — it sailed over the trigger between the posts, landed past the
+# boundary and was called out (playtest). Now tall enough that nothing can.
+#
+# A ball carried over the line (Ball.holder() set) is a behind wherever it
+# crosses — kicked through the goal posts is the only goal — and no score
+# at all while its carrier is protected or walking back off a mark: a
+# defender stepping back over their own line to take a kick-in or a mark
+# was conceding a score (playtest).
 
 const SCORE_ZONE_DEPTH := 4.0      ## m, how far past the goal line the trigger reaches
-const SCORE_ZONE_HEIGHT := 12.0    ## m, tall enough that no realistic kick clears it
+const SCORE_ZONE_HEIGHT := 200.0   ## m — the posts extend upward without limit
 
 func _build_score_zones(parent: Node3D, direction: int, line_x: float,
 		goal_z: float, behind_z: float) -> void:
@@ -379,8 +422,13 @@ func _score_zone(parent: Node3D, zone_name: String, centre_x: float, centre_z: f
 	area.add_child(collision)
 
 	area.body_entered.connect(func(body: Node3D) -> void:
-		if body is Ball:
-			scored.emit(team, is_goal))
+		if not body is Ball:
+			return
+		var holder := (body as Ball).holder() as PlayerController
+		if holder == null:
+			scored.emit(team, is_goal)
+		elif not (holder.is_protected() or holder.is_retreating_from_mark()):
+			scored.emit(team, false))
 
 
 # ── Match officials ──────────────────────────────────────────────────

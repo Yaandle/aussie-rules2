@@ -77,6 +77,14 @@ func _process(delta: float) -> void:
 	if not is_instance_valid(target):
 		return
 	_switch_timer = maxf(0.0, _switch_timer - delta)
+	# Safety net for the set-shot override: it only makes sense while its
+	# target is still lining the kick up. PlayerController hands it back on
+	# every path it knows about, but a full-team focus switch nulls the old
+	# player's camera_rig, and one missed exit used to leave the rig on
+	# Chase until something else recentred it (playtest: stuck behind the
+	# player until the next throw-in).
+	if _in_goal_shot_override and not _is_target_aiming():
+		exit_goal_set_shot()
 	if is_instance_valid(_dialogue_left) and is_instance_valid(_dialogue_right):
 		_update_dialogue_framing(delta)
 	elif _in_goal_shot_override:
@@ -101,6 +109,7 @@ func _process(delta: float) -> void:
 		_update_rotation(delta)
 		_update_focus(delta)
 		_update_fov(delta)
+		_update_arm_length(delta)
 	_clamp_camera_height()
 
 
@@ -112,6 +121,10 @@ func set_mode(new_mode: Mode) -> void:
 	if mode == new_mode:
 		return
 	mode = new_mode
+	if mode == Mode.FULL_SIDE:
+		# The rig's wing of the ground loses the trees between it and the
+		# fence (OvalEnvironment.clear_broadcast_side).
+		get_tree().call_group(OvalEnvironment.GROUP, &"clear_broadcast_side")
 	recenter()
 
 
@@ -226,14 +239,22 @@ var _in_goal_shot_override := false
 ## behind-the-player, nothing to borrow. Pans in over CAM_SWITCH_PAN_
 ## DURATION, the same cinematic sweep switch_target() uses, rather than
 ## cutting straight there.
+##
+## On CHASE too (2026-10-24 playtest, 3rd person: "the aim is off, I
+## couldn't line it up with goals... front on works better"): Chase freezes
+## its rotation while the target aims, so a set shot taken with the camera
+## off to the side stayed side-on for the whole routine. The override now
+## swings in behind the kicker on either mode; on CHASE there's no mode
+## to borrow, just the same follow-the-facing ease.
 func enter_goal_set_shot() -> void:
-	if _in_goal_shot_override or mode != Mode.FULL_SIDE or not is_instance_valid(target):
+	if _in_goal_shot_override or not is_instance_valid(target):
 		return
 	_in_goal_shot_override = true
 	_goal_shot_prev_mode = mode
-	mode = Mode.CHASE
-	_focus = _target_focus()
-	global_position = _focus
+	if mode == Mode.FULL_SIDE:
+		mode = Mode.CHASE
+		_focus = _target_focus()
+		global_position = _focus
 	_switch_timer = Tuning.CAM_SWITCH_PAN_DURATION
 
 
@@ -247,8 +268,11 @@ func exit_goal_set_shot() -> void:
 	if not _in_goal_shot_override:
 		return
 	_in_goal_shot_override = false
-	mode = _goal_shot_prev_mode
-	recenter()
+	# Only FULL_SIDE needs the cut back out; a Chase camera is already
+	# where it should be, behind the kicker.
+	if _goal_shot_prev_mode == Mode.FULL_SIDE:
+		mode = _goal_shot_prev_mode
+		recenter()
 
 
 func camera() -> Camera3D:
@@ -263,6 +287,14 @@ func _update_rotation(delta: float) -> void:
 	# keep running unaffected, so the rig still tracks position and speed,
 	# it just stops re-orienting from stick/mouse until aiming ends.
 	if _is_target_aiming():
+		return
+
+	# Ruck contest: the right stick aims the tap, so ease to the side-on
+	# framing instead of reading it (see Tuning.CAM_RUCK_SIDE_*). Mouse look
+	# is drained so it doesn't bank up and jump the view afterwards.
+	if _is_target_ruck_contesting():
+		InputManager.take_mouse_look()
+		_ease_toward_ruck_side(delta)
 		return
 
 	if Input.is_action_just_pressed(&"camera_recenter"):
@@ -303,6 +335,34 @@ func _ease_toward_switch_target(delta: float) -> void:
 
 func _is_target_aiming() -> bool:
 	return target is PlayerController and (target as PlayerController).is_kick_aiming()
+
+
+## Chase only: the spring arm eases out to CAM_RUCK_SIDE_DISTANCE_MULT while
+## the target's in a ruck contest (playtest: "zoom the ruck contest out a
+## little bit more"), so both ruckmen and the leap fit the side-on frame,
+## and back once it's over. Every other time the target length is the
+## plain distance / zoom, which this leaves exactly where it is.
+func _update_arm_length(delta: float) -> void:
+	var length := distance / zoom
+	if _is_target_ruck_contesting():
+		length *= Tuning.CAM_RUCK_SIDE_DISTANCE_MULT
+	_arm.spring_length = lerpf(_arm.spring_length, length,
+		1.0 - exp(-Tuning.CAM_RUCK_SIDE_EASE_RATE * delta))
+
+
+func _is_target_ruck_contesting() -> bool:
+	return target is PlayerController and (target as PlayerController).is_ruck_contestant()
+
+
+## Same exponential lerp shape as _ease_toward_switch_target, toward a fixed
+## side-on yaw/pitch at the gentler CAM_RUCK_SIDE_EASE_RATE, so the swing
+## round is one smooth constant ease whatever angle it starts from.
+func _ease_toward_ruck_side(delta: float) -> void:
+	var rate := 1.0 - exp(-Tuning.CAM_RUCK_SIDE_EASE_RATE * delta)
+	_yaw = lerp_angle(_yaw, Tuning.CAM_RUCK_SIDE_YAW, rate)
+	_pitch = lerpf(_pitch, deg_to_rad(Tuning.CAM_RUCK_SIDE_PITCH), rate)
+	_yaw_pivot.rotation.y = _yaw
+	_pitch_pivot.rotation.x = _pitch
 
 
 ## Positions the rig off to the side of the left<->right line, level with

@@ -6,7 +6,7 @@ extends CanvasLayer
 ## Reads the final score from MatchState.scoreline() — the same call
 ## full_game.gd's `_finish_match()` uses for the scoreboard flash — and the
 ## per-team disposal/mark/tackle tallies from MatchState's own stat
-## dictionaries (docs/FEATURE_AUDIT.md's post-match-stats item), both
+## dictionaries (FEATURE_AUDIT.md (archived)'s post-match-stats item), both
 ## fresh in _ready() rather than passed as scene-change parameters: nothing
 ## resets MatchState between full_game.gd's _finish_match() and this
 ## screen loading, so there's nothing to lose crossing the scene swap.
@@ -51,7 +51,12 @@ const HINT_GAP := 16.0
 const HINT_HEIGHT := 24.0
 const CARD_BOTTOM_MARGIN := 32.0
 
+## Same input grace as CareerMatchEndScreen.INPUT_GRACE (see that file):
+## a button still held from the last seconds of play mustn't skip this.
+const INPUT_GRACE := CareerMatchEndScreen.INPUT_GRACE
+
 var _busy := false
+var _elapsed := 0.0
 var _button_panel: Panel
 var _button_label: Label
 
@@ -189,8 +194,12 @@ func _build_stats(card: Panel) -> void:
 		card.add_child(away_number)
 
 
+func _process(delta: float) -> void:
+	_elapsed += delta
+
+
 func _unhandled_input(event: InputEvent) -> void:
-	if _busy:
+	if _busy or _elapsed < INPUT_GRACE:
 		return
 	if event.is_action_pressed(&"ui_accept") or event.is_action_pressed(&"pause") \
 			or event.is_action_pressed(&"ui_cancel"):

@@ -26,7 +26,18 @@ extends PlayerBrain
 
 
 func wish_direction(controller: PlayerController) -> Vector3:
-	var input := InputManager.get_move_vector()
+	return _camera_relative(controller, InputManager.get_move_vector())
+
+
+## Right stick, camera-relative the same way the move stick is — see
+## PlayerBrain.hit_out_aim. A neutral stick is ZERO, so the caller falls
+## back to the left stick.
+func hit_out_aim(controller: PlayerController) -> Vector3:
+	var aim := _camera_relative(controller, InputManager.get_look_vector())
+	return aim.normalized() if aim.length_squared() > 0.0001 else Vector3.ZERO
+
+
+func _camera_relative(controller: PlayerController, input: Vector2) -> Vector3:
 	var forward := Vector3.FORWARD
 	var right := Vector3.RIGHT
 	var camera := controller.camera
@@ -69,6 +80,10 @@ func wants_tackle() -> bool:
 
 func wants_lunge_tackle() -> bool:
 	return InputManager.consume_buffered_press(&"lunge_tackle")
+
+
+func lunge_tackle_pending() -> bool:
+	return InputManager.has_buffered_press(&"lunge_tackle")
 
 
 func wants_mark_safe() -> bool:

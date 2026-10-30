@@ -85,6 +85,23 @@ static func roster_slot(i: int) -> Dictionary:
 	return SLOTS[ROSTER_ORDER[i % SLOTS.size()]]
 
 
+## `slot`'s label for a list (a SLOTS entry). SLOTS labels repeat across a
+## line (two BPs, two HBFs, ...), which is fine on the board where position
+## shows the side but ambiguous in a list — so the flank/pocket pairs get
+## an L / R suffix here. Shared by the TEAMS squad sheet and Career's
+## roster table.
+static func position_label(slot: Dictionary) -> String:
+	var label := String(slot["label"])
+	if int(slot["line"]) == Line.FOLLOWERS:
+		return label
+	var lateral := float(slot["lateral"])
+	if lateral < -0.01:
+		return label + " L"
+	if lateral > 0.01:
+		return label + " R"
+	return label
+
+
 ## World position (Y=0, ground plane) for `slot` (a SLOTS entry, or the
 ## first `count` of them — see world_positions) given a team's
 ## attack_direction (+1 attacks +X, -1 attacks -X — same convention as

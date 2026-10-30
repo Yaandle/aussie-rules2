@@ -45,9 +45,10 @@ Real AFL numbers that were already correct.
 
 | Rule | Prototype 1 | Prototype 2 | Status |
 |---|---|---|---|
-| Bounce every 15m while running | `BOUNCE_INTERVAL = 15.0` | `Tuning.BOUNCE_INTERVAL = 20.0` m (feel-raised from 15) | **Enforced.** `PlayerController._track_carry_distance` fires `run_too_far_called` the frame a carry's accumulated path length passes `BOUNCE_INTERVAL` with no bounce (gated out while mid-disposal or stunned); `FullGame._on_run_too_far` awards a free kick to the nearest opponent at the spot via the shared `_award_possession_at` restart, which also walks the receiver back off the mark. `AIBrain` bounces on the run at `Tuning.AI_BOUNCE_AT_FRACTION` × `BOUNCE_INTERVAL`, so in practice this only catches a human who didn't bounce. |
+| Bounce every 15m while running | `BOUNCE_INTERVAL = 15.0` | `Tuning.BOUNCE_INTERVAL = 30.0` m (feel-raised from 15, then 20) | **Enforced.** `PlayerController._track_carry_distance` fires `run_too_far_called` the frame a carry's accumulated path length passes `BOUNCE_INTERVAL` with no bounce (gated out while mid-disposal or stunned); `FullGame._on_run_too_far` awards a free kick to the nearest opponent at the spot via the shared `_award_possession_at` restart, which also walks the receiver back off the mark. `AIBrain` bounces on the run at `Tuning.AI_BOUNCE_AT_FRACTION` × `BOUNCE_INTERVAL`, so in practice this only catches a human who didn't bounce. |
 | Mark from ≥15m triggers stand-the-mark | `MARK_STAND_MIN_DISTANCE = 15.0` | 15.0 m | Not yet implemented — needs two teams |
-| Protected/stand-the-mark window | `MARK_HOLD_DURATION = 5.0` s | 5.0 s | Not yet implemented |
+| Protected/stand-the-mark window | `MARK_HOLD_DURATION = 5.0` s | 5.0 s | **Enforced.** Arming a set shot restarts it as a shot clock, `Tuning.SET_SHOT_CLOCK = 20.0` s (real AFL: 30 s); when it lapses the kicker can be tackled ("play on") |
+| Kick after the siren | — | mark/free kick held at the siren | **Enforced.** `FullGame._update_after_siren`: the quarter waits for that one kick (full `SET_SHOT_CLOCK`), then ends when it scores, lands, is gathered, goes out, or after `AFTER_SIREN_MAX_FLIGHT` |
 | Prior opportunity grace before holding-the-ball applies | `PRIOR_OPPORTUNITY_GRACE = 0.5` s | `MatchState.possession_seconds()` reads against 0.5 s | Timer live, ruling not yet implemented |
 | Goal = 6 points, behind = 1 | `outcomes.register_score` | `MatchState.GOAL_POINTS / BEHIND_POINTS` | Live |
 | Goal posts 6.4m apart, behind posts 6.4m out again | implied by the diorama draw | `Tuning.GOAL_POST_SEPARATION / BEHIND_POST_OFFSET` | Drawn |
@@ -73,7 +74,7 @@ records of a mechanism being replaced, not values to port.
 | Prototype 1 | What it did | Prototype 2 |
 |---|---|---|
 | `MARK_RADIUS = 12.0`, `CONTEST_RADIUS = 10.0` | Positional gates deciding whether a mark counted, then a proximity-weighted roll | Physical: the ball is a rigid body, a mark is catching it |
-| `TACKLE_TRIGGER_RADIUS = 3.5`, `TACKLE_BREAK_CHANCE = 0.45` | A radius check, then a flat coin flip | Physical: contact, momentum and the holding-the-ball timer |
+| `TACKLE_TRIGGER_RADIUS = 3.5`, `TACKLE_BREAK_CHANCE = 0.45` | A radius check, then a flat coin flip | Physical: contact, momentum and the holding-the-ball timer. A landed tackle holds or breaks on `TackleBalance`'s formula of that contact (closing speed, squareness, weight ratio) against a per-tackle threshold — evaluated, never rolled, so the same hit always gives the same outcome |
 | `KICK_BASE_ACC = 0.68`, `KICK_SCATTER_*`, `PRESSURE_*` | Accuracy rolls degraded by nearby opponents, scatter applied to the landing point | Physical: the kick is an impulse; inaccuracy will come from being under pressure while striking it, not from a roll after the fact |
 | `BALL_FLIGHT_SPEED = 95.0`, `BALL_BOUNCE_*`, `BALL_ROLL_*` | A scripted lerp along a flight path, plus a cosmetic 2-hop bounce that never moved the ball's real position | `Ball` is a `RigidBody3D`: gravity, quadratic drag, Magnus spin, a prolate-spheroid hull and real restitution |
 | `PLAYER_SPEED = 28.0` / `FULL_GAME_PLAYER_SPEED = 19.0` | Units/sec added straight to a position | `Tuning.WALK/JOG/SPRINT_SPEED` = 1.8 / 4.8 / 8.4 m/s, reached through acceleration curves |
@@ -249,14 +250,21 @@ icon/ring itself).
 `MARK_STAND_MIN_DISTANCE`, the same test that grants protection and
 stand-the-mark) now pushes its taker back before they can go at goal:
 `PlayerController._begin_mark_retreat()` drives them
-`Tuning.MARK_RETREAT_DISTANCE` (5 m) along their own defensive direction
+`Tuning.MARK_RETREAT_DISTANCE` (7.5 m, raised from 5 so the kick clears
+the player on the mark) along their own defensive direction
 at `MARK_RETREAT_SPEED`, and the kick is blocked until it finishes. Facing
 is deliberately untouched, so they walk back still looking downfield the
 way a real kicker does. Handball and simply running are untouched —
 "play on" stays available; it is the set shot that has to wait. A
 scrambled catch in general play isn't a mark and gets none of this.
-Measured: 4.99 m of the 5.0 m target over 1.47s, kick refusing to charge
+Measured at the old 5 m: 4.99 m over 1.47s, kick refusing to charge
 throughout and charging normally afterwards.
+
+**Set shot routine.** Lining up a set shot for goal walks the kicker a
+further `SET_SHOT_RETREAT_EXTRA` back along the line from goal, and the
+kick button then starts a short run-up (`SET_SHOT_RUN_UP_*`, a walk into
+a jog along the aim) with the kick at its end. The kick ignores the
+run-up's momentum, so it flies the path the aiming cue showed.
 
 **Fixed.** `live_mark_prompt()` gated on `ball.is_airborne()`, true of any
 ball off the ground — so an opponent's handball, or a teammate's handball
@@ -403,7 +411,7 @@ standing caveat on everything in this project.
 
 - Out on the full (§7) — **implemented**.
 - High contact or in-the-back during a tackle or bump — **not
-  implemented**. This is the same open item `docs/FEATURE_AUDIT.md`
+  implemented**. This is the same open item `FEATURE_AUDIT.md (archived)`
   records as deliberately blocked: there is no AFL rule *number* to judge
   dangerous contact by, so it stays unbuilt pending a real design decision
   rather than getting an invented default.

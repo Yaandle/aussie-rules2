@@ -24,7 +24,16 @@ extends Node
 const VOICE_COUNT := 8
 const MIX_RATE := 22050
 
-enum Wave { SINE, NOISE }
+enum Wave { SINE, NOISE, WHISTLE }
+
+## Pea-whistle character for Wave.WHISTLE: the pea rattling in the chamber
+## is a fast wobble in both pitch and loudness, plus a little breath noise.
+## A plain sine at whistle pitch reads as a beep, not an umpire.
+const WHISTLE_TRILL_HZ := 38.0
+const WHISTLE_PITCH_WOBBLE := 0.012   ## fraction of the base pitch
+const WHISTLE_AMP_WOBBLE := 0.25
+const WHISTLE_BREATH := 0.06
+const WHISTLE_ATTACK := 0.012         ## s fade-in, so it starts without a click
 
 var _voices: Array[AudioStreamPlayer] = []
 var _next_voice := 0
@@ -38,6 +47,7 @@ var _clip_tackle: AudioStreamWAV
 var _clip_bump: AudioStreamWAV
 var _clip_hit_out: AudioStreamWAV
 var _clip_whistle: AudioStreamWAV
+var _clip_mark_whistle: AudioStreamWAV
 var _clip_full_time: AudioStreamWAV
 var _clip_goal: AudioStreamWAV
 var _clip_behind: AudioStreamWAV
@@ -98,8 +108,14 @@ func _on_ball_disposed(action: Tuning.Action) -> void:
 			_play(_clip_bounce, -4.0, randf_range(0.95, 1.05))
 
 
-func _on_mark_caught(_tier: Tuning.Action, _legal_mark: bool) -> void:
-	_play(_clip_mark, -3.0)
+## A legal mark gets the umpire's short pea-whistle blast (playtest: "the
+## sound when player takes legal mark should sound like a whistle"); any
+## other catch keeps the plain catch tone.
+func _on_mark_caught(_tier: Tuning.Action, legal_mark: bool) -> void:
+	if legal_mark:
+		_play(_clip_mark_whistle, -4.0)
+	else:
+		_play(_clip_mark, -3.0)
 
 
 func _on_mark_missed(_tier: Tuning.Action) -> void:
@@ -159,6 +175,7 @@ func _build_clips() -> void:
 	_clip_bump = _synth(0.20, 13.0, 1.0, Wave.NOISE)
 	_clip_hit_out = _synth(0.10, 24.0, 0.6, Wave.SINE, 300.0)
 	_clip_whistle = _synth(0.35, 4.0, 0.5, Wave.SINE, 2200.0)
+	_clip_mark_whistle = _synth(0.32, 3.0, 0.45, Wave.WHISTLE, 2600.0)
 	_clip_full_time = _synth(1.4, 1.2, 0.55, Wave.SINE, 900.0)
 	_clip_goal = _synth(0.55, 3.0, 0.6, Wave.SINE, 660.0, 990.0)
 	_clip_behind = _synth(0.25, 6.0, 0.5, Wave.SINE, 440.0)
@@ -173,6 +190,7 @@ func _synth(duration: float, decay: float, volume: float, wave: Wave,
 	var data := PackedByteArray()
 	data.resize(sample_count * 2)
 	var sweeping := freq_end >= 0.0
+	var phase := 0.0
 	for i in sample_count:
 		var t := float(i) / MIX_RATE
 		var f := lerpf(freq, freq_end, t / duration) if sweeping else freq
@@ -183,6 +201,14 @@ func _synth(duration: float, decay: float, volume: float, wave: Wave,
 				sample = sin(TAU * f * t)
 			Wave.NOISE:
 				sample = randf_range(-1.0, 1.0)
+			Wave.WHISTLE:
+				# Phase accumulated, not sin(TAU * f * t): the pitch wobbles
+				# every sample, and a time-based phase would smear it.
+				var trill := sin(TAU * WHISTLE_TRILL_HZ * t)
+				phase += TAU * f * (1.0 + WHISTLE_PITCH_WOBBLE * trill) / MIX_RATE
+				sample = sin(phase) * (1.0 - WHISTLE_AMP_WOBBLE + WHISTLE_AMP_WOBBLE * trill) \
+					+ randf_range(-1.0, 1.0) * WHISTLE_BREATH
+				sample *= minf(1.0, t / WHISTLE_ATTACK)
 			_:
 				sample = 0.0
 		var value := clampf(sample * envelope * volume, -1.0, 1.0)

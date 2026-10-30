@@ -1,0 +1,120 @@
+class_name CareerTable
+extends RefCounted
+
+## A tan Career card holding a minimal spreadsheet: a header row over a
+## 2px rule, one row per entry on a faint zebra stripe, your row tinted
+## green, and an optional green cut line under the first N rows — the same
+## language team_list_screen.gd's squad sheet uses, in CareerTheme's
+## colours. Shared by the ladder (CareerLadderTable), the season stats
+## page and, from Phase 4, the roster, so they can't drift apart.
+##
+## `columns`: [{label, width, align}] — width 0 takes whatever's left
+## (one column should). `rows`: [{cells: Array of String, you: bool}], or
+## a group heading {divider: String, colour: Color} — the squad sheet's
+## position-line divider, a short bar in the line's colour beside its name.
+## The zebra stripe restarts under each divider, as it does on TEAMS.
+## Not interactive.
+
+const ROW_HEIGHT := 28.0
+const CARD_PAD := 16
+const STRIPE := Color(CareerTheme.PANEL_TEXT, 0.06)
+const YOU_TINT := Color(CareerTheme.POSITIVE, 0.32)
+
+
+static func build(columns: Array, rows: Array, width: float, cut_after := 0,
+		row_height := ROW_HEIGHT) -> Control:
+	var card := PanelContainer.new()
+	card.custom_minimum_size.x = width
+	card.add_theme_stylebox_override(&"panel", CareerTheme.panel_style())
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var inner := MarginContainer.new()
+	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for side in ["left", "right", "top", "bottom"]:
+		inner.add_theme_constant_override(StringName("margin_" + side), CARD_PAD)
+	card.add_child(inner)
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override(&"separation", 0)
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	inner.add_child(column)
+
+	var headings: Array = []
+	for col: Dictionary in columns:
+		headings.append(col["label"])
+	column.add_child(_row(columns, headings, Color(0, 0, 0, 0), true, row_height))
+	column.add_child(rule(CareerTheme.PANEL_TEXT, 2.0))
+
+	var stripe := false
+	for i in rows.size():
+		var row: Dictionary = rows[i]
+		if row.has("divider"):
+			column.add_child(_divider(String(row["divider"]), row["colour"], row_height))
+			stripe = false
+			continue
+		var you := bool(row.get("you", false))
+		var fill := YOU_TINT if you else (STRIPE if stripe else Color(0, 0, 0, 0))
+		stripe = not stripe
+		column.add_child(_row(columns, row["cells"], fill, you, row_height))
+		if i + 1 == cut_after and i + 1 < rows.size():
+			column.add_child(rule(CareerTheme.POSITIVE, 2.0))
+	return card
+
+
+## team_list_screen.gd's _line_divider, in CareerTheme ink.
+static func _divider(text: String, colour: Color, row_height: float) -> Control:
+	var row := HBoxContainer.new()
+	row.custom_minimum_size.y = row_height + 4.0
+	row.add_theme_constant_override(&"separation", 8)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var bar := ColorRect.new()
+	bar.color = colour
+	bar.custom_minimum_size = Vector2(4.0, 14.0)
+	bar.size_flags_vertical = Control.SIZE_SHRINK_END
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(bar)
+	var label := CareerTheme.label(text, SoftBrutalist.SIZE_CAPTION, CareerTheme.PANEL_TEXT.lightened(0.3),
+		SoftBrutalist.WEIGHT_BOLD, 2)
+	label.size_flags_vertical = Control.SIZE_SHRINK_END
+	row.add_child(label)
+	return row
+
+
+static func _row(columns: Array, cells: Array, fill: Color, bold: bool, height: float) -> Control:
+	var panel := Panel.new()
+	panel.custom_minimum_size.y = height
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style := StyleBoxFlat.new()
+	style.bg_color = fill
+	panel.add_theme_stylebox_override(&"panel", style)
+
+	var line := HBoxContainer.new()
+	line.set_anchors_preset(Control.PRESET_FULL_RECT)
+	line.offset_left = 6.0
+	line.offset_right = -6.0
+	line.add_theme_constant_override(&"separation", 6)
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(line)
+
+	for i in columns.size():
+		var col: Dictionary = columns[i]
+		var cell := CareerTheme.label(String(cells[i]), SoftBrutalist.SIZE_BODY, CareerTheme.PANEL_TEXT,
+			SoftBrutalist.WEIGHT_BOLD if bold else SoftBrutalist.WEIGHT_REGULAR)
+		cell.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		cell.size_flags_vertical = Control.SIZE_FILL
+		cell.horizontal_alignment = col["align"]
+		cell.clip_text = true
+		if float(col["width"]) > 0.0:
+			cell.custom_minimum_size.x = col["width"]
+		else:
+			cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		line.add_child(cell)
+	return panel
+
+
+static func rule(colour: Color, thickness: float) -> Control:
+	var line := ColorRect.new()
+	line.color = colour
+	line.custom_minimum_size.y = thickness
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return line

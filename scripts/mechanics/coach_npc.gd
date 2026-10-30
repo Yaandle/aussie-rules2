@@ -10,7 +10,7 @@ extends Node3D
 ## The body is a bare instance of the existing placeholder rig, reused
 ## as-is rather than authored fresh — this script owns the interaction
 ## trigger, not a character model (out of scope for this agent; see
-## docs/HANDOVER.md's kicking-coach section). Deliberately not a full
+## HANDOVER.md (archived, see docs/LESSONS.md)'s kicking-coach section). Deliberately not a full
 ## PlayerController: no brain, no gather zone, no tackle eligibility, so
 ## it can't accidentally steal a loose ball or take a tackle just by
 ## standing on the field.

@@ -154,6 +154,9 @@ const READOUT_INSET_X := 20.0
 const READOUT_PANEL_WIDTH := 236.0
 const READOUT_PANEL_HEIGHT := 224.0
 const READOUT_ROW_GAP := 16
+## The CAMERA row's index in the readout (FORMATION, CONTROL, CAMERA,
+## POSITION — see _build_readout).
+const READOUT_CAMERA_ROW := 2
 
 ## ── Camera preview ───────────────────────────────────────────────────
 ## The camera preview uses the existing middle preview window rather than
@@ -178,6 +181,10 @@ const CAMERA_PREVIEW_ASPECT := 16.0 / 9.0
 ## feedback ("remove the white window/box... make the rendering smaller").
 const CAMERA_PREVIEW_WIDTH := 576.0
 const CAMERA_PREVIEW_HEIGHT := 324.0
+## The render's gap to the window's right edge. The window is 900 wide and
+## the readout column ends at READOUT_INSET_X + READOUT_PANEL_WIDTH (256),
+## which leaves 44 px between the two.
+const CAMERA_PREVIEW_RIGHT_MARGIN := 24.0
 
 
 const TITLE_TEXT := "FULL GAME"
@@ -679,10 +686,16 @@ func _build_preview(parent: Control) -> void:
 ## setup'... have the single zoom option in similar position as the
 ## [FORMATION/CONTROL/etc rows]".
 func _build_camera_preview_content(parent: Control) -> void:
+	# Right of the readout column, not centred under it (playtest
+	# 2026-10-29: "the camera preview settings still look bad"). Centred,
+	# the 576-wide render ran ~90 px under the CAMERA PREVIEW / ZOOM column.
 	_camera_preview_container = Control.new()
-	_camera_preview_container.set_anchors_preset(Control.PRESET_CENTER)
-	_camera_preview_container.offset_left = -CAMERA_PREVIEW_WIDTH * 0.5
-	_camera_preview_container.offset_right = CAMERA_PREVIEW_WIDTH * 0.5
+	_camera_preview_container.anchor_left = 1.0
+	_camera_preview_container.anchor_right = 1.0
+	_camera_preview_container.anchor_top = 0.5
+	_camera_preview_container.anchor_bottom = 0.5
+	_camera_preview_container.offset_right = -CAMERA_PREVIEW_RIGHT_MARGIN
+	_camera_preview_container.offset_left = -CAMERA_PREVIEW_RIGHT_MARGIN - CAMERA_PREVIEW_WIDTH
 	_camera_preview_container.offset_top = -CAMERA_PREVIEW_HEIGHT * 0.5
 	_camera_preview_container.offset_bottom = CAMERA_PREVIEW_HEIGHT * 0.5
 	_camera_preview_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1268,14 +1281,17 @@ func _set_camera_preview_active(active: bool) -> void:
 	# The readout strip itself stays visible either way now — only its
 	# title text and which rows it shows change, so CAMERA PREVIEW/ZOOM
 	# land at the exact size and position MATCH SETUP's own heading/rows
-	# already use (see _build_readout()'s own header).
+	# already use (see _build_readout()'s own header). The CAMERA row stays
+	# up with ZOOM, so the column names the mode being shown. The faint
+	# backing stays off: it was there for the text over the render's grass,
+	# and the render now sits beside the column instead.
 	if is_instance_valid(_readout_backing):
-		_readout_backing.visible = active
+		_readout_backing.visible = false
 
 	if is_instance_valid(_readout_title):
 		_readout_title.text = "CAMERA PREVIEW" if active else "MATCH SETUP"
-	for column in _readout_row_columns:
-		column.visible = not active
+	for i in _readout_row_columns.size():
+		_readout_row_columns[i].visible = not active or i == READOUT_CAMERA_ROW
 	if is_instance_valid(_zoom_readout_column):
 		_zoom_readout_column.visible = active
 

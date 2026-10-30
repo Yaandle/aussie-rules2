@@ -31,6 +31,11 @@ const PANEL_TEXT := BACKGROUND
 const POSITIVE := Color("#5B7A5E")
 const NEGATIVE := Color("#A3503F")
 
+## The NEXT GAME card's pixel exclamation yellow, also the fixture
+## carousel's "this round is next" tick and its season progress bar — one
+## marker colour for "where you are in the season".
+const MARKER := Color("#F5C518")
+
 const RADIUS := SoftBrutalist.RADIUS_SM
 
 

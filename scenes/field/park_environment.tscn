@@ -1,0 +1,14 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/field/oval_environment.gd" id="1_env"]
+[ext_resource type="PackedScene" path="res://assets/imported/park_ground.glb" id="2_ground"]
+[ext_resource type="PackedScene" path="res://assets/imported/park_fence.glb" id="3_fence"]
+[ext_resource type="PackedScene" path="res://assets/imported/park_layout.glb" id="4_layout"]
+
+[node name="ParkEnvironment" type="Node3D"]
+script = ExtResource("1_env")
+layout_scenes = Array[PackedScene]([ExtResource("4_layout")])
+
+[node name="ParkGround" parent="." instance=ExtResource("2_ground")]
+
+[node name="ParkFence" parent="." instance=ExtResource("3_fence")]

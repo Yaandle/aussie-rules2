@@ -3,7 +3,7 @@ extends Node
 ## Single source of truth for "which body responds to human input this
 ## tick" and "how many bodies does the human direct at once" — the
 ## foundational layer kicking/tackling input rework and camera targeting
-## both sit on top of (see docs/HANDOVER.md's control-mode entry).
+## both sit on top of (see HANDOVER.md (archived, see docs/LESSONS.md)'s control-mode entry).
 ##
 ## Before this, full_game.gd owned an ad-hoc `_controlled_index` and built
 ## HumanBrain/AIBrain instances inline inside `_switch_human_player()` —

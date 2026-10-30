@@ -13,15 +13,41 @@ extends CanvasLayer
 ## RETURN TO MENU clears GameState.career_active — the one place that
 ## actually happens (see GameState.gd's own header note on why it isn't
 ## cleared any earlier) — then goes back to the Dashboard, which by now
-## sees CareerProfile.games_played >= 1 and renders its locked state.
+## shows the next round (or SEASON COMPLETE) and the updated ladder.
+##
+## 2026-10-24 playtest ("still cannot see the stats page at end of career
+## or game"): the screen worked, but it closed on the first A/Enter/B with
+## no delay, so a button already being pressed at the siren skipped it,
+## and nothing could reopen it. Now:
+## * it reads CareerProfile.last_result, the persisted snapshot full_game.gd
+##   records at full time, so the Dashboard's VIEW STATS opens this same
+##   screen later;
+## * input is ignored for INPUT_GRACE seconds after it appears;
+## * layout per the playtest: your team left, the opposition right, each
+##   score underneath, a rule, top 3 goalkickers, a rule, top 3 disposals.
 
 const LEADERBOARD_SIZE := 3
-const CARD_WIDTH := 440.0
+const CARD_WIDTH := 520.0
+## Seconds after the screen appears before a key/button press can leave it.
+## Covers a press still in flight from the last seconds of play plus the
+## scene wipe (Tuning.CHARACTER_TRANSITION_TIME).
+const INPUT_GRACE := 1.0
+
+const DASHBOARD_SCENE := "res://scenes/ui/career_dashboard_screen.tscn"
+
+## Where RETURN TO MENU goes: the Dashboard after a match, or the season
+## stats page when its LAST MATCH opened this card (it sets this first).
+## Put back to the Dashboard on the way out, so the next full time can't
+## inherit it.
+static var return_scene := DASHBOARD_SCENE
 
 var _busy := false
+var _elapsed := 0.0
+var _result: Dictionary = {}
 
 
 func _ready() -> void:
+	_result = CareerProfile.last_result
 	var bg := ColorRect.new()
 	bg.color = CareerTheme.BACKGROUND
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -33,14 +59,18 @@ func _ready() -> void:
 	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(centre)
 
-	var card := Panel.new()
+	# PanelContainer, not Panel: a plain Panel doesn't grow to fit its
+	# children, so inside the CenterContainer the card got zero height, its
+	# tan backing never drew, and the dark PANEL_TEXT sat invisible on the
+	# dark page with the button pushed off-screen. That blank screen is
+	# what the playtest reported as "cannot see the stats page".
+	var card := PanelContainer.new()
 	card.custom_minimum_size = Vector2(CARD_WIDTH, 0.0)
 	card.add_theme_stylebox_override(&"panel", CareerTheme.panel_style())
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	centre.add_child(card)
 
 	var inner := MarginContainer.new()
-	inner.set_anchors_preset(Control.PRESET_FULL_RECT)
 	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for side in ["left", "right", "top", "bottom"]:
 		inner.add_theme_constant_override(StringName("margin_" + side), 28)
@@ -54,8 +84,19 @@ func _ready() -> void:
 	column.add_child(CareerTheme.label("FULL TIME", SoftBrutalist.SIZE_TITLE,
 		CareerTheme.PANEL_TEXT, SoftBrutalist.WEIGHT_HEAVY, 1))
 	column.add_child(_build_scoreline())
-	column.add_child(_build_leaderboard("TOP GOALKICKERS", MatchState.top_goalkickers(LEADERBOARD_SIZE)))
-	column.add_child(_build_leaderboard("TOP DISPOSALS", MatchState.top_disposals(LEADERBOARD_SIZE)))
+	# What the match earned (CareerProfile.record_result() notes it on the
+	# result); absent on a result from before upgrades existed. Only straight
+	# after the match: reopened from the stats page's LAST MATCH, the upgrades
+	# may be spent already, and "+5 UPGRADES" would read as five more
+	# (Career review finding 4).
+	var upgrades := int(_result.get("upgrades", 0))
+	if upgrades > 0 and return_scene == DASHBOARD_SCENE:
+		column.add_child(CareerTheme.label("+%d UPGRADES — spend them in Edit Player" % upgrades,
+			SoftBrutalist.SIZE_LABEL, CareerTheme.POSITIVE, SoftBrutalist.WEIGHT_BOLD, 1))
+	column.add_child(_build_rule())
+	column.add_child(_build_leaderboard("TOP GOALKICKERS", _entries("goals")))
+	column.add_child(_build_rule())
+	column.add_child(_build_leaderboard("TOP DISPOSALS", _entries("disposals")))
 	column.add_child(_build_return_button())
 
 	# No control legend existed on this screen at all (ui_audit.md
@@ -70,31 +111,54 @@ func _ready() -> void:
 
 func _build_scoreline() -> Control:
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override(&"separation", 24)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	var home := VBoxContainer.new()
-	home.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	home.add_child(CareerTheme.label(CareerProfile.team_name, SoftBrutalist.SIZE_CAPTION,
-		CareerTheme.PANEL_TEXT.lightened(0.2), SoftBrutalist.WEIGHT_BOLD, 1))
-	home.add_child(SoftBrutalist.numeric_label(MatchState.scoreline(Tuning.Team.HOME),
-		SoftBrutalist.SIZE_TITLE, CareerTheme.PANEL_TEXT))
-	row.add_child(home)
-
-	var away := VBoxContainer.new()
-	away.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var opponent_name := CareerProfile.fixtures[CareerProfile.games_played - 1] \
-		if CareerProfile.games_played - 1 < CareerProfile.fixtures.size() else "OPPONENT"
-	away.add_child(CareerTheme.label(opponent_name, SoftBrutalist.SIZE_CAPTION,
-		CareerTheme.PANEL_TEXT.lightened(0.2), SoftBrutalist.WEIGHT_BOLD, 1))
-	away.add_child(SoftBrutalist.numeric_label(MatchState.scoreline(Tuning.Team.AWAY),
-		SoftBrutalist.SIZE_TITLE, CareerTheme.PANEL_TEXT))
-	row.add_child(away)
-
+	row.add_child(_build_side(CareerProfile.team_name,
+		String(_result.get("home_score", "-")), HORIZONTAL_ALIGNMENT_LEFT))
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(spacer)
+	row.add_child(_build_side(String(_result.get("opponent", "OPPONENT")),
+		String(_result.get("away_score", "-")), HORIZONTAL_ALIGNMENT_RIGHT))
 	return row
 
 
-## `entries` is MatchState.top_goalkickers()/top_disposals()'s own
+## One team's name over its score, aligned to its own edge of the card.
+func _build_side(team: String, score: String, align: HorizontalAlignment) -> Control:
+	var side := VBoxContainer.new()
+	side.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var name_label := CareerTheme.label(team, SoftBrutalist.SIZE_LABEL,
+		CareerTheme.PANEL_TEXT, SoftBrutalist.WEIGHT_BOLD, 1)
+	name_label.horizontal_alignment = align
+	side.add_child(name_label)
+	var score_label := SoftBrutalist.numeric_label(score, SoftBrutalist.SIZE_TITLE,
+		CareerTheme.PANEL_TEXT)
+	score_label.horizontal_alignment = align
+	side.add_child(score_label)
+	return side
+
+
+## The line break between sections: a thin rule in the card's text ink.
+func _build_rule() -> Control:
+	var rule := ColorRect.new()
+	rule.color = Color(CareerTheme.PANEL_TEXT, 0.35)
+	rule.custom_minimum_size = Vector2(0.0, 2.0)
+	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return rule
+
+
+func _entries(key: String) -> Array[Dictionary]:
+	var entries: Array[Dictionary] = []
+	var raw: Variant = _result.get(key, [])
+	if raw is Array:
+		for entry: Variant in raw:
+			if entry is Dictionary:
+				entries.append(entry)
+	return entries
+
+
+## `entries` is the saved MatchState.top_goalkickers()/top_disposals()
 ## {name, value} list — empty for a goalless/disposal-less tally (a
 ## short headless match, or a side that genuinely never scored), shown
 ## as a single muted placeholder line rather than an empty-looking gap.
@@ -131,7 +195,8 @@ func _build_return_button() -> Control:
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	panel.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	panel.gui_input.connect(func(event: InputEvent) -> void:
-		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT \
+				and _input_ready():
 			_return_to_dashboard())
 	# Hover feedback — this was a static Panel with no state change at all
 	# before (ui_audit.md finding #3), only reachable via the global
@@ -153,8 +218,16 @@ func _build_return_button() -> Control:
 	return panel
 
 
+func _process(delta: float) -> void:
+	_elapsed += delta
+
+
+func _input_ready() -> bool:
+	return _elapsed >= INPUT_GRACE
+
+
 func _unhandled_input(event: InputEvent) -> void:
-	if _busy:
+	if _busy or not _input_ready():
 		return
 	if event.is_action_pressed(&"ui_accept") or event.is_action_pressed(&"pause") \
 			or event.is_action_pressed(&"decline"):
@@ -166,4 +239,6 @@ func _return_to_dashboard() -> void:
 		return
 	_busy = true
 	GameState.career_active = false
-	SceneWipe.change_scene("res://scenes/ui/career_dashboard_screen.tscn")
+	var destination := return_scene
+	return_scene = DASHBOARD_SCENE
+	SceneWipe.change_scene(destination)

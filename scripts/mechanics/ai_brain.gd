@@ -42,6 +42,12 @@ var lateral_bias := 0.0
 ## home_press_intensity() the same way lateral_bias is.
 var press_intensity := 1.0
 
+## Multiplies the loose-ball reaction delay (AI_LOOSE_BALL_REACTION_MIN/
+## MAX) — above 1 a slower read, below 1 a sharper one. Career difficulty
+## sets it on the away side (FullGame._configure_ai_brain, CareerProfile.
+## ai_reaction_scale()); 1.0 everywhere else, this file's original timing.
+var reaction_scale := 1.0
+
 ## Drill-only dial: multiplies the gait a carrying brain runs for goal at
 ## in _think_carrying (1.0 is this file's original un-tuned behaviour).
 ## Added for the old chase-from-behind tackling drill — a straight foot
@@ -63,6 +69,18 @@ var _tackle_wanted := false
 ## or Aggressive — proving the contest resolves correctly is this pass's
 ## job, not giving AI good judgement about which tier to pick.
 var _mark_safe_wanted := false
+
+## Tuning.AI_MARK_USE_CUE_MODEL, as a static so a dev check can flip it for
+## one run without editing the constant. Off: the Safe-only stub above,
+## unchanged. On: see _think_mark_tier.
+static var use_mark_cue_model := Tuning.AI_MARK_USE_CUE_MODEL
+var _mark_running_wanted := false
+var _mark_aggressive_wanted := false
+## Counts down a committed leap (ACTION_DURATION[MARK_AGGRESSIVE]) so the
+## AI neither taps again nor holds Safe mid-air — _update_aerial_contest
+## still runs during the leap, and a Safe hold there would take the ball
+## before the leap's own contact frame.
+var _leap_timer := 0.0
 
 ## Set by _think_carrying once carry_distance passes BOUNCE_INTERVAL *
 ## AI_BOUNCE_AT_FRACTION, so a carrying AI bounces before it can ever
@@ -112,6 +130,9 @@ func update(controller: PlayerController, delta: float) -> void:
 	_tackle_wanted = false
 	_kick_execute_pressed = false
 	_mark_safe_wanted = false
+	_mark_running_wanted = false
+	_mark_aggressive_wanted = false
+	_leap_timer = maxf(0.0, _leap_timer - delta)
 	_bounce_pressed = false
 	_decision_committed = false
 
@@ -143,7 +164,7 @@ func update(controller: PlayerController, delta: float) -> void:
 	var is_held := holder != null
 	if not is_held and _ball_was_held:
 		_reaction_timer = randf_range(
-			Tuning.AI_LOOSE_BALL_REACTION_MIN, Tuning.AI_LOOSE_BALL_REACTION_MAX)
+			Tuning.AI_LOOSE_BALL_REACTION_MIN, Tuning.AI_LOOSE_BALL_REACTION_MAX) * reaction_scale
 	_ball_was_held = is_held
 
 	# Hold the line — don't chase or support the ball — in either of two
@@ -242,6 +263,14 @@ func wants_tackle() -> bool:
 
 func wants_mark_safe() -> bool:
 	return _mark_safe_wanted
+
+
+func wants_mark_running() -> bool:
+	return _mark_running_wanted
+
+
+func wants_mark_aggressive() -> bool:
+	return _mark_aggressive_wanted
 
 
 func wants_bounce() -> bool:
@@ -357,9 +386,67 @@ func _think_loose_ball(controller: PlayerController, pos: Vector3, team: Tuning.
 		# just gated a little earlier by range so the AI commits from a
 		# sensible distance rather than at the very last instant.
 		if ball.is_airborne() and pos.distance_to(ball.global_position) <= Tuning.MARK_CONTEST_RANGE:
-			_mark_safe_wanted = true
+			if use_mark_cue_model:
+				_think_mark_tier(controller)
+			else:
+				_mark_safe_wanted = true
 	else:
 		_move_toward(home_position + _spacing_push(controller, pos), pos, 0.5)
+
+
+## Tuning.AI_MARK_USE_CUE_MODEL's marking. A fixed rule picks the tier and
+## the cue only says WHEN to press it — the catch itself is still the
+## controller's reach + timing test, same as for a human:
+##  - Contested (an opponent within MARK_CONTEST_RANGE of the ball) on a
+##    live kick flight: leap. Aggressive's wider reach gets there before a
+##    Safe hold does, which is that tier's whole point in a contest. Tapped
+##    the frame the MLP cue says press now (MarkCueModel.cue_press_now,
+##    press gate included); nothing is held while waiting, or Safe would
+##    take the ball first and the leap never happen. If the ball reaches
+##    Safe's reach without the cue having fired, fall back to Safe.
+##  - Moving faster than JOG_SPEED, and the ball's straight-line closest
+##    approach comes well inside Running's reach: take it in stride — hold
+##    nothing (an AI's Safe hold is unconditional and would take the ball
+##    at Safe's much wider reach first), tap Running once live_mark_prompt()
+##    says Running. No model here: Running's analytic timing beat the
+##    trained one on the probe grid (docs/ML_AI_AUDIT.md §9), and "in
+##    reach" IS its press-now. If the ball turns out to pass wide, Safe
+##    takes over once it's no longer closing.
+##  - Otherwise: Safe, exactly as with the flag off.
+## No learned "is this catchable" — a leap at an uncatchable ball is a real
+## whiff, the risk a human takes too. That's one reason this is off.
+func _think_mark_tier(controller: PlayerController) -> void:
+	if _leap_timer > 0.0:
+		return
+	var to_ball := ball.global_position - controller.catch_point_position()
+	var closing := ball.linear_velocity - controller.velocity
+	var contested := ball.is_kick_flight() and \
+		_nearest_opponent_distance_to(controller, ball.global_position) <= Tuning.MARK_CONTEST_RANGE
+	if contested:
+		if MarkCueModel.cue_press_now(controller, ball, Tuning.Action.MARK_AGGRESSIVE, MarkCueModel.CueSource.MLP):
+			_mark_aggressive_wanted = true
+			_leap_timer = Tuning.ACTION_DURATION[Tuning.Action.MARK_AGGRESSIVE]
+			return
+		if to_ball.length() > Tuning.MARK_CATCH_RADIUS * Tuning.MARK_SAFE_REACH_SCALE + Tuning.MARK_ASSIST_RADIUS_BONUS:
+			return
+	elif Vector2(controller.velocity.x, controller.velocity.z).length() > Tuning.JOG_SPEED \
+			and to_ball.dot(closing) < 0.0 \
+			and _closest_approach(to_ball, closing) <= Tuning.AI_MARK_RUNNING_TAKE_FRACTION \
+				* (Tuning.MARK_CATCH_RADIUS * Tuning.MARK_RUNNING_REACH_SCALE + Tuning.MARK_ASSIST_RADIUS_BONUS):
+		_mark_running_wanted = controller.live_mark_prompt(ball) == Tuning.Action.MARK_RUNNING
+		return
+	_mark_safe_wanted = true
+
+
+## Closest distance between the ball and the catch point if both carried on
+## at their current relative velocity — straight lines, no gravity: a
+## tier-choice heuristic, not a resolution test.
+static func _closest_approach(to_ball: Vector3, closing: Vector3) -> float:
+	var speed_sq := closing.length_squared()
+	if speed_sq < 0.0001:
+		return to_ball.length()
+	var t := maxf(0.0, -to_ball.dot(closing) / speed_sq)
+	return (to_ball + closing * t).length()
 
 
 func _think_support(controller: PlayerController, pos: Vector3) -> void:

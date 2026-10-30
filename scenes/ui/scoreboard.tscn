@@ -4,12 +4,3 @@
 
 [node name="Scoreboard" type="CanvasLayer"]
 script = ExtResource("1_scoreboard")
-
-[node name="Panel" type="Panel" parent="."]
-anchor_left = 0.5
-anchor_right = 0.5
-offset_left = -230.0
-offset_top = 10.0
-offset_right = 230.0
-offset_bottom = 58.0
-grow_horizontal = 2

@@ -1,7 +1,7 @@
 class_name RemapScreen
 extends CanvasLayer
 
-## Keyboard control-remapping screen (docs/FEATURE_AUDIT.md's control-
+## Keyboard control-remapping screen (FEATURE_AUDIT.md (archived)'s control-
 ## remapping item). Every action already supports keyboard+gamepad+mouse
 ## through the InputMap (project.godot's [input] section) — this is the
 ## first screen that actually lets a player change one of those bindings

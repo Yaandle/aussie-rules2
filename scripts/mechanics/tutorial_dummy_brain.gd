@@ -33,7 +33,13 @@ func wish_direction(controller: PlayerController) -> Vector3:
 	var to_target := target.global_position - controller.global_position
 	to_target.y = 0.0
 	var dist := to_target.length()
-	if dist <= stop_distance or dist < 0.001:
+	# Ease off early enough to actually stop there: from the jog, braking
+	# alone carries the body ~1.5 m, which used to slide it straight into
+	# contact and turn the dive-in step into a standing tackle.
+	var stop_at := stop_distance
+	if stop_distance > 0.0:
+		stop_at += controller.speed() * controller.speed() / (2.0 * Tuning.BRAKING)
+	if dist <= stop_at or dist < 0.001:
 		return Vector3.ZERO
 	return to_target / dist
 

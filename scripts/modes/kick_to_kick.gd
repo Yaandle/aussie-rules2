@@ -15,7 +15,7 @@ extends Node3D
 ## rid of the ball) — sharing one CoachKind-parameterised prompt/dialogue/
 ## challenge state machine rather than one copy per coach. kick_to_kick
 ## only for now — wiring any of this into Full Game is later work.
-## See docs/HANDOVER.md for the full writeup, including which pieces here
+## See HANDOVER.md (archived, see docs/LESSONS.md) for the full writeup, including which pieces here
 ## are rough placeholders standing in for UI this agent doesn't own.
 
 const BALL_RESET_AHEAD := 3.0
@@ -170,7 +170,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 ## Esc used to hard-cut straight to the main menu — PauseScreen already
 ## existed fully built and simply wasn't wired to anything (see
-## docs/FEATURE_AUDIT.md). Same paused-overlay shape full_game.gd now
+## FEATURE_AUDIT.md (archived)). Same paused-overlay shape full_game.gd now
 ## uses; the one difference here is the mouse capture this scene sets in
 ## _ready(), which has to be released while the (keyboard/gamepad-only)
 ## pause menu is up and re-captured on resume.
@@ -208,10 +208,15 @@ func _physics_process(_delta: float) -> void:
 	# TackleTutorial.rep_active() is false while a step card is up or during
 	# the between-steps beat, so the dummy holds still until the player
 	# dismisses the card.
+	# A ragdolled rival also stays live until it's back on its feet: the
+	# tackle that clears a step ends the rep on the same frame, and freezing
+	# it then left its ragdoll parked mid-build — the carrier stood there
+	# untackled while only the tackler fell.
 	if is_instance_valid(_rival):
 		var rival_active := _coach_state == CoachState.NONE \
 			or (_coach_state == CoachState.CHALLENGE and _active_coach == CoachKind.TACKLING \
-				and is_instance_valid(_tackle_tutorial) and _tackle_tutorial.rep_active())
+				and is_instance_valid(_tackle_tutorial) and _tackle_tutorial.rep_active()) \
+			or _rival.is_ragdolled()
 		_rival.set_physics_process(rival_active)
 
 

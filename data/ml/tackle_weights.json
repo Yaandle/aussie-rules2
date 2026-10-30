@@ -1,0 +1,8 @@
+{
+	"bias": -5.6,
+	"inputs": "closing speed / squareness / tackler-to-carrier mass ratio, each 0-1 (TackleBalance)",
+	"source": "GA tab, default params (seed 1), retrained 2026-10-25 with weight ratio as the third input",
+	"w_angle": 3.36908268928528,
+	"w_speed": 4.49072456359863,
+	"w_stamina": 3.3607536428608
+}
