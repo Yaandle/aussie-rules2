@@ -1444,29 +1444,47 @@ func _try_tackle() -> void:
 		_stun_timer = maxf(_stun_timer, Tuning.TACKLE_SLIDE_MISS_STUN_DURATION)
 
 
-## A Slide that holds, both sides of it. A human's hard enough to pass
-## Tuning.TACKLE_SLIDE_KNOCKDOWN_B knocks the target over rather than
+## A Slide that holds, both sides of it. A human's that wins the collision
+## (Tuning's "Who wins the collision": TACKLE_SLIDE_DRIVE_MIN) hard enough to
+## pass Tuning.TACKLE_SLIDE_KNOCKDOWN_B knocks the target over rather than
 ## holding them up: the tackler slings them down on their feet
 ## (Action.TACKLE_SLING, facing the hit) and the target goes down the held
 ## Lunge's ragdoll path, thrown the way the swing goes (_sling_impact).
+## One that doesn't win it — head-on into a carrier with as much momentum,
+## or more — holds them up with both on their feet, the carrier absorbing
+## the hit on the ragdoll ("stand", _hold_up). Otherwise the hold-up clips.
 ## `ruling` false is a tackle off the ball (_commit_foul): the same hit,
 ## minus the ball and the holding-the-ball call (see _get_tackled).
 func _slide_connect(target: PlayerController, impact: Dictionary, ruling: bool) -> void:
-	if _brain is HumanBrain and float(impact.b) >= Tuning.TACKLE_SLIDE_KNOCKDOWN_B:
+	var won := float(impact.get("drive", INF)) >= Tuning.TACKLE_SLIDE_DRIVE_MIN
+	if _brain is HumanBrain and won and float(impact.b) >= Tuning.TACKLE_SLIDE_KNOCKDOWN_B:
 		last_tackle.knocked_down = true
+		last_tackle.outcome = &"sling"
 		_slide_dive_timer = 0.0
 		target._get_tackled(self, false, _sling_impact(impact, target), ruling)
 		_fall_toward(impact.direction)
 		_begin(Tuning.Action.TACKLE_SLING)
 	else:
-		target._get_tackled(self, true, {}, ruling)
-		# Never blocked here: both callers already require _action == NONE.
-		_begin(Tuning.Action.TACKLE_GRAB)
-		# Both sides of the same wrestle, started on the same frame.
-		_begin_tackle_hold(target, true)
-		target._begin_tackle_hold(self, false)
+		last_tackle.outcome = &"hold" if won else &"stand"
+		# An AI's tackle never ragdolls anyone (Tuning's "Active ragdoll
+		# tackles"): its stand is the hold-up clip.
+		_hold_up(target, impact if not won and _brain is HumanBrain else {}, ruling)
 	if ruling:
 		tackle_committed.emit(true)
+
+
+## A tackle that holds the carrier up on their feet: the tackler hangs on
+## (TACKLE_GRAB) and the carrier is held, the ball at their feet and the
+## holding-the-ball call or a ball-up to follow (_get_tackled). With a
+## `stand_impact` the carrier absorbs the hit on the active ragdoll instead
+## of the TACKLE_HELD clip (_stand_ragdoll).
+func _hold_up(target: PlayerController, stand_impact: Dictionary, ruling: bool) -> void:
+	target._get_tackled(self, true, stand_impact, ruling)
+	# Never blocked here: every caller already requires _action == NONE.
+	_begin(Tuning.Action.TACKLE_GRAB)
+	# Both sides of the same wrestle, started on the same frame.
+	_begin_tackle_hold(target, true)
+	target._begin_tackle_hold(self, false)
 
 
 ## The push for a sling (Tuning's "Sling"): the hit's push without the
@@ -1493,16 +1511,39 @@ func _sling_impact(impact: Dictionary, target: PlayerController) -> Dictionary:
 	return out
 
 
-## A Lunge that holds, both sides of it: the target down (ragdoll on a
-## 6thbuild rig), and the tackler down with them, arms wrapped round their
-## waist (Tuning's "Tackle wrap", TackleWrap), going the way they were
-## running. It used to take the tackler down only on a big hit (b past
-## TACKLE_RAGDOLL_TACKLER_MIN_B); playtest 2026-10-27 wanted every held X to
-## hug and fall together. Their strength is capped low so their balance
-## can't keep them up. A target that can't ragdoll (procedural rig) still
-## gets the takedown beat on the tackler's feet. `ruling` as
-## _slide_connect's.
+## A Lunge that holds, both sides of it, one of three ways (Tuning's "Who
+## wins the collision"):
+##  - stand: the carrier won the collision (drive under
+##    TACKLE_LUNGE_DRIVE_MIN — heavier, or running harder into the tackle
+##    than the tackler drives in): they keep their feet and are held up
+##    (_hold_up), the tackler hanging on.
+##  - fall: the tackler only just won it (drive under
+##    TACKLE_LUNGE_WRAP_DRIVE): the target loses balance and goes down
+##    (ragdoll on a 6thbuild rig); the tackler stays up with the takedown
+##    beat.
+##  - wrap: the tackler drove through: the target down, and the tackler down with them,
+##    arms wrapped round their waist (Tuning's "Tackle wrap", TackleWrap),
+##    going the way they were running. Playtest 2026-10-27 wanted every
+##    held X to hug and fall together; 2026-10-30 wanted it to depend on
+##    the hit. The tackler's strength is capped low so their balance can't
+##    keep them up. A target that can't ragdoll (procedural rig) still gets
+##    the takedown beat on the tackler's feet.
+## `ruling` as _slide_connect's.
 func _lunge_connect(target: PlayerController, impact: Dictionary, ruling: bool) -> void:
+	if float(impact.get("drive", INF)) < Tuning.TACKLE_LUNGE_DRIVE_MIN:
+		last_tackle.outcome = &"stand"
+		_hold_up(target, impact, ruling)
+		if ruling:
+			tackle_committed.emit(false)
+		return
+	if float(impact.get("drive", INF)) < Tuning.TACKLE_LUNGE_WRAP_DRIVE:
+		last_tackle.outcome = &"fall"
+		target._get_tackled(self, false, impact, ruling)
+		_begin(Tuning.Action.TACKLE_TAKEDOWN)
+		if ruling:
+			tackle_committed.emit(false)
+		return
+	last_tackle.outcome = &"wrap"
 	target._get_tackled(self, false, impact, ruling)
 	var tackler_b: float = impact.tackler_b
 	if not target.is_ragdolled() or not _begin_ragdoll({
@@ -1703,6 +1744,11 @@ func _land_lunge(target: PlayerController) -> void:
 ## the body reacts exactly the same — the hit is real — but there's no ball
 ## to spill and no holding-the-ball/ball-up call; the free kick or 50 is
 ## FullGame's to award.
+##
+## `is_slide` really means "held up": since 2026-10-30 a Lunge the carrier
+## won the collision holds them up too (_lunge_connect's "stand"), and a
+## held-up carrier given an `impact` absorbs the hit on the ragdoll on their
+## feet (_stand_ragdoll) instead of playing TACKLE_HELD.
 func _get_tackled(by: PlayerController, is_slide: bool, impact := {}, ruling := true) -> void:
 	var ball := _carried_ball if ruling else null
 	# Captured before drop_ball() resets anything, though drop_ball() itself
@@ -1716,7 +1762,8 @@ func _get_tackled(by: PlayerController, is_slide: bool, impact := {}, ruling := 
 	if is_slide:
 		_stun_timer = maxf(_stun_timer, Tuning.TACKLE_HELD_STUN_DURATION)
 		_action = Tuning.Action.NONE
-		_begin(Tuning.Action.TACKLE_HELD)
+		if impact.is_empty() or not _stand_ragdoll(by, impact):
+			_begin(Tuning.Action.TACKLE_HELD)
 	else:
 		var ragdolled := not impact.is_empty() and _begin_ragdoll({
 			"strength": (1.0 - float(impact.b)) * float(impact.get("strength_scale", 1.0)),
@@ -1738,6 +1785,33 @@ func _get_tackled(by: PlayerController, is_slide: bool, impact := {}, ruling := 
 		holding_the_ball_called.emit(by)
 	else:
 		field_ball_up_called.emit(by, self)
+
+
+## A held-up carrier who won the collision (Tuning's "Who wins the
+## collision", "stand"): on their feet through motor control. Their run
+## along the hit line becomes the pair's common velocity (`drive`, the two
+## having met and held on) and the hit staggers them back a step at the
+## chest; strong motors, most of their weight held up and the balance
+## assist reading tilt against the feet keep them standing, and the ragdoll
+## hands back to animation after TACKLE_STAND_TIME. Returns false when this
+## rig can't ragdoll, so the caller plays TACKLE_HELD.
+func _stand_ragdoll(by: PlayerController, impact: Dictionary) -> bool:
+	var line: Vector3 = impact.direction
+	var run := Vector3(velocity.x, 0.0, velocity.z)
+	return _begin_ragdoll({
+		"strength": Tuning.TACKLE_STAND_STRENGTH,
+		"support": Tuning.TACKLE_STAND_SUPPORT,
+		"tilt_from_feet": true,
+		"impulse": (line + Vector3.DOWN * Tuning.TACKLE_RAGDOLL_DRAG_DOWN).normalized()
+			* body_mass * Tuning.TACKLE_STAND_STAGGER,
+		"bone": &"Chest",
+		"contact_offset": impact.get("contact_offset", Vector3.ZERO),
+		"body_share": Tuning.TACKLE_STAND_BODY_SHARE,
+		"partner": by,
+		"velocity": run - line * run.dot(line) + line * float(impact.get("drive", 0.0)),
+		"mass_kg": body_mass,
+		"max_time": Tuning.TACKLE_STAND_TIME,
+	})
 
 
 ## Called on the carrier when a tackle lands but the model says it breaks

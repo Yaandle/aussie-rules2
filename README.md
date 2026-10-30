@@ -118,9 +118,9 @@ There are three ways to take a mark. Each trades reach against commitment.
 
 | Tackle | Keyboard | Pad | What it does |
 |---|---|---|---|
-| **Wrap (Lunge)** | `Q` (tap) | X (tap) | Dashes at a carrier within 2.2 m. If it holds, the carrier ragdolls and the tackler wraps their arms round the waist. Both go down together. |
-| **Sling (Slide)** | `E` (hold) | B (hold) | Steps in, or dives at a carrier just out of reach. A soft hit holds them up with both players standing. A hard hit slings them to the ground while the tackler stays up. |
-| **Hit stick (Bump)** | `L` + arrow tap | LB + right-stick flick | Dashes in the flick's direction, with a little homing. A clean hit on a carrier running onto it spills the ball, throws the carrier and sends the bumper diving after them. A whiff puts the bumper on the turf. |
+| **Wrap (Lunge)** | `Q` (tap) | X (tap) | Dashes at a carrier within 2.2 m. If it holds and the tackler drives through (side-on, from behind, or heavier), the tackler wraps their arms round the waist and both go down. An even head-on hit knocks the carrier over on their own. A heavier carrier running into it keeps their feet and is held up. |
+| **Sling (Slide)** | `E` (hold) | B (hold) | Steps in, or dives at a carrier just out of reach. A soft hit holds them up with both players standing. A hard hit slings them to the ground while the tackler stays up. Head-on with neither winning, both stay on their feet, wrapped up and held. |
+| **Hit stick (Bump)** | `L` + arrow tap | LB + right-stick flick | Dashes in the flick's direction, with a little homing. A clean hit on a carrier running onto it spills the ball, throws the carrier and sends the bumper diving after them. A whiff sends the bumper stumbling. |
 
 How a tackle is decided:
 
@@ -135,10 +135,16 @@ How a tackle is decided:
    The tackle breaks if that's past a fixed threshold (wrap 0.5, sling
    0.95). It's evaluated, never rolled: the same hit gives the same result
    every time.
-3. **How do they fall?** The same `b` sets how hard the ragdoll's muscles
-   fight to stay up (`1 − b`). The push goes along the hit line. Where the
-   body ends up is where the player is.
-4. **What's the ruling?** If the carrier had prior opportunity (0.5 s), it's
+3. **Who wins the collision?** The pair's common velocity along the hit
+   line, weighted by mass, says whether the tackler drives the carrier
+   back, neither moves the other, or the carrier runs on into the tackle.
+   That picks the outcome: held up standing, knocked over alone, slung, or
+   wrapped and taken down together.
+4. **How do they fall?** `b` sets how hard the ragdoll's muscles fight to
+   stay up (`1 − b`). The push goes along the hit line. Where the body ends
+   up is where the player is. A carrier held up standing absorbs the hit on
+   the ragdoll with strong muscles and keeps their feet.
+5. **What's the ruling?** If the carrier had prior opportunity (0.5 s), it's
    holding the ball and a free kick. If not, it's a ball-up. Tackling or
    bumping a player without the ball is a free kick to them. Hitting a player
    protected by a mark or free kick gives away a 50 m penalty.

@@ -1092,6 +1092,46 @@ const TACKLE_SLIDE_SLING_FORWARD := 0.6
 const TACKLE_SLIDE_SLING_SIDE := 0.8
 const TACKLE_SLIDE_SLING_PUSH_SCALE := 1.0
 const TACKLE_SLIDE_SLING_STRENGTH_SCALE := 0.6
+# Who wins the collision (playtest 2026-10-30: outcomes from approach
+# angle, speed and both players' mass; "a head-on B where neither side
+# wins: both wrapped up, on their feet, held, a ball-up"; "an X where the
+# carrier is heavier may leave them standing"). A tackle that lands and
+# holds now ends one of five ways, all deterministic from the contact:
+#   stand — the carrier absorbs it and keeps their feet: the tackler didn't
+#           win the collision (TackleBalance's "drive", the pair's common
+#           velocity along the hit, below the tackle's DRIVE_MIN). The
+#           tackler hangs on (TACKLE_GRAB); the carrier staggers on the
+#           active ragdoll at STAND_STRENGTH, carrying STAND_SUPPORT of
+#           their weight, and is back on their feet after STAND_TIME. Held
+#           up: the ball drops at their feet and it's holding the ball or a
+#           ball-up. An AI's Slide keeps the TACKLE_HELD clip.
+#   hold  — B, the tackler wins but softly (b under SLIDE_KNOCKDOWN_B):
+#           the TACKLE_GRAB / TACKLE_HELD hold-up clips, as before.
+#   sling — B, the tackler wins hard: the carrier thrown, as before.
+#   fall  — X, the tackler only just wins it (drive under LUNGE_WRAP_DRIVE):
+#           the carrier loses balance and goes down alone (ragdoll); the
+#           tackler stays up (TACKLE_TAKEDOWN).
+#   wrap  — X, the tackler drives through (drive at or over
+#           LUNGE_WRAP_DRIVE: side-on, from behind, or much heavier): both
+#           down, the tackler's arms round the carrier (TackleWrap), as
+#           before.
+# Drive is mass-weighted, so mass decides a head-on: an 80 kg tackler
+# meeting an 80 kg carrier at the same pace is 0 (a B there stands; an X
+# knocks them over, its DRIVE_MIN being below 0), one meeting a 100 kg
+# carrier is -0.9 m/s (an X stands too), a 90 kg tackler into a 65 kg
+# carrier +1.4 (a fall). Side-on the tackler's whole run goes into the
+# carrier's side (+4 m/s at a sprint), from behind both runs do: those
+# wrap. How hard the hit is (b, the tackle model) still decides whether it
+# holds and how much muscle the falling body keeps. Unplaytested feel
+# guesses.
+const TACKLE_SLIDE_DRIVE_MIN := 1.0        # m/s
+const TACKLE_LUNGE_DRIVE_MIN := -0.5       # m/s
+const TACKLE_LUNGE_WRAP_DRIVE := 2.0       # m/s
+const TACKLE_STAND_STRENGTH := 0.75
+const TACKLE_STAND_SUPPORT := 0.8
+const TACKLE_STAND_STAGGER := 1.2          # m/s back along the hit, at the chest
+const TACKLE_STAND_BODY_SHARE := 0.3
+const TACKLE_STAND_TIME := 0.6             # s
 # Hit stick (a clean Bump). "The tackling animation for hit stick can be
 # more emphasized (player tackling should sort of dive forward into the
 # player and send the tackled player in the direction of the momentum)."

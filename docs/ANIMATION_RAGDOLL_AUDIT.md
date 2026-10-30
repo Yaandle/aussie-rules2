@@ -38,6 +38,17 @@ chest, and a hand-back to locomotion after 0.5 s while still up
 (`PlayerController._bump_miss_stumble`, Tuning's "Bump miss"). The
 procedural rig and any AI keep the canned fall.
 
+Since 2026-10-30 a held tackle's outcome also depends on who wins the
+collision (`TackleBalance`'s `drive`, the pair's mass-weighted common
+velocity along the hit; Tuning's "Who wins the collision"). X: the carrier
+out-muscling the tackler keeps their feet on the ragdoll and is held up
+("stand"); an even collision knocks them over alone ("fall", tackler up);
+a tackler driving through wraps and takes them down ("wrap", as before).
+B: neither winning, or the carrier winning, holds them up with both
+standing ("stand"); otherwise the hold-up clips or the sling, as before.
+The stand reuses the stumble's strong-motor ragdoll. `tackle_sweep.tscn`
+prints each case's outcome, drive and b.
+
 ## Findings and fixes
 
 ### 1. Ragdoll joints were centred on a random frame of animation (bug, fixed)
