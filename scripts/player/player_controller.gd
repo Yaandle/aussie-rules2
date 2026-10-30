@@ -206,6 +206,10 @@ var _frozen_timer := 0.0
 ## (_apply_retreat_freeze) passes no spot and just stops where they are.
 ## Cleared alongside _frozen_timer.
 var _frozen_anchor := Vector3.INF
+## Which way the man on the mark faces once he's on it: up the line of the
+## mark, at the kicker (_apply_stand_the_mark). ZERO keeps whatever heading
+## he jogged in on. Cleared with _frozen_anchor.
+var _frozen_facing := Vector3.ZERO
 
 ## Every opponent this player is currently obliging to hold position, for
 ## whatever reason — the one direct opponent standing the mark exactly
@@ -533,6 +537,7 @@ func _physics_process(delta: float) -> void:
 	_frozen_timer = _tick_down(_frozen_timer, delta)
 	if _frozen_timer <= 0.0 and _frozen_anchor.is_finite():
 		_frozen_anchor = Vector3.INF
+		_frozen_facing = Vector3.ZERO
 	_spoil_cooldown = _tick_down(_spoil_cooldown, delta)
 	_bump_cooldown = _tick_down(_bump_cooldown, delta)
 	_slide_dive_cooldown = _tick_down(_slide_dive_cooldown, delta)
@@ -793,6 +798,8 @@ func _update_locomotion(delta: float) -> void:
 				velocity.z = _heading.z * _speed
 				return
 			global_position = Vector3(_frozen_anchor.x, global_position.y, _frozen_anchor.z)
+			if _frozen_facing != Vector3.ZERO:
+				_heading = _frozen_facing
 		_speed = 0.0
 		velocity.x = 0.0
 		velocity.z = 0.0
@@ -1083,10 +1090,11 @@ func is_standing_the_mark() -> bool:
 ## `hold_at` is a real point (the mark itself), the player is also slid
 ## onto it and held there; the default Vector3.INF means "hold your current
 ## ground", which is what the 10m retreat crowd gets.
-func stand_the_mark(duration: float, hold_at := Vector3.INF) -> void:
+func stand_the_mark(duration: float, hold_at := Vector3.INF, facing := Vector3.ZERO) -> void:
 	_frozen_timer = maxf(_frozen_timer, duration)
 	if hold_at.is_finite():
 		_frozen_anchor = hold_at
+		_frozen_facing = facing
 
 
 ## Releases early — called on every entry in _frozen_opponents the instant
@@ -1097,6 +1105,7 @@ func stand_the_mark(duration: float, hold_at := Vector3.INF) -> void:
 func release_stand_the_mark() -> void:
 	_frozen_timer = 0.0
 	_frozen_anchor = Vector3.INF
+	_frozen_facing = Vector3.ZERO
 
 
 ## Public entry point onto the same shared attach/possession/signal path
@@ -2308,14 +2317,15 @@ func _apply_stand_the_mark() -> void:
 		return
 	# The mark itself is where this player is standing right now — the catch
 	# spot, captured before _begin_mark_retreat() walks them back off it.
-	# Put the man on the mark a metre goal-side of that (this player's
-	# attacking direction) so the two capsules don't overlap as the taker
-	# starts their retreat from the same point.
-	var attack_x := 1.0 if team == Tuning.Team.HOME else -1.0
-	var mark_spot := Vector3(
-		global_position.x + attack_x * Tuning.MARK_STAND_GOAL_SIDE_OFFSET,
-		0.0, global_position.z)
-	opponent.stand_the_mark(Tuning.MARK_HOLD_DURATION, mark_spot)
+	# Put the man on the mark a metre goal-side of that, on the line of the
+	# mark (line_of_the_mark), so the two capsules don't overlap as the
+	# taker starts their retreat from the same point, and he stands between
+	# the kicker and the goal the way a real one does, not straight down
+	# the ground from them when the mark is in a pocket.
+	var line := line_of_the_mark(global_position)
+	var mark_spot := global_position - line * Tuning.MARK_STAND_GOAL_SIDE_OFFSET
+	mark_spot.y = 0.0
+	opponent.stand_the_mark(Tuning.MARK_HOLD_DURATION, mark_spot, line)
 	if opponent not in _frozen_opponents:
 		_frozen_opponents.append(opponent)
 
@@ -2683,24 +2693,41 @@ func _finish_mark_catch(ball: Ball, tier: Tuning.Action) -> void:
 	mark_caught.emit(tier, legal_mark)
 
 
-## Walking back off the mark (Tuning.MARK_RETREAT_DISTANCE). "Back" is the
-## team's own defensive direction — away from the goal being attacked —
-## which is what backwards means from a kicker's point of view regardless
-## of which way they happened to be facing when they took the grab. HOME
-## attacks +X (Tuning's axis convention), so HOME retreats toward -X.
+## Walking back off the mark (Tuning.MARK_RETREAT_DISTANCE), along the
+## line of the mark: away from the centre of the goal being attacked,
+## through the mark (line_of_the_mark). That's what backwards means from a
+## kicker's point of view regardless of which way they happened to be
+## facing when they took the grab. It used to be straight down the X axis,
+## which in a pocket walked the kicker off the line and left the man on the
+## mark beside them, not in front (playtest 2026-10-30).
 ##
 ## Only ever started from a legal mark: a scrambled catch in general play
 ## isn't a mark and has no mark to walk off.
 func _begin_mark_retreat() -> void:
-	var attack_x := 1.0 if team == Tuning.Team.HOME else -1.0
-	_mark_retreat_dir = Vector3(-attack_x, 0.0, 0.0)
+	_mark_retreat_dir = line_of_the_mark(global_position)
 	_mark_retreat_remaining = Tuning.MARK_RETREAT_DISTANCE
 	# Face the goal being attacked while walking back off it — see this
 	# var's own comment just above. _update_facing() turns the body toward
 	# _heading every frame regardless of which branch of _update_locomotion
 	# is actually driving the feet, so this is the one line that needs to
 	# change for the retreat to turn and look at goal.
-	_heading = Vector3(attack_x, 0.0, 0.0)
+	_heading = -_mark_retreat_dir
+
+
+## The line of the mark at `mark`: the flat unit direction from the centre
+## of the goal this player attacks, through the mark and on past it — the
+## way the kicker walks back, and (negated) the way they face to kick. The
+## man on the mark stands on it goal-side (_apply_stand_the_mark). A mark
+## on the goal line's centre has no line; it falls back to straight up the
+## ground. Public for a future goal-kicking mode, which lines up the same
+## way.
+func line_of_the_mark(mark: Vector3) -> Vector3:
+	var attack_x := 1.0 if team == Tuning.Team.HOME else -1.0
+	var back := mark - Vector3(attack_x * Tuning.FIELD_HALF_LENGTH, mark.y, 0.0)
+	back.y = 0.0
+	if back.length_squared() < 0.01:
+		return Vector3(-attack_x, 0.0, 0.0)
+	return back.normalized()
 
 
 ## Public entry to the walk-back, for the free-kick / turnover restarts that
