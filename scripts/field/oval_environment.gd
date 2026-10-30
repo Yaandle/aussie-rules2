@@ -83,9 +83,24 @@ const BROADCAST_CLEAR_MAX_X := 105.0
 var _broadcast_cleared := false
 
 
+## Whether the playing surface keeps the mown stripes baked into the
+## Blender grass (Turf_Oval's two materials). Off for both ovals: they're
+## parks, and a park isn't mown in bands (playtest 2026-10-30: "no lines, a
+## bit of texture"), so at runtime the turf gets park_turf.gdshader,
+## coloured from those same two materials. A stadium's environment scene
+## turns this on and keeps its pattern.
+@export var turf_stripes := false
+const TURF_NODE := &"Turf_Oval"
+const PARK_TURF_SHADER := preload("res://assets/shaders/park_turf.gdshader")
+
+
 func _ready() -> void:
 	if not Engine.is_editor_hint():
 		add_to_group(GROUP)
+		# Runtime only: an override set on a node inside an instanced glb
+		# would be saved into the .tscn if the scene were saved in the editor.
+		if not turf_stripes:
+			_unstripe_turf()
 	var placements: Array = [eucalyptus, basic_trees, simple_trees_a, simple_trees_b]
 	for i in mini(tree_scenes.size(), placements.size()):
 		if tree_scenes[i] != null and not (placements[i] as Array).is_empty():
@@ -93,6 +108,26 @@ func _ready() -> void:
 	for i in layout_scenes.size():
 		if layout_scenes[i] != null:
 			_build_layout(layout_scenes[i], "Layout%d" % i)
+
+
+## See turf_stripes. The darker of the stripe pair is turf_dark, whichever
+## surface it is.
+func _unstripe_turf() -> void:
+	var turf := find_child(String(TURF_NODE), true, false) as MeshInstance3D
+	if turf == null or turf.mesh == null:
+		return
+	var colours: Array[Color] = []
+	for i in turf.mesh.get_surface_count():
+		var material := turf.mesh.surface_get_material(i) as BaseMaterial3D
+		if material != null:
+			colours.append(material.albedo_color)
+	var shader := ShaderMaterial.new()
+	shader.shader = PARK_TURF_SHADER
+	if colours.size() >= 2:
+		colours.sort_custom(func(a: Color, b: Color) -> bool: return a.get_luminance() < b.get_luminance())
+		shader.set_shader_parameter(&"turf_dark", colours[0])
+		shader.set_shader_parameter(&"turf_light", colours[colours.size() - 1])
+	turf.material_override = shader
 
 
 ## See "Broadcast side". Rebuilds each MultiMesh without the instances in

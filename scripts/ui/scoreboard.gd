@@ -5,7 +5,11 @@ extends CanvasLayer
 ##
 ## Distinct from DebugHud, which is a toggleable diagnostic overlay for
 ## judging feel — this is what a player is actually meant to read while
-## playing, so unlike DebugHud it has no visibility toggle.
+## playing. Since the HUD options (playtest 2026-10-30) Settings decides
+## whether it shows at all (`scoreboard`, off by default), which face it
+## shows (`scoreboard_style`: this card, or 1.4.0's seven-segment board
+## top-centre), and whether flash() banners show (`umpire_banner`, on by
+## default). All three apply live through Settings.hud_changed.
 ##
 ## A small Soft Brutalist card in the bottom-left corner (playtest
 ## 2026-10-30: back to the card look, but keep the ground board's format,
@@ -43,6 +47,12 @@ const BANNER_FONT_SIZE := SoftBrutalist.SIZE_HEADING
 const EDGE_MARGIN := 16.0
 ## The banner card's distance from the top edge.
 const BANNER_TOP := 14.0
+## The seven-segment style, as 1.4.0 had it: digit height at the 1280x720
+## base (ScoreboardFace sizes everything else off it), its distance from
+## the top, and the gap down to a banner shown under it.
+const FACE_DIGIT_HEIGHT := 27.0
+const FACE_TOP := 10.0
+const FACE_BANNER_GAP := 8.0
 ## A floor under the team-name column: HOME and AWAY are short, a Career
 ## club's nickname can be nine letters, and either way the digits should
 ## start in the same place every match.
@@ -60,6 +70,8 @@ var _away_total: Label
 var _quarter_label: Label
 var _clock_label: Label
 
+var _face: ScoreboardFace
+
 var _banner_panel: Panel
 var _banner_content: Control
 var _banner: Label
@@ -71,7 +83,10 @@ var _banner_timer := 0.0
 
 func _ready() -> void:
 	_build_card()
+	_build_face()
 	_build_banner()
+	Settings.hud_changed.connect(func(_key: StringName) -> void: _apply_hud())
+	_apply_hud()
 	MatchState.score_changed.connect(func(_team: Tuning.Team) -> void: _refresh())
 	MatchState.clock_changed.connect(func(_seconds: float) -> void: _refresh())
 	MatchState.quarter_changed.connect(func(_quarter: int) -> void: _refresh())
@@ -86,14 +101,37 @@ func _process(delta: float) -> void:
 		_banner_panel.visible = false
 
 
-## Shows `text` in the banner card for `duration` seconds.
+## Which face shows, per Settings. The banner moves under the seven-segment
+## board when that's up, so the two never overlap.
+func _apply_hud() -> void:
+	var shown := Settings.hud_on(&"scoreboard")
+	var seven_seg := Settings.hud_index(&"scoreboard_style") == 1
+	_card.visible = shown and not seven_seg
+	_face.visible = shown and seven_seg
+	if not Settings.hud_on(&"umpire_banner"):
+		_banner_panel.visible = false
+		_banner_timer = 0.0
+	_place_banner()
+
+
+func _place_banner() -> void:
+	var top := BANNER_TOP
+	if _face.visible:
+		top = FACE_TOP + _face.custom_minimum_size.y + FACE_BANNER_GAP
+	_banner_panel.position = Vector2(-_banner_panel.size.x * 0.5, top)
+
+
+## Shows `text` in the banner card for `duration` seconds — unless the
+## umpire banner is switched off in the HUD options.
 func flash(text: String, duration := 2.5) -> void:
+	if not Settings.hud_on(&"umpire_banner"):
+		return
 	_banner.text = text
 	# A Panel doesn't size to its children (LESSONS: a plain Panel collapses),
 	# so the card takes its content's size each time the text changes.
 	var content_size := _banner_content.get_combined_minimum_size()
 	_banner_panel.size = content_size
-	_banner_panel.position = Vector2(-content_size.x * 0.5, BANNER_TOP)
+	_place_banner()
 	_banner_panel.visible = true
 	_banner_timer = duration
 
@@ -218,6 +256,20 @@ func _refresh_placeholders() -> void:
 		(number as Label).text = "000"
 	_quarter_label.text = "QTR 4"
 	_clock_label.text = "00:00"
+
+
+## 1.4.0's seven-segment ground board (ScoreboardFace), top-centre. The
+## same face FieldScoreboard puts on the oval's board.
+func _build_face() -> void:
+	var anchor := Control.new()
+	anchor.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	anchor.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	add_child(anchor)
+	_face = ScoreboardFace.new()
+	_face.custom_minimum_size = ScoreboardFace.size_for(FACE_DIGIT_HEIGHT)
+	_face.size = _face.custom_minimum_size
+	_face.position = Vector2(-_face.size.x * 0.5, FACE_TOP)
+	anchor.add_child(_face)
 
 
 func _build_banner() -> void:

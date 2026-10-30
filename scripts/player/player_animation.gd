@@ -638,6 +638,37 @@ func note_catch(world_position: Vector3) -> void:
 	_catch_glide = 0.0
 
 
+func _skeleton_or_null() -> Skeleton3D:
+	if _rig == null:
+		return null
+	return _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
+
+
+## World position of where a ball held in `hand` would sit — that hand's
+## grip centre, so the palm plus the ball's own radius — or Vector3.INF on a
+## rig with no measured grip. The ruck's hit-out measures from it, so the
+## tap needs the hand on the ball, not just the body near it.
+func hand_world_position(hand: StringName = &"RightHand") -> Vector3:
+	var skeleton := _skeleton_or_null()
+	if skeleton == null or not _grip.has(hand):
+		return Vector3.INF
+	var grip: Dictionary = _grip[hand]
+	return skeleton.global_transform * (skeleton.get_bone_global_pose(int(grip.bone)) * (grip.centre as Vector3))
+
+
+## World position of the shoulder `hand` hangs off (the hand bone's
+## grandparent: forearm, then upper arm), or Vector3.INF. Steadier than the
+## hand itself for aiming a leap: it doesn't swing up as the arm does.
+func shoulder_world_position(hand: StringName = &"RightHand") -> Vector3:
+	var skeleton := _skeleton_or_null()
+	if skeleton == null or not _grip.has(hand):
+		return Vector3.INF
+	var bone := skeleton.get_bone_parent(skeleton.get_bone_parent(int((_grip[hand] as Dictionary).bone)))
+	if bone < 0:
+		return Vector3.INF
+	return skeleton.global_transform * skeleton.get_bone_global_pose(bone).origin
+
+
 ## Where the hands have the ball, body space: between the two grips while
 ## they agree, in one hand once they part (GRIP_SPLIT, ONE_HAND_STATES).
 func _hands_hold(skeleton: Skeleton3D, to_body: Transform3D, state: StringName) -> Vector3:

@@ -214,6 +214,76 @@ var master_volume := 1.0:
 var keybind_overrides: Dictionary = {}
 
 
+## HUD options (playtest 2026-10-30: "add HUD options to Settings"). One
+## table rather than a var per option, because the HUD Style screen
+## (hud_style_screen.gd) builds its rows straight from it and every option
+## is the same shape: a short list of choices stored as the chosen index.
+## Consumers read hud_index() and map the index to whatever they need (a
+## colour from HUD_COLOURS, a width), and listen to hud_changed to apply it
+## live. Saved in its own [hud] section, so a new key here needs nothing
+## else to persist: a missing key just reads its default.
+## Append options to a list, never reorder: the saved value is the index.
+const HUD_OPTIONS := {
+	&"scoreboard": {"label": "SCOREBOARD", "options": ["OFF", "ON"], "default": 0},
+	&"scoreboard_style": {"label": "STYLE", "options": ["CARD", "7-SEG BOARD"], "default": 0},
+	&"umpire_banner": {"label": "UMPIRE BANNER", "options": ["OFF", "ON"], "default": 1},
+	&"trajectory": {"label": "BALL TRAJECTORY", "options": ["OFF", "ON"], "default": 1},
+	&"trajectory_colour": {"label": "COLOUR",
+		"options": ["GREEN", "WHITE", "YELLOW", "ORANGE", "CYAN", "PINK"], "default": 0},
+	&"trajectory_pattern": {"label": "LINE", "options": ["DOTTED", "DASHED", "SOLID"], "default": 0},
+	&"trajectory_thickness": {"label": "THICKNESS", "options": ["THIN", "MEDIUM", "THICK"], "default": 1},
+	&"ring": {"label": "PLAYER RING", "options": ["OFF", "FULL-SIDE ONLY", "ALWAYS"], "default": 1},
+	&"ring_colour": {"label": "COLOUR",
+		"options": ["BLUE", "WHITE", "YELLOW", "GREEN", "ORANGE", "PINK"], "default": 0},
+	&"ring_style": {"label": "LINE", "options": ["SOLID", "DASHED"], "default": 0},
+	&"ring_size": {"label": "SIZE", "options": ["SMALL", "MEDIUM", "LARGE"], "default": 1},
+	&"ring_thickness": {"label": "THICKNESS", "options": ["THIN", "MEDIUM", "THICK"], "default": 1},
+}
+
+## The colour each *_colour option's name stands for. GREEN is the kick
+## line's old colour and BLUE the ring's, so the defaults look unchanged.
+const HUD_COLOURS := {
+	"GREEN": Color("#8BC896"),
+	"BLUE": Color("#5A8EF1"),
+	"WHITE": Color("#F4F1EA"),
+	"YELLOW": Color("#F2C230"),
+	"ORANGE": Color("#FF6A2B"),
+	"CYAN": Color("#3FD6E0"),
+	"PINK": Color("#F25FA8"),
+}
+
+var _hud := {}
+
+signal hud_changed(key: StringName)
+
+
+func hud_index(key: StringName) -> int:
+	var spec: Dictionary = HUD_OPTIONS[key]
+	return clampi(int(_hud.get(key, spec.default)), 0, (spec.options as Array).size() - 1)
+
+
+func hud_on(key: StringName) -> bool:
+	return hud_index(key) != 0
+
+
+## The option's name ("DASHED"), for a consumer that matches on it.
+func hud_choice(key: StringName) -> String:
+	return String((HUD_OPTIONS[key].options as Array)[hud_index(key)])
+
+
+func hud_colour(key: StringName) -> Color:
+	return HUD_COLOURS.get(hud_choice(key), Color.WHITE)
+
+
+func set_hud(key: StringName, index: int) -> void:
+	var spec: Dictionary = HUD_OPTIONS[key]
+	index = posmod(index, (spec.options as Array).size())
+	if hud_index(key) == index:
+		return
+	_hud[key] = index
+	hud_changed.emit(key)
+
+
 signal camera_mode_changed(mode: FullGameCameraMode)
 signal camera_zoom_changed(zoom: float)
 signal mouse_kick_binding_changed(swapped: bool)
@@ -254,6 +324,13 @@ func _load() -> void:
 	# InputMap" as two separate steps, same split every apply_keybind()
 	# caller already goes through).
 	keybind_overrides = config.get_value(SECTION, "keybind_overrides", {}) as Dictionary
+	if config.has_section(HUD_SECTION):
+		for key: StringName in HUD_OPTIONS:
+			if config.has_section_key(HUD_SECTION, key):
+				_hud[key] = int(config.get_value(HUD_SECTION, key))
+
+
+const HUD_SECTION := "hud"
 
 
 func save() -> void:
@@ -269,6 +346,8 @@ func save() -> void:
 	config.set_value(SECTION, "master_volume", master_volume)
 	config.set_value(SECTION, "field_style", field_style)
 	config.set_value(SECTION, "keybind_overrides", keybind_overrides)
+	for key: StringName in HUD_OPTIONS:
+		config.set_value(HUD_SECTION, key, hud_index(key))
 	config.save(SAVE_PATH)
 
 

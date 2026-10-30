@@ -17,10 +17,23 @@ extends CanvasLayer
 ## CONTROL SCHEME was the last inert row of its kind — it's gone, replaced
 ## by a real REMAP CONTROLS action row (not a cycling value, see
 ## _row_count()/_activate() below) that opens RemapScreen.
+## SCOREBOARD and UMPIRE BANNER (playtest 2026-10-30) are two of the HUD
+## options in Settings.HUD_OPTIONS, surfaced here as plain rows; the rest
+## of them, and these two again, live on the HUD STYLE action row's screen
+## (hud_style_screen.gd). Action rows are ACTION_ROWS, after the cycling
+## rows. Rows went from 56 to 48 px to fit the three new ones in 720.
 
 const CARD_WIDTH := 560.0
-const ROW_HEIGHT := 56.0
-const ROW_GAP := 14.0
+const ROW_HEIGHT := 48.0
+const ROW_GAP := 10.0
+## A row's text sits this far down from its top edge.
+const ROW_TEXT_TOP := 12.0
+
+## Trailing rows that open a screen instead of cycling a value.
+const ACTION_ROWS := [
+	{"title": "HUD STYLE", "scene": "res://scenes/ui/hud_style_screen.tscn"},
+	{"title": "REMAP CONTROLS", "scene": "res://scenes/ui/remap_screen.tscn"},
+]
 
 const PREVIEW_WIDTH := 320.0
 const PREVIEW_HEIGHT := 310.0
@@ -109,6 +122,18 @@ func _ready() -> void:
 			Settings.field_style,
 			_set_field_style
 		),
+		Row.new(
+			"SCOREBOARD",
+			["OFF", "ON"],
+			Settings.hud_index(&"scoreboard"),
+			func(index: int) -> void: Settings.set_hud(&"scoreboard", index)
+		),
+		Row.new(
+			"UMPIRE BANNER",
+			["OFF", "ON"],
+			Settings.hud_index(&"umpire_banner"),
+			func(index: int) -> void: Settings.set_hud(&"umpire_banner", index)
+		),
 	]
 
 	var root := Control.new()
@@ -174,7 +199,7 @@ func _ready() -> void:
 			SoftBrutalist.WEIGHT_BOLD,
 			SoftBrutalist.TRACK_LABEL
 		)
-		title_label.position = Vector2(20.0, 16.0)
+		title_label.position = Vector2(20.0, ROW_TEXT_TOP)
 		panel.add_child(title_label)
 		_title_labels.append(title_label)
 
@@ -193,8 +218,8 @@ func _ready() -> void:
 		value_label.anchor_right = 1.0
 		value_label.offset_left = -300.0
 		value_label.offset_right = -20.0
-		value_label.offset_top = 16.0
-		value_label.offset_bottom = 40.0
+		value_label.offset_top = ROW_TEXT_TOP
+		value_label.offset_bottom = ROW_TEXT_TOP + 24.0
 		value_label.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 		value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		panel.add_child(value_label)
@@ -202,43 +227,43 @@ func _ready() -> void:
 
 		top += ROW_HEIGHT + ROW_GAP
 
-	var remap_panel := Panel.new()
-	remap_panel.add_theme_stylebox_override(
-		&"panel",
-		RetroWindow.row_style(false)
-	)
-	remap_panel.position = Vector2(32.0, top)
-	remap_panel.size = Vector2(CARD_WIDTH - 64.0, ROW_HEIGHT)
-	_settings_content.add_child(remap_panel)
-	_row_panels.append(remap_panel)
+	for action: Dictionary in ACTION_ROWS:
+		var action_panel := Panel.new()
+		action_panel.add_theme_stylebox_override(
+			&"panel",
+			RetroWindow.row_style(false)
+		)
+		action_panel.position = Vector2(32.0, top)
+		action_panel.size = Vector2(CARD_WIDTH - 64.0, ROW_HEIGHT)
+		_settings_content.add_child(action_panel)
+		_row_panels.append(action_panel)
 
-	var remap_label := SoftBrutalist.label(
-		"REMAP CONTROLS",
-		SoftBrutalist.SIZE_BODY,
-		RetroWindow.BORDER,
-		SoftBrutalist.WEIGHT_BOLD,
-		SoftBrutalist.TRACK_LABEL
-	)
-	remap_label.position = Vector2(20.0, 16.0)
-	remap_panel.add_child(remap_label)
+		var action_label := SoftBrutalist.label(
+			String(action.title),
+			SoftBrutalist.SIZE_BODY,
+			RetroWindow.BORDER,
+			SoftBrutalist.WEIGHT_BOLD,
+			SoftBrutalist.TRACK_LABEL
+		)
+		action_label.position = Vector2(20.0, ROW_TEXT_TOP)
+		action_panel.add_child(action_label)
 
-	# "OPEN", not "ENTER": the row reads the same on a pad, where Enter
-	# means nothing. y 16 to sit on the title's baseline like every other
-	# row's value (it was 18, two pixels low).
-	var remap_arrow := SoftBrutalist.label(
-		"OPEN >",
-		SoftBrutalist.SIZE_BODY,
-		RetroWindow.ACCENT,
-		SoftBrutalist.WEIGHT_BOLD,
-		0
-	)
-	remap_arrow.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	remap_arrow.position = Vector2(-100.0, 16.0)
-	remap_arrow.size = Vector2(80.0, 24.0)
-	remap_arrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	remap_panel.add_child(remap_arrow)
+		# "OPEN", not "ENTER": the row reads the same on a pad, where Enter
+		# means nothing.
+		var action_arrow := SoftBrutalist.label(
+			"OPEN >",
+			SoftBrutalist.SIZE_BODY,
+			RetroWindow.ACCENT,
+			SoftBrutalist.WEIGHT_BOLD,
+			0
+		)
+		action_arrow.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		action_arrow.position = Vector2(-100.0, ROW_TEXT_TOP)
+		action_arrow.size = Vector2(80.0, 24.0)
+		action_arrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		action_panel.add_child(action_arrow)
 
-	top += ROW_HEIGHT + ROW_GAP
+		top += ROW_HEIGHT + ROW_GAP
 
 	# DeviceHintBar, not a static caption (ui_audit.md finding #2 — this
 	# screen had no real KeyHintBar at all, just one combined-device line
@@ -277,7 +302,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		_move(-1)
 	elif event.is_action_pressed(&"move_back") or event.is_action_pressed(&"ui_down"):
 		_move(1)
-	elif event.is_action_pressed(&"ui_accept") and _index == _rows.size():
+	elif event.is_action_pressed(&"ui_accept") and _index >= _rows.size():
 		_activate()
 	elif event.is_action_pressed(&"ui_left") and _index < _rows.size():
 		_rows[_index].cycle(-1)
@@ -287,9 +312,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		_refresh()
 
 
-## Real cycling rows plus the one trailing REMAP CONTROLS action row.
+## Real cycling rows plus the trailing ACTION_ROWS.
 func _row_count() -> int:
-	return _rows.size() + 1
+	return _rows.size() + ACTION_ROWS.size()
 
 
 func _move(step: int) -> void:
@@ -303,7 +328,7 @@ func _activate() -> void:
 
 	_busy = true
 	Settings.save()
-	SceneWipe.change_scene("res://scenes/ui/remap_screen.tscn")
+	SceneWipe.change_scene(String(ACTION_ROWS[_index - _rows.size()].scene))
 
 
 func _back() -> void:

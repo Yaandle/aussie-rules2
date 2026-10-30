@@ -188,7 +188,16 @@ mostly superseded history. The full text lives outside the repo, in
 - **Kick aim/power coupling (open, unplaytested).** `get_look_vector()`
   shapes the stick's combined magnitude, so on the aim stick the x (aim) and
   y (power) axes aren't independent. A big diagonal push suppresses power.
-  Worth checking if kicking off to the side feels inconsistent.
+  Worth checking if kicking off to the side feels inconsistent. (Full-side
+  on a pad no longer splits the axes: the stick points, its push is the
+  reach. See Tuning's "Full-side kick aim".)
+- **A scripted bot's kick goes along its body facing when the stance
+  starts** (`_current_look_yaw()` with no camera). Square it up with
+  `face_toward()` every frame until `is_kick_aiming()`, not once: after a
+  mark it walks back off the mark first and turns as it goes (DrillBrain).
+- **A player spawned without `set_brain()` is human-controlled.**
+  `_brain` defaults to `HumanBrain`, so a bot needs a brain before its
+  first physics frame or it runs off the shared input.
 
 ## Verification that works here
 

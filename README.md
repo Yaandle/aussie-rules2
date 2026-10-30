@@ -118,8 +118,9 @@ There are three ways to take a mark. Each trades reach against commitment.
 
 | Tackle | Keyboard | Pad | What it does |
 |---|---|---|---|
-| **Wrap (Lunge)** | `Q` (tap) | X (tap) | Dashes at a carrier within 2.2 m. If it holds and the tackler drives through (side-on, from behind, or heavier), the tackler wraps their arms round the waist and both go down. An even head-on hit knocks the carrier over on their own. A heavier carrier running into it keeps their feet and is held up. |
+| **Wrap (Lunge)** | `Q` (tap) | X (tap) | The commitment tackle. At arm's length it always lands; from further out it dashes at a carrier within 2.2 m. If it holds and the tackler drives through (side-on, from behind, or heavier), the tackler wraps their arms round the waist and both go down. An even head-on hit knocks the carrier over on their own. A heavier carrier running into it keeps their feet and is held up. |
 | **Sling (Slide)** | `E` (hold) | B (hold) | Steps in, or dives at a carrier just out of reach. A soft hit holds them up with both players standing. A hard hit slings them to the ground while the tackler stays up. Head-on with neither winning, both stay on their feet, wrapped up and held. |
+| **Bump (off the ball)** | `E` (tap) | B (tap) | With nobody's ball to tackle and the ball loose or in the air within 5 m: alongside an opponent it's a shoulder nudge off their line; closing on one head-on it's a hip-and-shoulder that knocks them back, or down on the ragdoll if they run onto it. Legal, so never a free kick. |
 | **Hit stick (Bump)** | `L` + arrow tap | LB + right-stick flick | Dashes in the flick's direction, with a little homing. A clean hit on a carrier running onto it spills the ball, throws the carrier and sends the bumper diving after them. A whiff sends the bumper stumbling. |
 
 How a tackle is decided:

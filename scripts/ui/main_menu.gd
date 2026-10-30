@@ -65,6 +65,11 @@ var _entries: Array[Entry] = [
 	Entry.new("SCENARIO", "Practice a set situation", "", false, "menuscreen_board"),
 	Entry.new("GOAL KICKING", "Shots on goal from the arc", "", false,
 		"menuscreen_ball"),
+	# Playtest 2026-10-30: kick-to-kick moved off the Character page into a
+	# card of its own, the 4th. It opens the Training screen: the open field
+	# with the coaches, and the drills.
+	Entry.new("KICK TO KICK", "Open field, coaches and drills",
+		"res://scenes/ui/training_screen.tscn", true, "menuscreen_training"),
 	Entry.new("CAREER", "Create a player, play a season",
 		"res://scenes/ui/career_character_screen.tscn", true, "menuscreen_career"),
 ]
@@ -99,7 +104,7 @@ const IMAGE_EXTENSIONS := ["jpg", "jpeg", "png", "webp"]
 ## menuscreen_career image; the 3rd-person match capture centres on one
 ## player, which suits "create a player". Drop a real menuscreen_career.png
 ## in IMAGE_DIR and it takes over automatically.
-const IMAGE_FALLBACKS := {"menuscreen_career": "3rdperson"}
+const IMAGE_FALLBACKS := {"menuscreen_career": "3rdperson", "menuscreen_training": "fullside"}
 
 # ── Layout ───────────────────────────────────────────────────────────
 # Sizes on SoftBrutalist's 8px spacing step. Only minimums and gaps are
@@ -109,7 +114,9 @@ const SCREEN_MARGIN_Y := SoftBrutalist.SPACE_4      ## 32
 const BAND_GAP := int(SoftBrutalist.SPACE_4)        ## 32
 const CHROME_HEIGHT := 20.0
 const FOOTER_HEIGHT := 28.0
-const CARD_SEPARATION := int(SoftBrutalist.SPACE_5) ## 40
+## 28 (was SPACE_5, 40) and the cards 188x250 (was 216x288) since KICK TO
+## KICK made it five cards: the row has to fit in 1280 less the margins.
+const CARD_SEPARATION := 28
 ## Smaller than a full-bleed hero tile on purpose — these sit centred over
 ## the live 3D backdrop (menu_backdrop.tscn) with room left on every side,
 ## so the montage behind them stays visible rather than getting crowded out.
@@ -118,8 +125,8 @@ const CARD_SEPARATION := int(SoftBrutalist.SPACE_5) ## 40
 ## under the arrow badge. Still a 3:4 portrait tile with plenty of backdrop
 ## showing around the row; the band has ~380px of height to give, so the
 ## selected card's 1.07 pop (~308px) still clears the util row.
-const CARD_MIN_WIDTH := 216.0
-const CARD_MIN_HEIGHT := 288.0
+const CARD_MIN_WIDTH := 188.0
+const CARD_MIN_HEIGHT := 250.0
 const CARD_PAD := 16.0
 ## Sharp, matching RetroWindow's unrounded shell — the mode-select cards
 ## now read as the same "windowed retro console" family as the rest of

@@ -288,6 +288,10 @@ var _bump_dash_active := false
 ## Seconds this dash has spent driving in on a carrier it reached, before
 ## the bodies meet (Tuning.BUMP_IMPACT_DISTANCE) — see _try_bump_contact.
 var _bump_close_in_time := 0.0
+## Who a B-off-the-ball hip-and-shoulder is going at, while its dash runs
+## (Tuning's "B off the ball: the contest bump"), else null. The hit-stick
+## dash only ever looks for carriers; this one has a man to hit.
+var _contest_bump_target: PlayerController = null
 
 ## Seconds left before another Smother attempt can launch — see
 ## _update_smother.
@@ -654,6 +658,10 @@ func _update_locomotion(delta: float) -> void:
 			_heading = horizontal_kb / _speed
 		return
 
+	# A ruckman's leap drifts in under the ball (_ruck_reach), up to the tap.
+	if _action == Tuning.Action.HIT_OUT and _ruck_reach():
+		return
+
 	# A tackle hold owns both bodies the same way — the tackler closes and
 	# stays welded to the target, the target simply can't go anywhere.
 	# Driven through velocity rather than by writing global_position so it
@@ -944,6 +952,38 @@ func _update_locomotion(delta: float) -> void:
 
 	velocity.x = _heading.x * _speed
 	velocity.z = _heading.z * _speed
+
+
+## Turns the body to face `point` this instant. For scripted drills
+## (DrillBrain): a bot's kick is aimed along its body facing at stance
+## start (_current_look_yaw), so it squares up to the target first.
+func face_toward(point: Vector3) -> void:
+	var to_point := point - global_position
+	to_point.y = 0.0
+	if to_point.length_squared() < 0.0001:
+		return
+	_facing_yaw = atan2(-to_point.x, -to_point.z)
+	rotation.y = _facing_yaw
+
+
+## The kick charge that lands a kick from here `distance` metres away, by
+## the same flight model the aiming line draws (KickTrajectory), for a
+## scripted kicker (DrillBrain). A bisection on the reach: the flight gets
+## longer as the charge goes up. Full charge if even that's short.
+func charge_for_distance(distance: float) -> float:
+	var low := 0.0
+	var high := 1.0
+	for i in 12:
+		var mid := (low + high) * 0.5
+		var params := _kick_parameters(mid, false)
+		var points := _kick_trajectory._simulate(params.origin, params.launch_velocity)
+		var landing: Vector3 = points[points.size() - 1] if not points.is_empty() else params.origin
+		var reach := Vector2(landing.x - params.origin.x, landing.z - params.origin.z).length()
+		if reach < distance:
+			low = mid
+		else:
+			high = mid
+	return high
 
 
 func _update_facing(delta: float) -> void:
@@ -1373,6 +1413,10 @@ func _update_slide_dive(delta: float) -> void:
 
 	var carrier := _nearest_opposing_carrier()
 	if carrier == null or carrier.is_protected():
+		# Nobody to tackle: B is a bump on whoever's contesting the ball
+		# with you. One that fires isn't also a late-hit foul (_try_tackle).
+		if _try_contest_bump():
+			_slide_just_pressed = false
 		return
 	var to_carrier := carrier.global_position - global_position
 	to_carrier.y = 0.0
@@ -1700,7 +1744,10 @@ func _step_lunge_dash() -> void:
 ## A Lunge reaching its carrier: the gate, then hold or break, then the fall.
 func _land_lunge(target: PlayerController) -> void:
 	var hit_velocity := _tackle_velocity(target, Tuning.TACKLE_LUNGE_SPEED)
-	if not _resolve_tackle_contact(self, target, false, hit_velocity):
+	# At arm's length the wrap always lands (Tuning's TACKLE_LUNGE_SURE_RANGE);
+	# the gate only judges a lunge from further out.
+	var point_blank := _flat_distance_to(target) <= Tuning.TACKLE_LUNGE_SURE_RANGE
+	if not point_blank and not _resolve_tackle_contact(self, target, false, hit_velocity):
 		last_tackle = {"slide": false, "held": false, "missed": true}
 		_lunge_tap_cooldown = Tuning.TACKLE_LUNGE_TAP_COOLDOWN
 		return
@@ -2187,6 +2234,9 @@ func _apply_bump_assist(delta: float) -> void:
 func _try_bump_contact() -> void:
 	if not _bump_dash_active:
 		return
+	if _contest_bump_target != null:
+		_step_contest_bump()
+		return
 	var carrier := _nearest_opposing_carrier()
 	if carrier != null and _bump_reaches(carrier):
 		# A carrier under protection (mark/free kick) can't be bumped off it —
@@ -2475,6 +2525,110 @@ func _nearest_opponent() -> PlayerController:
 
 func _nearest_opposing_carrier() -> PlayerController:
 	return SpatialQuery.nearest_opposing_carrier(self)
+
+
+## B with no carrier to tackle (Tuning's "B off the ball: the contest
+## bump"): a nudge on an opponent alongside, or a hip-and-shoulder on one
+## coming at you, if the ball's loose, in the air or a teammate's and within
+## CONTEST_BUMP_BALL_RADIUS of them. Returns whether one went. Human only.
+func _try_contest_bump() -> bool:
+	if not _brain is HumanBrain or _bump_cooldown > 0.0 or _bump_dash_timer > 0.0 			or is_ragdolled():
+		return false
+	var ball := _live_ball()
+	if ball == null:
+		return false
+	var holder := ball.holder() as PlayerController
+	if ball.is_held and (holder == null or holder.team != team):
+		return false
+	var facing := -global_transform.basis.z
+	var target := _nearest_player(Tuning.CONTEST_BUMP_RANGE, func(other: PlayerController) -> bool:
+		if other.team == team or other.is_carrying() or other.is_ragdolled():
+			return false
+		var to_other := other.global_position - global_position
+		to_other.y = 0.0
+		if to_other.length_squared() < 0.0001 				or facing.dot(to_other.normalized()) < Tuning.CONTEST_BUMP_FACING_DOT:
+			return false
+		var to_ball := ball.global_position - other.global_position
+		to_ball.y = 0.0
+		return to_ball.length() <= Tuning.CONTEST_BUMP_BALL_RADIUS)
+	if target == null:
+		return false
+	var to_target := target.global_position - global_position
+	to_target.y = 0.0
+	var direction := to_target.normalized()
+	var closing := Vector3(velocity.x - target.velocity.x, 0.0, velocity.z - target.velocity.z).dot(direction)
+	_bump_cooldown = Tuning.CONTEST_BUMP_COOLDOWN
+	_slide_dive_cooldown = maxf(_slide_dive_cooldown, Tuning.CONTEST_BUMP_COOLDOWN)
+	if closing >= Tuning.CONTEST_BUMP_HEAD_ON_SPEED:
+		_bump_dash_direction = direction
+		_bump_dash_timer = Tuning.CONTEST_BUMP_DASH_DURATION
+		_bump_dash_active = true
+		_bump_close_in_time = 0.0
+		_contest_bump_target = target
+	else:
+		_contest_nudge(target, direction)
+	return true
+
+
+## Shoulder to shoulder: a push along the line between them on top of the
+## opponent's own run, so they're moved off it rather than stopped dead, and
+## a share of it back on the bumper by mass. Not a knockdown.
+func _contest_nudge(target: PlayerController, direction: Vector3) -> void:
+	var theirs := Vector3(target.velocity.x, 0.0, target.velocity.z)
+	target.receive_bump(theirs + direction * Tuning.CONTEST_BUMP_NUDGE_SPEED,
+		Tuning.CONTEST_BUMP_NUDGE_STUN, self)
+	var mine := Vector3(velocity.x, 0.0, velocity.z)
+	_knockback = mine - direction * Tuning.CONTEST_BUMP_NUDGE_SPEED 		* Tuning.CONTEST_BUMP_NUDGE_RECOIL * target.body_mass / body_mass
+	bump_landed.emit(self, target, false)
+
+
+## A hip-and-shoulder's dash, one frame after this frame's move: drives in
+## the last bit like the hit stick (_bump_closing_in) and hits, or lets go
+## when the clock runs out. A miss costs nothing more than the cooldown: it
+## was a brace, not the hit stick's full dive.
+func _step_contest_bump() -> void:
+	var target := _contest_bump_target
+	if not is_instance_valid(target) or target.is_ragdolled() or is_ragdolled() 			or target.is_carrying():
+		_end_contest_bump()
+		return
+	if _bump_reaches(target):
+		if _bump_closing_in(target):
+			return
+		_resolve_contest_hit(target)
+		_end_contest_bump()
+	elif _bump_dash_timer <= 0.0:
+		_end_contest_bump()
+
+
+func _end_contest_bump() -> void:
+	_contest_bump_target = null
+	_bump_dash_active = false
+	_bump_dash_timer = 0.0
+
+
+## The hip-and-shoulder connecting. Timed like the hit stick
+## (BUMP_APPROACH_DOT_MIN): one running onto it goes down on the ragdoll,
+## thrown along the hit ("half them"), or the canned knock-back fall on a
+## rig that can't ragdoll; a glancing one is knocked back on their feet.
+## The bumper braces and stays up, taking a little of it back.
+func _resolve_contest_hit(target: PlayerController) -> void:
+	var to_target := target.global_position - global_position
+	to_target.y = 0.0
+	var theirs := Vector3(target.velocity.x, 0.0, target.velocity.z)
+	var onto := 0.0
+	if theirs.length_squared() > 0.01 and to_target.length_squared() > 0.0001:
+		onto = theirs.normalized().dot(-to_target.normalized())
+	var clean := onto >= Tuning.BUMP_APPROACH_DOT_MIN
+	if clean:
+		if not target._bump_ragdoll(self, _bump_dash_direction):
+			target._knockdown(_bump_dash_direction, Tuning.BUMP_KNOCKDOWN_STUN_DURATION,
+				Tuning.Action.KNOCKED_BACK, false)
+			target._apply_knockdown_hop()
+	else:
+		target.receive_bump(_bump_dash_direction * Tuning.BUMP_KNOCKBACK_SPEED,
+			Tuning.BUMP_STUN_DURATION, self)
+	_knockback = -_bump_dash_direction * Tuning.CONTEST_BUMP_NUDGE_SPEED * Tuning.CONTEST_BUMP_NUDGE_RECOIL
+	bump_landed.emit(self, target, clean)
 
 
 ## Called on the bumped player, by the bumper, on every connect (clean or
@@ -3195,12 +3349,18 @@ func set_ruck_contestant(value: bool, window: float = Tuning.RUCK_CONTEST_WINDOW
 		_cancel_ragdoll()
 	_is_ruck_contestant = value
 	_ruck_contest_timer = window if value else 0.0
+	_ruck_collided = false
 	if not value:
 		_hit_out_armed = false
 
 
 func is_ruck_contestant() -> bool:
 	return _is_ruck_contestant
+
+
+## Set once this contest's two ruckmen have met (_ruck_collide), so a pair
+## jostles once per ball-up, not again at the second one's tap.
+var _ruck_collided := false
 
 
 ## True while a ruck contest is live (a centre bounce / field ball-up /
@@ -3266,16 +3426,94 @@ func _begin_hit_out() -> void:
 ## to a runner, not just straight off the body.
 func _resolve_hit_out() -> void:
 	var ball := _live_ball()
-	var connected := is_instance_valid(ball) and not ball.is_held \
-		and ball.global_position.distance_to(_carry_point.global_position) <= Tuning.RUCK_HIT_OUT_REACH
+	var palm := _animation.hand_world_position(&"RightHand") if _animation != null else Vector3.INF
+	var connected := false
+	if is_instance_valid(ball) and not ball.is_held:
+		if palm.is_finite():
+			connected = ball.global_position.distance_to(palm) <= Tuning.RUCK_PALM_REACH
+		else:
+			connected = ball.global_position.distance_to(_carry_point.global_position) \
+				<= Tuning.RUCK_HIT_OUT_REACH
 	if connected:
 		var direction := _brain.hit_out_aim(self)
 		if direction.length_squared() < 0.0001:
 			direction = _hit_out_aim_dir if _hit_out_aim_dir.length_squared() > 0.0001 \
 				else -global_transform.basis.z
 		direction = direction.normalized()
+		# Off the hand: the ball is on the palm as it goes (Tuning's
+		# RUCK_PALM_REACH), so the tap reads as a touch.
+		if palm.is_finite():
+			ball.global_position = palm
 		ball.knock(direction * Tuning.RUCK_HIT_OUT_SPEED + Vector3.UP * Tuning.RUCK_HIT_OUT_UP_SPEED)
+	_ruck_collide()
 	hit_out_resolved.emit(self, connected)
+
+
+## The leap's drift toward the ball (Tuning's RUCK_REACH_ASSIST_SPEED),
+## up to contact: the horizontal velocity that puts the right shoulder,
+## plus RUCK_PALM_FORWARD, under where the ball will be by then. False when
+## there's nothing to reach for, and locomotion carries on as usual.
+func _ruck_reach() -> bool:
+	var contact := Tuning.action_contact_time(Tuning.Action.HIT_OUT)
+	if _action_elapsed >= contact or _animation == null:
+		return false
+	var ball := _live_ball()
+	if not is_instance_valid(ball) or ball.is_held:
+		return false
+	var shoulder := _animation.shoulder_world_position(&"RightHand")
+	if not shoulder.is_finite():
+		return false
+	var remaining := maxf(contact - _action_elapsed, get_physics_process_delta_time())
+	var forward := -global_transform.basis.z
+	var palm := shoulder + Vector3(forward.x, 0.0, forward.z) * Tuning.RUCK_PALM_FORWARD
+	var ahead := ball.global_position + ball.linear_velocity * remaining
+	var wanted := Vector3(ahead.x - palm.x, 0.0, ahead.z - palm.z) / remaining
+	wanted = wanted.limit_length(Tuning.RUCK_REACH_ASSIST_SPEED)
+	velocity.x = wanted.x
+	velocity.z = wanted.z
+	return true
+
+
+## The two ruckmen meeting at the ball (Tuning's RUCK_COLLIDE_*), once a
+## contest, from whichever taps first.
+func _ruck_collide() -> void:
+	if _ruck_collided:
+		return
+	var rival := _nearest_player(Tuning.RUCK_COLLIDE_DISTANCE, func(other: PlayerController) -> bool:
+		return other.team != team and other.is_ruck_contestant())
+	if rival == null:
+		return
+	_ruck_collided = true
+	rival._ruck_collided = true
+	var to_rival := rival.global_position - global_position
+	to_rival.y = 0.0
+	if to_rival.length_squared() < 0.0001:
+		to_rival = -global_transform.basis.z
+	var direction := to_rival.normalized()
+	var ragdoll := Tuning.RUCK_COLLIDE_RAGDOLL and (_brain is HumanBrain or rival.brain() is HumanBrain)
+	_ruck_jostle(-direction, ragdoll, rival)
+	rival._ruck_jostle(direction, ragdoll, self)
+
+
+## This ruckman's half of the meeting, knocked along `direction`.
+func _ruck_jostle(direction: Vector3, ragdoll: bool, by: PlayerController) -> void:
+	var going_up := _action == Tuning.Action.HIT_OUT \
+		and _action_elapsed < Tuning.action_contact_time(Tuning.Action.HIT_OUT)
+	if ragdoll and not going_up and _begin_ragdoll({
+		"strength": Tuning.RUCK_COLLIDE_STRENGTH,
+		"support": Tuning.RUCK_COLLIDE_SUPPORT,
+		"impulse": direction * body_mass * Tuning.RUCK_COLLIDE_DRIVE,
+		"bone": &"Chest",
+		"contact_offset": Vector3.ZERO,
+		"body_share": Tuning.RUCK_COLLIDE_BODY_SHARE,
+		"partner": by,
+		"velocity": Vector3(velocity.x, 0.0, velocity.z) + direction * Tuning.RUCK_COLLIDE_DRIVE,
+		"mass_kg": body_mass,
+		"max_time": Tuning.RUCK_COLLIDE_TIME,
+	}):
+		_stun_timer = maxf(_stun_timer, Tuning.RUCK_COLLIDE_TIME)
+		return
+	_knockback = direction * Tuning.RUCK_COLLIDE_PUSH
 
 
 ## Right stick (brain), then left stick, then body-forward — see _begin's
@@ -3341,8 +3579,10 @@ func _update_charge(delta: float) -> void:
 			# the kick starts aimed at goals, not wherever your legs
 			# happened to be carrying you.
 			_kick_aim_yaw = _current_look_yaw()
+			if _full_side_pad_aim():
+				_kick_charge = Tuning.KICK_SIDE_AIM_START_REACH
 		var override := _brain.kick_charge_override()
-		if override >= 0.0:
+		if override >= 0.0 and not _full_side_pad_aim():
 			# Power is wherever the trajectory line currently reaches to —
 			# a gamepad's right stick sets it directly and live, not a
 			# value that only ever ramps up with no way back down.
@@ -3409,6 +3649,10 @@ func _update_charge(delta: float) -> void:
 func _update_kick_aim(delta: float) -> void:
 	if not (_brain is HumanBrain):
 		return
+	if _full_side_pad_aim():
+		_update_full_side_aim(delta)
+		_apply_aim_assist(delta)
+		return
 	var stick := InputManager.get_look_vector()
 	var mouse := InputManager.take_mouse_look()
 	_kick_aim_yaw -= stick.x * deg_to_rad(Tuning.KICK_AIM_YAW_SPEED) * delta \
@@ -3447,6 +3691,31 @@ func _update_kick_aim(delta: float) -> void:
 ## stick/mouse then swings away from in _update_kick_aim regardless of
 ## camera mode, so this is the one spot that needs to know about FULL_SIDE
 ## at all.
+## Tuning's "Full-side kick aim": a human on a gamepad with the full-side
+## camera points the kick instead of turning it.
+func _full_side_pad_aim() -> bool:
+	return _brain is HumanBrain and InputManager.device == InputManager.Device.GAMEPAD \
+		and is_instance_valid(camera_rig) and camera_rig.mode == BroadcastCamera.Mode.FULL_SIDE
+
+
+func _update_full_side_aim(delta: float) -> void:
+	var stick := InputManager.get_look_vector()
+	var push := stick.length()
+	if push < Tuning.KICK_SIDE_AIM_DEADZONE or not is_instance_valid(camera):
+		return   # at rest: the line stays where it was left
+	var forward := -camera.global_transform.basis.z
+	forward.y = 0.0
+	if forward.length_squared() < 0.000001:
+		return
+	forward = forward.normalized()
+	var right := Vector3(-forward.z, 0.0, forward.x)
+	var dir := right * stick.x + forward * stick.y
+	var target_yaw := atan2(-dir.x, -dir.z)
+	_kick_aim_yaw = lerp_angle(_kick_aim_yaw, target_yaw, minf(1.0, Tuning.KICK_SIDE_AIM_TURN_RATE * delta))
+	_kick_charge = remap(minf(push, 1.0), Tuning.KICK_SIDE_AIM_DEADZONE, 1.0,
+		Tuning.KICK_SIDE_AIM_MIN_REACH, 1.0)
+
+
 func _current_look_yaw() -> float:
 	if not is_instance_valid(camera):
 		return _facing_yaw

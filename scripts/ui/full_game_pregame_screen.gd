@@ -321,10 +321,14 @@ func _ready() -> void:
 			_set_defensive_pressure)),
 		Card.new(SettingsScreen.Row.new("YOUR POSITION",
 			_your_position_options(), Settings.home_human_slot, _set_your_position)),
+		# FIELD was the inert VENUE card (playtest 2026-10-30: "add a field-
+		# select option to the full-game pregame screen"). Same setting and
+		# names as Settings' FIELD row; it applies on the match load.
+		Card.new(SettingsScreen.Row.new("FIELD",
+			["FIELD 1 · PARK", "FIELD 2 · BUSH"], Settings.field_style, _set_field_style)),
 		# Inert placeholders from here down — see this file's header.
 		Card.new(SettingsScreen.Row.new("DIFFICULTY", ["NORMAL"]), true),
 		Card.new(SettingsScreen.Row.new("QUARTER LENGTH", ["20 MIN"]), true),
-		Card.new(SettingsScreen.Row.new("VENUE", ["HOME GROUND"]), true),
 		Card.new(SettingsScreen.Row.new("WEATHER", ["CLEAR"]), true),
 	]
 
@@ -541,6 +545,11 @@ func _set_your_position(index: int) -> void:
 
 func _set_ball_movement(index: int) -> void:
 	Settings.home_ball_movement = index as Settings.BallMovementPreference
+	Settings.save()
+
+
+func _set_field_style(index: int) -> void:
+	Settings.field_style = index as Settings.FieldStyle
 	Settings.save()
 
 

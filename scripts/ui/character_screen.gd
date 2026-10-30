@@ -13,9 +13,11 @@ extends Node
 ## reason P1 kept them: a stat screen that only ever shows a couple of
 ## live numbers doesn't read as a stat screen. Then an APPLY TO toggle row
 ## (ALL PLAYERS / START PLAYER — which HOME players Full Game applies the
-## profile to) and a PLAY action row that replaces P1's SAVE: confirming
-## commits the draft to CharacterProfile, persists it, and launches
-## kick_to_kick.tscn.
+## profile to) and a SAVE action row: confirming commits the draft to
+## CharacterProfile, persists it, and goes back to the menu. It was PLAY,
+## launching kick_to_kick.tscn, until kick-to-kick got its own menu card
+## (playtest 2026-10-30: "move the open-field kick-to-kick mode and scene
+## out of the CHARACTER page").
 ##
 ## The whole left column is built here from ATTRIBUTE_ROWS rather than
 ## laid out in `character_screen.tscn`: eight instances of one row is
@@ -119,7 +121,7 @@ const SWATCHES := {
 
 const TITLE := "PLAYER PROFILE"
 const SUBTITLE := "CUSTOMISE YOUR CHARACTER"
-const ACTION_TEXT := "PLAY — OPEN FIELD"
+const ACTION_TEXT := "SAVE"
 
 # ── Left column geometry, in design-resolution px (1280x720) ─────────
 const LEFT_MARGIN := 58.0
@@ -385,11 +387,7 @@ func _commit_draft() -> void:
 
 
 func _confirm_and_play() -> void:
-	if _busy:
-		return
-	_busy = true
-	_commit_draft()
-	SceneWipe.change_scene("res://scenes/modes/kick_to_kick.tscn")
+	_exit_to_menu()
 
 
 func _exit_to_menu() -> void:

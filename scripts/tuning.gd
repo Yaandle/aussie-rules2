@@ -445,6 +445,24 @@ const KICK_AIM_ASSIST_RANGE := 60.0
 # many power-fraction-per-pixel, same idea as CAM_MOUSE_SENSITIVITY but in
 # 0..1 units instead of degrees since there's no angle involved here.
 const KICK_MOUSE_REACH_SENSITIVITY := 0.0035
+# Full-side kick aim on a gamepad (playtest 2026-10-30: "a better feel for
+# the kicking aim ... take inspiration from FIFA (works well) and Madden's
+# up/down"). The 3rd-person camera sits behind the kicker, Madden's view up
+# the ground, where turning the line with the stick's left/right and pushing
+# the reach out with up/down reads naturally, so it's unchanged. The
+# full-side camera is FIFA's broadcast view, side-on, where the same turn
+# rate fought the picture: the field runs left-right on screen and "aim at
+# that player" meant steering a line round to them. There the right stick
+# points: the kick goes the way the stick points on screen (turning to it at
+# KICK_SIDE_AIM_TURN_RATE, so a flick doesn't snap it), and how far it's
+# pushed is the reach, from KICK_SIDE_AIM_MIN_REACH just past the deadzone
+# to full. Let go and the line stays where it was, so RT can be pressed
+# with the stick back at rest. Stance starts at KICK_SIDE_AIM_START_REACH.
+# Keyboard and mouse are unchanged in both cameras. Unplaytested feel guesses.
+const KICK_SIDE_AIM_DEADZONE := 0.3
+const KICK_SIDE_AIM_TURN_RATE := 14.0          # per s, as a blend fraction
+const KICK_SIDE_AIM_MIN_REACH := 0.15
+const KICK_SIDE_AIM_START_REACH := 0.5
 
 # Action timing, keyed by Action. CONTACT is when the ball actually
 # leaves — partway through the swing, not at either end of it. Read them
@@ -911,6 +929,44 @@ const TACKLE_LUNGE_TAP_COOLDOWN := 0.4    # s
 const TACKLE_LUNGE_REACH := 2.2              # m, unplaytested feel guess
 const TACKLE_LUNGE_SPEED := 7.0              # m/s, unplaytested feel guess
 const TACKLE_LUNGE_DASH_DURATION := 0.25     # s, unplaytested feel guess
+# The Lunge is the commitment tackle (playtest 2026-10-30: "X ... should
+# trigger more reliably as a tackle; sometimes I'm right next to them and
+# it won't trigger"). It wouldn't, silently: a carrier at arm's length who
+# was running across or away from you failed the closing-speed / angle gate
+# (TACKLE_LUNGE_TAP_*) and nothing played. At or inside this range the
+# gate is waived — the wrap always lands, and the tackle model still
+# decides whether it holds (TACKLE_LUNGE_BREAK_P), so a chase from behind
+# still mostly breaks. Outside it, the dash and the gate are unchanged.
+const TACKLE_LUNGE_SURE_RANGE := 1.4         # m (= TACKLE_RADIUS), unplaytested feel guess
+
+# ── B off the ball: the contest bump ───────────────────────────────────
+# Playtest 2026-10-30: "B should work more and act more like a bump in free
+# movement". B on a carrier is still the Slide / Sling (README "Tackling").
+# With no carrier to tackle, B on an opponent close by, while the ball is
+# loose or in the air and within CONTEST_BUMP_BALL_RADIUS of them, is a
+# legal bump — AFL lets a player bump or shepherd an opponent within 5 m of
+# the ball, so it's never a free kick. Which bump depends on how they meet:
+# - Side by side, both after the ball: a nudge. A short shoulder push off
+#   the line between them (CONTEST_BUMP_NUDGE_*), the bumper taking a
+#   share of it back. Nobody goes down; it's about getting there first.
+# - Closing on each other (head-on, a contest): a hip-and-shoulder, the
+#   hit stick's short dash at them (CONTEST_BUMP_DASH_DURATION) and its
+#   connect: running onto it, they're knocked down on the ragdoll ("half
+#   them"); glancing, they're knocked back. The bumper braces and stays up.
+# A human's only; the AI doesn't bump off the ball.
+const CONTEST_BUMP_RANGE := 2.2              # m, unplaytested feel guess
+const CONTEST_BUMP_BALL_RADIUS := 5.0        # m, AFL's shepherd/bump distance
+## Facing . to-opponent must clear this: a bump goes forward or sideways
+## (a shoulder), not backward.
+const CONTEST_BUMP_FACING_DOT := -0.2
+## Closing speed along the line between them at or above which it's a
+## hip-and-shoulder rather than a nudge.
+const CONTEST_BUMP_HEAD_ON_SPEED := 3.0      # m/s, unplaytested feel guess
+const CONTEST_BUMP_NUDGE_SPEED := 2.4        # m/s given to the opponent, unplaytested feel guess
+const CONTEST_BUMP_NUDGE_STUN := 0.3         # s, unplaytested feel guess
+const CONTEST_BUMP_NUDGE_RECOIL := 0.35      # share of the push the bumper takes back
+const CONTEST_BUMP_DASH_DURATION := 0.3      # s, unplaytested feel guess
+const CONTEST_BUMP_COOLDOWN := 0.8           # s, unplaytested feel guess
 # A standing Slide counts its tackler as stepping in at least this fast, for
 # the same reason: pressed against a carrier who'd stopped, it used to read
 # 0 m/s closing and whiff, at the full 1.3 s miss stun. A step, not a dive,
@@ -1766,6 +1822,38 @@ const MARK_TIMING_ARRIVED_RADIUS := MARK_CATCH_RADIUS * MARK_AGGRESSIVE_REACH_SC
 ## playtest note and still measures from CarryPoint, not the CatchPoint the
 ## marks moved to. Bringing it in too is a separate call.
 const RUCK_HIT_OUT_REACH := 3.105   # m
+## Hands on the ball (playtest 2026-10-30: "make sure the hand is actually
+## touching the ball — it works directionally but needs this fix"). The
+## tap now measures from the right palm (PlayerAnimation.
+## hand_world_position: where a ball in that hand would sit) instead of the
+## hip, and the ball is set on the palm as it's knocked, so it visibly
+## leaves the hand. RUCK_HIT_OUT_REACH is only the fallback for a rig with
+## no measured hands. To get the hand there, the leap drifts the ruckman
+## (RUCK_REACH_ASSIST_SPEED at most) so the right shoulder comes in under
+## where the ball will be at contact, the way a ruckman jumps at the ball,
+## not straight up beside it.
+const RUCK_PALM_REACH := 1.2            # m from the palm, unplaytested feel guess
+const RUCK_REACH_ASSIST_SPEED := 2.5    # m/s, unplaytested feel guess
+## How far in front of the shoulder the palm is at contact: HIT_OUT's arm
+## is near vertical then, tipped slightly forward.
+const RUCK_PALM_FORWARD := 0.15         # m
+## Two bodies meeting at the ball-up (same playtest: "apply the ragdoll
+## contest to the ruck ... they just need to collide a little"). At a tap,
+## if the other ruckman is within RUCK_COLLIDE_DISTANCE the two jostle: one
+## already past their own contact (or not leaping) takes a light, short
+## active-ragdoll knock off the other (strong muscles and balance support,
+## so it's a jolt, not a fall); one still going up for it is only pushed,
+## so the bump can't take their tap away. Only when a human is one of the
+## two (Tuning's "Active ragdoll tackles": the AI never starts a ragdoll);
+## two AI ruckmen just push off each other.
+const RUCK_COLLIDE_DISTANCE := 1.2      # m, unplaytested feel guess
+const RUCK_COLLIDE_RAGDOLL := true
+const RUCK_COLLIDE_STRENGTH := 0.75
+const RUCK_COLLIDE_SUPPORT := 0.85
+const RUCK_COLLIDE_DRIVE := 1.3         # m/s, unplaytested feel guess
+const RUCK_COLLIDE_BODY_SHARE := 0.3
+const RUCK_COLLIDE_TIME := 0.45         # s
+const RUCK_COLLIDE_PUSH := 1.6          # m/s, unplaytested feel guess
 ## How far out a hit-out attempt can even be committed from — tighter than
 ## MARK_CONTEST_RANGE, since a ruck contest is point-blank by nature (two
 ## players standing either side of where the ball is about to come down),
@@ -2133,6 +2221,9 @@ const KICK_TO_KICK_RIVAL_OFFSET := Vector3(0.0, 0.0, -18.0)   # from field centr
 const KICK_CHALLENGE_ATTEMPTS := 5
 
 const MARK_CHALLENGE_ATTEMPTS := 6
+## The marking tutorial (MarkChallenge's steps): catches of a step's tier
+## before it moves on. Unplaytested feel guess.
+const MARK_TUTORIAL_CATCHES_PER_STEP := 2
 const MARK_CHALLENGE_ELEVATION_DEG := 48.0     # deg, a generous hang-time arc
 const MARK_CHALLENGE_MIN_DISTANCE := 16.0      # m, just past MARK_STAND_MIN_DISTANCE so every delivery is legal-mark eligible
 const MARK_CHALLENGE_MAX_DISTANCE := 28.0      # m
@@ -2188,6 +2279,32 @@ const TACKLE_TUTORIAL_SPRINT_CLEAR_RANGE := 3.0   # m from the dummy that counts
 const TACKLE_TUTORIAL_STALE_REP_TIME := 4.0       # s a no-result rep runs before it silently restarts (a tutorial retries, it doesn't fail)
 const TACKLE_TUTORIAL_STEP_GAP := 1.2             # s beat between a cleared step and the next card
 const TACKLE_TUTORIAL_DUMMY_GAIT := 0.85          # 0..1 — a jog, not a sprint, so there's time to read the approach
+
+# ── Kicking tutorial (KickTutorial) ─────────────────────────────────────
+# Playtest 2026-10-30: "a random player currently just spawns in and takes
+# the ball — remove that. Instead, have a player lead on different angles:
+# kick to the player first, then practice kicking in front of them or to a
+# certain spot." A teammate (LeadBrain) stands KICK_TUTORIAL_LEAD_DISTANCE
+# out and, after KICK_TUTORIAL_LEAD_DELAY, leads for KICK_TUTORIAL_LEAD_TIME
+# at KICK_TUTORIAL_LEAD_GAIT: back at you, then off to either side, then
+# across you. Once the kick is in the air they run to where it'll come down
+# and take it. All unplaytested feel guesses.
+const KICK_TUTORIAL_LEAD_DISTANCE := 34.0     # m out from the kicker the leader starts
+const KICK_TUTORIAL_LEAD_DELAY := 0.9         # s after the card's dismissed before they go
+const KICK_TUTORIAL_LEAD_TIME := 2.8          # s they lead for before pulling up
+const KICK_TUTORIAL_LEAD_GAIT := 0.9          # 0..1
+## The across-you lead puts a ring this far along the lead from the
+## leader's start: kick it there and they run onto it.
+const KICK_TUTORIAL_SPACE_AHEAD := 14.0       # m
+## The last step's ring, straight out from the kicker.
+const KICK_TUTORIAL_SPOT_DISTANCE := 30.0     # m
+const KICK_TUTORIAL_RING_RADIUS := 3.5        # m
+## A catch counts as "in front of them" when it's at least this far along
+## the lead from where they were when the ball left the boot.
+const KICK_TUTORIAL_IN_FRONT_MIN := 2.0       # m
+## A kick that isn't taken is over this long after it first lands.
+const KICK_TUTORIAL_MISS_TIME := 1.2          # s
+const KICK_TUTORIAL_RETRY_DELAY := 1.4        # s
 
 # Padded tackle bags — training-ground dressing beside the tackling coach.
 # Player-sized flat-topped red cylinders, no branding (see TackleBag).
