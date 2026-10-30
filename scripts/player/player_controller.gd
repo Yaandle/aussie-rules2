@@ -232,6 +232,17 @@ var _pending_jump_speed := 0.0
 ## resolved yet, and the brain still wants it. Read by _update_locomotion
 ## for MARK_SAFE_SPEED_SCALE, same mechanism KICK_STANCE_SPEED_SCALE uses.
 var _mark_readying := false
+## Whether a held Safe mark has planted yet: only in the last
+## Tuning.MARK_SAFE_PLANT_TIME before the ball arrives. Before that the
+## hold costs MARK_SAFE_APPROACH_SPEED_SCALE, so a player can hold A while
+## still running onto the drop (playtest 2026-10-30).
+var _mark_safe_planted := false
+## A held Safe mark's one hop at a ball going over the hands (see
+## _maybe_safe_mark_jump). Cleared once the hold ends with the feet down.
+var _mark_safe_jumped := false
+## Seconds left of a Running mark's catch window, opened by the tap (see
+## _attempt_running_mark). 0 when no tap is live.
+var _running_mark_window := 0.0
 
 ## Seconds left before another Punch/Spoil attempt can connect — a tap
 ## action with no windup, so this is the only thing stopping it being held
@@ -901,15 +912,17 @@ func _update_locomotion(delta: float) -> void:
 	# Planting to kick or handball costs you your legs for a moment; the
 	# kick stance ahead of that (LT held, still aiming/repositioning) costs
 	# less, same relationship as ADS-walk vs. firing in a shooter. Each mark
-	# tier costs its own amount — see Tuning.action_speed_scale — and
-	# readying a Safe Mark (held, not yet resolved) costs the same as the
-	# mark itself will, so there's no free lunch in holding it early.
+	# tier costs its own amount — see Tuning.action_speed_scale. A Safe
+	# Mark held early costs a little while the player runs onto the drop,
+	# and the mark's full plant once the ball is about to arrive
+	# (_mark_safe_planted).
 	if _action != Tuning.Action.NONE:
 		target_speed *= Tuning.action_speed_scale(_action)
 	elif _charging:
 		target_speed *= Tuning.KICK_STANCE_SPEED_SCALE
 	elif _mark_readying:
-		target_speed *= Tuning.MARK_SAFE_SPEED_SCALE
+		target_speed *= Tuning.MARK_SAFE_SPEED_SCALE if _mark_safe_planted \
+			else Tuning.MARK_SAFE_APPROACH_SPEED_SCALE
 
 	var accel: float
 	if _backpedaling:
@@ -2398,6 +2411,12 @@ func receive_bump(impulse: Vector3, stun_duration: float, _by: PlayerController)
 func _mark_attempt_blocked(ball: Ball = null) -> bool:
 	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE:
 		return true
+	# The umpire's throw-up is hit, not caught: the two ruckmen tap it
+	# (_update_ruck_contest) and everyone else waits for the tap. Found when
+	# Safe's reach and hop grew (2026-10-30): an AI ruckman holding A under
+	# the toss took it before the hit-out, and the stoppage looped.
+	if _is_ruck_contestant or ruck_contest_locked():
+		return true
 	if _gather_cooldown > 0.0:
 		return true
 	if is_instance_valid(ball) and ball.last_disposer() == self \
@@ -2407,13 +2426,19 @@ func _mark_attempt_blocked(ball: Ball = null) -> bool:
 
 
 func _update_marking(delta: float) -> void:
+	# A held Safe mark gets one hop (_maybe_safe_mark_jump); the next hold
+	# can have another once this one has ended and the feet are down.
+	if not _mark_readying and is_on_floor():
+		_mark_safe_jumped = false
 	var ball := _live_ball()
 	if _mark_attempt_blocked(ball):
 		_mark_readying = false
+		_running_mark_window = 0.0
 		return
 
 	if not is_instance_valid(ball) or ball.is_held:
 		_mark_readying = false
+		_running_mark_window = 0.0
 		return
 
 	if ball.is_airborne():
@@ -2436,6 +2461,7 @@ func _update_marking(delta: float) -> void:
 			_mark_readying = false
 			return   # whiff reaction owns this frame — don't also attempt a ground pickup under it
 		_mark_readying = false
+		_running_mark_window = 0.0
 		_update_ground_pickup(ball, delta)
 
 
@@ -2469,8 +2495,12 @@ func _try_spoil(ball: Ball) -> void:
 ## AI never taps Running/Aggressive by default (AIBrain only does behind
 ## Tuning.AI_MARK_USE_CUE_MODEL, off — and those two tiers are graded the
 ## same for every brain anyway), so only Safe needs the split.
-func _update_aerial_contest(ball: Ball, _delta: float) -> void:
+func _update_aerial_contest(ball: Ball, delta: float) -> void:
 	if _brain.wants_mark_safe():
+		_running_mark_window = 0.0
+		var offset := mark_timing_offset(ball, Tuning.Action.MARK_SAFE)
+		_mark_safe_planted = offset > -Tuning.MARK_SAFE_PLANT_TIME \
+			and offset < Tuning.MARK_TIMING_PAST_PEAK_OFFSET
 		if _brain is HumanBrain:
 			# _mark_readying still holds *last* frame's value here — reading
 			# it before the unconditional assignment below is what makes
@@ -2478,19 +2508,23 @@ func _update_aerial_contest(ball: Ball, _delta: float) -> void:
 			if not _mark_readying:
 				InputManager.rumble(Tuning.RUMBLE_MARK_PRESS)
 			_mark_readying = true
-			var mult := _timing_reach_mult(mark_timing_offset(ball, Tuning.Action.MARK_SAFE),
-				Tuning.MARK_SAFE_IDEAL_WINDOW, Tuning.MARK_SAFE_OK_WINDOW)
+			var mult := _timing_reach_mult(offset, Tuning.MARK_SAFE_IDEAL_WINDOW, Tuning.MARK_SAFE_OK_WINDOW)
 			if mult > 0.0 and _ball_in_catch_reach(ball, Tuning.MARK_SAFE_REACH_SCALE * mult):
 				_complete_mark(ball, Tuning.Action.MARK_SAFE)
+				return
 		else:
 			_mark_readying = true
 			if _ball_in_catch_reach(ball, Tuning.MARK_SAFE_REACH_SCALE):
 				_complete_mark(ball, Tuning.Action.MARK_SAFE)
+				return
+		_maybe_safe_mark_jump(ball)
 		return
 	_mark_readying = false
 
-	if _brain.wants_mark_running():
-		_attempt_running_mark(ball)
+	# The window is checked before the brain: a live tap mustn't consume (and
+	# lose) the next buffered press.
+	if _running_mark_window > 0.0 or _brain.wants_mark_running():
+		_attempt_running_mark(ball, delta)
 		return
 
 	# Gate on distance/flight-distance *before* consulting the brain —
@@ -2516,24 +2550,79 @@ func _update_aerial_contest(ball: Ball, _delta: float) -> void:
 		_begin_aggressive_mark()
 
 
-## Running's tap and its resolution are the same instant (unlike Aggressive,
-## whose jump defers resolution to a later contact frame — see
-## _resolve_aggressive_mark), so timing is graded right here, once. A tap
-## that fails outside MARK_CONTEST_RANGE is treated as no attempt at all
-## (silent, matching today) rather than a graded miss — the range gate is
-## the same "is this even live" test _update_aerial_contest's own
-## Aggressive branch already uses, not a new number.
-func _attempt_running_mark(ball: Ball) -> void:
+## A Running tap puts the hands out for Tuning.MARK_RUNNING_CATCH_WINDOW,
+## and every physics frame of that the ball is tested against the hands'
+## reach; the first frame in reach is the catch, the same way an
+## Aggressive leap is graded across the top of its jump. It used to be the
+## tap's frame alone (playtest 2026-10-30: "X marks are hard to trigger"):
+## a ball at 15 m/s spends about a tenth of a second inside an arm's reach,
+## so a tap a few frames early whiffed outright. A window that closes with
+## nothing caught is a miss; one that closes with the ball outside
+## MARK_CONTEST_RANGE is treated as no attempt at all (silent) rather than
+## a graded miss — the range gate is the same "is this even live" test
+## _update_aerial_contest's own Aggressive branch already uses.
+func _attempt_running_mark(ball: Ball, delta: float) -> void:
+	if _running_mark_window <= 0.0:
+		_running_mark_window = Tuning.MARK_RUNNING_CATCH_WINDOW
 	var mult := _timing_reach_mult(mark_timing_offset(ball, Tuning.Action.MARK_RUNNING),
 		Tuning.MARK_RUNNING_IDEAL_WINDOW, Tuning.MARK_RUNNING_OK_WINDOW)
 	if mult > 0.0 and _ball_in_catch_reach(ball, Tuning.MARK_RUNNING_REACH_SCALE * mult):
+		_running_mark_window = 0.0
 		_complete_mark(ball, Tuning.Action.MARK_RUNNING)
 		return
+	_running_mark_window -= delta
+	if _running_mark_window > 0.0:
+		return
+	_running_mark_window = 0.0
 	if ball.global_position.distance_to(_carry_point.global_position) <= Tuning.MARK_CONTEST_RANGE:
 		if _brain is HumanBrain:
 			InputManager.rumble(Tuning.RUMBLE_MARK_MISS)
 		mark_missed.emit(Tuning.Action.MARK_RUNNING)
 		_begin(Tuning.Action.MARK_RUNNING_MISS)
+
+
+## A — the hands-up hop (playtest 2026-10-30: "A should jump when it needs
+## to"). Safe is the high-percentage mark: a chest mark, or a small jump
+## when the ball will go over the hands. Each frame of a held Safe mark
+## that hasn't caught yet, the ball's flight is run forward against the
+## hands (carried on at the body's ground velocity, gravity only, like
+## PlayerAnimation._flight_crossing) to where it passes over them. If that
+## pass is above the hands, out of standing reach but inside it with the
+## hop's lift, the player hops so the top of the hop meets the ball. Then
+## the ordinary Safe reach test catches it, from the hands where they
+## really are. A ball too high even for that is Y's (the big leap). One
+## hop per hold; nothing is rolled, the hop just moves the hands.
+func _maybe_safe_mark_jump(ball: Ball) -> void:
+	if _mark_safe_jumped or _pending_jump_speed > 0.0 or not is_on_floor():
+		return
+	const STEP := 1.0 / 60.0
+	var reach := Tuning.MARK_CATCH_RADIUS * Tuning.MARK_SAFE_REACH_SCALE + Tuning.MARK_ASSIST_RADIUS_BONUS
+	var rise := Tuning.MARK_SAFE_JUMP_SPEED / Tuning.GRAVITY
+	var rel := ball.global_position - _catch_point.global_position
+	var rel_velocity := ball.linear_velocity - Vector3(velocity.x, 0.0, velocity.z)
+	var pass_rel := rel
+	var pass_time := 0.0
+	var pass_flat := Vector2(rel.x, rel.z).length()
+	var t := 0.0
+	while t < Tuning.MARK_SAFE_JUMP_LOOKAHEAD:
+		rel_velocity.y -= Tuning.GRAVITY * STEP
+		rel += rel_velocity * STEP
+		t += STEP
+		var flat := Vector2(rel.x, rel.z).length()
+		if flat >= pass_flat:
+			break
+		pass_flat = flat
+		pass_rel = rel
+		pass_time = t
+	if pass_rel.y <= 0.0 or pass_rel.length() <= reach:
+		return   # at or under the hands, or a chest mark: no hop
+	if pass_time > rise:
+		return   # not yet: hop so the top of it meets the ball
+	var lift := Tuning.MARK_SAFE_JUMP_SPEED * pass_time - 0.5 * Tuning.GRAVITY * pass_time * pass_time
+	if Vector3(pass_rel.x, pass_rel.y - lift, pass_rel.z).length() > reach:
+		return
+	_mark_safe_jumped = true
+	_pending_jump_speed = Tuning.MARK_SAFE_JUMP_SPEED
 
 
 ## A — Ground Pickup once the ball is loose rather than in flight (design
@@ -2565,9 +2654,10 @@ func _complete_mark(ball: Ball, tier: Tuning.Action) -> void:
 	_animation.note_mark_ball(ball)
 	_finish_mark_catch(ball, tier)
 	_mark_readying = false
-	if tier == Tuning.Action.MARK_SAFE:
+	if tier == Tuning.Action.MARK_SAFE and is_on_floor():
 		# A small reactive hop on the catch itself — see Tuning.MARK_SAFE_
-		# HOP_SPEED's own comment for why Safe gets this and not a real jump.
+		# HOP_SPEED's own comment. Not when the take was already in the air
+		# (_maybe_safe_mark_jump): a second push mid-air would float them.
 		_pending_jump_speed = Tuning.MARK_SAFE_HOP_SPEED
 	_begin(tier)
 

@@ -49,7 +49,13 @@ mostly superseded history. The full text lives outside the repo, in
   hip with 2-3 m of reach. Judge a reach change by how close the ball's
   uncaught flight passes the hands, not by where it was when the catch was
   called: the ball is still flying toward the hands then. Mark reach also
-  sets the AI's catch rate.
+  sets the AI's catch rate. A tap judged on its own frame is too tight: a
+  kick crosses an arm's reach in about 0.1 s and then hits the chest, so
+  the Running tap opens a catch window like the Aggressive leap's. Probe
+  marks with presses off the cue, not just on it.
+- **The ruckmen can't mark the throw-up.** `_mark_attempt_blocked` blocks
+  anyone in a live ruck contest. When Safe reach grew, an AI ruckman
+  holding A caught the umpire's toss and the stoppage looped.
 - **One context-sensitive tap.** Keyboard Q / gamepad X is Handball when
   carrying, Running Mark when the ball is airborne and reachable, Lunge
   tackle against a carrier, and Smother against a kicker already in stance.

@@ -1414,14 +1414,47 @@ const MARK_CATCH_RADIUS := 1.15         # m
 ## The Aggressive leap is graded across the top of the jump
 ## (MARK_AGGRESSIVE_CATCH_WINDOW) instead of one instant, which is what the
 ## old 2.7 was making up for. Probe after: see the 2026-10-29 commit.
+## Then too hard (playtest 2026-10-30: "A and X marks are hard to
+## trigger"). Safe 0.9 -> 1.19 m and Running 0.8 -> 1.0 m, with Safe's hop
+## (MARK_SAFE_JUMP_SPEED) for a ball over the hands and Running's catch
+## window (MARK_RUNNING_CATCH_WINDOW). Probe numbers in that commit.
 ## Unplaytested feel guesses; AI Safe marks use the same reach.
-const MARK_SAFE_REACH_SCALE := 0.7         # 0.9 m from CatchPoint with the bonus
-const MARK_RUNNING_REACH_SCALE := 0.61      # 0.8 m
+const MARK_SAFE_REACH_SCALE := 0.95        # 1.19 m from CatchPoint with the bonus
+const MARK_RUNNING_REACH_SCALE := 0.78      # 1.0 m
 const MARK_AGGRESSIVE_REACH_SCALE := 0.87   # 1.1 m
 ## Seconds either side of ACTION_CONTACT[MARK_AGGRESSIVE] that the leap's
 ## hands are up and can take the ball. The first physics frame in it with
 ## the ball in reach is the catch; none is a miss at its far end.
 const MARK_AGGRESSIVE_CATCH_WINDOW := 0.14   # s, unplaytested feel guess
+## How long a Running (X) tap keeps the hands out (playtest 2026-10-30: "X
+## marks are hard to trigger"). It was the tap's frame alone. Every physics
+## frame of the window is tested against the reach, the first in reach is
+## the catch, and a window that closes empty is the miss. Timing is still
+## the skill: tap more than this early and the hands are down again before
+## the ball gets there. Unplaytested feel guess.
+const MARK_RUNNING_CATCH_WINDOW := 0.25   # s
+## Where the (X) ring closes: this long before the ball reaches the hands
+## (MarkPrompt, MarkCueModel.press_target), so a tap on the ring opens the
+## window just ahead of the ball and a press a beat either side still has
+## the ball arrive inside it. A press much after arrival is the ball
+## already off the chest (it collides with the body).
+const MARK_RUNNING_CUE_LEAD := 0.15       # s
+
+## A held Safe (A) mark — the high-percentage take (playtest 2026-10-30:
+## "A should be the safe mark: a chest mark, or a small jump up when the
+## ball is above the hands"). See PlayerController._maybe_safe_mark_jump.
+## The hop: v^2 = 2*g*h -> ~0.4 m of lift, its top 0.29 s after take-off.
+## A ball higher than that is Y's.
+const MARK_SAFE_JUMP_SPEED := 2.8          # m/s, unplaytested feel guess
+## How far ahead the hop looks for the ball passing over the hands. Longer
+## than the hop's rise, so the pass is found before it's time to go.
+const MARK_SAFE_JUMP_LOOKAHEAD := 0.6      # s
+## Holding A used to plant the player (MARK_SAFE_SPEED_SCALE) from the
+## press, so holding it early while running onto the drop stopped them
+## short of it. Now the hold costs this much until the ball is within
+## MARK_SAFE_PLANT_TIME of the hands, then plants. Unplaytested feel guess.
+const MARK_SAFE_APPROACH_SPEED_SCALE := 0.85
+const MARK_SAFE_PLANT_TIME := 0.3          # s
 
 # Movement cost while committed to each tier — see
 # PlayerController._update_locomotion / Tuning.action_speed_scale. Safe
@@ -1441,11 +1474,11 @@ const MARK_AGGRESSIVE_SPEED_SCALE := 0.45
 const MARK_AGGRESSIVE_JUMP_SPEED := 4.0    # m/s
 
 ## The little pop a Safe (A) mark takes on catch — not a jump commitment
-## like MARK_AGGRESSIVE_JUMP_SPEED above (Safe never leaves the ground
-## before the catch resolves, it's a plant-and-wait tier), just a small
-## reactive hop the instant the ball is secured, so a Safe take doesn't
-## read as completely inert next to Running's stride and Aggressive's
-## leap. v^2 = 2*g*h -> ~0.16m of lift, a hop not a jump.
+## like MARK_AGGRESSIVE_JUMP_SPEED above, just a small reactive hop the
+## instant the ball is secured on the ground, so a Safe take doesn't read
+## as completely inert next to Running's stride and Aggressive's leap.
+## A take already in the air (MARK_SAFE_JUMP_SPEED) doesn't get it.
+## v^2 = 2*g*h -> ~0.16m of lift, a hop not a jump.
 const MARK_SAFE_HOP_SPEED := 1.8           # m/s
 
 # How far out an airborne ball has to be before an aggressive attempt is

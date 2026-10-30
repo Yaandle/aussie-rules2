@@ -85,8 +85,8 @@ There are three ways to take a mark. Each trades reach against commitment.
 
 | Mark | Keyboard | Pad | What it does |
 |---|---|---|---|
-| **Safe** | `G` (hold) | A (hold) | Plants you and takes it on the chest. Widest reach. |
-| **Running** | `Q` (tap) | X (tap) | Takes it in stride without breaking your run. Tighter reach. |
+| **Safe** | `G` (hold) | A (hold) | The high-percentage mark: on the chest, or a small jump when the ball is going over your hands. Widest reach. |
+| **Running** | `Q` (tap) | X (tap) | Takes it in stride without breaking your run. The hands stay out for a quarter of a second after the tap. Tighter reach. |
 | **Aggressive** | `H` (tap) | Y (tap) | Commits you to a leap the instant you press. It catches at the top of the jump, 0.4 s later. |
 | Spoil | `P` (tap) | LT (tap) | Punches the ball off its line instead of catching it. |
 
@@ -99,11 +99,12 @@ There are three ways to take a mark. Each trades reach against commitment.
   `GATED` cue, the Aggressive ring won't finish until the leap can reach the
   ball.
 - **Hands on the ball.** Reach is measured from where the hands take a mark
-  (`CatchPoint`, in front of the chest) and is about an arm's length: 0.9 m
-  for Safe, 0.8 m for Running, 1.1 m for Aggressive. You have to get to
-  the ball. An Aggressive leap can take it any time across the top of the
-  jump, and a caught ball travels into the hands rather than appearing in
-  them.
+  (`CatchPoint`, in front of the chest) and is about an arm's length: 1.2 m
+  for Safe, 1.0 m for Running, 1.1 m for Aggressive. You have to get to
+  the ball. Holding Safe early only plants you in the last 0.3 s, so you
+  can hold it while running onto the drop. A Running tap and an Aggressive
+  leap each take the ball on any frame of their catch window, and a caught
+  ball travels into the hands rather than appearing in them.
 - **Timing sets reach.** A press inside the ideal window gets full reach. A
   press in the contested window gets less, and a press outside it gets none.
   The catch then checks the ball's real position against that reach. The
