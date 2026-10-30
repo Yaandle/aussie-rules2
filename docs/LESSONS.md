@@ -42,7 +42,14 @@ mostly superseded history. The full text lives outside the repo, in
   the layouts link its meshes. Godot's glTF importer gives every node that
   shares a glTF mesh the same `ArrayMesh`, so `OvalEnvironment` turns a
   layout of ~500 linked copies into ~14 MultiMeshes. Don't commit `.blend1`
-  backups.
+  backups. A layout object can still be found by name while it's batched:
+  that's how `FieldScoreboard` lands on the prop named "Scoreboard".
+- **Mark reach is measured from the hands.** `CatchPoint` (in front of the
+  chest, 1.4 m) and about an arm's length, not `CarryPoint` by the right
+  hip with 2-3 m of reach. Judge a reach change by how close the ball's
+  uncaught flight passes the hands, not by where it was when the catch was
+  called: the ball is still flying toward the hands then. Mark reach also
+  sets the AI's catch rate.
 - **One context-sensitive tap.** Keyboard Q / gamepad X is Handball when
   carrying, Running Mark when the ball is airborne and reachable, Lunge
   tackle against a carrier, and Smother against a kicker already in stance.
@@ -109,6 +116,44 @@ mostly superseded history. The full text lives outside the repo, in
 - **Read a ragdoll's position from its bodies, not the skeleton.** In
   physics frames `get_bone_global_pose` didn't track the simulated bodies
   (1-3 m off after a fall), though the rendered skin did.
+- **A `PhysicalBone3D` joint's zero is the pose it was built in.** The
+  joint is made when the body enters the tree, from where the bodies are
+  then. A match built ragdolls mid-run, so every limit was centred on one
+  frame of running until `PhysicsRagdoll.build` started resetting to rest
+  first.
+- **Jolt's 6DOF swing limits won't go wide.** Asymmetric limits work, but a
+  bend limit past ~75° from the joint's zero comes apart. Wide ranges cost
+  stability in real falls even when a push test holds, so check limit
+  changes with `scenes/dev/tackle_sweep.tscn`.
+- **Check what else a Tuning constant feeds before changing it.**
+  `RUCK_HIT_OUT_REACH` was defined as the Aggressive mark's reach, so
+  cutting mark reach would have cut the ruck tap from 3.1 m to 1.4 m.
+- **`git stash` here rewrites the files it restores with CRLF**
+  (`core.autocrlf=true`), and several UI scripts are CRLF in the working
+  tree anyway. A script edit that expects LF finds nothing; the Edit tool
+  copes with either.
+- **Ramp in any servo that grabs a ragdoll limb.** At full strength on its
+  first tick, TackleWrap's wrist grip cancelled the whole closing speed at
+  the wrist and whipped the arms at up to 105 rad/s.
+- **Size a point servo on the point's own mass in the pull's direction**
+  (`PhysicsRagdoll.point_mass`), not the limb's. Sideways, a wrist feels
+  ~0.5 kg, not the arm's 4.6. Sized on the arm, TackleWrap's grip did ~6×
+  too much each tick. It whipped forearms at 40-335 rad/s and broke elbows
+  past their stops, which looked like a "pinned wrist" until a per-frame
+  probe showed it happened mid-reach.
+- **An AnimationTree `travel` lands on the tree's next update.** An action
+  clip started ~2 frames behind the gameplay clock that fires its contact,
+  so the kick's boot arrived after the ball had gone (0.4 m short on the
+  launch frame). `PlayerAnimation.play_action` advances the tree one
+  physics step right after the travel.
+- **Key a kick's leg by joint angles, not boot positions.** A contact point
+  0.5 m ahead of a 1.05 m hip is out of a straight leg's reach, so the leg
+  IK folded the knee 80° and lifted it ("the knee comes up high"). See
+  `solve_leg` in `tools/blender/author_6thbuild_clips.py`.
+- **A blend space's `sync` doesn't line up phases.** It only keeps
+  zero-weight clips' clocks running. Clips of different lengths drift, so
+  `PlayerAnimation` rebuilds the stepping clips to one length and one
+  stance phase ("Gait phase lock").
 - **Python edits on Windows corrupt files.** `open()` defaults to cp1252
   and CRLF: an em dash came out as a raw 0x97 byte, which stopped
   `tuning.gd` loading at all. Use the Edit tool, or
@@ -151,8 +196,10 @@ mostly superseded history. The full text lives outside the repo, in
   `--script`, which skips autoloads), with `--fixed-fps 60`, `--quit-after N`
   and an explicit `get_tree().quit()`. Delete it afterwards.
 - For visual checks, run windowed with
-  `--write-movie <dir>/x.png --fixed-fps 30 --resolution 1280x720` and read
-  the frames. This caught a skinning bug the numbers missed.
+  `--write-movie <dir>/x.png --fixed-fps 30` and read the frames. This
+  caught a skinning bug the numbers missed. Frames come out at the
+  project's 1600x900 window override; `--resolution` doesn't change that.
+  `scenes/dev/demo_recorder.tscn` is a worked example (the README's GIFs).
 - **A scratch scene that plays a Career match writes the real save**
   (`user://career_profile.cfg`, `settings.cfg`, under
   `%APPDATA%\Godot\app_userdata\Aussie Rules 2`). Back them up first, or
@@ -163,6 +210,9 @@ mostly superseded history. The full text lives outside the repo, in
   Their hunks stay unstaged in the working tree (Career Phases 7-8).
 - At render rates below the physics rate, `_process` skips physics ticks.
   Sample physics state on `SceneTree.physics_frame` instead.
+- **Ragdoll tackles:** `scenes/dev/tackle_sweep.tscn` runs real X, B and
+  bump connects between running 6thbuild players and prints how every body
+  fell. Its header holds the 2026-10-28 baseline.
 - Nobody in this project's history has had a live GUI session during an
   agent run. Anything about feel, framing or camera needs the user's eyes:
   say so rather than claiming it.

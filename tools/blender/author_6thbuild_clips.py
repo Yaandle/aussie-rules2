@@ -74,6 +74,9 @@ ACTION_TIMING = {
 	"smothered": (0.45, 0.12),
 	"smother_dive": (0.55, 0.38),
 	"tackle_sling": (1.0, 0.12),
+	# Not an Action: the held pose PlayerAnimation's carry layer lays over
+	# the arms while a player has the ball. Any length works; it's static.
+	"carry": (0.5, 0.0),
 }
 
 FK_BONES = ["pelvis", "spine1", "spine2", "head", "shoulder.l", "shoulder.r",
@@ -283,6 +286,12 @@ class Clip:
 	  "wrist_l", "wrist_r": lean(...) on the hand bone
 	  "foot_l", "foot_r": {"pos": P offset from the rest ankle, "pitch": deg
 	                       toe-down (negative = toe up), "turn": deg}
+	  "leg_l", "leg_r": {"thigh": deg forward of straight down, "knee": deg
+	                     of bend, "plantar": deg the foot points past square
+	                     to the shin, "across": m toward the other leg} -
+	                     the leg posed by joint angles off wherever the
+	                     pelvis put the hip (solve_leg). It sets that leg's
+	                     ikpole too, so don't also give "foot_"/"knee_".
 	  "knee_l", "knee_r": P offset of that leg's ikpole from its rest spot
 	                      (1.04 m in front of the knee, at knee height). The
 	                      leg IK bends the knee toward the pole, so a foot
@@ -300,6 +309,47 @@ class Clip:
 
 
 DEFAULT_ELBOW_L = P(0.6, -0.4, -1.0)
+
+
+# The foot bone's rest direction below horizontal (deg), measured in main():
+# an iktarget pitch of p puts the foot p + this below horizontal (the foot
+# copies iktarget's rotation, so it's absolute, not relative to the shin).
+FOOT_REST_BELOW = 10.0
+
+
+def solve_leg(rig, basis, side, leg):
+	"""Poses one leg by joint angles: keys that leg's iktarget (ankle) and
+	ikpole (knee direction) so the rig's own leg IK lands on them. A kick
+	read wrong when its feet were placed as points: the contact point sat
+	0.5 m ahead of the hip, which a near-straight leg can't reach, so the
+	IK folded the knee 80 deg and lifted it, and the follow-through point
+	folded it 114 deg with the thigh past horizontal (measured in Godot).
+	Returns the ankle position."""
+	pose = rig.fk(basis)
+	H = pose["upperleg." + side].translation
+	L1 = (rig.rest["lowerleg." + side].translation - rig.rest["upperleg." + side].translation).length
+	L2 = (rig.rest["foot." + side].translation - rig.rest["lowerleg." + side].translation).length
+	a = math.radians(leg["thigh"])
+	s = math.radians(leg["thigh"] - leg["knee"])
+	K = H + P(0, math.sin(a), -math.cos(a)) * L1
+	across = leg.get("across", 0.0) * (1.0 if side == "r" else -1.0)
+	A = K + P(0, math.sin(s), -math.cos(s)) * L2 + P(across, 0, 0)
+	# The knee points away from the hip-ankle line, in the leg's own plane;
+	# the pole goes out that way so the IK bends it there, never back.
+	line = (A - H).normalized()
+	out = (K - H) - line * (K - H).dot(line)
+	if out.length < 0.02:
+		out = line.cross(P(1, 0, 0))
+	pole = K + out.normalized() * 0.8
+	target, pole_name = "iktarget." + side, "ikpole." + side
+	shin_deg = leg["thigh"] - leg["knee"]
+	foot_below = leg.get("plantar", 0.0) - shin_deg
+	pitch = (foot_below - FOOT_REST_BELOW) * FOOT_PITCH_SIGN
+	basis[target] = (rig.rest_rot[target].inverted() @ (A - rig.rest[target].translation),
+		rot((1, 0, 0), pitch))
+	basis[pole_name] = (rig.rest_rot[pole_name].inverted() @ (pole - rig.rest[pole_name].translation),
+		basis[pole_name][1])
+	return A
 
 
 def build_basis(rig, base, spec):
@@ -361,6 +411,10 @@ def build_basis(rig, base, spec):
 		name = "ikpole." + side
 		loc, q = basis[name]
 		basis[name] = (loc + rig.rest_rot[name].inverted() @ k, q)
+	for side in ("l", "r"):
+		leg = spec.get("leg_" + side)
+		if leg is not None:
+			reached["ankle_" + side] = solve_leg(rig, basis, side, leg)
 	return basis, reached
 
 
@@ -528,6 +582,31 @@ def author_clip(rig, clip, base, fps):
 # contested hit — mark_safe's contact brace, mark_aggressive's contact
 # (peak) and pre-landing keys.
 
+# The ball carried in both hands in front of the belly (playtest: "it
+# should be in players hands with the arms closer to body holding the
+# ball", not floating at the hip with the arms out in the rest A-pose).
+# Wrists either side of the ball, elbows tucked down by the ribs. The ball
+# is centred about P(0, 0.30, 1.25): PlayerAnimation puts it midway between
+# the palms. Every clip that starts or ends holding the ball uses these
+# arms, so the carry layer blends in and out of it without a flick.
+CARRY_ARMS = {
+	"hand_l": P(0.128, 0.24, 1.21), "hand_r": P(-0.128, 0.24, 1.21),
+	"elbow_l": P(0.30, -0.50, -1.0), "elbow_r": P(-0.30, -0.50, -1.0),
+}
+
+
+def carry(**spec):
+	"""CARRY_ARMS plus whatever else the key sets."""
+	out = dict(CARRY_ARMS)
+	out.update(spec)
+	return out
+
+
+def clip_carry():
+	length, _contact = ACTION_TIMING["carry"]
+	return Clip("carry", [(0.0, carry()), (length, carry())])
+
+
 def _safe_receive():
 	return {
 		"pelvis": {"pos": P(0, 0, -0.04)},
@@ -565,15 +644,13 @@ def clip_mark_safe():
 			"elbow_l": P(0.4, -0.1, -1.0), "elbow_r": P(-0.4, -0.1, -1.0),
 			"foot_l": {"pos": P(0, 0.06, 0)}, "foot_r": {"pos": P(0, -0.04, 0)},
 		}),
-		# into the carry: right hand takes it down to the hip, left lets go.
-		(contact + (length - contact) * 0.72, {
+		# into the carry: both hands bring it down in front of the belly.
+		(contact + (length - contact) * 0.72, carry(**{
 			"pelvis": {"pos": P(0, 0, -0.02)},
 			"spine1": lean(fwd=3), "spine2": lean(fwd=2), "head": lean(fwd=3),
-			"hand_l": P(0.32, 0.10, 1.22), "hand_r": P(-0.18, 0.14, 1.12),
-			"elbow_l": P(1.0, 0.3, -0.6), "elbow_r": P(-0.6, 0.3, -1.0),
 			"foot_l": {"pos": P(0, 0.03, 0)}, "foot_r": {"pos": P(0, -0.02, 0)},
-		}),
-		(length, {}),
+		})),
+		(length, carry()),
 	])
 
 
@@ -635,13 +712,11 @@ def clip_mark_running():
 			"hand_l": P(0.15, 0.32, 1.40), "hand_r": P(-0.13, 0.32, 1.40),
 			"elbow_l": P(0.5, 0.0, -1.0), "elbow_r": P(-0.5, 0.0, -1.0),
 		}),
-		# tucked on the right hip, left arm back to a running swing.
-		(contact + (length - contact) * 0.75, {
+		# into the two-hand carry, still running.
+		(contact + (length - contact) * 0.75, carry(**{
 			"spine1": lean(fwd=7), "spine2": lean(fwd=2), "head": lean(fwd=2),
-			"hand_l": P(0.30, 0.18, 1.26), "hand_r": P(-0.18, 0.15, 1.14),
-			"elbow_l": P(0.8, 0.6, -0.6), "elbow_r": P(-0.6, 0.4, -1.0),
-		}),
-		(length, {}),
+		})),
+		(length, carry()),
 	], legs_from=RUN_ACTION)
 
 
@@ -749,7 +824,7 @@ def clip_mark_aggressive():
 			"elbow_l": P(0.4, -0.1, -1.0), "elbow_r": P(-0.4, -0.1, -1.0),
 			"foot_l": {"pos": P(0, 0.08, 0)}, "foot_r": {"pos": P(0, -0.06, 0)},
 		}),
-		(length, {}),
+		(length, carry()),
 	])
 
 
@@ -763,59 +838,90 @@ def clip_mark_aggressive():
 
 def clip_kick():
 	length, contact = ACTION_TIMING["kick"]
-	# Right-foot drop punt: plant on the left, ball out in front in both
-	# hands, drop it, the right leg swings through on BootPoint's line
-	# (~0.5 m ahead, ~0.3 m up), follow through high with the body leaning
-	# back against it.
+	# A right-foot drop punt, from the two-hand carry. Playtest 2026-10-28:
+	# "the knee comes up high but the leg isn't doing the kicking motion
+	# accurately. the foot should come out more forward and point forward."
+	# The old keys placed the boot at points 0.5 m ahead of the hip, which a
+	# near-straight leg can't reach, so the IK folded the knee instead: 79
+	# deg of bend at contact with the shin hanging straight down, and 114 deg
+	# in the follow-through with the thigh past horizontal.
 	#
-	# The right pole rides up with the swing (knee_r). Left at its rest
-	# spot, it ended up under the hip-to-ankle line once the boot rose past
-	# knee height in the follow-through, and the knee flipped down and back
-	# for ~0.1 s (measured in Godot: the thigh and shin turned ~33° in a
-	# single 1/120 s step at 0.53 s, then flipped back at 0.63 s). Playtest:
-	# "kicking animation has a small glitch with the leg".
+	# Now the kicking leg is keyed by joint angles (solve_leg), the way the
+	# kick is coached: step onto the left foot, guide the ball down over the
+	# right foot and let go of it, heel kicks up behind, knee drives through,
+	# the shin snaps straight through the ball with the toes pointed, then
+	# the whole leg follows through high toward the target, still pointed,
+	# up onto the left toes. Contact is ~0.8 m ahead of the hip at ~0.3 m;
+	# PlayerController's BootPoint sits on the instep there, and
+	# PlayerAnimation drops the ball from the hands onto it.
+	release = 0.16
 	return Clip("kick", [
-		(0.0, {}),
-		# wind-up: right leg back and up, ball held out over the kicking foot.
-		(contact * 0.33, {
-			"pelvis": {"pos": P(0, 0.02, -0.04), "rot": lean(turn=-4)},
-			"spine1": lean(fwd=5), "spine2": lean(fwd=3), "head": lean(fwd=12),
-			"hand_l": P(0.04, 0.36, 1.18), "hand_r": P(-0.16, 0.36, 1.16),
-			"elbow_l": P(0.6, -0.2, -1.0), "elbow_r": P(-0.6, -0.2, -1.0),
-			"foot_l": {"pos": P(0, 0.14, 0)},
-			"foot_r": {"pos": P(0, -0.42, 0.24), "pitch": 35},
+		(0.0, carry()),
+		# step onto the left foot, ball brought over toward the right foot.
+		(0.09, {
+			"pelvis": {"pos": P(0, 0.04, -0.02), "rot": lean(turn=-2)},
+			"spine1": lean(fwd=4), "spine2": lean(fwd=2), "head": lean(fwd=12),
+			"hand_l": P(0.05, 0.29, 1.13), "hand_r": P(-0.17, 0.29, 1.13),
+			"elbow_l": P(0.4, -0.4, -1.0), "elbow_r": P(-0.4, -0.4, -1.0),
+			"foot_l": {"pos": P(0, 0.08, 0.07), "pitch": -5},
+			"leg_r": {"thigh": -4, "knee": 45, "plantar": 25},
 		}),
-		# drop: hands let go and part for balance, kicking leg coming through
-		# knee-first.
-		(contact * 0.72, {
-			"pelvis": {"pos": P(0, 0.04, -0.03)},
-			"spine1": lean(fwd=2), "spine2": lean(fwd=0), "head": lean(fwd=16),
-			"hand_l": P(0.42, 0.26, 1.28), "hand_r": P(-0.40, -0.10, 1.16),
-			"elbow_l": P(1.0, 0.0, -0.6), "elbow_r": P(-1.0, 0.3, -0.6),
-			"foot_l": {"pos": P(0, 0.14, 0)},
-			"foot_r": {"pos": P(0, -0.20, 0.34), "pitch": 40},
+		# drop: hands let go out over the kicking foot (PlayerAnimation's
+		# KICK_RELEASE_TIME), left foot planted, heel coming up behind.
+		(release, {
+			"pelvis": {"pos": P(0, 0.07, -0.03), "rot": lean(turn=-4)},
+			"spine1": lean(fwd=6), "spine2": lean(fwd=3), "head": lean(fwd=18),
+			"hand_l": P(0.01, 0.37, 1.04), "hand_r": P(-0.21, 0.37, 1.04),
+			"elbow_l": P(0.6, -0.3, -1.0), "elbow_r": P(-0.6, -0.3, -1.0),
+			"foot_l": {"pos": P(0, 0.16, 0)},
+			"leg_r": {"thigh": -10, "knee": 82, "plantar": 45},
 		}),
-		# contact: instep through the ball on BootPoint's line, leg long,
-		# torso leaning back over the plant foot, eyes on the ball.
+		# top of the backswing: hands parted for balance, hips opened.
+		(0.25, {
+			"pelvis": {"pos": P(0, 0.09, -0.04), "rot": lean(turn=-6)},
+			"spine1": lean(fwd=5), "spine2": lean(fwd=2), "head": lean(fwd=20),
+			"hand_l": P(0.38, 0.32, 1.25), "hand_r": P(-0.40, 0.0, 1.10),
+			"elbow_l": P(1.0, -0.1, -0.6), "elbow_r": P(-1.0, 0.2, -0.6),
+			"foot_l": {"pos": P(0, 0.16, 0)},
+			"leg_r": {"thigh": -10, "knee": 100, "plantar": 55},
+		}),
+		# knee drives through, the shin still trailing.
+		(0.34, {
+			"pelvis": {"pos": P(0, 0.11, -0.03), "rot": lean(fwd=-2)},
+			"spine1": lean(fwd=1), "spine2": lean(fwd=0), "head": lean(fwd=20),
+			"hand_l": P(0.46, 0.30, 1.33), "hand_r": P(-0.42, -0.10, 1.14),
+			"elbow_l": P(1.0, -0.2, -0.6), "elbow_r": P(-1.0, 0.3, -0.5),
+			"foot_l": {"pos": P(0, 0.16, 0)},
+			"leg_r": {"thigh": 32, "knee": 100, "plantar": 65},
+		}),
+		# contact: shin snapped through, leg near straight, toes pointed,
+		# torso back over the plant foot, eyes on the ball.
 		(contact, {
-			"pelvis": {"pos": P(0, 0.06, 0.0), "rot": lean(fwd=-6, turn=4)},
-			"spine1": lean(fwd=-5), "spine2": lean(fwd=-2), "head": lean(fwd=18),
-			"hand_l": P(0.46, 0.30, 1.40), "hand_r": P(-0.36, -0.22, 1.20),
+			"pelvis": {"pos": P(0, 0.12, -0.02), "rot": lean(fwd=-6, turn=5)},
+			"spine1": lean(fwd=-4), "spine2": lean(fwd=-2), "head": lean(fwd=18),
+			"hand_l": P(0.48, 0.28, 1.38), "hand_r": P(-0.42, -0.18, 1.18),
 			"elbow_l": P(1.0, -0.2, -0.6), "elbow_r": P(-1.0, 0.4, -0.5),
-			"foot_l": {"pos": P(0, 0.14, 0), "pitch": 5},
-			"foot_r": {"pos": P(0.02, 0.50, 0.28), "pitch": 45},
-			"knee_r": P(0, -0.30, 0.60),
+			"foot_l": {"pos": P(0, 0.16, 0), "pitch": 4},
+			"leg_r": {"thigh": 60, "knee": 30, "plantar": 72, "across": 0.02},
 		}),
-		# follow-through: boot finishes high, left heel lifting. Pole well
-		# above the near-level leg, so the knee points up.
-		(contact + (length - contact) * 0.45, {
-			"pelvis": {"pos": P(0, 0.08, 0.02), "rot": lean(fwd=-10, turn=6)},
-			"spine1": lean(fwd=-6), "spine2": lean(fwd=-2), "head": lean(fwd=8),
-			"hand_l": P(0.40, 0.34, 1.52), "hand_r": P(-0.36, -0.18, 1.26),
+		# follow-through: the whole leg straight and high toward the target,
+		# foot still pointed, up on the left toes.
+		(0.55, {
+			"pelvis": {"pos": P(0, 0.13, 0.0), "rot": lean(fwd=-12, turn=8)},
+			"spine1": lean(fwd=-6), "spine2": lean(fwd=-2), "head": lean(fwd=6),
+			"hand_l": P(0.42, 0.36, 1.50), "hand_r": P(-0.42, -0.22, 1.26),
 			"elbow_l": P(1.0, -0.2, -0.5), "elbow_r": P(-1.0, 0.4, -0.5),
-			"foot_l": {"pos": P(0, 0.14, 0.07), "pitch": 15},
-			"foot_r": {"pos": P(0.02, 0.66, 0.88), "pitch": 30},
-			"knee_r": P(0, -0.44, 1.20),
+			"foot_l": {"pos": P(0, 0.16, 0.06), "pitch": 22},
+			"leg_r": {"thigh": 88, "knee": 6, "plantar": 65, "across": 0.04},
+		}),
+		# coming back down to the turf in front.
+		(0.66, {
+			"pelvis": {"pos": P(0, 0.09, -0.03), "rot": lean(fwd=-4, turn=4)},
+			"spine1": lean(fwd=-1), "spine2": lean(fwd=0), "head": lean(fwd=4),
+			"hand_l": P(0.45, 0.20, 1.34), "hand_r": P(-0.45, -0.08, 1.22),
+			"elbow_l": P(1.0, -0.1, -0.6), "elbow_r": P(-1.0, 0.2, -0.6),
+			"foot_l": {"pos": P(0, 0.12, 0)},
+			"leg_r": {"thigh": 35, "knee": 20, "plantar": 35},
 		}),
 		(length, {}),
 	])
@@ -826,7 +932,7 @@ def clip_handball():
 	# Left hand is the platform holding the ball at the waist, right fist
 	# punches through it — the torso winds right then drives through.
 	return Clip("handball", [
-		(0.0, {}),
+		(0.0, carry()),
 		(contact * 0.5, {
 			"pelvis": {"pos": P(0, 0, -0.03), "rot": lean(turn=-6)},
 			"spine1": lean(fwd=6, turn=-6), "spine2": lean(fwd=3, turn=-4), "head": lean(fwd=10, turn=8),
@@ -860,10 +966,7 @@ def clip_bounce():
 	# hands down into the turf in front and is taken back up — a shallow
 	# reach, not a crouch (see _build_bounce's own note).
 	return Clip("bounce", [
-		(0.0, {
-			"spine1": lean(fwd=6), "spine2": lean(fwd=3),
-			"hand_l": P(0.10, 0.32, 1.30), "hand_r": P(-0.10, 0.32, 1.30),
-		}),
+		(0.0, carry(spine1=lean(fwd=6), spine2=lean(fwd=3))),
 		(contact * 0.55, {
 			"spine1": lean(fwd=10), "spine2": lean(fwd=6), "head": lean(fwd=14),
 			"clav": clav(fwd=8),
@@ -878,11 +981,9 @@ def clip_bounce():
 			"elbow_l": P(0.8, 0.0, -0.8), "elbow_r": P(-0.5, -0.1, -1.0),
 		}),
 		# back up and running, hands taking it again.
-		(contact + (length - contact) * 0.35, {
-			"spine1": lean(fwd=7), "spine2": lean(fwd=3), "head": lean(fwd=4),
-			"hand_l": P(0.12, 0.34, 1.26), "hand_r": P(-0.12, 0.34, 1.24),
-		}),
-		(length, {}),
+		(contact + (length - contact) * 0.35, carry(spine1=lean(fwd=7), spine2=lean(fwd=3),
+			head=lean(fwd=4))),
+		(length, carry()),
 	], legs_from=RUN_ACTION)
 
 
@@ -1152,6 +1253,7 @@ CLIPS = {
 	"smothered": clip_smothered,
 	"smother_dive": clip_smother_dive,
 	"tackle_sling": clip_tackle_sling,
+	"carry": clip_carry,
 }
 
 
@@ -1175,6 +1277,10 @@ def main():
 		pb.rotation_quaternion = (1, 0, 0, 0)
 		pb.rotation_euler = (0, 0, 0)
 	calibrate_foot_pitch(arm_obj)
+	global FOOT_REST_BELOW
+	foot = arm_obj.data.bones["foot.r"]
+	along = foot.tail_local - foot.head_local
+	FOOT_REST_BELOW = math.degrees(math.atan2(-along.z, -along.y))
 
 	rig = Rig(arm_obj)
 	base = sample_action(rig, bpy.data.actions[BASE_ACTION], bpy.data.actions[BASE_ACTION].frame_range[0])

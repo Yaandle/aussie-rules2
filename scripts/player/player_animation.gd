@@ -155,6 +155,32 @@ const STRIDE_FADE := 0.08
 const STRIDE_PLANT_TOLERANCE := 0.03
 const STRIDE_SAMPLE_STEP := 1.0 / 60.0
 
+## ── Gait phase lock ─────────────────────────────────────────────────
+## A blend space mixes poses, not gaits: two stepping clips blend cleanly
+## only while both are at the same point of the stride. Nothing in Godot's
+## blend space lines that up — its `sync` only keeps a clip's clock running
+## while its weight is zero — so each clip loops on its own length, and
+## 6thbuild's don't match: the jog family (jog_fwd, run_back, the strafes)
+## is 0.708 s a cycle, the run family (run_fwd and its diagonals) 0.542 s.
+## Every 1.2 s of running between jog and sprint pace the two drift half a
+## stride apart, and the blend averages a planted foot with a swinging one:
+## both feet hover and slide. The strafes and run_back weren't even in step
+## at the start (left foot down at 36% / 63% / 12% of their cycles against
+## 3% for the forward clips).
+## So the stepping clips are rebuilt once per model, before anything else
+## reads them: each is stretched to PHASE_LOCK_REFERENCE's length and turned
+## round its loop so the middle of its left foot's stance lands at time 0.
+## Same length, same start, and `sync` keeping every clock running, they stay
+## in step for as long as the player runs. Stride matching measures the
+## rebuilt clips, so the cadence it sets is unchanged. The reference is the
+## jog: a jog-family clip only turns, and the run family is played back up
+## to speed by the stride rate anyway. idle has no stride and keeps its own
+## slow loop.
+const PHASE_LOCK_CLIPS: Array[StringName] = [&"jog_fwd", &"run_fwd", &"run_back", &"strafe_l",
+	&"strafe_r", &"run_fwd_l", &"run_fwd_r"]
+const PHASE_LOCK_REFERENCE := &"jog_fwd"
+const PHASE_LOCK_SAMPLE_RATE := 60.0
+
 ## ── Drive lean ──────────────────────────────────────────────────────
 ## A runner leans into acceleration and sits back to brake; constant-speed
 ## clips do neither, so getting going looked like the legs speeding up
@@ -167,6 +193,82 @@ const LEAN_PER_ACCEL_DEG := 1.1     ## per m/s² of speed gained
 const LEAN_AT_SPRINT_DEG := 4.0
 const LEAN_LIMITS_DEG := Vector2(-6.0, 12.0)
 const LEAN_SMOOTHING := 10.0
+## Easing back toward upright while still running is slower. Speed climbs at
+## a constant Tuning.ACCELERATION and stops dead at the top, so the drive
+## lean fell from 12° to 4° in a couple of frames the moment a sprint
+## topped out, a visible pop upright. A sprinter rises out of the drive over
+## a few strides instead. Leaving locomotion (a kick, a mark) still clears
+## the lean at LEAN_SMOOTHING, so it doesn't ride into the action clip.
+const LEAN_RELEASE_SMOOTHING := 3.5
+
+## ── Turn bank ───────────────────────────────────────────────────────
+## A runner cutting at pace tips into the turn: to stay balanced while the
+## feet push sideways, the body leans toward the inside of the curve by
+## atan(sideways acceleration / g). The clips all run straight, so a hard
+## cut at a sprint swung the legs round under a bolt-upright torso. Taken
+## from the body's real sideways acceleration (its velocity changing across
+## its facing — the same velocity the blend space reads), at BANK_SHARE of
+## the balanced angle (the legs and arms already show some of the turn),
+## capped at BANK_MAX_DEG, and rolled into LEAN_BONE in the same post-mix
+## pass as the drive lean. A tackle hold, a dash and every other
+## non-locomotion state get none. Degrees. Unplaytested feel guesses.
+const BANK_SHARE := 0.6
+const BANK_MAX_DEG := 14.0
+const BANK_SMOOTHING := 8.0
+
+## ── Ball carry ──────────────────────────────────────────────────────
+## Playtest 2026-10-28: "the ball is also not in the players hands it is
+## just sitting on its hip floating ... it should be in players hands with
+## the arms closer to body holding the ball". The ball rode
+## PlayerController's CarryPoint, a fixed spot by the right hip, while the
+## gait clips swung the arms and idle held them out in the rest A-pose.
+##
+## Two parts. The arms: while the player has the ball, a filtered Blend2 in
+## the locomotion tree lays the "carry" clip (6thbuild's two-hand hold,
+## tools/blender/author_6thbuild_clips.py) over CARRY_BONES only, so the
+## legs and torso keep running underneath. It fades at CARRY_BLEND_RATE.
+## The ball: PlayerController carries it on BallHold, which this moves every
+## frame to where the hands have it. Each hand's grip is measured once from
+## the carry clip (the ball's centre in that hand's own frame), so a clip
+## that parts the hands leaves the ball in the hand that keeps it. Gameplay
+## still measures reach from CarryPoint; this is presentation. A rig with no
+## carry clip (the procedural one) keeps the ball on CarryPoint.
+const CARRY_CLIP := &"carry"
+const CARRY_NODE := &"carry"
+const CARRY_POSE_NODE := &"carry_pose"
+const CARRY_BONES: Array[StringName] = [&"LeftShoulder", &"LeftUpperArm", &"LeftLowerArm",
+	&"LeftHand", &"RightShoulder", &"RightUpperArm", &"RightLowerArm", &"RightHand"]
+const CARRY_BLEND_RATE := 12.0     ## 1/s, exponential: ~0.2 s to settle
+## A palm is this far along the hand from the wrist (m). In the carry clip
+## the ball's centre is midway between the two palms.
+const PALM_REACH := 0.06
+## Once each hand would put the ball more than this far from the other (m),
+## the ball is in one hand: the one ONE_HAND_STATES names for the clip, else
+## whichever had it last.
+const GRIP_SPLIT := Vector2(0.04, 0.12)
+const ONE_HAND_STATES := {&"handball": &"LeftHand", &"bounce": &"RightHand"}
+## The ball's nose above level while carried (deg), and on the drop: near
+## upright with the top tipped back toward the kicker, a drop punt's grip.
+const BALL_CARRY_PITCH_DEG := 25.0
+const BALL_DROP_PITCH_DEG := 105.0
+## The kick lets go of the ball this far into it (s; the "release" key of
+## clip_kick in author_6thbuild_clips.py), and the ball falls under gravity
+## onto BootPoint by Tuning's ACTION_CONTACT[KICK], where the boot meets it.
+## Before, it sat at the hip until contact and jumped to the boot. Timed on
+## the gameplay clock (PlayerController.action_elapsed), so it's at
+## BootPoint on the very frame it's launched from there.
+const KICK_RELEASE_TIME := 0.16
+
+## ── Catch glide ─────────────────────────────────────────────────────
+## Playtest 2026-10-29: "make sure I can see the player grab the ball". A
+## caught ball was in the hands the frame the catch was decided, so it
+## jumped from wherever it was. Now BallHold starts where the ball was
+## (note_catch) and eases into the hands over CATCH_GLIDE_TIME, while the
+## mark clip brings them up to meet it. Presentation only: the catch is
+## already decided and possession is already the catcher's. Reach is
+## Tuning's "Hands on the ball", so the gap this closes is short.
+## Unplaytested feel guess.
+const CATCH_GLIDE_TIME := 0.1
 
 const LOCOMOTION_STATE := &"locomotion"
 const BLEND_SMOOTHING := 14.0     ## exponential rate; stops the blend snapping
@@ -192,6 +294,9 @@ const GROUND_CLAMP_FEET: Array[StringName] = [&"LeftFoot", &"RightFoot"]
 @export var rig_path: NodePath = ^"../Rig"
 @export var animation_player_path: NodePath = ^"../AnimationPlayer"
 @export var animation_tree_path: NodePath = ^"../AnimationTree"
+## See "Ball carry". Both are optional.
+@export var ball_hold_path: NodePath = ^"../BallHold"
+@export var boot_point_path: NodePath = ^"../BootPoint"
 
 var _rig: Node3D
 var _player: AnimationPlayer
@@ -205,6 +310,12 @@ var _stride_parameter := ""
 ## STRIDE_CLIPS — see "Stride matching". Every rig on one model has the
 ## same clips, so it's measured once per model and shared.
 static var _stride_cache := {}
+## model -> {clip -> Animation}, the phase-locked gait clips (see "Gait
+## phase lock"), built once per model and shared like _stride_cache. Shared
+## because they must be: an imported clip is the glb's own resource, the same
+## object in every rig, so rebuilding in place would stretch it once per
+## player.
+static var _phase_lock_cache := {}
 var _strides := {}
 var _stride_rate := 1.0
 
@@ -213,6 +324,27 @@ var _stride_rate := 1.0
 var _lean_bone := -1
 var _lean_deg := 0.0
 var _last_speed := 0.0
+## See "Turn bank": degrees, positive = toward the body's right.
+var _bank_deg := 0.0
+var _last_velocity := Vector3.ZERO
+
+## See "Ball carry". _grip is {hand bone: {"bone": index, "centre": the
+## ball's centre in that hand's frame}}, empty without a carry clip.
+## model -> {hand bone: centre}, measured once per model like the strides.
+static var _grip_cache := {}
+var _carry_layer := false
+var _carry_parameter := ""
+var _carry_blend := 0.0
+var _grip := {}
+var _ball_hold: Node3D
+var _ball_hold_rest := Transform3D.IDENTITY
+var _boot_point: Node3D
+var _last_hold := Vector3.ZERO
+var _drop_from := Vector3.ZERO
+var _dropping := false
+## See "Catch glide": where the ball was caught (world), INF when not gliding.
+var _catch_from := Vector3.INF
+var _catch_glide := 0.0
 
 ## Snapshot from note_mark_ball() (ball relative to the player, its flight,
 ## the nearest opponent's side), consumed by the next play_action().
@@ -246,6 +378,12 @@ func _ready() -> void:
 	_player.add_animation_library(&"", _build_merged_library())
 	_strides = _measure_strides()
 	_lean_bone = _find_lean_bone()
+	_carry_layer = _player.has_animation(CARRY_CLIP)
+	_grip = _measure_grip()
+	_ball_hold = get_node_or_null(ball_hold_path) as Node3D
+	if _ball_hold != null:
+		_ball_hold_rest = _ball_hold.transform
+	_boot_point = get_node_or_null(boot_point_path) as Node3D
 
 	_tree.tree_root = _build_state_machine()
 	_tree.anim_player = _tree.get_path_to(_player)
@@ -253,6 +391,7 @@ func _ready() -> void:
 	_playback = _tree.get("parameters/playback")
 	_blend_parameter = "parameters/%s/%s/blend_position" % [LOCOMOTION_STATE, GAIT_NODE]
 	_stride_parameter = "parameters/%s/%s/scale" % [LOCOMOTION_STATE, STRIDE_NODE]
+	_carry_parameter = "parameters/%s/%s/blend_amount" % [LOCOMOTION_STATE, CARRY_NODE]
 
 	var controller := get_parent() as PlayerController
 	if controller != null:
@@ -273,6 +412,11 @@ func drive(blend: Vector2, delta: float, speed := -1.0) -> void:
 	_stride_rate = _stride_rate_for(speed)
 	_tree.set(_stride_parameter, _stride_rate)
 	_update_lean(speed, delta)
+	if _carry_layer:
+		var controller := get_parent() as PlayerController
+		var holding := controller != null and controller.is_carrying()
+		_carry_blend = lerpf(_carry_blend, 1.0 if holding else 0.0, 1.0 - exp(-CARRY_BLEND_RATE * delta))
+		_tree.set(_carry_parameter, _carry_blend)
 
 
 ## The locomotion playback rate right now — see "Stride matching".
@@ -328,16 +472,38 @@ func _stride_rate_for(speed: float) -> float:
 func _update_lean(speed: float, delta: float) -> void:
 	var accel := (speed - _last_speed) / maxf(delta, 0.0001)
 	_last_speed = speed
+	var running := _blend.y > 0.1 and current_state() == LOCOMOTION_STATE and not ragdoll_active
 	var target := 0.0
-	if _blend.y > 0.1 and current_state() == LOCOMOTION_STATE and not ragdoll_active:
+	if running:
 		target = clampf(accel * LEAN_PER_ACCEL_DEG + speed / Tuning.SPRINT_SPEED * LEAN_AT_SPRINT_DEG,
 			LEAN_LIMITS_DEG.x, LEAN_LIMITS_DEG.y)
-	_lean_deg = lerpf(_lean_deg, target, 1.0 - exp(-LEAN_SMOOTHING * delta))
+	var rate := LEAN_SMOOTHING
+	if running and absf(target) < absf(_lean_deg) and signf(target) != -signf(_lean_deg):
+		rate = LEAN_RELEASE_SMOOTHING
+	_lean_deg = lerpf(_lean_deg, target, 1.0 - exp(-rate * delta))
+
+	# Turn bank, off the velocity the body really has (a bare blend from the
+	# animation viewer has no body, so no bank).
+	var body := get_parent() as CharacterBody3D
+	var bank := 0.0
+	if body != null:
+		var velocity := Vector3(body.velocity.x, 0.0, body.velocity.z)
+		var sideways := (velocity - _last_velocity).dot(body.global_basis.x.normalized()) / maxf(delta, 0.0001)
+		_last_velocity = velocity
+		if running:
+			bank = clampf(rad_to_deg(atan(sideways / Tuning.GRAVITY)) * BANK_SHARE, -BANK_MAX_DEG, BANK_MAX_DEG)
+	_bank_deg = lerpf(_bank_deg, bank, 1.0 - exp(-(BANK_SMOOTHING if running else LEAN_SMOOTHING) * delta))
 
 
 ## The drive lean right now, degrees — see "Drive lean".
 func lean_degrees() -> float:
 	return _lean_deg
+
+
+## The turn bank right now, degrees, positive toward the right — see "Turn
+## bank".
+func bank_degrees() -> float:
+	return _bank_deg
 
 
 ## Runs on the render frame (AnimationTree's own default process timing,
@@ -352,28 +518,36 @@ func lean_degrees() -> float:
 func _process(_delta: float) -> void:
 	_apply_lean()
 	_clamp_feet_to_ground()
+	_update_ball_hold()
 
 
-## Tips the Spine by _lean_deg about the body's own left-right axis, on top
-## of whatever the tree just wrote — see "Drive lean". The tree rewrites the
-## bone every frame (_find_lean_bone checked it can), so this never stacks.
+## Tips the Spine by _lean_deg about the body's own left-right axis and
+## rolls it by _bank_deg about its forward axis, on top of whatever the tree
+## just wrote — see "Drive lean" and "Turn bank". The tree rewrites the bone
+## every frame (_find_lean_bone checked it can), so this never stacks.
 func _apply_lean() -> void:
-	if _rig == null or ragdoll_active or _lean_bone < 0 or absf(_lean_deg) < 0.05:
+	if _rig == null or ragdoll_active or _lean_bone < 0 \
+			or (absf(_lean_deg) < 0.05 and absf(_bank_deg) < 0.05):
 		return
 	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
 	var body := get_parent() as Node3D
 	if skeleton == null or body == null:
 		return
-	# The body's right in skeleton space, then in the bone's parent's frame:
+	# The body's axes in skeleton space, then in the bone's parent's frame:
 	# a rotation about a skeleton-space axis applied to the bone's global
 	# pose is the same rotation about that axis taken into its parent's
 	# frame, applied to its local pose. Forward is -Z, so tipping +Y toward
-	# it is a negative turn about +X.
-	var right := (skeleton.global_basis.orthonormalized().inverse() * body.global_basis.x).normalized()
+	# it is a negative turn about +X, and tipping it toward +X a positive
+	# turn about -Z.
+	var to_skeleton := skeleton.global_basis.orthonormalized().inverse()
+	var right := (to_skeleton * body.global_basis.x).normalized()
+	var forward := (to_skeleton * -body.global_basis.z).normalized()
 	var parent := skeleton.get_bone_parent(_lean_bone)
 	if parent >= 0:
-		right = (skeleton.get_bone_global_pose(parent).basis.orthonormalized().inverse() * right).normalized()
-	var turn := Quaternion(right, -deg_to_rad(_lean_deg))
+		var to_parent := skeleton.get_bone_global_pose(parent).basis.orthonormalized().inverse()
+		right = (to_parent * right).normalized()
+		forward = (to_parent * forward).normalized()
+	var turn := Quaternion(right, -deg_to_rad(_lean_deg)) * Quaternion(forward, deg_to_rad(_bank_deg))
 	skeleton.set_bone_pose_rotation(_lean_bone, turn * skeleton.get_bone_pose_rotation(_lean_bone))
 
 
@@ -410,6 +584,89 @@ func _clamp_feet_to_ground() -> void:
 	skeleton.set_bone_pose_position(hips_idx, hips_pos + Vector3(0.0, -deepest, 0.0))
 
 
+## Puts BallHold where the hands have the ball, or, for a kick past
+## KICK_RELEASE_TIME, partway down the drop onto BootPoint (see "Ball
+## carry"). After the foot clamp, which can lift the whole rig. BallHold is
+## a child of the player, so the ball rides the body's own physics motion
+## and only this offset is a frame behind.
+func _update_ball_hold() -> void:
+	if _ball_hold == null:
+		return
+	var controller := get_parent() as PlayerController
+	var skeleton: Skeleton3D = null
+	if _rig != null:
+		skeleton = _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
+	# Kept on the hands with no ball too, so a gather or a mark lands the
+	# ball straight in them: from the rest spot it showed at the hip for a
+	# frame first.
+	if ragdoll_active or _grip.is_empty() or skeleton == null or controller == null:
+		_ball_hold.transform = _ball_hold_rest
+		_dropping = false
+		_catch_from = Vector3.INF
+		return
+	var to_body := controller.global_transform.affine_inverse() * skeleton.global_transform
+	var state := current_state()
+	var pitch := BALL_CARRY_PITCH_DEG
+	var at: Vector3
+	if controller.current_action() == Tuning.Action.KICK:
+		var t := controller.action_elapsed()
+		pitch = lerpf(BALL_CARRY_PITCH_DEG, BALL_DROP_PITCH_DEG, smoothstep(0.0, KICK_RELEASE_TIME, t))
+		if t >= KICK_RELEASE_TIME and _boot_point != null:
+			if not _dropping:
+				_dropping = true
+				_drop_from = _last_hold
+			at = _drop_point(t - KICK_RELEASE_TIME)
+		else:
+			at = _hands_hold(skeleton, to_body, state)
+	else:
+		_dropping = false
+		at = _hands_hold(skeleton, to_body, state)
+	if _catch_from.is_finite():
+		_catch_glide += get_process_delta_time()
+		var from := controller.global_transform.affine_inverse() * _catch_from
+		at = from.lerp(at, smoothstep(0.0, 1.0, _catch_glide / CATCH_GLIDE_TIME))
+		if _catch_glide >= CATCH_GLIDE_TIME:
+			_catch_from = Vector3.INF
+	_last_hold = at
+	_ball_hold.transform = Transform3D(Basis(Vector3.RIGHT, deg_to_rad(pitch)), at)
+
+
+## See "Catch glide": the ball's world position the instant it was caught,
+## before the gather puts it on BallHold.
+func note_catch(world_position: Vector3) -> void:
+	_catch_from = world_position
+	_catch_glide = 0.0
+
+
+## Where the hands have the ball, body space: between the two grips while
+## they agree, in one hand once they part (GRIP_SPLIT, ONE_HAND_STATES).
+func _hands_hold(skeleton: Skeleton3D, to_body: Transform3D, state: StringName) -> Vector3:
+	var left: Dictionary = _grip[&"LeftHand"]
+	var right: Dictionary = _grip[&"RightHand"]
+	var from_left := to_body * (skeleton.get_bone_global_pose(int(left.bone)) * (left.centre as Vector3))
+	var from_right := to_body * (skeleton.get_bone_global_pose(int(right.bone)) * (right.centre as Vector3))
+	var keeper: StringName = ONE_HAND_STATES.get(state, &"")
+	var one := from_left
+	if keeper == &"RightHand" or (keeper == &"" \
+			and from_right.distance_squared_to(_last_hold) < from_left.distance_squared_to(_last_hold)):
+		one = from_right
+	var split := smoothstep(GRIP_SPLIT.x, GRIP_SPLIT.y, from_left.distance_to(from_right))
+	return ((from_left + from_right) * 0.5).lerp(one, split)
+
+
+## The dropped ball `since` seconds after the kick let go of it, body
+## space: a fall under gravity from where the hands had it, solved to meet
+## BootPoint at contact. Body space is the runner's own frame, so the ball
+## keeps the body's pace the way a real drop does.
+func _drop_point(since: float) -> Vector3:
+	var span := Tuning.action_contact_time(Tuning.Action.KICK) - KICK_RELEASE_TIME
+	var gravity := Vector3.DOWN * float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
+	var boot := _boot_point.position
+	var launch := (boot - _drop_from - 0.5 * gravity * span * span) / span
+	var s := minf(since, span)
+	return _drop_from + launch * s + 0.5 * gravity * s * s
+
+
 func play_action(action: Tuning.Action) -> void:
 	if _playback == null:
 		return
@@ -421,6 +678,14 @@ func play_action(action: Tuning.Action) -> void:
 			state = _select_mark_state(action, state)
 	_mark_context = {}
 	_playback.travel(state)
+	# Lands the travel now, one physics step in. Left to the tree's own next
+	# update, the clip started ~2 frames behind the action's gameplay clock
+	# (PlayerController._action_elapsed counts the tick it began on), so the
+	# kick's boot reached the ball after it had already gone (measured: the
+	# instep 0.4 m short on the launch frame). Every action's contact keys
+	# now land on the gameplay contact.
+	if _tree.active:
+		_tree.advance(get_physics_process_delta_time())
 
 
 ## Plays any state by name if the graph has it (the animation viewer's
@@ -615,8 +880,7 @@ func _measure_strides() -> Dictionary:
 	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
 	if skeleton == null:
 		return {}
-	var rig := _rig as HumanoidRig
-	var key := rig.selected_model() if rig != null and rig.is_imported() else "procedural"
+	var key := _model_key()
 	if _stride_cache.has(key):
 		return _stride_cache[key]
 	var out := {}
@@ -682,6 +946,161 @@ static func _measure_stride(skeleton: Skeleton3D, anim: Animation) -> Dictionary
 	return {"speed": swept / planted, "cadence": 2.0 / anim.length}
 
 
+## Each hand's grip on the ball (see "Ball carry"): poses the skeleton in
+## the carry clip, puts the ball's centre midway between the palms, and
+## keeps it in each hand's own frame. Cached per model like the strides;
+## empty without a carry clip. Resets the skeleton to rest after.
+func _measure_grip() -> Dictionary:
+	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
+	if not _carry_layer or skeleton == null:
+		return {}
+	var hands: Array[StringName] = [&"LeftHand", &"RightHand"]
+	for hand: StringName in hands:
+		if skeleton.find_bone(hand) < 0:
+			return {}
+	var key := _model_key()
+	if not _grip_cache.has(key):
+		var anim := _player.get_animation(CARRY_CLIP)
+		for i in anim.get_track_count():
+			var bone := skeleton.find_bone(String(anim.track_get_path(i).get_concatenated_subnames()))
+			if bone < 0:
+				continue
+			match anim.track_get_type(i):
+				Animation.TYPE_ROTATION_3D:
+					skeleton.set_bone_pose_rotation(bone, anim.rotation_track_interpolate(i, 0.0))
+				Animation.TYPE_POSITION_3D:
+					skeleton.set_bone_pose_position(bone, anim.position_track_interpolate(i, 0.0))
+		var poses := {}
+		var centre := Vector3.ZERO
+		for hand: StringName in hands:
+			var pose := skeleton.get_bone_global_pose(skeleton.find_bone(hand))
+			poses[hand] = pose
+			centre += (pose.origin + pose.basis.y.normalized() * PALM_REACH) * 0.5
+		var grip := {}
+		for hand: StringName in hands:
+			grip[hand] = (poses[hand] as Transform3D).affine_inverse() * centre
+		skeleton.reset_bone_poses()
+		_grip_cache[key] = grip
+	var out := {}
+	for hand: StringName in hands:
+		out[hand] = {"bone": skeleton.find_bone(hand), "centre": (_grip_cache[key] as Dictionary)[hand]}
+	return out
+
+
+## Which model this rig's clips came from, for the per-model caches.
+func _model_key() -> String:
+	var rig := _rig as HumanoidRig
+	return rig.selected_model() if rig != null and rig.is_imported() else "procedural"
+
+
+## Swaps `library`'s PHASE_LOCK_CLIPS for their phase-locked rebuilds — see
+## "Gait phase lock". Leaves the library alone when there's no skeleton to
+## measure on or no reference clip.
+func _phase_lock(library: AnimationLibrary) -> void:
+	var key := _model_key()
+	if not _phase_lock_cache.has(key):
+		var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
+		if skeleton == null or not library.has_animation(PHASE_LOCK_REFERENCE):
+			return
+		var length := library.get_animation(PHASE_LOCK_REFERENCE).length
+		var locked := {}
+		for clip: StringName in PHASE_LOCK_CLIPS:
+			if not library.has_animation(clip):
+				continue
+			var anim := library.get_animation(clip)
+			var stance := _stance_phase(skeleton, anim, &"LeftFoot")
+			if stance >= 0.0:
+				locked[clip] = _relooped(anim, length, stance)
+		skeleton.reset_bone_poses()
+		_phase_lock_cache[key] = locked
+	var locked_clips: Dictionary = _phase_lock_cache[key]
+	for clip: StringName in locked_clips:
+		library.remove_animation(clip)
+		library.add_animation(clip, locked_clips[clip])
+
+
+## Where `foot`'s stance is centred in one loop of `anim`, 0-1: the middle of
+## the longest stretch (round the loop) it spends within
+## STRIDE_PLANT_TOLERANCE of its lowest point. -1 if the clip doesn't move it.
+static func _stance_phase(skeleton: Skeleton3D, anim: Animation, foot: StringName) -> float:
+	var bone := skeleton.find_bone(foot)
+	if bone < 0 or anim.length <= 0.0:
+		return -1.0
+	var tracks := []
+	for i in anim.get_track_count():
+		var type := anim.track_get_type(i)
+		if type != Animation.TYPE_ROTATION_3D and type != Animation.TYPE_POSITION_3D:
+			continue
+		var target := skeleton.find_bone(String(anim.track_get_path(i).get_concatenated_subnames()))
+		if target >= 0:
+			tracks.append([i, target, type])
+	var count := maxi(ceili(anim.length / STRIDE_SAMPLE_STEP), 4)
+	var heights: Array[float] = []
+	for s in count:
+		var t := anim.length * s / count
+		for track: Array in tracks:
+			if track[2] == Animation.TYPE_ROTATION_3D:
+				skeleton.set_bone_pose_rotation(track[1], anim.rotation_track_interpolate(track[0], t))
+			else:
+				skeleton.set_bone_pose_position(track[1], anim.position_track_interpolate(track[0], t))
+		heights.append(skeleton.get_bone_global_pose(bone).origin.y)
+	var lowest: float = heights.min()
+	if heights.max() - lowest <= STRIDE_PLANT_TOLERANCE:
+		return -1.0
+	# Longest run of planted samples, round the loop: start just after an
+	# unplanted one so no run is split across the end.
+	var start := 0
+	while heights[start] <= lowest + STRIDE_PLANT_TOLERANCE:
+		start += 1
+	var best_from := 0
+	var best_len := 0
+	var run := 0
+	for n in count:
+		var s := (start + 1 + n) % count
+		if heights[s] <= lowest + STRIDE_PLANT_TOLERANCE:
+			run += 1
+			if run > best_len:
+				best_len = run
+				best_from = s - run + 1
+		else:
+			run = 0
+	return fposmod((best_from + (best_len - 1) * 0.5) / count, 1.0)
+
+
+## A copy of looping `anim`, `length` seconds long, that starts `phase` (0-1)
+## of the way into the original: every transform track resampled at
+## PHASE_LOCK_SAMPLE_RATE. Any other track keeps its keys, moved the same way.
+static func _relooped(anim: Animation, length: float, phase: float) -> Animation:
+	var out := Animation.new()
+	out.length = length
+	out.loop_mode = Animation.LOOP_LINEAR
+	var count := maxi(roundi(length * PHASE_LOCK_SAMPLE_RATE), 2)
+	var source_offset := phase * anim.length
+	for i in anim.get_track_count():
+		var type := anim.track_get_type(i)
+		var track := out.add_track(type)
+		out.track_set_path(track, anim.track_get_path(i))
+		out.track_set_interpolation_type(track, anim.track_get_interpolation_type(i))
+		out.track_set_interpolation_loop_wrap(track, anim.track_get_interpolation_loop_wrap(i))
+		if type == Animation.TYPE_ROTATION_3D or type == Animation.TYPE_POSITION_3D \
+				or type == Animation.TYPE_SCALE_3D:
+			for s in count + 1:
+				var t := length * s / count
+				var from := fposmod(source_offset + t / length * anim.length, anim.length)
+				match type:
+					Animation.TYPE_ROTATION_3D:
+						out.rotation_track_insert_key(track, t, anim.rotation_track_interpolate(i, from))
+					Animation.TYPE_POSITION_3D:
+						out.position_track_insert_key(track, t, anim.position_track_interpolate(i, from))
+					_:
+						out.scale_track_insert_key(track, t, anim.scale_track_interpolate(i, from))
+		else:
+			for k in anim.track_get_key_count(i):
+				var t := fposmod(anim.track_get_key_time(i, k) - source_offset, anim.length) / anim.length * length
+				out.track_insert_key(track, t, anim.track_get_key_value(i, k), anim.track_get_key_transition(i, k))
+	return out
+
+
 ## LEAN_BONE's index if every locomotion clip animates its rotation, else -1.
 func _find_lean_bone() -> int:
 	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
@@ -728,6 +1147,7 @@ func _build_merged_library() -> AnimationLibrary:
 		if library.has_animation(clip_name):
 			library.remove_animation(clip_name)
 		library.add_animation(clip_name, anim)
+	_phase_lock(library)
 	# Situational mark variants, bent off the import's OWN mark clips only —
 	# a rig still on the procedural fallbacks gets none, and play_action()
 	# falls back to the base state.
@@ -832,7 +1252,21 @@ func _build_locomotion() -> AnimationNodeBlendTree:
 	tree.add_node(GAIT_NODE, _build_blend_space(), Vector2(0.0, 0.0))
 	tree.add_node(STRIDE_NODE, AnimationNodeTimeScale.new(), Vector2(260.0, 0.0))
 	tree.connect_node(STRIDE_NODE, 0, GAIT_NODE)
-	tree.connect_node(&"output", 0, STRIDE_NODE)
+	if not _carry_layer:
+		tree.connect_node(&"output", 0, STRIDE_NODE)
+		return tree
+	# See "Ball carry": the carry pose over the arms only, faded by drive().
+	var pose := AnimationNodeAnimation.new()
+	pose.animation = CARRY_CLIP
+	tree.add_node(CARRY_POSE_NODE, pose, Vector2(260.0, 160.0))
+	var layer := AnimationNodeBlend2.new()
+	layer.filter_enabled = true
+	for bone: StringName in CARRY_BONES:
+		layer.set_filter_path(NodePath("Skeleton3D:" + String(bone)), true)
+	tree.add_node(CARRY_NODE, layer, Vector2(520.0, 0.0))
+	tree.connect_node(CARRY_NODE, 0, STRIDE_NODE)
+	tree.connect_node(CARRY_NODE, 1, CARRY_POSE_NODE)
+	tree.connect_node(&"output", 0, CARRY_NODE)
 	return tree
 
 
@@ -843,15 +1277,12 @@ func _build_blend_space() -> AnimationNodeBlendSpace2D:
 	space.snap = Vector2(0.05, 0.05)
 	space.blend_mode = AnimationNodeBlendSpace2D.BLEND_MODE_INTERPOLATED
 	space.auto_triangles = true
-	# Without this, each blended-in clip advances its own timeline by real
-	# elapsed time independent of the others — since every gait clip here is
-	# built by the same _gait_pose(phase, g) generator but scaled to its own
-	# `cycle` length (jog_fwd 0.72s vs run_fwd 0.58s, say), the same wall-
-	# clock instant lands at a *different* phase (different foot position)
-	# in each. Mid-transition, when two clips are both weighted, that phase
-	# mismatch is what reads as feet slipping/juddering rather than a clean
-	# cross-fade. `sync` keeps every blended point's internal playback
-	# locked to a shared normalised phase instead.
+	# Keeps every clip's clock running while its weight is zero, so a clip
+	# blending back in is still where the others are. That's all it does: it
+	# doesn't match phases across clips of different lengths, which is why
+	# the stepping clips are rebuilt to one length and one start first (see
+	# "Gait phase lock"). Without it a clip would pause at weight zero and
+	# come back out of step.
 	space.sync = true
 	space.x_label = "strafe"
 	space.y_label = "forward"

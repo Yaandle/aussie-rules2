@@ -79,7 +79,14 @@ intent but poses the rig relative to its rests:
 - Torso, head and clavicle rotations are written in the character's own
   frame (`basis = G^-1 R G`).
 - Arms are placed by two-bone IK to wrist targets.
-- Feet go through the rig's own `iktarget`/`ikpole` leg IK.
+- Feet go through the rig's own `iktarget`/`ikpole` leg IK. A key can also
+  pose a leg by joint angles (`"leg_r": {"thigh", "knee", "plantar"}`,
+  `solve_leg`), which keys the target and the pole for you. The kick uses
+  it: a foot placed as a point the straight leg can't reach just folds the
+  knee.
+- `carry` isn't an action: it's the two-hand ball carry PlayerAnimation lays
+  over the arms while a player has the ball. Clips that start or end with
+  the ball use the same arms (`CARRY_ARMS`).
 
 Each clip's length and contact time come from `ACTION_TIMING`, a copy of
 Tuning's `ACTION_DURATION`/`ACTION_CONTACT`. Lengths round to whole 24 fps
@@ -94,6 +101,11 @@ Back the .blend up first (it isn't version-controlled), then run:
 
 With no clip names, the script builds every clip it defines. Re-running
 replaces an action (and its NLA stash track) rather than duplicating it.
+To look at a clip from a script, assign the action *and* its slot
+(`animation_data.action_slot = action.slots[0]`): in Blender 5 an action
+without its slot doesn't evaluate, and the rig keeps whatever pose it last
+had.
+
 Then reimport in Godot as above. The authored actions are ordinary
 keyframed actions, so you can refine them by hand in the Action Editor, but
 a re-run of the script overwrites hand edits to any clip it's asked to
