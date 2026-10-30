@@ -43,6 +43,11 @@ extends Node3D
 ## lives there, not here.
 @export var layout_scenes: Array[PackedScene] = []
 
+## How the ground's scoreboard shows the score (FieldScoreboard.Style):
+## Field 1's park keeps the digital seven-segment face, Field 2's bush oval
+## has a hand-worked board with hung number tiles (playtest 2026-10-30).
+@export var scoreboard_style: FieldScoreboard.Style = FieldScoreboard.Style.DIGITAL
+
 ## Meshes flatter than this (paths, painted decals) don't cast shadows. A
 ## shadow from something lying on the grass is invisible and costs atlas.
 const FLAT_MESH_HEIGHT := 0.05
@@ -170,6 +175,7 @@ func _build_layout(scene: PackedScene, layer_name: String) -> void:
 		if mi.name == SCOREBOARD_NODE and not Engine.is_editor_hint():
 			var board := FieldScoreboard.new()
 			board.name = "FieldScoreboard"
+			board.style = scoreboard_style
 			board.transform = part[1]
 			add_child(board)
 		if not groups.has(mi.mesh):
