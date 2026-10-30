@@ -614,6 +614,42 @@ Open:
 - A learned catchability model, before any AI tier choice.
 - Playtest notes on how the gated ring feels.
 
+### Since (2026-10-30)
+
+The playtest retune of marks changed what §9 was trained against, so its
+results above are history, not a current measurement:
+
+- A Running tap now opens a 0.25 s catch window (it was the tap's frame),
+  and its analytic ring leads the ball by 0.15 s. The trained Running
+  model's labels assume the old same-frame resolution.
+- Safe reach went 0.9 -> 1.19 m with a hop for a ball over the hands, and
+  Running reach 0.8 -> 1.0 m. Aggressive is unchanged, so the gated cue
+  and the Aggressive MLP still apply.
+- The AI chases where the ball comes down through hand height, not where
+  it lands, and can't mark the umpire's throw-up. In a 4-minute all-AI
+  match that took legal marks from 2 off 20 kicks to 25 off 78 over three
+  seeds.
+
+Retrain or re-probe before using the Running model for anything.
+
+## 10. Stage 4 (DQL): queued — AI difficulty and movement
+
+Not started. The user's plan (2026-10-30) is to make it the home for:
+
+- **AI difficulty levels.** Today difficulty is two hand-set dials on the
+  opposition in Career (`CareerProfile.ai_press`, `ai_reaction_scale`) plus
+  the squad's attributes. A learned policy could be trained, or stopped,
+  at several strengths and the levels picked from those.
+- **Better teammate and opposition movement.** Off-the-ball running
+  (`AIBrain._think_support`, `_think_defend`, the loose-ball chase) is
+  rule-based: home positions, a pull toward the ball, spacing pushes.
+  Leading into space, pushing up and dropping back as a unit are the
+  obvious targets for a value-learning agent.
+
+The same hard rule applies as everywhere else here: a learned policy
+decides what a player tries, never whether a contest succeeds
+(`RULES_REFERENCE.md` §3).
+
 ## Scope note
 
 §1–§5 were an audit only, per the original brief ("before pushing now
