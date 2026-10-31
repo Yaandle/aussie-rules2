@@ -2,11 +2,13 @@ class_name FieldScoreboard
 extends Node3D
 
 ## The live score on the oval's own scoreboard (playtest 2026-10-29:
-## "update in the environment if possible"). Both ovals' layouts place
-## Prop_Scoreboard north of centre (assets/blender/scripts/
-## build_park_props.py), whose face only had painted "HOME 88 / AWAY 88"
-## digits. OvalEnvironment puts one of these on it, at the prop's own
-## transform from the layout glb, in the style its scene asks for.
+## "update in the environment if possible"). Each oval's layout places a
+## scoreboard prop named "Scoreboard" north of centre (assets/blender/
+## scripts/build_park_props.py): Field 1 the park's Prop_Scoreboard, Field 2
+## since 2026-10-31 its own Prop_TimberScoreboard (playtest: "give one of
+## the fields a different design scoreboard"). OvalEnvironment puts one of
+## these on it, at the prop's own transform from the layout glb, in the
+## style its scene asks for.
 ##
 ## Two styles (playtest 2026-10-30: "keep the 7-seg on one oval, a retro
 ## non-digital board on the other"):
@@ -16,23 +18,32 @@ extends Node3D
 ##   only redraws when the face changes (a score, the quarter, the clock's
 ##   second), not every frame. Unshaded, like a lit board: it reads the same
 ##   in sun or shade.
-## - RETRO (Field 2, the bush oval): a suburban board the scorer changes by
-##   hand. A dark green painted panel with painted HOME/AWAY and GOALS /
-##   BEHINDS / POINTS, and real 3D number tiles (white numerals on black
-##   tin plates) hung off a rail, swapped when the score changes. No clock,
-##   since a hand-worked board doesn't have one; a quarter tile instead.
-##   Shaded, so it's lit and shadowed like the rest of the ground.
+## - RETRO (Field 2, the bush oval): a country board the scorer changes by
+##   hand, on Prop_TimberScoreboard: the prop's timber-framed face is
+##   already painted dark green in Blender, and this adds painted HOME/AWAY
+##   and GOALS / BEHINDS / POINTS and real 3D number tiles (white numerals
+##   on black tin plates) hung off a rail, swapped when the score changes.
+##   No clock, since a hand-worked board doesn't have one; a quarter tile
+##   instead. Shaded, so it's lit and shadowed like the rest of the ground
+##   (the roof's eave shades the top of it).
 ##
 ## Both show goals | behinds | total per team, zero-padded (00 | 00 | 000),
 ## the same as the HUD card (Scoreboard).
 
 enum Style { DIGITAL, RETRO }
 
-## Prop_Scoreboard's face panel: 8.0 x 3.3 m, centred 5.25 m up, its front
-## 0.19 m forward of the prop's origin (Blender -Y, glTF +Z). The painted
-## block digits stand out to 0.245 m, so the quad sits just past them.
+## Prop_Scoreboard's face panel (DIGITAL): 8.0 x 3.3 m, centred 5.25 m up,
+## its front 0.19 m forward of the prop's origin (Blender -Y, glTF +Z). The
+## painted block digits stand out to 0.245 m, so the quad sits just past
+## them.
 const FACE_SIZE := Vector2(8.0, 3.3)
 const FACE_CENTRE := Vector3(0.0, 5.25, 0.27)
+## Prop_TimberScoreboard's painted face (RETRO): the same 8.0 x 3.3 m at the
+## same height, so the tile layout below fits either, but its front is
+## 0.30 m forward of the origin. These move with the face in
+## build_park_props.py's timber_scoreboard().
+const RETRO_FACE_SIZE := Vector2(8.0, 3.3)
+const RETRO_FACE_CENTRE := Vector3(0.0, 5.25, 0.30)
 ## Texture resolution: ~110 px a metre is sharp from the grandstand side
 ## of the ground and still a small texture (880 x 363).
 const PIXELS_PER_METRE := 110.0
@@ -41,9 +52,11 @@ const PIXELS_PER_METRE := 110.0
 ## Layout in metres on the face (x across from its centre, y up from the
 ## ground), worked so seven tiles, two painted bars and a quarter column
 ## fit the 8 m panel with a painted name column on the left. Tiles are
-## about the size the prop's block digits were (1.3 m), a touch smaller so
-## two rows and the painted heads fit 3.3 m.
-const RETRO_PAINT := Color("#1F3A2B")      ## the board, sign-writer's dark green
+## about the size the old prop's block digits were (1.3 m), a touch smaller
+## so two rows and the painted heads fit 3.3 m.
+## The board's paint, sign-writer's dark green. Painted in Blender now
+## (PropBoardGreen), kept here as the record of the colour.
+const RETRO_PAINT := Color("#1F3A2B")
 const RETRO_TILE := Color("#141618")       ## a black tin plate
 const RETRO_LETTERING := Color("#F1ECDF")  ## white paint, a little warm
 const RETRO_RAIL := Color("#4A4A46")
@@ -67,7 +80,7 @@ const NAME_EM := 0.6
 const TILE_DIGIT_EM := 0.82
 const HEAD_EM := 0.26
 const FONT_SIZE := 96
-## How far proud of the face each layer sits (m, on top of FACE_CENTRE.z):
+## How far proud of the face each layer sits (m, on top of RETRO_FACE_CENTRE.z):
 ## paint, then the rail, then the tiles' faces.
 const PAINT_LIFT := 0.004
 const TILE_LIFT := 0.035
@@ -121,22 +134,19 @@ func _redraw() -> void:
 
 
 func _build_retro() -> void:
-	var z := FACE_CENTRE.z
-	# The painted board, over the prop's own block digits and lettering.
-	var panel := _box("Face", Vector3(FACE_SIZE.x, FACE_SIZE.y, 0.01),
-		Vector3(0.0, FACE_CENTRE.y, z - 0.005), _material(RETRO_PAINT))
-	panel.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# The prop's face is painted already; everything here sits on it.
+	var z := RETRO_FACE_CENTRE.z
 
 	var paint := _material(RETRO_LETTERING)
-	var face_top := FACE_CENTRE.y + FACE_SIZE.y * 0.5
-	var face_bottom := FACE_CENTRE.y - FACE_SIZE.y * 0.5
+	var face_top := RETRO_FACE_CENTRE.y + RETRO_FACE_SIZE.y * 0.5
+	var face_bottom := RETRO_FACE_CENTRE.y - RETRO_FACE_SIZE.y * 0.5
 	# A pinstripe round the edge, and the two bars between the groups.
 	var inset := 0.1
 	var line := 0.05
 	for y in [face_top - inset, face_bottom + inset]:
-		_paint_line(Vector3(0.0, y, z), Vector2(FACE_SIZE.x - 2.0 * inset, line), paint)
-	for x in [-FACE_SIZE.x * 0.5 + inset, FACE_SIZE.x * 0.5 - inset]:
-		_paint_line(Vector3(x, FACE_CENTRE.y, z), Vector2(line, FACE_SIZE.y - 2.0 * inset), paint)
+		_paint_line(Vector3(0.0, y, z), Vector2(RETRO_FACE_SIZE.x - 2.0 * inset, line), paint)
+	for x in [-RETRO_FACE_SIZE.x * 0.5 + inset, RETRO_FACE_SIZE.x * 0.5 - inset]:
+		_paint_line(Vector3(x, RETRO_FACE_CENTRE.y, z), Vector2(line, RETRO_FACE_SIZE.y - 2.0 * inset), paint)
 	var rows_top: float = ROW_Y[Tuning.Team.HOME] + TILE_SIZE.y * 0.5
 	var rows_bottom: float = ROW_Y[Tuning.Team.AWAY] - TILE_SIZE.y * 0.5
 	for x: float in BAR_X:

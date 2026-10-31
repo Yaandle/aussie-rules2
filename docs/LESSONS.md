@@ -41,9 +41,14 @@ mostly superseded history. The full text lives outside the repo, in
   in `assets/blender/scripts/` build `park_props.blend` (run it first), then
   the layouts link its meshes. Godot's glTF importer gives every node that
   shares a glTF mesh the same `ArrayMesh`, so `OvalEnvironment` turns a
-  layout of ~500 linked copies into ~14 MultiMeshes. Don't commit `.blend1`
-  backups. A layout object can still be found by name while it's batched:
-  that's how `FieldScoreboard` lands on the prop named "Scoreboard".
+  layout of ~1,000-1,300 linked copies into ~30 MultiMeshes. Don't commit
+  `.blend1` backups. A layout object can still be found by name while it's
+  batched: that's how `FieldScoreboard` lands on the prop named
+  "Scoreboard". Names carry two more rules: a plant mesh's name holds one of
+  `TINTED_MESH_WORDS` (each copy gets its own tint) and nothing else's may,
+  and a layout object named `Far*` casts no shadow. Add to a layout in a new
+  pass with its own RNG after the seeded one; touching the seeded pass
+  reshuffles every tree on the ground.
 - **Mark reach is measured from the hands.** `CatchPoint` (in front of the
   chest, 1.4 m) and about an arm's length, not `CarryPoint` by the right
   hip with 2-3 m of reach. Judge a reach change by how close the ball's

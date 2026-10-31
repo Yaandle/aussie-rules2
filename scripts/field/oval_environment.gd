@@ -13,8 +13,10 @@ extends Node3D
 ## - Field 2, oval1_environment.tscn: the bush oval (second reference image),
 ##   "Oval 1" in the code. Its Blender grass and fence, a ring of 160 trees
 ##   15–70 m outside the boundary with gaps left for the paths at
-##   (x < -85, z ~ 12) and (x ~ 0, z > 70), plus a layout glb (paths, bushes,
-##   benches, scoreboard) from build_oval1_layout.py.
+##   (x < -85, z ~ 12) and (x ~ 0, z > 70), plus a layout glb from
+##   build_oval1_layout.py: paths, the bush wall (dark oaks, shrubs, bushes,
+##   ferns, logs), benches, coach's shelters, a clubroom out west and its
+##   own timber scoreboard (2026-10-31).
 ##
 ## Either way the scene's own glb children (grass, fence) instance as normal,
 ## and the many-copies parts are batched. The tree ring was lifted out of
@@ -37,20 +39,49 @@ extends Node3D
 
 ## Blender layout glbs: scenes of placed copies of a few prop meshes (the
 ## Blender side links each copy to one mesh in park_props.blend, and the
-## glTF keeps that sharing). Every distinct mesh becomes one MultiMesh, so a
-## layout of 350 benches, bushes and trees costs ~14 meshes' worth of draw
-## calls. To move a bench, move it in the .blend and re-export. Placement
-## lives there, not here.
+## glTF keeps that sharing). Every distinct mesh becomes one MultiMesh (two
+## if some copies are in the far band), so a layout of ~1,000-1,300 benches,
+## bushes and trees costs ~30 meshes' worth of draw calls. To move a bench,
+## move it in the .blend and re-export. Placement lives there, not here.
 @export var layout_scenes: Array[PackedScene] = []
 
 ## How the ground's scoreboard shows the score (FieldScoreboard.Style):
 ## Field 1's park keeps the digital seven-segment face, Field 2's bush oval
-## has a hand-worked board with hung number tiles (playtest 2026-10-30).
+## has a hand-worked board with hung number tiles (playtest 2026-10-30), on
+## its own timber prop since 2026-10-31.
 @export var scoreboard_style: FieldScoreboard.Style = FieldScoreboard.Style.DIGITAL
 
-## Meshes flatter than this (paths, painted decals) don't cast shadows. A
-## shadow from something lying on the grass is invisible and costs atlas.
-const FLAT_MESH_HEIGHT := 0.05
+## ── Shadow budget ───────────────────────────────────────────────────
+## A MultiMesh is culled as one box, and a layout layer's box is the whole
+## park, so every shadow-casting layer is drawn into every shadow split,
+## all its copies. Two kinds of prop skip that:
+## - Knee-high props (a mesh under SMALL_PROP_HEIGHT: paths, flower
+##   patches, grass tussocks, rocks): their shadow is a smudge nobody sees
+##   from 20 m up, and a path's is nothing at all. (Until 2026-10-31 only
+##   flat meshes, under 5 cm, were left out.)
+## - The far band. A layout object named FAR_PREFIX* (the Blender scripts
+##   name the trees they plant 50-60 m and more past the fence that way)
+##   goes into its own no-shadow layer. That far out it's past the sun's
+##   directional_shadow_max_distance (120 m) from most of the ground anyway.
+## Unmeasured: nobody has profiled a 32-player match on these grounds yet.
+## If it's slow, raising SMALL_PROP_HEIGHT to ~2 m drops the bushes (the
+## most copies by far) out of the shadow pass too.
+const SMALL_PROP_HEIGHT := 0.8
+const FAR_PREFIX := "Far"
+
+## ── Per-copy tint (2026-10-31) ──────────────────────────────────────
+## Every copy of a prop is the same mesh, so a stand of oaks was one green
+## stamped out. Plants get a small per-instance tint through the MultiMesh's
+## colour channel: a little darker or lighter, a little warmer or cooler,
+## hashed from where the copy stands so it's the same every load. Look
+## guesses, unchecked under the match cameras.
+const TINT_VALUE_MIN := 0.84
+const TINT_WARMTH := 0.06
+## Meshes whose name contains one of these (any case) are plants and get
+## tinted. Benches, the scoreboards, buildings and paths keep their exact
+## colours, so don't give a non-plant prop a name with one of these in it.
+const TINTED_MESH_WORDS: Array[String] = ["Oak", "Bush", "Fruit", "Gum", "Shrub", "Fern",
+	"Tussock", "Agave", "Eucalyptus", "Tree", "FlowerPatch"]
 ## The layout object FieldScoreboard goes on (build_oval1_layout.py and
 ## build_park_oval.py both name it this).
 const SCOREBOARD_NODE := &"Scoreboard"
@@ -144,16 +175,22 @@ func clear_broadcast_side() -> void:
 		var multimesh := layer.multimesh
 		var aabb := multimesh.mesh.get_aabb()
 		var kept: Array[Transform3D] = []
+		var kept_colours: Array[Color] = []
 		for i in multimesh.instance_count:
 			var t := multimesh.get_instance_transform(i)
 			if not _blocks_broadcast(layer.global_transform * t, aabb):
 				kept.append(t)
+				if multimesh.use_colors:
+					kept_colours.append(multimesh.get_instance_color(i))
 		if kept.size() == multimesh.instance_count:
 			continue
 		removed += multimesh.instance_count - kept.size()
+		# Resizing wipes the buffer, tints included, so both go back in.
 		multimesh.instance_count = kept.size()
 		for i in kept.size():
 			multimesh.set_instance_transform(i, kept[i])
+			if multimesh.use_colors:
+				multimesh.set_instance_color(i, kept_colours[i])
 	print_verbose("OvalEnvironment: cleared %d props off the broadcast side" % removed)
 
 
@@ -190,7 +227,9 @@ func _build_ring_layer(scene: PackedScene, transforms: Array[Transform3D], layer
 		var instances: Array[Transform3D] = []
 		for t in transforms:
 			instances.append(t * local)
-		_add_multimesh("%s_%d" % [layer_name, p], mi, instances)
+		# Tinted by the placement, not the part, so a tree's trunk and
+		# canopy get the same shift.
+		_add_multimesh("%s_%d" % [layer_name, p], mi, instances, transforms)
 	source.free()
 
 
@@ -202,7 +241,9 @@ func _build_layout(scene: PackedScene, layer_name: String) -> void:
 	var parts: Array = []
 	for child in source.get_children():
 		_collect_meshes(child, Transform3D.IDENTITY, parts)
-	var groups := {}   # Mesh -> [MeshInstance3D, Array[Transform3D]]
+	# [mesh, far?] -> [MeshInstance3D, Array[Transform3D], far?]; see
+	# "Shadow budget" for the far band.
+	var groups := {}
 	for part: Array in parts:
 		var mi: MeshInstance3D = part[0]
 		# The ground's scoreboard gets the live score on its face (in a
@@ -213,28 +254,41 @@ func _build_layout(scene: PackedScene, layer_name: String) -> void:
 			board.style = scoreboard_style
 			board.transform = part[1]
 			add_child(board)
-		if not groups.has(mi.mesh):
+		var far := String(mi.name).begins_with(FAR_PREFIX)
+		var key := [mi.mesh, far]
+		if not groups.has(key):
 			var fresh: Array[Transform3D] = []
-			groups[mi.mesh] = [mi, fresh]
-		var transforms: Array[Transform3D] = groups[mi.mesh][1]
+			groups[key] = [mi, fresh, far]
+		var transforms: Array[Transform3D] = groups[key][1]
 		transforms.append(part[1])
-	for mesh: Mesh in groups:
-		var mi: MeshInstance3D = groups[mesh][0]
-		var transforms: Array[Transform3D] = groups[mesh][1]
-		var layer := _add_multimesh("%s_%s" % [layer_name, mesh.resource_name], mi, transforms)
-		if mesh.get_aabb().size.y < FLAT_MESH_HEIGHT:
+	for key: Array in groups:
+		var mesh: Mesh = key[0]
+		var mi: MeshInstance3D = groups[key][0]
+		var transforms: Array[Transform3D] = groups[key][1]
+		var far: bool = groups[key][2]
+		var layer := _add_multimesh("%s_%s%s" % [layer_name, "Far_" if far else "", mesh.resource_name],
+			mi, transforms, transforms)
+		var height := mesh.get_aabb().size.y
+		if far or height < SMALL_PROP_HEIGHT:
 			layer.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	source.free()
 
 
-func _add_multimesh(layer_name: String, mi: MeshInstance3D,
-		transforms: Array[Transform3D]) -> MultiMeshInstance3D:
+## `placements` (one per transform) are what the tint is hashed from; a
+## plant mesh gets tinted, anything else ignores them.
+func _add_multimesh(layer_name: String, mi: MeshInstance3D, transforms: Array[Transform3D],
+		placements: Array[Transform3D]) -> MultiMeshInstance3D:
 	var multimesh := MultiMesh.new()
 	multimesh.transform_format = MultiMesh.TRANSFORM_3D
-	multimesh.mesh = mi.mesh
+	var tinted := not Engine.is_editor_hint() and _is_plant(mi.mesh)
+	# use_colors before instance_count: it sizes the buffer.
+	multimesh.use_colors = tinted
+	multimesh.mesh = _tintable_copy(mi.mesh) if tinted else mi.mesh
 	multimesh.instance_count = transforms.size()
 	for t in transforms.size():
 		multimesh.set_instance_transform(t, transforms[t])
+		if tinted:
+			multimesh.set_instance_color(t, _tint(placements[t].origin))
 	var layer := MultiMeshInstance3D.new()
 	layer.name = layer_name
 	layer.multimesh = multimesh
@@ -242,6 +296,42 @@ func _add_multimesh(layer_name: String, mi: MeshInstance3D,
 	layer.cast_shadow = mi.cast_shadow
 	add_child(layer)
 	return layer
+
+
+func _is_plant(mesh: Mesh) -> bool:
+	var mesh_name := mesh.resource_name
+	for word in TINTED_MESH_WORDS:
+		if mesh_name.containsn(word):
+			return true
+	return false
+
+
+## The instance colour only reaches a StandardMaterial3D's albedo when it
+## uses vertex colour as albedo (the meshes have no colour array, so COLOR
+## is white times the instance's tint). The imported materials are shared
+## with the cached glb, so the flag goes on copies, on a copy of the mesh.
+func _tintable_copy(mesh: Mesh) -> Mesh:
+	var copy := mesh.duplicate() as Mesh
+	for s in copy.get_surface_count():
+		var material := copy.surface_get_material(s) as BaseMaterial3D
+		if material == null:
+			continue
+		material = material.duplicate() as BaseMaterial3D
+		material.vertex_color_use_as_albedo = true
+		copy.surface_set_material(s, material)
+	return copy
+
+
+## See "Per-copy tint". Two cheap hashes of the ground position: one for
+## light/dark, one for warm/cool. Darkening only, so nothing glows.
+func _tint(at: Vector3) -> Color:
+	var a := fposmod(sin(at.x * 12.9898 + at.z * 78.233) * 43758.5453, 1.0)
+	var b := fposmod(sin(at.x * 39.3468 + at.z * 11.135) * 24634.6345, 1.0)
+	var value := lerpf(TINT_VALUE_MIN, 1.0, a)
+	var warmth := (b * 2.0 - 1.0) * TINT_WARMTH
+	# Warm: less blue, so yellower. Cool: less red, so bluer.
+	return Color(value * (1.0 - maxf(0.0, -warmth) * 2.0), value,
+		value * (1.0 - maxf(0.0, warmth) * 2.0))
 
 
 func _collect_meshes(node: Node, parent_xform: Transform3D, out: Array) -> void:
