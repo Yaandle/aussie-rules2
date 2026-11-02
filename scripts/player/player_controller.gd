@@ -3826,8 +3826,14 @@ func _begin(action: Tuning.Action) -> void:
 		# "Toward wherever Left stick is currently held" (CONTROLS section),
 		# captured now rather than at _dispose()'s later contact time, and
 		# falling back to body-forward if the stick is neutral at the
-		# instant of the press.
-		_handball_aim_dir = _wish_dir if _wish_dir.length_squared() > 0.0001 \
+		# instant of the press. Read off the brain, not _wish_dir: standing
+		# on a mark returns from movement before the stick is read, so
+		# _wish_dir there is still the run you marked on and a handball off
+		# the mark went that way whatever you held (found 2026-11-02 in the
+		# kicking-circuit drill, C's handball to A).
+		var wish := _brain.wish_direction(self)
+		wish.y = 0.0
+		_handball_aim_dir = wish.normalized() if wish.length_squared() > 0.0001 \
 			else -global_transform.basis.z
 	elif action == Tuning.Action.HIT_OUT:
 		# Captured on the RB press so a ruckman can palm it to a runner

@@ -7,7 +7,7 @@ extends RefCounted
 ## and play the drill with bots." So a drill is written down the way a
 ## coach draws one up: where the cones go, who stands where, then the beats
 ## in order. DrillRunner plays it on loop with bots, and with you in one of
-## the roles when you play it. The three below are starters to show the
+## the roles when you play it. The first three are starters to show the
 ## format; a real session's drills go in alongside them.
 ##
 ## Positions are drill-local metres, Vector2(x, z): +x is up the ground
@@ -34,7 +34,7 @@ extends RefCounted
 ##   A beat that hasn't finished after "timeout" s (default 10; never, for
 ##   one where you're the one acting) runs again from where it started.
 
-const DRILLS: Array[Dictionary] = [
+static var DRILLS: Array[Dictionary] = [
 	{
 		"name": "Kick to kick",
 		"summary": "Two lines 30 m apart kick to each other. Hit your partner on the chest, every time.",
@@ -88,4 +88,62 @@ const DRILLS: Array[Dictionary] = [
 			{"text": "Right handballs to Point", "do": [{"role": 2, "handball_to": 0, "delay": 0.4}], "until": "caught", "by": 0},
 		],
 	},
+	## The first of the user's own session drills (2026-11-02), in two
+	## versions: D's lead straight back at A, and the progression where D
+	## spreads away at 45°. A → B straight, B → C into C's 45° lead, C hands
+	## off to A who has followed their kick the whole way, A → D. On the day,
+	## D jogs back to A's spot and becomes the next kicker; DrillRunner's roles
+	## don't rotate between players yet, so here the reset puts everyone back
+	## on their own cone instead. The layout's offset 16 m down the ground so
+	## the 56 m circuit sits round the field centre.
+	_kicking_circuit("Kicking circuit",
+		"A → B straight, B → C on a 45° lead, C hands off to A following their kick, A hits D leading straight at them. Follow your kick, lead into space, kick to their advantage.",
+		Vector2(28.0, 1.0), Vector2(20.0, 1.0), "D leads straight back at A; A hits them"),
+	_kicking_circuit("Kicking circuit: spread",
+		"The progression: the same circuit, but D spreads away from A at 45° and A has to kick into the space D's running to.",
+		Vector2(24.0, 1.0), Vector2(30.0, 7.0), "D spreads away at 45°; A kicks into their space"),
 ]
+
+
+## The kicking circuit with D's start and lead as given (see above).
+static func _kicking_circuit(title: String, summary: String, d_at: Vector2, d_lead: Vector2,
+		d_text: String) -> Dictionary:
+	return {
+		"name": title,
+		"summary": summary,
+		"cones": [Vector2(-28.0, 0.0), Vector2(-4.0, 0.0), Vector2(-6.0, -12.0), d_at],
+		"roles": [
+			{"name": "A", "at": Vector2(-28.0, 0.0)},
+			{"name": "B", "at": Vector2(-4.0, 0.0)},
+			{"name": "C", "at": Vector2(-6.0, -12.0)},
+			{"name": "D", "at": d_at},
+		],
+		"play_role": 0,
+		"ball_to": 0,
+		"beats": [
+			# A's follow-up run is a separate entry after the kick's gone: a
+			# bot does one task at a time, and A runs a lane 3 m wide of B so
+			# they don't run through each other.
+			{"text": "B leads straight at A; A kicks to them and follows the kick",
+				"do": [{"role": 1, "run_to": Vector2(-11.0, 0.0), "gait": 0.95},
+					{"role": 0, "kick_to": 1, "delay": 1.0},
+					{"role": 0, "run_to": Vector2(-16.0, 3.0), "gait": 0.9, "delay": 1.8}],
+				"until": "caught", "by": 1},
+			{"text": "C pushes off and leads at 45°; B kicks into their space and A keeps running",
+				"do": [{"role": 2, "run_to": Vector2(2.0, -4.0), "gait": 0.95},
+					{"role": 1, "kick_to": 2, "delay": 0.9},
+					{"role": 0, "run_to": Vector2(-10.0, 2.0), "gait": 0.9}],
+				"until": "caught", "by": 2},
+			# C walks back off the mark (~2 s, toward B) before they can
+			# dispose of it, so A holds their run until C's nearly done.
+			{"text": "C handballs to A running past",
+				"do": [{"role": 0, "run_to": Vector2(14.0, 1.0), "gait": 0.85, "delay": 0.4},
+					{"role": 2, "handball_to": 0, "delay": 0.2}],
+				"until": "caught", "by": 0},
+			{"text": d_text,
+				"do": [{"role": 3, "run_to": d_lead, "gait": 0.95},
+					{"role": 0, "kick_to": 3, "delay": 0.7}],
+				"until": "caught", "by": 3},
+			{"text": "D marks it: back to the start, round again", "reset": true, "until": "time", "time": 1.0},
+		],
+	}
