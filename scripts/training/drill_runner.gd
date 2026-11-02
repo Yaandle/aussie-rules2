@@ -13,11 +13,14 @@ extends Node3D
 ## whoever had it. A drill on a loop has to recover by itself, and it's
 ## the same retry a coach calls.
 ##
-## A beat with "swap" trades two players' roles once it's done: the
-## kicking circuit's D jogs back to A's cone with the ball and is A from
-## then on, the way the drill rotates on the day. Roles stay put (their
-## start spots, what beats tell them); it's the players who move between
-## them, and when you're one of the two you go with your player.
+## A beat with "swap" trades two players' roles once it's done, and one
+## with "flip" turns the drill round: the layout mirrors about the drill's
+## "mirror_x" line and every spot after that (starts, runs, the ring) is
+## read in the mirrored frame until the next flip. The kicking circuit does
+## both when D marks: D is A from there, kicking back the way it came, and
+## the old A goes out to be D, the way it runs on the day. Roles keep their
+## spots and what beats tell them; it's the players who move between them,
+## and when you're one of the two you go with your player.
 
 signal beat_changed(index: int, text: String)
 
@@ -42,7 +45,8 @@ var human_role := -1
 var players: Array[PlayerController] = []
 
 var _brains: Array = []
-var _starts: Array[Vector3] = []
+## True while the drill runs the mirrored way ("flip").
+var _flipped := false
 var _cones: Array[Node3D] = []
 var _marker: MeshInstance3D
 var _beat := 0
@@ -73,13 +77,23 @@ func start(p_drill: Dictionary, p_human_role := -1) -> void:
 	stop()
 	drill = p_drill
 	human_role = p_human_role
+	_flipped = false
+	# Both ways' cones, when the drill turns round; one cone where the two
+	# land on top of each other.
+	var cones: Array[Vector2] = []
 	for at: Vector2 in drill.get("cones", []):
+		cones.append(at)
+		if drill.has("mirror_x"):
+			cones.append(Vector2(2.0 * float(drill.mirror_x) - at.x, at.y))
+	var placed: Array[Vector2] = []
+	for at in cones:
+		if placed.any(func(other: Vector2) -> bool: return other.distance_to(at) < 1.0):
+			continue
+		placed.append(at)
 		_add_cone(to_world(at))
 	var roles: Array = drill.roles
 	for i in roles.size():
-		var at := to_world(roles[i].at)
-		_starts.append(at)
-		players.append(_spawn(i, at))
+		players.append(_spawn(i, _start(i)))
 	_put_ball_with(int(drill.get("ball_to", 0)))
 	_begin_beat(0)
 
@@ -93,7 +107,7 @@ func stop() -> void:
 		cone.queue_free()
 	players.clear()
 	_brains.clear()
-	_starts.clear()
+	_flipped = false
 	_cones.clear()
 	drill = {}
 	human_role = -1
@@ -110,7 +124,14 @@ func human() -> PlayerController:
 
 
 func to_world(at: Vector2) -> Vector3:
+	if _flipped:
+		at.x = 2.0 * float(drill.get("mirror_x", 0.0)) - at.x
 	return origin + Basis(Vector3.UP, yaw) * Vector3(at.x, 0.0, at.y)
+
+
+## Where role `role` starts, the way the drill's facing now.
+func _start(role: int) -> Vector3:
+	return to_world(drill.roles[role].at)
 
 
 func _spawn(role: int, at: Vector3) -> PlayerController:
@@ -172,7 +193,7 @@ func _begin_beat(index: int) -> void:
 	if beat.get("reset", false):
 		for i in players.size():
 			players[i].drop_ball()
-			players[i].global_position = _starts[i]
+			players[i].global_position = _start(i)
 			players[i].velocity = Vector3.ZERO
 			players[i].face_toward(origin)
 		_put_ball_with(int(drill.get("ball_to", 0)))
@@ -242,6 +263,8 @@ func _physics_process(delta: float) -> void:
 	if _beat_done(beat):
 		if beat.has("swap"):
 			_swap(int(beat.swap[0]), int(beat.swap[1]))
+		if beat.get("flip", false):
+			_flipped = not _flipped
 		_begin_beat(_beat + 1)
 		return
 	if _ball_dead():
