@@ -31,6 +31,8 @@ extends RefCounted
 ##     until     "caught" (role "by" has the ball), "arrived" (everyone
 ##               told to run_to is there) or "time" (after "time" s)
 ##     reset     true: everyone back to their start, ball to ball_to
+##     swap      [role, role]: once the beat's done, the two players trade
+##               roles (a rotation; you go with your player)
 ##   A beat that hasn't finished after "timeout" s (default 10; never, for
 ##   one where you're the one acting) runs again from where it started.
 
@@ -91,10 +93,10 @@ static var DRILLS: Array[Dictionary] = [
 	## The first of the user's own session drills (2026-11-02), in two
 	## versions: D's lead straight back at A, and the progression where D
 	## spreads away at 45°. A → B straight, B → C into C's 45° lead, C hands
-	## off to A who has followed their kick the whole way, A → D. On the day,
-	## D jogs back to A's spot and becomes the next kicker; DrillRunner's roles
-	## don't rotate between players yet, so here the reset puts everyone back
-	## on their own cone instead. The layout's offset 16 m down the ground so
+	## off to A who has followed their kick the whole way, A → D. Then D jogs
+	## back to A's cone with the ball and is the next A while A goes up to
+	## D's ("swap"), so it runs continuously the way it does on the day.
+	## The layout's offset 16 m down the ground so
 	## the 56 m circuit sits round the field centre.
 	_kicking_circuit("Kicking circuit",
 		"A → B straight, B → C on a 45° lead, C hands off to A following their kick, A hits D leading straight at them. Follow your kick, lead into space, kick to their advantage.",
@@ -144,6 +146,18 @@ static func _kicking_circuit(title: String, summary: String, d_at: Vector2, d_le
 				"do": [{"role": 3, "run_to": d_lead, "gait": 0.95},
 					{"role": 0, "kick_to": 3, "delay": 0.7}],
 				"until": "caught", "by": 3},
-			{"text": "D marks it: back to the start, round again", "reset": true, "until": "time", "time": 1.0},
+			# The rotation: D brings it back and is the next A; A goes up to
+			# D's cone, B and C jog back to theirs. D comes back wide of the
+			# line first: straight home they met A running up it head-on
+			# and stalled the beat.
+			{"text": "D takes it back to A's cone and kicks next; A goes up to D's spot",
+				"do": [{"role": 3, "run_to": Vector2(-20.0, 8.0), "gait": 0.9},
+					{"role": 0, "run_to": d_at, "gait": 0.7},
+					{"role": 1, "run_to": Vector2(-4.0, 0.0), "gait": 0.6},
+					{"role": 2, "run_to": Vector2(-6.0, -12.0), "gait": 0.6}],
+				"until": "arrived", "timeout": 15.0},
+			{"text": "D takes it back to A's cone and kicks next; A goes up to D's spot",
+				"do": [{"role": 3, "run_to": Vector2(-28.0, 0.0), "gait": 0.6}],
+				"until": "arrived", "swap": [0, 3]},
 		],
 	}

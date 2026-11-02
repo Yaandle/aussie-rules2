@@ -12,6 +12,12 @@ extends Node3D
 ## goes back to where they stood when it began and the ball goes back to
 ## whoever had it. A drill on a loop has to recover by itself, and it's
 ## the same retry a coach calls.
+##
+## A beat with "swap" trades two players' roles once it's done: the
+## kicking circuit's D jogs back to A's cone with the ball and is A from
+## then on, the way the drill rotates on the day. Roles stay put (their
+## start spots, what beats tell them); it's the players who move between
+## them, and when you're one of the two you go with your player.
 
 signal beat_changed(index: int, text: String)
 
@@ -234,6 +240,8 @@ func _physics_process(delta: float) -> void:
 		_apply(entries[i])
 
 	if _beat_done(beat):
+		if beat.has("swap"):
+			_swap(int(beat.swap[0]), int(beat.swap[1]))
 		_begin_beat(_beat + 1)
 		return
 	if _ball_dead():
@@ -295,6 +303,19 @@ func _human_acts(beat: Dictionary) -> bool:
 		if int(entry.role) == human_role:
 			return true
 	return false
+
+
+func _swap(a: int, b: int) -> void:
+	var player := players[a]
+	players[a] = players[b]
+	players[b] = player
+	var brain = _brains[a]
+	_brains[a] = _brains[b]
+	_brains[b] = brain
+	if human_role == a:
+		human_role = b
+	elif human_role == b:
+		human_role = a
 
 
 func _retry_beat() -> void:
