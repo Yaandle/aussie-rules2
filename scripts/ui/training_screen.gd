@@ -25,11 +25,17 @@ const OPEN_FIELD_SCENE := "res://scenes/modes/kick_to_kick.tscn"
 const MENU_SCENE := "res://scenes/ui/main_menu.tscn"
 
 const COLUMN_WIDTH := 380.0
-const ENTRY_HEIGHT := 46.0
-## The watching camera's slow orbit round the drill.
-const ORBIT_RADIUS := 36.0
-const ORBIT_HEIGHT := 21.0
+const ENTRY_HEIGHT := 38.0
+## The watching camera's slow orbit round the drill: round the middle of
+## its cones and players (_orbit_centre), and pulled back a touch so the
+## kicking circuit's ~65 m fits. ORBIT_SHIFT slides the picture right
+## (Camera3D.h_offset, no turn) so it centres in the view right of the
+## left column, not under it. Playtest 2026-11-03: players were going
+## behind the menu as the camera came round.
+const ORBIT_RADIUS := 44.0
+const ORBIT_HEIGHT := 25.0
 const ORBIT_SPEED := 0.06   ## rad/s
+const ORBIT_SHIFT := -12.0
 ## Where on the field the drills are run: off centre, clear of the centre
 ## square's markings.
 const DRILL_ORIGIN := Vector3(0.0, 0.0, 0.0)
@@ -51,6 +57,7 @@ var _preview_camera: Camera3D
 var _chase: BroadcastCamera
 var _runner: DrillRunner
 var _orbit := 0.0
+var _orbit_centre := DRILL_ORIGIN
 
 var _column: Control
 var _header: Control
@@ -59,14 +66,14 @@ var _entry_labels: Array[Label] = []
 var _summary: Label
 var _role_row: Control
 var _role_label: Label
+var _scroll: ScrollContainer
 var _steps_box: VBoxContainer
+var _step_rows: Array[PanelContainer] = []
 var _step_labels: Array[Label] = []
-var _status_chip: Panel
+var _overlay: VBoxContainer
 var _status_label: Label
-var _play_card: Panel
-var _play_title: Label
+var _play_card: PanelContainer
 var _play_body: Label
-var _play_margin: MarginContainer
 
 
 func _ready() -> void:
@@ -90,10 +97,9 @@ func _process(delta: float) -> void:
 	if _playing:
 		return
 	_orbit += ORBIT_SPEED * delta
-	var centre := DRILL_ORIGIN + Vector3(8.0, 0.0, 0.0)
-	_preview_camera.global_position = centre + Vector3(cos(_orbit) * ORBIT_RADIUS, ORBIT_HEIGHT,
+	_preview_camera.global_position = _orbit_centre + Vector3(cos(_orbit) * ORBIT_RADIUS, ORBIT_HEIGHT,
 		sin(_orbit) * ORBIT_RADIUS)
-	_preview_camera.look_at(centre + Vector3.UP * 1.0)
+	_preview_camera.look_at(_orbit_centre + Vector3.UP * 1.0)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -147,13 +153,33 @@ func _watch() -> void:
 	if _index == 0:
 		_runner.stop()
 		_ball.reset_at(DRILL_ORIGIN + Vector3.UP * 0.3)
+		_orbit_centre = DRILL_ORIGIN
 	else:
 		_runner.start(_entries[_index])
+		_orbit_centre = _drill_centre(_entries[_index])
 	_column.visible = true
 	_header.visible = true
 	_play_card.visible = false
-	_status_label.text = "OPEN FIELD" if _index == 0 else "SIMULATING"
-	_status_chip.size = _status_label.get_combined_minimum_size() + Vector2(20.0, 10.0)
+	_overlay.position = Vector2(COLUMN_WIDTH + 20.0, StudioStyle.HEADER_HEIGHT + 18.0)
+	_update_status()
+
+
+## The middle of a drill's cones and starts, both ways round for one that
+## turns round (mirror_x).
+func _drill_centre(drill: Dictionary) -> Vector3:
+	var spots: Array[Vector2] = []
+	spots.append_array(drill.get("cones", []))
+	for role: Dictionary in drill.roles:
+		spots.append(role.at)
+	if drill.has("mirror_x"):
+		for i in spots.size():
+			spots.append(Vector2(2.0 * float(drill.mirror_x) - spots[i].x, spots[i].y))
+	var low := spots[0]
+	var high := spots[0]
+	for at in spots:
+		low = low.min(at)
+		high = high.max(at)
+	return _runner.to_world((low + high) / 2.0)
 
 
 func _start_playing() -> void:
@@ -172,10 +198,21 @@ func _start_playing() -> void:
 	_column.visible = false
 	_header.visible = false
 	_play_card.visible = true
-	var roles: Array = _entries[_index].roles
-	_play_title.text = "%s  ·  you're %s" % [_entries[_index].name, roles[_play_roles[_index]].name]
-	_status_label.text = "PLAYING"
-	_status_chip.size = _status_label.get_combined_minimum_size() + Vector2(20.0, 10.0)
+	_overlay.position = Vector2(16.0, 16.0)
+	_update_status()
+
+
+## The yellow chip: what's running, which drill and, playing, who you are
+## now (the kicking circuit moves you a role along every pass).
+func _update_status() -> void:
+	if _index == 0:
+		_status_label.text = "OPEN FIELD"
+		return
+	var text := "%s  ·  %s" % ["PLAYING" if _playing else "SIMULATING", String(_entries[_index].name).to_upper()]
+	var me := _runner.human_role
+	if _playing and me >= 0:
+		text += "  ·  YOU'RE %s" % String(_entries[_index].roles[me].name).to_upper()
+	_status_label.text = text
 
 
 func _stop_playing() -> void:
@@ -196,11 +233,14 @@ func _on_beat_changed(index: int, text: String) -> void:
 		var lit := i == index
 		_step_labels[i].add_theme_color_override(&"font_color",
 			StudioStyle.INK if lit else StudioStyle.INK_SOFT)
-		(_step_labels[i].get_parent() as Panel).add_theme_stylebox_override(&"panel",
+		_step_rows[i].add_theme_stylebox_override(&"panel",
 			StudioStyle.box(StudioStyle.LIME if lit else StudioStyle.PAPER, 2 if lit else 0, 0))
+		if lit and not _playing:
+			_scroll.ensure_control_visible.call_deferred(_step_rows[i])
 	if _play_body != null:
 		_play_body.text = text
-		_play_card.size = _play_margin.get_combined_minimum_size()
+	if _playing:
+		_update_status()
 
 
 # ── Building ─────────────────────────────────────────────────────────
@@ -227,6 +267,7 @@ func _build_world() -> void:
 
 	_preview_camera = Camera3D.new()
 	_preview_camera.fov = 50.0
+	_preview_camera.h_offset = ORBIT_SHIFT
 	add_child(_preview_camera)
 	_chase = CAMERA_SCENE.instantiate() as BroadcastCamera
 	add_child(_chase)
@@ -273,12 +314,18 @@ func _build_ui() -> void:
 	root.add_child(column)
 	_column = column
 
+	# Scrolls when a long drill's steps run past the bottom.
+	var scroll := ScrollContainer.new()
+	_scroll = scroll
+	scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
+	scroll.offset_right = -StudioStyle.BORDER
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	column.add_child(scroll)
 	var margin := MarginContainer.new()
-	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
-	margin.offset_right = -StudioStyle.BORDER
+	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	for side in [&"margin_left", &"margin_right", &"margin_top", &"margin_bottom"]:
 		margin.add_theme_constant_override(side, 16)
-	column.add_child(margin)
+	scroll.add_child(margin)
 	var list := VBoxContainer.new()
 	list.add_theme_constant_override(&"separation", 8)
 	margin.add_child(list)
@@ -290,7 +337,7 @@ func _build_ui() -> void:
 		panel.mouse_filter = Control.MOUSE_FILTER_STOP
 		panel.gui_input.connect(_on_entry_input.bind(i))
 		var label := StudioStyle.text(String(_entries[i].name), 14, StudioStyle.INK, StudioStyle.body_font())
-		label.position = Vector2(12.0, 12.0)
+		label.position = Vector2(12.0, 8.0)
 		panel.add_child(label)
 		list.add_child(panel)
 		_entry_panels.append(panel)
@@ -299,7 +346,7 @@ func _build_ui() -> void:
 	_section(list, "ABOUT")
 	_summary = StudioStyle.text("", 12, StudioStyle.INK, StudioStyle.body_font())
 	_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_summary.custom_minimum_size.x = COLUMN_WIDTH - 40.0
+	_summary.custom_minimum_size.x = COLUMN_WIDTH - 56.0
 	list.add_child(_summary)
 
 	_role_row = VBoxContainer.new()
@@ -312,36 +359,45 @@ func _build_ui() -> void:
 	_steps_box.add_theme_constant_override(&"separation", 4)
 	list.add_child(_steps_box)
 
-	# The 3D view's status chip, top-left of the field.
-	_status_chip = Panel.new()
-	_status_chip.add_theme_stylebox_override(&"panel", StudioStyle.box(StudioStyle.LIME, 2, StudioStyle.SHADOW))
-	_status_chip.position = Vector2(COLUMN_WIDTH + 20.0, StudioStyle.HEADER_HEIGHT + 18.0)
-	root.add_child(_status_chip)
+	# Over the 3D view, top-left: the yellow status chip with the drill's
+	# name, and under it while you play, the step being run and your part
+	# in it. Containers size them to their text, so nothing's cut off.
+	_overlay = VBoxContainer.new()
+	_overlay.add_theme_constant_override(&"separation", 10)
+	_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_overlay)
+	var chip_row := HBoxContainer.new()
+	_overlay.add_child(chip_row)
+	var chip := _padded(StudioStyle.box(StudioStyle.LIME, 2, StudioStyle.SHADOW), 10, 5)
+	chip_row.add_child(chip)
 	_status_label = StudioStyle.text("SIMULATING", 11, StudioStyle.INK, StudioStyle.mono_font())
-	_status_label.position = Vector2(10.0, 5.0)
-	_status_chip.add_child(_status_label)
+	chip.get_child(0).add_child(_status_label)
 
-	# Playing: the drill and the step being run, top-left over the game.
-	_play_card = Panel.new()
-	_play_card.add_theme_stylebox_override(&"panel", StudioStyle.box(StudioStyle.WHITE, StudioStyle.BORDER, StudioStyle.SHADOW))
-	_play_card.position = Vector2(16.0, 16.0)
+	_play_card = _padded(StudioStyle.box(StudioStyle.WHITE, StudioStyle.BORDER, StudioStyle.SHADOW), 12, 12)
+	_play_card.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	_play_card.visible = false
-	root.add_child(_play_card)
-	var play_margin := MarginContainer.new()
-	_play_margin = play_margin
-	for side in [&"margin_left", &"margin_right", &"margin_top", &"margin_bottom"]:
-		play_margin.add_theme_constant_override(side, 12)
-	_play_card.add_child(play_margin)
+	_overlay.add_child(_play_card)
 	var play_column := VBoxContainer.new()
-	play_margin.add_child(play_column)
-	_play_title = StudioStyle.text("", 14, StudioStyle.INK, StudioStyle.display_font())
-	play_column.add_child(_play_title)
+	_play_card.get_child(0).add_child(play_column)
 	_play_body = StudioStyle.text("", 13, StudioStyle.INK, StudioStyle.body_font())
 	_play_body.custom_minimum_size.x = 380.0
 	_play_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	play_column.add_child(_play_body)
 	play_column.add_child(StudioStyle.text("Esc / Menu  stop", 11, StudioStyle.INK_SOFT, StudioStyle.mono_font()))
-	_play_card.size = play_margin.get_combined_minimum_size()
+
+
+## A box that sizes to what's put in its MarginContainer (child 0).
+func _padded(style: StyleBox, across: int, down: int) -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override(&"panel", style)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override(&"margin_left", across)
+	margin.add_theme_constant_override(&"margin_right", across)
+	margin.add_theme_constant_override(&"margin_top", down)
+	margin.add_theme_constant_override(&"margin_bottom", down)
+	panel.add_child(margin)
+	return panel
 
 
 func _section(parent: Control, title: String) -> void:
@@ -368,23 +424,23 @@ func _refresh() -> void:
 	for child in _steps_box.get_children():
 		child.queue_free()
 	_step_labels.clear()
+	_step_rows.clear()
 	if _index == 0:
 		return
 	var roles: Array = entry.roles
 	_role_label.text = "‹  %s  ›" % roles[_play_roles[_index]].name
 	_section(_steps_box, "STEPS")
 	var beats: Array = entry.beats
+	# Wrapped, not clipped: the kicking circuit's steps run two lines.
 	for i in beats.size():
-		var row := Panel.new()
-		row.custom_minimum_size = Vector2(0.0, 30.0)
+		var row := _padded(StudioStyle.box(StudioStyle.PAPER, 0, 0), 8, 6)
 		var label := StudioStyle.text("%d  %s" % [i + 1, beats[i].text], 12, StudioStyle.INK_SOFT,
 			StudioStyle.body_font())
-		label.position = Vector2(8.0, 6.0)
-		label.clip_text = true
-		label.size = Vector2(COLUMN_WIDTH - 56.0, 20.0)
-		row.add_child(label)
-		row.add_theme_stylebox_override(&"panel", StudioStyle.box(StudioStyle.PAPER, 0, 0))
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.custom_minimum_size.x = COLUMN_WIDTH - 72.0
+		row.get_child(0).add_child(label)
 		_steps_box.add_child(row)
+		_step_rows.append(row)
 		_step_labels.append(label)
 
 
