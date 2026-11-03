@@ -13,14 +13,16 @@ extends Node3D
 ## whoever had it. A drill on a loop has to recover by itself, and it's
 ## the same retry a coach calls.
 ##
-## A beat with "swap" trades two players' roles once it's done, and one
-## with "flip" turns the drill round: the layout mirrors about the drill's
-## "mirror_x" line and every spot after that (starts, runs, the ring) is
-## read in the mirrored frame until the next flip. The kicking circuit does
-## both when D marks: D is A from there, kicking back the way it came, and
-## the old A goes out to be D, the way it runs on the day. Roles keep their
-## spots and what beats tell them; it's the players who move between them,
-## and when you're one of the two you go with your player.
+## A beat with "rotate" moves every player that many roles along once
+## it's done (1: A's player is B from then on, B's is C, ..., the last
+## role's is A), and one with "flip" turns the drill round: the layout
+## mirrors about the drill's "mirror_x" line and every spot after that
+## (starts, runs, the ring) is read in the mirrored frame until the next
+## flip. The kicking circuit does both when D marks: D is A and kicks it
+## back the way it came, and everyone else has already run on to the next
+## role's spot, following their pass. Roles keep their spots and what beats
+## tell them; it's the players who move between them, and you go with
+## your player.
 
 signal beat_changed(index: int, text: String)
 
@@ -261,8 +263,8 @@ func _physics_process(delta: float) -> void:
 		_apply(entries[i])
 
 	if _beat_done(beat):
-		if beat.has("swap"):
-			_swap(int(beat.swap[0]), int(beat.swap[1]))
+		if beat.has("rotate"):
+			_rotate(int(beat.rotate))
 		if beat.get("flip", false):
 			_flipped = not _flipped
 		_begin_beat(_beat + 1)
@@ -328,17 +330,18 @@ func _human_acts(beat: Dictionary) -> bool:
 	return false
 
 
-func _swap(a: int, b: int) -> void:
-	var player := players[a]
-	players[a] = players[b]
-	players[b] = player
-	var brain = _brains[a]
-	_brains[a] = _brains[b]
-	_brains[b] = brain
-	if human_role == a:
-		human_role = b
-	elif human_role == b:
-		human_role = a
+func _rotate(by: int) -> void:
+	var count := players.size()
+	var moved_players: Array[PlayerController] = []
+	var moved_brains: Array = []
+	for role in count:
+		var from := posmod(role - by, count)
+		moved_players.append(players[from])
+		moved_brains.append(_brains[from])
+	players = moved_players
+	_brains = moved_brains
+	if human_role >= 0:
+		human_role = posmod(human_role + by, count)
 
 
 func _retry_beat() -> void:

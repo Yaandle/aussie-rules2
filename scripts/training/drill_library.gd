@@ -32,8 +32,8 @@ extends RefCounted
 ##     until     "caught" (role "by" has the ball), "arrived" (everyone
 ##               told to run_to is there) or "time" (after "time" s)
 ##     reset     true: everyone back to their start, ball to ball_to
-##     swap      [role, role]: once the beat's done, the two players trade
-##               roles (a rotation; you go with your player)
+##     rotate    n: once the beat's done, every player moves n roles along
+##               (the last role's to the first; you go with your player)
 ##     flip      true: once the beat's done, the drill turns round: spots
 ##               mirror about the drill's "mirror_x" until the next flip
 ##   A beat that hasn't finished after "timeout" s (default 10; never, for
@@ -96,10 +96,11 @@ static var DRILLS: Array[Dictionary] = [
 	## The first of the user's own session drills (2026-11-02), in two
 	## versions: D's lead straight back at A, and the progression where D
 	## spreads away at 45°. A → B straight, B → C into C's 45° lead, C hands
-	## off to A who has followed their kick the whole way, A → D. Then the
-	## drill turns round ("swap" + "flip"): D is the new A and runs it back
-	## the other way, to the old A now out at D's spot. Continuous, as on the
-	## day.
+	## off to A who has followed their kick the whole way, A → D. Everyone
+	## follows their pass to the next role's spot (B to C's, C to A's end,
+	## A on to B's) and D, with the ball, is the new A: the drill turns round
+	## ("rotate" + "flip") and runs A B C D back the other way. Continuous, as
+	## on the day.
 	## The layout's offset 16 m down the ground so
 	## the 56 m circuit sits round the field centre.
 	_kicking_circuit("Kicking circuit",
@@ -114,6 +115,12 @@ static var DRILLS: Array[Dictionary] = [
 ## The kicking circuit with D's start and lead as given (see above).
 static func _kicking_circuit(title: String, summary: String, d_at: Vector2, d_lead: Vector2,
 		d_text: String) -> Dictionary:
+	var mirror := (-28.0 + d_lead.x) / 2.0
+	# Where B, C and D start the way back, in this way's frame: the next
+	# pass is mirrored about `mirror`.
+	var b_back := Vector2(2.0 * mirror + 4.0, 0.0)
+	var c_back := Vector2(2.0 * mirror + 6.0, -12.0)
+	var d_back := Vector2(2.0 * mirror - d_at.x, d_at.y)
 	return {
 		"name": title,
 		"summary": summary,
@@ -128,7 +135,7 @@ static func _kicking_circuit(title: String, summary: String, d_at: Vector2, d_le
 		"ball_to": 0,
 		# Halfway between A's cone and where D marks: turned round about
 		# here, D's mark is A's cone going back.
-		"mirror_x": (-28.0 + d_lead.x) / 2.0,
+		"mirror_x": mirror,
 		"beats": [
 			# A's follow-up run is a separate entry after the kick's gone: a
 			# bot does one task at a time, and A runs a lane 3 m wide of B so
@@ -138,35 +145,39 @@ static func _kicking_circuit(title: String, summary: String, d_at: Vector2, d_le
 					{"role": 0, "kick_to": 1, "delay": 1.0},
 					{"role": 0, "run_to": Vector2(-16.0, 3.0), "gait": 0.9, "delay": 1.8}],
 				"until": "caught", "by": 1},
-			{"text": "C pushes off and leads at 45°; B kicks into their space and A keeps running",
+			# From here everyone follows their pass to the spot they'll start
+			# the way back from: B to C's, C to A's end (where D stands going
+			# back), A on to B's. Every beat tells them again, since a new
+			# beat stands everyone not in it down.
+			{"text": "C pushes off and leads at 45°; B kicks into their space and follows it to C's spot",
 				"do": [{"role": 2, "run_to": Vector2(2.0, -4.0), "gait": 0.95},
 					{"role": 1, "kick_to": 2, "delay": 0.9},
+					{"role": 1, "run_to": c_back, "gait": 0.7, "delay": 1.7},
 					{"role": 0, "run_to": Vector2(-10.0, 2.0), "gait": 0.9}],
 				"until": "caught", "by": 2},
 			# C walks back off the mark (~2 s, toward B) before they can
-			# dispose of it, so A holds their run until C's nearly done.
+			# dispose of it, so A holds their run until C's nearly done. C's
+			# own run waits for the next beat: a run would cancel the handball.
 			{"text": "C handballs to A running past",
 				"do": [{"role": 0, "run_to": Vector2(14.0, 1.0), "gait": 0.85, "delay": 0.4},
-					{"role": 2, "handball_to": 0, "delay": 0.2}],
+					{"role": 2, "handball_to": 0, "delay": 0.2},
+					{"role": 1, "run_to": c_back, "gait": 0.7}],
 				"until": "caught", "by": 0},
-			# D's mark turns the drill round: D is A from here and kicks back
-			# the way it came (the layout mirrors about mirror_x, so D's mark
-			# is A's cone going back), and the old A goes out to be D.
-			{"text": d_text,
+			# D's mark turns the drill round: D is A and kicks back the way it
+			# came (the layout mirrors about mirror_x, so D's mark is A's
+			# cone going back), and everyone else moves a role along.
+			{"text": d_text + "; C runs to A's end, A on to B's spot",
 				"do": [{"role": 3, "run_to": d_lead, "gait": 0.95},
-					{"role": 0, "kick_to": 3, "delay": 0.7}],
-				"until": "caught", "by": 3, "swap": [0, 3], "flip": true},
-			# Spots read the turned-round way from here. The new D goes out
-			# wide first: straight out they ran through B coming back to
-			# their cone and stalled the beat.
-			{"text": "Turn round: D's the new A and kicks back; A goes out to be D",
-				"do": [{"role": 3, "run_to": Vector2(2.0, 8.0), "gait": 0.8},
-					{"role": 0, "run_to": Vector2(-28.0, 0.0), "gait": 0.4},
+					{"role": 0, "kick_to": 3, "delay": 0.7},
+					{"role": 0, "run_to": b_back, "gait": 0.6, "delay": 1.5},
+					{"role": 1, "run_to": c_back, "gait": 0.7},
+					{"role": 2, "run_to": d_back, "gait": 0.8}],
+				"until": "caught", "by": 3, "rotate": 1, "flip": true},
+			{"text": "D's the new A and kicks it back; everyone onto their spot",
+				"do": [{"role": 0, "run_to": Vector2(-28.0, 0.0), "gait": 0.4},
 					{"role": 1, "run_to": Vector2(-4.0, 0.0), "gait": 0.6},
-					{"role": 2, "run_to": Vector2(-6.0, -12.0), "gait": 0.6}],
-				"until": "arrived", "timeout": 15.0},
-			{"text": "Turn round: D's the new A and kicks back; A goes out to be D",
-				"do": [{"role": 3, "run_to": d_at, "gait": 0.8}],
+					{"role": 2, "run_to": Vector2(-6.0, -12.0), "gait": 0.7},
+					{"role": 3, "run_to": d_at, "gait": 0.8}],
 				"until": "arrived", "timeout": 15.0},
 		],
 	}
