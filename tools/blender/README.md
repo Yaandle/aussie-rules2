@@ -111,6 +111,14 @@ keyframed actions, so you can refine them by hand in the Action Editor, but
 a re-run of the script overwrites hand edits to any clip it's asked to
 build.
 
+## Build 7 (`7thbuild`)
+
+`assets/blender/7thbuild.blend` is a copy of 6thbuild.blend with the same
+Armature and actions and a generated skin.
+`build_7thbuild_mesh.py` builds the meshes, `check_7thbuild_deform.py` runs
+every clip looking for skin through cloth, and `export_7thbuild.py` writes
+`assets/characters/7thbuild.glb`. See `docs/BUILD7_MODEL.md`.
+
 ## Bone names
 
 `export_fifthbuild.py`'s `BONE_RENAME` dict maps this rig's own bone names

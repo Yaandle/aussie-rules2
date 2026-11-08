@@ -230,6 +230,14 @@ mostly superseded history. The full text lives outside the repo, in
   Their hunks stay unstaged in the working tree (Career Phases 7-8).
 - At render rates below the physics rate, `_process` skips physics ticks.
   Sample physics state on `SceneTree.physics_frame` instead.
+- **A new player skin on 6thbuild's skeleton can't change gameplay**: the
+  ragdoll, anchors and clips read bones only. Prove it by the tackle sweep
+  printing identically with `MODEL_ID` swapped (a temporary copy), not by
+  a match: two matches on the same model already end differently.
+  Compare imported clips key for key; `Quaternion.angle_to` reads ~0.006 rad
+  on a clip against itself. Check skin and cloth with
+  `tools/blender/check_7thbuild_deform.py` and by eye (`build_compare.tscn`):
+  a face crossing a crease can show with every vertex inside (Build 7).
 - **Ragdoll tackles:** `scenes/dev/tackle_sweep.tscn` runs real X, B and
   bump connects between running 6thbuild players and prints how every body
   fell. Its header holds the 2026-10-28 baseline.

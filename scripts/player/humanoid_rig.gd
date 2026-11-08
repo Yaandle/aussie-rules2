@@ -79,8 +79,9 @@ extends Node3D
 ## kit_* overrides below, else TeamKit (HOME = the CHARACTER screen's kit,
 ## AWAY = a preset picked to contrast with it). An imported mesh is
 ## recoloured by material name (_recolour_imported: "Shirt"/"Jersey",
-## "Short", "Shoe"/"Boot", "Sock", "Skin") and, since neither Blender build
-## has socks, gets a sock tube per lower leg (_add_imported_socks). Only
+## "Short", "Shoe"/"Boot", "Sock", "Skin", plus "Trim"/"Number" in a colour
+## contrasting with the jersey) and, unless it models its own socks (only
+## 7thbuild does), gets a sock tube per lower leg (_add_imported_socks). Only
 ## kit_stripes stays procedural-only, so Umpire still sets
 ## allow_imported_character = false before add_child() to keep its stripes.
 
@@ -152,6 +153,10 @@ const DETAIL_SCALE := 2.4
 const CHARACTER_MODELS := {
 	"fifthbuild": "res://assets/characters/fifthbuild.glb",
 	"6thbuild": "res://assets/characters/6thbuild.glb",
+	## Build 7: 6thbuild's skeleton and clips under a new skin (docs/
+	## BUILD7_MODEL.md). Same bones, so the ragdoll, mark variants and every
+	## gameplay anchor treat it exactly as 6thbuild.
+	"7thbuild": "res://assets/characters/7thbuild.glb",
 }
 
 ## Set false by callers whose kit_* colour overrides only work on the
@@ -246,7 +251,8 @@ func _build() -> void:
 	if allow_imported_character and _try_build_from_import():
 		_imported = true
 		_recolour_imported(self, kit)
-		_add_imported_socks(kit["socks"])
+		if not _imported_has_socks:
+			_add_imported_socks(kit["socks"])
 		return
 
 	var guernsey: Color = kit["jersey"]
@@ -415,18 +421,32 @@ func _resolved_kit() -> Dictionary:
 		if c.a > 0.0:
 			kit[slot] = c
 	kit["skin"] = kit_skin if kit_skin.a > 0.0 else COLOUR_SKIN
+	kit["trim"] = COLOUR_TRIM_ON_LIGHT if (kit["jersey"] as Color).get_luminance() > TRIM_LUMINANCE_SPLIT else COLOUR_TRIM
 	return kit
 
 
 ## Material resource_name fragment (lower case) -> kit slot, first match
 ## wins. Covers both builds' Blender names (6thbuild: Shirt_Mat/Shorts_Mat/
 ## Shoes_Mat/Skin.001, fifthbuild: JerseyColour/ShortsColour/BootsColour/
-## SkinColour). A future export with a "Sock" material gets recoloured too;
-## an unmatched material keeps its Blender colour.
+## SkinColour, 7thbuild: Socks_Mat, Trim_Mat, Number_Mat as well). An
+## unmatched material keeps its Blender colour (7thbuild's Hair, Eyes, Studs).
+## "trim" (a collar) and "number" (the guernsey number) take kit["trim"],
+## which contrasts with the jersey, so neither vanishes on any kit.
 const IMPORTED_MATERIAL_SLOTS := [
 	["sock", "socks"], ["short", "shorts"], ["shirt", "jersey"], ["jersey", "jersey"],
 	["guernsey", "jersey"], ["shoe", "boot"], ["boot", "boot"], ["skin", "skin"],
+	["trim", "trim"], ["number", "trim"],
 ]
+
+## kit["trim"]: dark trim on a jersey brighter than this luminance, else the
+## off-white COLOUR_TRIM. Unplaytested feel guess; only an import with a
+## Trim/Number material (7thbuild) reads it.
+const TRIM_LUMINANCE_SPLIT := 0.55
+const COLOUR_TRIM_ON_LIGHT := Color("#1b1c20")
+
+## True once _recolour_imported() has met a "sock" material: the model brings
+## its own socks, so _add_imported_socks() mustn't wrap capsules over them.
+var _imported_has_socks := false
 
 ## (source material, colour) -> recoloured duplicate, shared across every
 ## rig so 32 players in two kits share two sets of materials, not 32.
@@ -441,6 +461,8 @@ func _recolour_imported(node: Node, kit: Dictionary) -> void:
 				if source == null:
 					continue
 				var slot := _imported_slot(source.resource_name)
+				if slot == "socks":
+					_imported_has_socks = true
 				# Unset skin keeps the model's own authored tone rather
 				# than snapping to the procedural COLOUR_SKIN.
 				if slot == "skin" and kit_skin.a <= 0.0:
@@ -469,8 +491,9 @@ func _imported_material(source: BaseMaterial3D, colour: Color) -> BaseMaterial3D
 	return material
 
 
-## Neither Blender build models socks (bare skinned legs), so a capsule per
-## lower leg stands in, riding the same BoneAttachment3D path the procedural
+## fifthbuild and 6thbuild don't model socks (bare skinned legs), so a
+## capsule per lower leg stands in (7thbuild has its own; see
+## _imported_has_socks), riding the same BoneAttachment3D path the procedural
 ## parts use. Placed along the real LowerLeg -> Foot rest vector rather than
 ## the procedural rig's "-Y hangs down the limb" convention, which is
 ## unverified for imported skeletons (see the axis note in the header).
