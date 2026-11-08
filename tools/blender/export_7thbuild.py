@@ -76,6 +76,9 @@ STRAY_WEIGHT_MERGE = {
 # 6thbuild so far — add entries here as action clips get animated.
 CLIP_RENAME = {
 	"idle": "idle",
+	# Build 7 only (author_7thbuild_gaits.py): PlayerAnimation adds a walk
+	# blend point for a model that has it.
+	"walk": "walk",
 	"jog_fwd": "jog_fwd",
 	"run_fwd": "run_fwd",
 	"run_back": "run_back",

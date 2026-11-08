@@ -35,6 +35,12 @@ extends Node
 ## y = forward speed (-1 backpedal, +1 full sprint), both normalised
 ## against Tuning.SPRINT_SPEED.
 const JOG_BLEND := 0.55
+## A walk clip, where the model has one (Build 7, author_7thbuild_gaits.py),
+## goes on the forward axis at walking pace. Without it, below a jog the
+## blend is idle mixed with jog_fwd: half a jog stride under a walking body,
+## and the feet slid ~1.4 m/s. A model without it keeps BLEND_POINTS as is.
+const WALK_CLIP := &"walk"
+const WALK_BLEND := Tuning.WALK_SPEED / Tuning.SPRINT_SPEED
 const BLEND_POINTS := [
 	[Vector2(0.0, 0.0), &"idle"],
 	[Vector2(0.0, JOG_BLEND), &"jog_fwd"],
@@ -142,10 +148,15 @@ const HIPS_TRACK := ^"Skeleton3D:Hips"
 ## up to STRIDE_BACK_MAX_RATE. Unplaytested feel guesses.
 const GAIT_NODE := &"gait"
 const STRIDE_NODE := &"stride"
-const STRIDE_CLIPS: Array[StringName] = [&"jog_fwd", &"run_fwd", &"run_back"]
+const STRIDE_CLIPS: Array[StringName] = [&"walk", &"jog_fwd", &"run_fwd", &"run_back"]
 const STRIDE_CADENCE := Vector2(3.4, 5.2)
 const STRIDE_CADENCE_LIMITS := Vector2(1.8, 5.8)
 const STRIDE_MIN_RATE := 0.85
+## The floor for a model with a walk clip: a walk authored on the jog's
+## cycle length plays at ~0.7 to put its feet down at walking pace. A model
+## without one keeps STRIDE_MIN_RATE (lowering it for everyone changed
+## Build 6's tackle_sweep output, so the floor does bind somewhere).
+const STRIDE_MIN_RATE_WITH_WALK := 0.6
 const STRIDE_BACK_MAX_RATE := 1.3
 ## Blend magnitude under which the rate eases back to 1, so a standing
 ## player's idle sway plays as authored.
@@ -176,7 +187,7 @@ const STRIDE_SAMPLE_STEP := 1.0 / 60.0
 ## jog: a jog-family clip only turns, and the run family is played back up
 ## to speed by the stride rate anyway. idle has no stride and keeps its own
 ## slow loop.
-const PHASE_LOCK_CLIPS: Array[StringName] = [&"jog_fwd", &"run_fwd", &"run_back", &"strafe_l",
+const PHASE_LOCK_CLIPS: Array[StringName] = [&"walk", &"jog_fwd", &"run_fwd", &"run_back", &"strafe_l",
 	&"strafe_r", &"run_fwd_l", &"run_fwd_r"]
 const PHASE_LOCK_REFERENCE := &"jog_fwd"
 const PHASE_LOCK_SAMPLE_RATE := 60.0
@@ -274,6 +285,12 @@ const LOCOMOTION_STATE := &"locomotion"
 const BLEND_SMOOTHING := 14.0     ## exponential rate; stops the blend snapping
 const ACTION_BLEND_IN := 0.10     ## s
 const ACTION_BLEND_OUT := 0.18    ## s
+## Longer blends back to locomotion for clips that end far from a standing
+## run (s). Presentation only: gameplay hands control back on the action's
+## own timer either way. smother_dive ends in a low crouch on its way up
+## from the turf (it used to snap upright in its last 0.04 s); a model whose
+## dive still ends standing just blends a little slower.
+const ACTION_BLEND_OUT_BY_STATE := {&"smother_dive": 0.32}
 
 ## HumanoidRig's own Boot mesh sits 0.07m below the ankle (Foot) bone
 ## (_box_on("Boot"..., size.y=0.07, offset.y=-0.035) — a box centred 0.035m
@@ -449,7 +466,15 @@ func _stride_rate_for(speed: float) -> float:
 	else:
 		var jog: Dictionary = _strides.get(&"jog_fwd", {})
 		var run: Dictionary = _strides.get(&"run_fwd", jog)
-		if reach <= JOG_BLEND:
+		var walk: Dictionary = _strides.get(WALK_CLIP, {})
+		if not walk.is_empty() and reach <= WALK_BLEND:
+			authored = reach / WALK_BLEND * float(walk.get("speed", 0.0))
+			cadence = float(walk.get("cadence", 0.0))
+		elif not walk.is_empty() and reach <= JOG_BLEND:
+			var w := (reach - WALK_BLEND) / (JOG_BLEND - WALK_BLEND)
+			authored = lerpf(float(walk.get("speed", 0.0)), float(jog.get("speed", 0.0)), w)
+			cadence = lerpf(float(walk.get("cadence", 0.0)), float(jog.get("cadence", 0.0)), w)
+		elif reach <= JOG_BLEND:
 			authored = reach / JOG_BLEND * float(jog.get("speed", 0.0))
 			cadence = float(jog.get("cadence", 0.0))
 		else:
@@ -465,7 +490,8 @@ func _stride_rate_for(speed: float) -> float:
 		return lerpf(1.0, clampf(speed / authored, 1.0, STRIDE_BACK_MAX_RATE), clampf(reach / STRIDE_FADE, 0.0, 1.0))
 	var steps := clampf(remap(speed, Tuning.JOG_SPEED, Tuning.SPRINT_SPEED, STRIDE_CADENCE.x, STRIDE_CADENCE.y),
 		STRIDE_CADENCE_LIMITS.x, STRIDE_CADENCE_LIMITS.y)
-	var rate := clampf(speed / authored, STRIDE_MIN_RATE, maxf(steps / cadence, STRIDE_MIN_RATE))
+	var floor_rate := STRIDE_MIN_RATE_WITH_WALK if _strides.has(WALK_CLIP) else STRIDE_MIN_RATE
+	var rate := clampf(speed / authored, floor_rate, maxf(steps / cadence, floor_rate))
 	return lerpf(1.0, rate, clampf(reach / STRIDE_FADE, 0.0, 1.0))
 
 
@@ -1213,7 +1239,7 @@ func _build_state_machine() -> AnimationNodeStateMachine:
 				AnimationNodeStateMachineTransition.SWITCH_MODE_IMMEDIATE,
 				AnimationNodeStateMachineTransition.ADVANCE_MODE_ENABLED))
 		machine.add_transition(state, LOCOMOTION_STATE,
-			_transition(ACTION_BLEND_OUT,
+			_transition(ACTION_BLEND_OUT_BY_STATE.get(state, ACTION_BLEND_OUT),
 				AnimationNodeStateMachineTransition.SWITCH_MODE_AT_END,
 				AnimationNodeStateMachineTransition.ADVANCE_MODE_AUTO))
 
@@ -1321,6 +1347,10 @@ func _build_blend_space() -> AnimationNodeBlendSpace2D:
 		var clip := AnimationNodeAnimation.new()
 		clip.animation = point[1] as StringName
 		space.add_blend_point(clip, point[0] as Vector2)
+	if _player.has_animation(WALK_CLIP):
+		var walk := AnimationNodeAnimation.new()
+		walk.animation = WALK_CLIP
+		space.add_blend_point(walk, Vector2(0.0, WALK_BLEND))
 	return space
 
 

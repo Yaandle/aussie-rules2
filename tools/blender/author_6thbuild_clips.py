@@ -1142,9 +1142,13 @@ def clip_smother_dive():
 	length, contact = ACTION_TIMING["smother_dive"]
 	# Committed dive at the kicker's boot (the playtest ask: it has to go to
 	# ground): load on the left, launch, full stretch with both arms just off
-	# the turf at contact, held. The last key snaps back to the base pose
-	# because Tuning ends the action there (see the timing note in the
-	# checkpoint report — a real get-up needs a longer ACTION_DURATION).
+	# the turf at contact. Then it pushes off the turf: the hands come back
+	# under the chest and the right foot steps through, and it ends in a low
+	# crouch on the way up, which PlayerAnimation fades into the run over
+	# ACTION_BLEND_OUT_BY_STATE's longer blend. It used to hold the stretch
+	# until 0.51 s and snap back to the standing base pose in the last
+	# 0.04 s (92 rad/s at the knee, scenes/dev/anim_audit.tscn), because
+	# Tuning ends the action there; this keeps Tuning's 0.55 s.
 	return Clip("smother_dive", [
 		(0.0, {}),
 		(contact * 0.35, {
@@ -1171,15 +1175,26 @@ def clip_smother_dive():
 			"elbow_l": P(1.0, 0.0, -0.4), "elbow_r": P(-1.0, 0.0, -0.4),
 			"foot_l": {"pos": P(0, 0.02, 0.13), "pitch": 30}, "foot_r": {"pos": P(0, -0.52, 0.30), "pitch": 45},
 		}),
-		(contact + (length - contact) * 0.75, {
-			"pelvis": {"pos": P(0, 0.54, -0.74), "rot": lean(fwd=62)},
-			"spine1": lean(fwd=6), "spine2": lean(fwd=0), "head": lean(fwd=-22),
+		# Pushing off: hands back under the chest, the trailing leg swinging
+		# through.
+		(contact + (length - contact) * 0.4, {
+			"pelvis": {"pos": P(0, 0.50, -0.66), "rot": lean(fwd=56)},
+			"spine1": lean(fwd=6), "spine2": lean(fwd=2), "head": lean(fwd=-20),
 			"hands_in": "chest",
-			"hand_l": P(0.16, 0.48, 0.32), "hand_r": P(-0.16, 0.48, 0.32),
-			"elbow_l": P(1.0, 0.0, -0.4), "elbow_r": P(-1.0, 0.0, -0.4),
-			"foot_l": {"pos": P(0, 0.02, 0.13), "pitch": 30}, "foot_r": {"pos": P(0, -0.48, 0.26), "pitch": 40},
+			"hand_l": P(0.14, 0.40, 0.10), "hand_r": P(-0.14, 0.40, 0.10),
+			"elbow_l": P(1.0, -0.2, -0.6), "elbow_r": P(-1.0, -0.2, -0.6),
+			"foot_l": {"pos": P(0, 0.06, 0.10), "pitch": 20}, "foot_r": {"pos": P(0, -0.24, 0.24), "pitch": 30},
 		}),
-		(length, {}),
+		# A low crouch on the way up, right foot under the hips: the blend out
+		# to the run finishes standing.
+		(length, {
+			"pelvis": {"pos": P(0, 0.30, -0.40), "rot": lean(fwd=34)},
+			"spine1": lean(fwd=8), "spine2": lean(fwd=4), "head": lean(fwd=-12),
+			"hands_in": "chest",
+			"hand_l": P(0.10, 0.22, -0.30), "hand_r": P(-0.10, 0.22, -0.30),
+			"elbow_l": P(0.8, -0.4, -0.8), "elbow_r": P(-0.8, -0.4, -0.8),
+			"foot_l": {"pos": P(0, 0.10, 0.02), "pitch": 10}, "foot_r": {"pos": P(0, 0.22, 0.04), "pitch": 5},
+		}),
 	])
 
 
