@@ -13,16 +13,15 @@ extends Node3D
 ## whoever had it. A drill on a loop has to recover by itself, and it's
 ## the same retry a coach calls.
 ##
-## A beat with "rotate" moves every player that many roles along once
-## it's done (1: A's player is B from then on, B's is C, ..., the last
-## role's is A), and one with "flip" turns the drill round: the layout
-## mirrors about the drill's "mirror_x" line and every spot after that
-## (starts, runs, the ring) is read in the mirrored frame until the next
-## flip. The kicking circuit does both when D marks: D is A and kicks it
-## back the way it came, and everyone else has already run on to the next
-## role's spot, following their pass. Roles keep their spots and what beats
-## tell them; it's the players who move between them, and you go with
-## your player.
+## A beat with "next" hands the players round once it's done: role i is
+## taken by the player who had role next[i]. That's how players move
+## between spots in a drill with lines, where you go where you give: the
+## kicking circuit's six hand round at the end of the way up and again at
+## the end of the way back. Roles keep their spots and what beats tell
+## them; it's the players who move between them, and you go with your
+## player. "leg" says which leg comes next (0 up, 1 back), which picks the
+## role names ("name", or "back_name" on the way back), since the same
+## spot does a different job each way.
 
 signal beat_changed(index: int, text: String)
 
@@ -47,8 +46,8 @@ var human_role := -1
 var players: Array[PlayerController] = []
 
 var _brains: Array = []
-## True while the drill runs the mirrored way ("flip").
-var _flipped := false
+## Which leg the drill's on ("leg"): 0 the way up, 1 the way back.
+var _leg := 0
 var _cones: Array[Node3D] = []
 var _marker: MeshInstance3D
 var _beat := 0
@@ -79,19 +78,8 @@ func start(p_drill: Dictionary, p_human_role := -1) -> void:
 	stop()
 	drill = p_drill
 	human_role = p_human_role
-	_flipped = false
-	# Both ways' cones, when the drill turns round; one cone where the two
-	# land on top of each other.
-	var cones: Array[Vector2] = []
+	_leg = 0
 	for at: Vector2 in drill.get("cones", []):
-		cones.append(at)
-		if drill.has("mirror_x"):
-			cones.append(Vector2(2.0 * float(drill.mirror_x) - at.x, at.y))
-	var placed: Array[Vector2] = []
-	for at in cones:
-		if placed.any(func(other: Vector2) -> bool: return other.distance_to(at) < 1.0):
-			continue
-		placed.append(at)
 		_add_cone(to_world(at))
 	var roles: Array = drill.roles
 	for i in roles.size():
@@ -109,7 +97,7 @@ func stop() -> void:
 		cone.queue_free()
 	players.clear()
 	_brains.clear()
-	_flipped = false
+	_leg = 0
 	_cones.clear()
 	drill = {}
 	human_role = -1
@@ -126,12 +114,16 @@ func human() -> PlayerController:
 
 
 func to_world(at: Vector2) -> Vector3:
-	if _flipped:
-		at.x = 2.0 * float(drill.get("mirror_x", 0.0)) - at.x
 	return origin + Basis(Vector3.UP, yaw) * Vector3(at.x, 0.0, at.y)
 
 
-## Where role `role` starts, the way the drill's facing now.
+## What role `role` is called on the leg the drill's on.
+func role_name(role: int) -> String:
+	var info: Dictionary = drill.roles[role]
+	return String(info.get("back_name", info.name) if _leg == 1 else info.name)
+
+
+## Where role `role` starts.
 func _start(role: int) -> Vector3:
 	return to_world(drill.roles[role].at)
 
@@ -228,13 +220,12 @@ func _beat_text(beat: Dictionary) -> String:
 	for entry: Dictionary in beat.get("do", []):
 		if int(entry.role) != human_role:
 			continue
-		var roles: Array = drill.roles
 		if entry.has("run_to"):
 			text += "\nYou: run to the ring."
 		elif entry.has("kick_to"):
-			text += "\nYou: kick to %s." % roles[int(entry.kick_to)].name
+			text += "\nYou: kick to %s." % role_name(int(entry.kick_to))
 		elif entry.has("handball_to"):
-			text += "\nYou: handball to %s." % roles[int(entry.handball_to)].name
+			text += "\nYou: handball to %s." % role_name(int(entry.handball_to))
 	if int(beat.get("by", -1)) == human_role and human_role >= 0:
 		text += "\nYou: take it."
 	return text
@@ -263,10 +254,10 @@ func _physics_process(delta: float) -> void:
 		_apply(entries[i])
 
 	if _beat_done(beat):
-		if beat.has("rotate"):
-			_rotate(int(beat.rotate))
-		if beat.get("flip", false):
-			_flipped = not _flipped
+		if beat.has("next"):
+			_hand_round(beat.next)
+		if beat.has("leg"):
+			_leg = int(beat.leg)
 		_begin_beat(_beat + 1)
 		return
 	if _ball_dead():
@@ -330,18 +321,16 @@ func _human_acts(beat: Dictionary) -> bool:
 	return false
 
 
-func _rotate(by: int) -> void:
-	var count := players.size()
+func _hand_round(next: Array) -> void:
 	var moved_players: Array[PlayerController] = []
 	var moved_brains: Array = []
-	for role in count:
-		var from := posmod(role - by, count)
-		moved_players.append(players[from])
-		moved_brains.append(_brains[from])
+	for role in next.size():
+		moved_players.append(players[int(next[role])])
+		moved_brains.append(_brains[int(next[role])])
 	players = moved_players
 	_brains = moved_brains
 	if human_role >= 0:
-		human_role = posmod(human_role + by, count)
+		human_role = next.find(human_role)
 
 
 func _retry_beat() -> void:

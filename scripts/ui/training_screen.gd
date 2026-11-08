@@ -164,16 +164,12 @@ func _watch() -> void:
 	_update_status()
 
 
-## The middle of a drill's cones and starts, both ways round for one that
-## turns round (mirror_x).
+## The middle of a drill's cones and starts.
 func _drill_centre(drill: Dictionary) -> Vector3:
 	var spots: Array[Vector2] = []
 	spots.append_array(drill.get("cones", []))
 	for role: Dictionary in drill.roles:
 		spots.append(role.at)
-	if drill.has("mirror_x"):
-		for i in spots.size():
-			spots.append(Vector2(2.0 * float(drill.mirror_x) - spots[i].x, spots[i].y))
 	var low := spots[0]
 	var high := spots[0]
 	for at in spots:
@@ -211,7 +207,7 @@ func _update_status() -> void:
 	var text := "%s  ·  %s" % ["PLAYING" if _playing else "SIMULATING", String(_entries[_index].name).to_upper()]
 	var me := _runner.human_role
 	if _playing and me >= 0:
-		text += "  ·  YOU'RE %s" % String(_entries[_index].roles[me].name).to_upper()
+		text += "  ·  YOU'RE %s" % _runner.role_name(me).to_upper()
 	_status_label.text = text
 
 
