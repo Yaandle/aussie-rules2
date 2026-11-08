@@ -140,8 +140,10 @@ func _ready() -> void:
 	hints.position = Vector2(32.0, hint_top)
 	card.add_child(hints)
 	hints.set_hint_sets({
-		InputManager.Device.KEYBOARD: [{"keys": "Enter / Esc", "label": "Return to menu"}],
-		InputManager.Device.GAMEPAD: [{"keys": "A / B", "label": "Return to menu"}],
+		InputManager.Device.KEYBOARD: [{"keys": "Enter / Esc", "label": "Return to menu"}]
+			+ HighlightsScreen.offer_hints(InputManager.Device.KEYBOARD),
+		InputManager.Device.GAMEPAD: [{"keys": "A / B", "label": "Return to menu"}]
+			+ HighlightsScreen.offer_hints(InputManager.Device.GAMEPAD),
 	})
 
 
@@ -200,6 +202,9 @@ func _process(delta: float) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if _busy or _elapsed < INPUT_GRACE:
+		return
+	if HighlightsScreen.is_open_request(event):
+		_busy = HighlightsScreen.open_from(scene_file_path)
 		return
 	if event.is_action_pressed(&"ui_accept") or event.is_action_pressed(&"pause") \
 			or event.is_action_pressed(&"ui_cancel"):
