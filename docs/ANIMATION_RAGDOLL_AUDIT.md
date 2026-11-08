@@ -308,3 +308,87 @@ are chaotic, so watch for it.
   the commit message). It ran two animation stacks, phase-locked and
   original, with the original's own strides measured, at fixed blends,
   sampling the feet after the tree mixed.
+
+## 2026-11-09: Build 7 motion (Phase 2 of the Build 7 polish)
+
+Measured with `scenes/dev/anim_audit.tscn` (new): a real player on a
+scripted brain through jog, sprint, start/stop, 90° and 180° cuts, a weave,
+a walk and turning on the spot, plus every clip sampled on a bare rig.
+Slip is a planted sole's speed over the turf (heel, ball and toe sampled;
+planted = within 1.5 cm). Everything here is Build 7 only: its clips live
+in `assets/blender/7thbuild.blend`, and Build 6's audit and tackle sweep
+are unchanged (sweep byte-identical to the 2026-10-30 baseline).
+
+| Build 7 vs Build 6 | Build 6 | Build 7 |
+|---|---|---|
+| Walk 1.8 m/s: slip mean | 1.35 m/s | 0.32 |
+| Jog 4.8 m/s | 1.49 | 0.75 |
+| Sprint 8.4 m/s | 2.88 | 1.22 |
+| 90° cut at a sprint | 3.03 | 1.18 |
+| Pelvis / chest yaw in a sprint (peak to peak) | 0° / 0° | 17° / 26°, counter-turning (corr -1.0) |
+| Arm swing L/R | 73° / 57° | 53° / 53° |
+| `smother_dive` peak bone speed | 92 rad/s (snap upright at the end) | 26 |
+| `tackled` peak | 50 rad/s (both knees flipped twice) | 38 |
+
+What changed:
+
+- **New gait clips** (`tools/blender/author_7thbuild_gaits.py`): walk,
+  jog_fwd, run_fwd and the run diagonals from a parametric model. The ball
+  of each foot sweeps back at the design speed while down and the foot
+  rolls over the toe tip (the foot is one rigid bone: rolling over the ball
+  sank the toe 6 cm into the turf). The swing leaves and lands moving back
+  with the turf. Pelvis bob and turn, chest counter-turn, head steady,
+  arms opposite the legs. All on the jog's 16-frame cycle, so phase lock
+  never stretches them; stride matching sets the cadence. Every pose stays
+  inside the ragdoll's joint limits (the first cut went 50° back at the hip
+  and a tackle mid-stride snapped it at the hand-off).
+- **A walk blend point** at walking pace for a model with a walk clip, and
+  a lower stride-rate floor (0.6) for such a model. Without one, BLEND_POINTS
+  and STRIDE_MIN_RATE (0.85) are as before; lowering the floor for every
+  model changed Build 6's sweep, so it does bind somewhere.
+- `mark_running`, `mark_running_miss` and `bounce` re-authored on the new
+  run's legs (same specs and frame counts).
+- **smother_dive** pushes up off the turf after contact and ends in a low
+  crouch instead of snapping upright; the blend back to locomotion is 0.32 s
+  for that state (ACTION_BLEND_OUT_BY_STATE). ACTION_DURATION is unchanged.
+- **Knee flips** (`tools/blender/fix_7thbuild_knee_flips.py`): `tackled`'s
+  knees flipped to the other side at 0.40 s and back at 0.96 s, both legs
+  bent ~90°, and the ragdoll get-up plays that stretch. The IK poles are
+  re-keyed so each knee keeps bending one way.
+
+Not done, and why:
+
+- **The tackle hand-off on Build 7 starts faster.** tackle_sweep on Build 7
+  (temporary copy, MODEL_ID = "7thbuild"): start worst 43 / 48 rad/s
+  (carrier / tackler) against 22 / 19, mostly the light foot bodies; spin
+  worst 93 against 82; every carrier still down. The ragdoll starts from the
+  animated pose, and the new stride puts ankles and knees at different
+  angles when the tackle lands. Matching per-limb velocity and easing the
+  pose into the joint limits at the hand-off is Phase 3 work ("What's left"
+  3); until then, watch the first frames of Build 7 tackles.
+- **Turning on the spot** still spins over the idle pose (slip 1.5 m/s on
+  both builds). A stepping layer or a turn clip is next.
+- **Head look** (into turns, at the ball) isn't built.
+- `mark_aggressive`'s arms fling up at ~57 rad/s in the first 0.08 s: as
+  authored, unchanged.
+
+### Design call: the (Y) ring against (A) in AUTO (not changed)
+
+`PlayerController.live_mark_prompt()` lights a tier from distance: (Y)
+Aggressive as soon as the ball is within `MARK_CONTEST_RANGE` of the carry
+point, (A) Safe only once it's within Safe reach of the hands, which is
+later on every delivery. The ring counts down to the live tier's ideal
+press, so it completes for (Y) before (A) is ever live, and a player who
+presses what the prompt shows leaps every time. GATED only holds (Y)'s ring
+until a press could register; it doesn't change which tier is shown.
+
+Recommendation: choose the prompted tier from the predicted take, not the
+current distance. Run the ball's flight forward (PlayerAnimation's
+`_flight_crossing` already does this, gravity-only, ~1 s), and prompt (A)
+with its own countdown when the flight will pass within Safe reach of the
+hands and nobody's contesting; prompt (Y) only when an opponent is within
+`MARK_CONTEST_RANGE` or the ball will pass above Safe reach. The ring then
+teaches the right call instead of always the leap. It's a cue change only
+(RULES_REFERENCE.md §3: resolution never reads it), but it changes how
+players mark, so it waits for your call. The AUTO selection code itself
+wasn't read for this note.

@@ -253,6 +253,13 @@ mostly superseded history. The full text lives outside the repo, in
 - **Windowed review renders:** `scenes/dev/build_compare.tscn` (in-game
   look, takes a `res://` .glb for a before/after) and
   `scenes/dev/model_cost.tscn` (render cost, v-sync off).
+- **Animated poses must stay inside the ragdoll's joint limits.** A tackle
+  can land on any frame and the ragdoll starts from the pose: Build 7's
+  first new sprint went 50° back at the hip and started tackle_sweep's
+  falls at 100 rad/s. Check a gait's hip, knee and ankle ranges against
+  PhysicsRagdoll.BODIES before shipping it.
+- **A rigid foot rolls over its toe tip, not the ball.** With no toe bone,
+  a heel-off pivoting on the ball sank the toe 6 cm into the turf.
 - **Ragdoll tackles:** `scenes/dev/tackle_sweep.tscn` runs real X, B and
   bump connects between running 6thbuild players and prints how every body
   fell. Its header holds the 2026-10-28 baseline.

@@ -21,6 +21,7 @@ the first version (commit 467e256).
 | Deformation check | `tools/blender/check_7thbuild_deform.py`: every clip, plus ragdoll-limit poses |
 | Review sheets from Blender | `tools/blender/render_7thbuild_review.py`: turnaround, poses, close-ups, wireframe |
 | Kit shader | `assets/shaders/player_kit.gdshader` |
+| Gait clips (Build 7 only) | `tools/blender/author_7thbuild_gaits.py` (walk, jog, run, diagonals); `fix_7thbuild_knee_flips.py` (IK pole re-key); motion notes in `ANIMATION_RAGDOLL_AUDIT.md` (2026-11-09) |
 | Runtime asset | `assets/characters/7thbuild.glb` |
 | Godot entry | `HumanoidRig.CHARACTER_MODELS["7thbuild"]` |
 | In-game side-by-side | `scenes/dev/build_compare.tscn` (run windowed; takes `--models=`, `--shots=`) |

@@ -7,6 +7,20 @@ own docs: `ANIMATION_RAGDOLL_AUDIT.md` (kick, carry, phase lock, bank,
 tackles), `MECHANICS_AUDIT.md` (ragdoll stages 2-5) and the 2026-10-30
 playtest commit (HUD, park turf, ruck, training).
 
+## Build 7 motion (2026-11-09, branch `build7-polish`)
+
+Build 7 only; see `docs/ANIMATION_RAGDOLL_AUDIT.md`'s 2026-11-09 section.
+
+- [ ] **Walk:** a player walking into position plants each foot; no sliding, no shuffling jog.
+- [ ] **Jog and sprint:** feet stay put on the turf, the hips turn and the shoulders counter-turn, arms swing evenly.
+- [ ] **Accelerating from a stand to a sprint and stopping:** no scissoring or pop between walk, jog and run.
+- [ ] **Cuts at a sprint:** the run stays readable through a 90° cut (the bank is unchanged).
+- [ ] **Smother dive:** the diver pushes up and runs on, no snap upright at the end.
+- [ ] **Tackled (canned and the ragdoll get-up):** the knees never flip to the other side.
+- [ ] **Running marks and bounces:** the legs keep the new stride under the catch and the bounce.
+- [ ] **Tackles on Build 7:** the first frames of the fall don't snap (the sweep's hand-off spin roughly doubled; Phase 3).
+- [ ] **Turning on the spot:** still spins over idle with sliding feet (not fixed yet).
+
 ## Build 7 polish (2026-11-08, branch `build7-polish`)
 
 Pick Build 7 on the CHARACTER screen's MODEL row first (Build 6 stays the
