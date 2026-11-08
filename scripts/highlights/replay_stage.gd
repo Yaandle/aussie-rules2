@@ -106,6 +106,7 @@ func _build_puppets() -> void:
 		if body.kind == "player":
 			var rig := HumanoidRig.new()
 			rig.away_kit = bool(body.get("away_kit", false))
+			rig.guernsey_number = int(body.get("number", 0))
 			var model := String(body.get("model", "procedural"))
 			if model == "procedural":
 				rig.allow_imported_character = false

@@ -101,13 +101,16 @@ func _build_body_table() -> void:
 	for player in _players:
 		var rig := player.get_node_or_null(^"Rig") as HumanoidRig
 		counts[player.team] += 1
+		# The player's own guernsey number where the spawn set one, so the
+		# replay's body wears it too; else the order within the team.
+		var number: int = rig.guernsey_number if rig.guernsey_number > 0 else counts[player.team]
 		var kit: Dictionary = rig._resolved_kit()
 		var kit_html := {}
 		for slot: String in ["jersey", "shorts", "socks", "boot", "skin"]:
 			kit_html[slot] = (kit[slot] as Color).to_html()
 		metas.append({
-			"kind": "player", "team": int(player.team), "number": counts[player.team],
-			"name": _player_name(player, counts[player.team]),
+			"kind": "player", "team": int(player.team), "number": number,
+			"name": _player_name(player, number),
 			"model": rig.selected_model() if rig.is_imported() else "procedural",
 			"kit": kit_html, "away_kit": rig.away_kit,
 			"scale": rig.global_transform.basis.get_scale().x,
