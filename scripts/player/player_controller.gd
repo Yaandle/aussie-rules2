@@ -3287,6 +3287,45 @@ func catch_point_position() -> Vector3:
 ## live option while the ball hasn't reached normal catching reach yet —
 ## once it has, a leap stops being the natural action even though it
 ## would still technically connect, so it stops being recommended.
+## The tier the mark prompt shows (MarkPrompt's badge and ring, the
+## animation viewer's AUTO): the take the delivery is heading for, not just
+## the first tier that went live. live_mark_prompt() lights (Y) from
+## MARK_CONTEST_RANGE (6 m) but (A) only once the ball is within Safe reach
+## of the hands (~1.2 m), so the ring completed on (Y) for every delivery
+## and a player following it leapt every time (design call 2026-11-09,
+## docs/ANIMATION_RAGDOLL_AUDIT.md). So while (Y) is the only tier live,
+## an uncontested ball whose flight will pass within Safe reach of the
+## hands shows (A) instead (a hold, so it can start early). Contested, or
+## passing above Safe reach, it stays (Y). A cue only: catch resolution and
+## the AI (which reads live_mark_prompt) never read this.
+func prompt_mark_tier(ball: Ball) -> Tuning.Action:
+	var live := live_mark_prompt(ball)
+	if live != Tuning.Action.MARK_AGGRESSIVE:
+		return live
+	if SpatialQuery.nearest_opponent(self, Tuning.MARK_CONTEST_RANGE) != null:
+		return live
+	var reach := Tuning.MARK_CATCH_RADIUS * Tuning.MARK_SAFE_REACH_SCALE + Tuning.MARK_ASSIST_RADIUS_BONUS
+	if _predicted_pass_distance(ball) <= reach:
+		return Tuning.Action.MARK_SAFE
+	return live
+
+
+## How close the ball's flight will come to the hands (CatchPoint) over the
+## next second, gravity only, with the player carrying on at their current
+## velocity. A prompt-sized estimate, like PlayerAnimation._flight_crossing.
+func _predicted_pass_distance(ball: Ball) -> float:
+	const STEP := 1.0 / 60.0
+	var rel := ball.global_position - _catch_point.global_position
+	var body_vel := Vector3(velocity.x, 0.0, velocity.z)
+	var vel := ball.linear_velocity - body_vel
+	var best := rel.length()
+	for i in 60:
+		vel.y -= Tuning.GRAVITY * STEP
+		rel += vel * STEP
+		best = minf(best, rel.length())
+	return best
+
+
 func live_mark_prompt(ball: Ball) -> Tuning.Action:
 	# Rulebook §5: the contest prompt is for a ball *kicked* at you, and
 	# nothing else. This used to read is_airborne(), which is true of any

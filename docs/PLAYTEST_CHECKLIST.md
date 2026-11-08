@@ -7,6 +7,11 @@ own docs: `ANIMATION_RAGDOLL_AUDIT.md` (kick, carry, phase lock, bank,
 tackles), `MECHANICS_AUDIT.md` (ragdoll stages 2-5) and the 2026-10-30
 playtest commit (HUD, park turf, ruck, training).
 
+## Mark prompt (2026-11-09)
+
+- [ ] **Uncontested chest mark:** the prompt shows (A) from the start, and holding (A) on the ring takes it.
+- [ ] **Contested or high ball:** the prompt still shows (Y), and the ring times the leap.
+
 ## Build 7 motion (2026-11-09, branch `build7-polish`)
 
 Build 7 only; see `docs/ANIMATION_RAGDOLL_AUDIT.md`'s 2026-11-09 section.

@@ -372,7 +372,7 @@ Not done, and why:
 - `mark_aggressive`'s arms fling up at ~57 rad/s in the first 0.08 s: as
   authored, unchanged.
 
-### Design call: the (Y) ring against (A) in AUTO (not changed)
+### Design call: the (Y) ring against (A) in AUTO (applied 2026-11-09)
 
 `PlayerController.live_mark_prompt()` lights a tier from distance: (Y)
 Aggressive as soon as the ball is within `MARK_CONTEST_RANGE` of the carry
@@ -389,6 +389,10 @@ with its own countdown when the flight will pass within Safe reach of the
 hands and nobody's contesting; prompt (Y) only when an opponent is within
 `MARK_CONTEST_RANGE` or the ball will pass above Safe reach. The ring then
 teaches the right call instead of always the leap. It's a cue change only
-(RULES_REFERENCE.md §3: resolution never reads it), but it changes how
-players mark, so it waits for your call. The AUTO selection code itself
-wasn't read for this note.
+(RULES_REFERENCE.md §3: resolution never reads it).
+
+Applied on the user's go-ahead as `PlayerController.prompt_mark_tier()`,
+which MarkPrompt and the animation viewer's AUTO read; `live_mark_prompt()`
+(which the AI also reads) is unchanged. Headless, one standing player,
+28 m deliveries: uncontested chest-high showed Y then A, now A throughout;
+contested stays Y then A; over the head stays Y.

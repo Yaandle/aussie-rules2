@@ -202,7 +202,9 @@ func _process(delta: float) -> void:
 ## tier inside an open mark window, else the recommendation, else NONE.
 ## (There was a SMOTHER badge too; playtest didn't want it.)
 func _display_tier() -> Tuning.Action:
-	var live := player.live_mark_prompt(ball)
+	# The predicted take, not just the first tier live (see
+	# PlayerController.prompt_mark_tier: the ring used to finish on (Y)).
+	var live := player.prompt_mark_tier(ball)
 	var committed := player.committed_mark_tier()
 	if live != Tuning.Action.NONE:
 		_window_open = true
