@@ -227,6 +227,28 @@ const BANK_SHARE := 0.6
 const BANK_MAX_DEG := 14.0
 const BANK_SMOOTHING := 8.0
 
+## ── Contact reaction ────────────────────────────────────────────────
+## Players who ran into each other, or took a glancing bump or a contest
+## nudge, only had their velocity changed: the capsule slid off or was
+## knocked back under an animation that never knew. react_to_contact()
+## kicks a spring on the torso: it rocks away from the push (the velocity
+## change, in m/s) and back, about CONTACT_SWAY_HZ and a little under
+## critically damped, so a solid knock wobbles once and settles. With
+## `hands` (contact in front) the arms also come up and forward, palms to
+## the other body, and drop again after CONTACT_HANDS_HOLD. Purely visual:
+## rolled into LEAN_BONE and the upper arms in the same post-mix pass as
+## the drive lean; nothing in gameplay reads it, and a ragdoll clears it.
+## docs/ANIMATION_RAGDOLL_AUDIT.md "Phase 3". Unplaytested feel guesses.
+const CONTACT_SWAY_HZ := 3.0
+const CONTACT_SWAY_DAMPING := 0.45   ## of critical
+const CONTACT_SWAY_KICK_DEG := 70.0  ## deg/s of sway rate per m/s of push
+const CONTACT_SWAY_MAX_DEG := 18.0
+const CONTACT_HANDS_REACH_DEG := 55.0  ## shoulder flexion at full brace
+const CONTACT_HANDS_HOLD := 0.3        ## s at full brace after a contact
+const CONTACT_HANDS_RISE := 25.0       ## 1/s, exponential
+const CONTACT_HANDS_FALL := 6.0        ## 1/s
+const CONTACT_ARM_BONES: Array[StringName] = [&"LeftUpperArm", &"RightUpperArm"]
+
 ## ── Ball carry ──────────────────────────────────────────────────────
 ## Playtest 2026-10-28: "the ball is also not in the players hands it is
 ## just sitting on its hip floating ... it should be in players hands with
@@ -343,6 +365,12 @@ var _lean_deg := 0.0
 var _last_speed := 0.0
 ## See "Turn bank": degrees, positive = toward the body's right.
 var _bank_deg := 0.0
+## See "Contact reaction": torso sway (x toward the body's right, y
+## forward), degrees and deg/s, and the arms' brace weight and hold time.
+var _sway := Vector2.ZERO
+var _sway_rate := Vector2.ZERO
+var _brace := 0.0
+var _brace_hold := 0.0
 var _last_velocity := Vector3.ZERO
 
 ## See "Ball carry". _grip is {hand bone: {"bone": index, "centre": the
@@ -541,8 +569,9 @@ func bank_degrees() -> float:
 ## PlayerAnimation under both player.tscn and animation_viewer.gd's
 ## equivalent (Godot processes siblings in child order), so its mixing has
 ## already run for this same frame by the time this fires.
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	_apply_lean()
+	_apply_contact_reaction(delta)
 	_clamp_feet_to_ground()
 	_update_ball_hold()
 
@@ -575,6 +604,83 @@ func _apply_lean() -> void:
 		forward = (to_parent * forward).normalized()
 	var turn := Quaternion(right, -deg_to_rad(_lean_deg)) * Quaternion(forward, deg_to_rad(_bank_deg))
 	skeleton.set_bone_pose_rotation(_lean_bone, turn * skeleton.get_bone_pose_rotation(_lean_bone))
+
+
+## See "Contact reaction". `push` is the velocity change the contact gave
+## this body (world, m/s); `hands` brings the arms up to the other body.
+func react_to_contact(push: Vector3, hands := false) -> void:
+	var body := get_parent() as Node3D
+	if ragdoll_active or body == null:
+		return
+	var flat := Vector3(push.x, 0.0, push.z)
+	_sway_rate += Vector2(flat.dot(body.global_basis.x), flat.dot(-body.global_basis.z)) \
+		* CONTACT_SWAY_KICK_DEG
+	if hands:
+		_brace_hold = CONTACT_HANDS_HOLD
+
+
+## Drops any contact reaction at once: a ragdoll taking over (even while
+## its first build is pending) starts from the plain animated pose, and
+## the hit it's taking is its own reaction.
+func clear_contact_reaction() -> void:
+	_sway = Vector2.ZERO
+	_sway_rate = Vector2.ZERO
+	_brace = 0.0
+	_brace_hold = 0.0
+
+
+## True while a contact reaction is still moving the pose (for checks).
+func contact_reaction_active() -> bool:
+	return _sway.length() > 0.05 or _sway_rate.length() > 0.5 or _brace > 0.01
+
+
+func _apply_contact_reaction(delta: float) -> void:
+	if ragdoll_active:
+		clear_contact_reaction()
+		return
+	if not contact_reaction_active() and _brace_hold <= 0.0:
+		return
+	# Semi-implicit spring: steady at physics and render rates alike.
+	var omega := TAU * CONTACT_SWAY_HZ
+	_sway_rate += (-_sway * omega * omega - _sway_rate * 2.0 * CONTACT_SWAY_DAMPING * omega) * delta
+	_sway += _sway_rate * delta
+	if _sway.length() > CONTACT_SWAY_MAX_DEG:
+		_sway = _sway.normalized() * CONTACT_SWAY_MAX_DEG
+		_sway_rate -= _sway.normalized() * maxf(_sway_rate.dot(_sway.normalized()), 0.0)
+	_brace_hold = maxf(_brace_hold - delta, 0.0)
+	var rate := CONTACT_HANDS_RISE if _brace_hold > 0.0 else CONTACT_HANDS_FALL
+	_brace = lerpf(_brace, 1.0 if _brace_hold > 0.0 else 0.0, 1.0 - exp(-rate * delta))
+	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D if _rig != null else null
+	var body := get_parent() as Node3D
+	if skeleton == null or body == null:
+		return
+	var to_skeleton := skeleton.global_basis.orthonormalized().inverse()
+	var right := (to_skeleton * body.global_basis.x).normalized()
+	var forward := (to_skeleton * -body.global_basis.z).normalized()
+	# As in _apply_lean: a skeleton-space turn taken into the bone's parent's
+	# frame. Forward sway tips the spine forward, sideways rolls it.
+	if _lean_bone >= 0:
+		_turn_bone(skeleton, _lean_bone, Quaternion(right, -deg_to_rad(_sway.y))
+			* Quaternion(forward, deg_to_rad(_sway.x)))
+	if _brace > 0.01:
+		var controller := body as PlayerController
+		if controller != null and controller.is_carrying():
+			return   # the carry layer has the arms (see "Ball carry")
+		for bone_name in CONTACT_ARM_BONES:
+			var bone := skeleton.find_bone(bone_name)
+			if bone >= 0:
+				# Opposite sign to the lean's: that tips an upward bone forward,
+				# this swings a hanging one forward.
+				_turn_bone(skeleton, bone, Quaternion(right, deg_to_rad(CONTACT_HANDS_REACH_DEG * _brace)))
+
+
+## Turns `bone` by `turn` (a skeleton-space rotation) on top of its pose.
+static func _turn_bone(skeleton: Skeleton3D, bone: int, turn: Quaternion) -> void:
+	var parent := skeleton.get_bone_parent(bone)
+	if parent >= 0:
+		var to_parent := skeleton.get_bone_global_pose(parent).basis.orthonormalized().get_rotation_quaternion().inverse()
+		turn = to_parent * turn * to_parent.inverse()
+	skeleton.set_bone_pose_rotation(bone, turn * skeleton.get_bone_pose_rotation(bone))
 
 
 ## A deliberately simple ground-contact fix, not full per-leg IK: the

@@ -1238,6 +1238,16 @@ const BUMP_MISS_STUMBLE_DIP := 0.3
 const BUMP_MISS_STUMBLE_BODY_SHARE := 0.2
 const BUMP_MISS_STUMBLE_TIME := 0.5        # s
 const BUMP_MISS_STUMBLE_STUN := 1.4        # s
+# Body contact reaction (2026-11-09, Build 7 Phase 3): two players whose
+# capsules meet closing at BODY_CONTACT_REACT_SPEED or more both play
+# PlayerAnimation's contact reaction (a torso sway away from the push), and
+# whoever has the other within BODY_CONTACT_HANDS_DOT of straight ahead
+# puts their hands up to them. Not again for BODY_CONTACT_REACT_COOLDOWN, so
+# two players leaning on each other don't buzz. Visual only: the capsules
+# collide and slide exactly as before. Unplaytested feel guesses.
+const BODY_CONTACT_REACT_SPEED := 1.5      # m/s
+const BODY_CONTACT_REACT_COOLDOWN := 0.4   # s
+const BODY_CONTACT_HANDS_DOT := 0.6
 # Every PlayerController's body mass when nothing sets it — Career sets it
 # from the roster's weight (RosterGenerator 58-92 kg). The ragdoll's
 # segment masses scale from PhysicsRagdoll's ~86 kg build.
