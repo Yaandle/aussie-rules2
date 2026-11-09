@@ -313,7 +313,9 @@ def main():
 	along = foot.tail_local - foot.head_local
 	A.FOOT_REST_BELOW = math.degrees(math.atan2(-along.z, -along.y))
 	rig = A.Rig(arm_obj)
-	base = A.sample_action(rig, bpy.data.actions[A.BASE_ACTION], bpy.data.actions[A.BASE_ACTION].frame_range[0])
+	# The inherited idle (idle_base once author_7thbuild_idle.py has run).
+	base_src = A.base_action()
+	base = A.sample_action(rig, base_src, base_src.frame_range[0])
 	for name in names:
 		if name in GAITS:
 			author_gait(rig, base, name, GAITS[name], 0.0, fps)

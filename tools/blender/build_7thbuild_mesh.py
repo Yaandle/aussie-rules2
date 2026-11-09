@@ -354,6 +354,15 @@ def torso_w(p):
 	if sh > 0.0:
 		w = {k: x * (1.0 - sh) for k, x in w.items()}
 		w["shoulder.l" if p.x > 0.0 else "shoulder.r"] = sh
+	# The guernsey's shoulder cap rides on the deltoid: its outer edge
+	# takes a share of the upper arm, so a hanging arm rounds the cap down
+	# over it and a raised one lifts it, as the fabric over a real shoulder
+	# does. Rigid to the clavicle, the cap's corner stood out over a hanging
+	# arm like a shoulder pad.
+	ua = ramp(abs(p.x), 0.215, 0.268) * ramp(z, 1.68, 1.745) * 0.30
+	if ua > 0.0:
+		w = {k: x * (1.0 - ua) for k, x in w.items()}
+		w["upperarm.l" if p.x > 0.0 else "upperarm.r"] = ua
 	hd = ramp(z, 1.83, 1.90) * 0.5
 	if hd > 0.0:
 		w = {k: x * (1.0 - hd) for k, x in w.items()}
@@ -496,25 +505,36 @@ def build_arms(skin):
 				return blend(ua, la, ramp(t, E - 0.05, E + 0.04))
 			return blend(la, hd, ramp(t, W - 0.03, W + 0.05) * 0.5)
 
+		# A lean AFL player's arm (about 186 cm and 84 kg is the league's
+		# average), sized against Build 6's: an upper arm of ~0.055 m radius
+		# on this 2.15 m rig, an elbow under the forearm's width. The first
+		# polish had a bodybuilder's arm (a 0.088 deltoid, a 0.079 biceps
+		# and an elbow as wide as the upper arm), which read as a separate
+		# ball on the side of a narrow guernsey. The deltoid now starts
+		# inside the guernsey's shoulder cap and only its lower half shows,
+		# so the shoulder line runs from the collar over the cap and down
+		# the arm in one sweep.
 		table = [
-			(-0.076, P(0.030, 0.030, 0.030, 0.030)),
-			(-0.056, P(0.058, 0.052, 0.058, 0.058)),
-			(-0.026, P(0.080, 0.068, 0.080, 0.080)),
-			# Deltoid: a full cap over the shoulder, its side head the
-			# widest, tapering in a straight run to its insertion.
-			(0.016, P(0.088, 0.072, 0.085, 0.085, ((0, 50, 0.004),))),
-			(0.085, P(0.084, 0.068, 0.081, 0.081)),
-			(0.150, P(0.074, 0.064, 0.076, 0.074)),
-			# Biceps in front, the triceps' horseshoe behind.
-			(0.225, P(0.067, 0.061, 0.079, 0.075)),
-			(E - 0.044, P(0.056, 0.053, 0.060, 0.061)),
-			(E, P(0.054, 0.052, 0.053, 0.062)),           # elbow, olecranon behind
-			(E + 0.040, P(0.061, 0.053, 0.059, 0.055)),
+			(-0.070, P(0.024, 0.024, 0.024, 0.024)),
+			(-0.050, P(0.048, 0.044, 0.048, 0.048)),
+			(-0.022, P(0.064, 0.054, 0.062, 0.062)),
+			# Deltoid: its side head the widest, under the cap's edge, then
+			# a straight taper to its insertion a third of the way down.
+			# With the arm hanging it fills in under the cap, so the cap
+			# doesn't overhang it like a shoulder pad.
+			(0.014, P(0.073, 0.056, 0.066, 0.066, ((0, 50, 0.003),))),
+			(0.075, P(0.068, 0.053, 0.062, 0.062)),
+			(0.140, P(0.056, 0.050, 0.057, 0.056)),
+			# Biceps in front, the triceps behind: a long, lean upper arm.
+			(0.220, P(0.052, 0.049, 0.059, 0.057)),
+			(E - 0.044, P(0.045, 0.043, 0.048, 0.049)),
+			(E, P(0.041, 0.040, 0.041, 0.047)),           # elbow, olecranon behind
+			(E + 0.040, P(0.046, 0.042, 0.046, 0.044)),
 			# Forearm: the brachioradialis bulge out-front below the elbow,
 			# then a straight taper to the wrist.
-			(E + 0.090, P(0.064, 0.053, 0.061, 0.052, ((45, 40, 0.004),))),
-			(E + 0.170, P(0.049, 0.045, 0.052, 0.043)),
-			(W - 0.022, P(0.038, 0.035, 0.043, 0.036)),
+			(E + 0.090, P(0.050, 0.043, 0.049, 0.042, ((45, 40, 0.003),))),
+			(E + 0.170, P(0.042, 0.038, 0.045, 0.038)),
+			(W - 0.022, P(0.036, 0.033, 0.041, 0.034)),
 			(W, P(0.034, 0.032, 0.041, 0.034)),           # wrist: wide front-back
 			(W + 0.020, P(0.029, 0.027, 0.035, 0.031)),
 		]
@@ -522,7 +542,11 @@ def build_arms(skin):
 		for t, prof in table:
 			c, axis = arm_point(t)
 			rings.append((c, axis, prof, arm_w(t)))
+		first = len(skin.faces)
 		lofted = skin.loft(rings, "skin", 10, math.radians(18.0), lambda ax: frame(ax, sign))
+		# The guernsey's armholes are traced round this arm's surface.
+		skin.arm_faces = getattr(skin, "arm_faces", {})
+		skin.arm_faces[sfx] = (first, len(skin.faces))
 		c0, _ = arm_point(-0.088)
 		skin.cap(lofted[0], c0, {ua: 1.0}, "skin")
 		c1, _ = arm_point(W + 0.034)
@@ -814,22 +838,34 @@ def box(part, c, ex, ey, ez, w, slot):
 PECS = ((62, 26, 0.008), (118, 26, 0.008))
 LATS = ((222, 30, 0.010), (318, 30, 0.010))
 BLADES = ((246, 22, 0.006), (294, 22, 0.006))
+##
+## The shape follows Build 6's: a narrow waist, a chest no deeper than
+## the shoulders need, and square shoulders that run straight out to a cap
+## over each deltoid (Build 6's shirt is widest at its shoulder line, ~0.29
+## m, not at its chest). The first polish was a barrel: widest at the chest
+## and 0.26 m deep, its top falling away at 32° to the collar, with the
+## deltoids stuck on the sides below that line. Now the top runs out from
+## the collar at ~20° (the trapezius) to the cap's corner, and the cap's
+## side wall drops straight to the armpit, so from the front the shoulders
+## are one block and the arm hangs out from under it.
 GUERNSEY = [
-	(1.228, 0.159, 0.099, 0.108, 2.2, ()),
-	(1.262, 0.157, 0.098, 0.107, 2.2, ()),
-	(1.320, 0.158, 0.099, 0.108, 2.2, ()),
-	(1.400, 0.168, 0.106, 0.113, 2.3, ()),
-	(1.480, 0.188, 0.117, 0.118, 2.5, ()),
-	(1.550, 0.208, 0.127, 0.122, 2.6, LATS),
-	(1.610, 0.221, 0.132, 0.124, 2.7, LATS + PECS),
-	(1.665, 0.229, 0.135, 0.123, 2.7, PECS + BLADES),
-	(1.712, 0.237, 0.127, 0.115, 2.9, BLADES),
-	(1.750, 0.244, 0.108, 0.102, 3.1, ()),
-	(1.784, 0.206, 0.088, 0.090, 2.6, ()),
-	(1.814, 0.150, 0.076, 0.083, 2.2, ()),
-	(1.840, 0.098, 0.070, 0.080, 2.0, ()),
+	(1.228, 0.155, 0.095, 0.103, 2.2, ()),
+	(1.262, 0.152, 0.094, 0.102, 2.2, ()),
+	(1.320, 0.151, 0.095, 0.103, 2.2, ()),
+	(1.400, 0.160, 0.099, 0.106, 2.3, ()),
+	(1.480, 0.178, 0.105, 0.109, 2.4, ()),
+	(1.550, 0.198, 0.112, 0.113, 2.5, LATS),
+	(1.610, 0.212, 0.117, 0.115, 2.6, LATS + PECS),
+	(1.665, 0.224, 0.119, 0.114, 2.7, PECS + BLADES),
+	(1.712, 0.240, 0.113, 0.108, 2.9, BLADES),
+	(1.742, 0.259, 0.102, 0.099, 3.0, ()),
+	(1.767, 0.270, 0.090, 0.090, 3.0, ()),     # the cap's widest, over the deltoid
+	(1.788, 0.259, 0.081, 0.084, 2.8, ()),
+	(1.806, 0.229, 0.075, 0.081, 2.6, ()),
+	(1.824, 0.182, 0.071, 0.078, 2.4, ()),
+	(1.842, 0.102, 0.069, 0.077, 2.0, ()),
 ]
-GUERNSEY_SEGMENTS = 20
+GUERNSEY_SEGMENTS = 24
 ## The neck's centre line, front to back (build_neck_and_head's ny): the
 ## collar and the guernsey's top rings sit on it.
 COLLAR_Y = 0.012
@@ -839,7 +875,7 @@ def torso_frame(_ax):
 	return UP, SIDE, FORWARD
 
 
-def build_guernsey(shirt):
+def build_guernsey(shirt, arm_trees):
 	n = GUERNSEY_SEGMENTS
 	rings = []
 	for z, hw, fr, bk, sq, bulge in GUERNSEY:
@@ -882,6 +918,82 @@ def build_guernsey(shirt):
 	cc_lo, cc_hi = Vector((0.004, COLLAR_Y, 1.80)), Vector((0.004, COLLAR_Y, 1.90))
 	shirt.bridge(low, high, "trim", cc_lo, cc_hi)
 	shirt.bridge(high, fold, "trim", cc_lo, cc_hi, hint=UP)
+
+	build_armholes(shirt, shirt.bvh(shirt.faces[first:]), arm_trees)
+
+
+## Armhole binding: the band's width across the guernsey, its height off
+## it, and how many points round each armhole.
+ARMHOLE_WIDTH = 0.022
+ARMHOLE_LIFT = 0.0035
+ARMHOLE_SEGMENTS = 16
+
+
+def build_armholes(shirt, tree, arm_trees):
+	"""A band of trim round each armhole, like the collar: without it the
+	arm just went into the side of a coloured torso, and nothing said the
+	guernsey was a garment with the arm coming out of it.
+
+	The seam is traced, not guessed: for each angle round the arm, walk out
+	along the arm's own surface (a ray from its axis onto the arm mesh)
+	until that surface leaves the guernsey. The band's inner edge sits on
+	that seam, its outer edge ARMHOLE_WIDTH further out across the
+	guernsey's surface, away from the arm. It stands a few millimetres
+	proud, and both edges turn down into the guernsey, so it has depth and
+	no gap at grazing angles. Weighted as the guernsey under it (torso_w),
+	so it moves with it and the arm turns under it as under a real
+	armhole."""
+	n = ARMHOLE_SEGMENTS
+	lift = ARMHOLE_LIFT
+
+	def outside(p):
+		hit, nrm, _, _ = tree.find_nearest(p)
+		return (p - hit).dot(nrm) > 0.0
+
+	for sfx, sign in ((".l", 1.0), (".r", -1.0)):
+		sh, elbow = bone("upperarm" + sfx)
+		a, s, f = frame((elbow - sh).normalized(), sign)
+		arm = arm_trees[sfx]
+		inner, outer = [], []
+		for i in range(n):
+			phi = math.radians(18.0) + 2.0 * math.pi * i / n
+			radial = s * math.cos(phi) + f * math.sin(phi)
+			seam = None
+			prev = None
+			for k in range(80):
+				t = -0.02 + k * 0.003
+				c = sh + a * t
+				hit, _, _, _ = arm.ray_cast(c, radial, 0.2)
+				if hit is None:
+					continue
+				if outside(hit):
+					seam = hit if prev is None else (hit + prev) * 0.5
+					break
+				prev = hit
+			if seam is None:
+				raise RuntimeError("armhole: no seam at %.0f deg on %s" % (math.degrees(phi), sfx))
+			p_in, n_in, _, _ = tree.find_nearest(seam)
+			d = radial - n_in * radial.dot(n_in)
+			d = (d + a * 0.35 - n_in * a.dot(n_in) * 0.35).normalized()
+			p_out, n_out, _, _ = tree.find_nearest(p_in + d * ARMHOLE_WIDTH)
+			inner.append((p_in, n_in.normalized(), d))
+			outer.append((p_out, n_out.normalized(), d))
+		rings = []
+		for edge, depth in ((inner, -lift), (inner, lift), (outer, lift), (outer, -lift)):
+			rings.append(shirt.ring([p + nm * depth for p, nm, _ in edge], torso_w))
+		# Lip, top, lip: the top faces out of the guernsey, the inner lip
+		# toward the arm and the outer one away from it.
+		for k, (ra, rb) in enumerate(zip(rings, rings[1:])):
+			for i in range(n):
+				j = (i + 1) % n
+				quad = [ra[i], ra[j], rb[j], rb[i]]
+				if k == 1:
+					out = inner[i][1] + inner[j][1]
+				else:
+					out = inner[i][2] + inner[j][2]
+					if k == 0:
+						out = -out
+				shirt.face(quad, "trim", out)
 
 
 # ── shorts ────────────────────────────────────────────────────────────
@@ -1115,7 +1227,7 @@ def build():
 	hair = Part("Hair")
 	build_neck_and_head(skin, hair)
 	shirt = Part("Guernsey")
-	build_guernsey(shirt)
+	build_guernsey(shirt, {k: skin.bvh(skin.faces[a:b]) for k, (a, b) in skin.arm_faces.items()})
 	shorts = Part("Shorts")
 	build_shorts(shorts)
 	boots = Part("Boots")

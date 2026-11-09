@@ -57,6 +57,11 @@ from mathutils import Matrix, Quaternion, Vector
 
 ARMATURE = "Armature"
 BASE_ACTION = "idle"         # frame 1 of this is the neutral pose clips settle back to
+## Build 7's file keeps the inherited idle under this name once
+## author_7thbuild_idle.py has replaced "idle" with an arms-down one; every
+## clip here was authored against the inherited pose, so it's the base
+## wherever it exists (base_action()).
+BASE_ACTION_KEPT = "idle_base"
 RUN_ACTION = "run_fwd"       # leg/pelvis source for the in-stride clips
 
 # Copied from scripts/tuning.gd (ACTION_DURATION, ACTION_CONTACT), seconds.
@@ -1350,6 +1355,12 @@ CLIPS = {
 }
 
 
+def base_action():
+	"""The action whose first frame every clip is built from (see
+	BASE_ACTION_KEPT)."""
+	return bpy.data.actions.get(BASE_ACTION_KEPT) or bpy.data.actions[BASE_ACTION]
+
+
 def main():
 	argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 	save = "--no-save" not in argv
@@ -1376,7 +1387,8 @@ def main():
 	FOOT_REST_BELOW = math.degrees(math.atan2(-along.z, -along.y))
 
 	rig = Rig(arm_obj)
-	base = sample_action(rig, bpy.data.actions[BASE_ACTION], bpy.data.actions[BASE_ACTION].frame_range[0])
+	base_src = base_action()
+	base = sample_action(rig, base_src, base_src.frame_range[0])
 	for name in names:
 		author_clip(rig, CLIPS[name](), base, fps)
 
