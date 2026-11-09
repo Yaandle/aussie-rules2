@@ -202,7 +202,9 @@ func _process(delta: float) -> void:
 ## tier inside an open mark window, else the recommendation, else NONE.
 ## (There was a SMOTHER badge too; playtest didn't want it.)
 func _display_tier() -> Tuning.Action:
-	var live := player.live_mark_prompt(ball)
+	# The predicted take, not just the first tier live (see
+	# PlayerController.prompt_mark_tier: the ring used to finish on (Y)).
+	var live := player.prompt_mark_tier(ball)
 	var committed := player.committed_mark_tier()
 	if live != Tuning.Action.NONE:
 		_window_open = true
@@ -229,12 +231,13 @@ func _display_tier() -> Tuning.Action:
 ## *after* the jump is committed (see PlayerController._resolve_aggressive_
 ## mark), so the moment worth pressing at is that far before the ball's
 ## own closest-approach instant, not at it — jump early enough that the
-## fixed-length rise lands you there. Safe/Running resolve the same frame
-## as the press, so "press now" for them really is offset zero.
+## fixed-length rise lands you there. A Running tap opens a catch window
+## (Tuning.MARK_RUNNING_CATCH_WINDOW), so its best press is a little ahead
+## of the ball: MARK_RUNNING_CUE_LEAD, which leaves a press either side of
+## the ring's close inside the window. Safe is held, so offset zero.
+## Same targets as MarkCueModel.press_target.
 func _press_target_offset(tier: Tuning.Action) -> float:
-	if tier == Tuning.Action.MARK_AGGRESSIVE:
-		return -Tuning.action_contact_time(Tuning.Action.MARK_AGGRESSIVE)
-	return 0.0
+	return MarkCueModel.press_target(tier)
 
 
 ## Only ever called from _process() while `tier` is already known live —

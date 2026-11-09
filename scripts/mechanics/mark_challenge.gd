@@ -9,15 +9,55 @@ extends CoachChallenge
 ## report whether it was taken. No target zone needed: success is "did the
 ## player catch it", not "did the ball reach a spot".
 ##
-## Deliveries are timed on their own pacing (unlike KickChallenge, which is
-## purely reactive to player-initiated kicks) since the coach — not the
+## Deliveries are timed on their own pacing since the coach — not the
 ## player — decides when the next ball goes up.
+##
+## Since 2026-10-30 it runs as a step-by-step tutorial like the tackling
+## coach's (playtest: "only the tackling coach is properly built ... give
+## the others a similar tutorial structure"): one step per marking tier,
+## each opening with a card (step_changed, shown by kick_to_kick.gd with
+## both control sets), then deliveries built for that tier until
+## MARK_TUTORIAL_CATCHES_PER_STEP are taken. A drop just goes again: a
+## tutorial retries, it doesn't fail. challenge_ended fires once at the end
+## with catches over deliveries.
 
 const RANGE_SIM_STEP := 0.02      ## s per integration step in _predicted_range
 const RANGE_SIM_MAX_STEPS := 400  ## safety cap so a freak guess can't loop forever
 
 signal mark_hit(hits: int, attempts_used: int, legal_mark: bool)
 signal mark_dropped(attempts_used: int)
+signal step_changed(step: Dictionary)
+
+## One step per tier: card copy, then the controls in KeyHintBar's shape.
+## Bindings mirror project.godot (mark_safe G / pad A, mark_running Q /
+## pad X, mark_aggressive H / pad Y).
+const STEPS: Array[Dictionary] = [
+	{
+		"tier": Tuning.Action.MARK_SAFE,
+		"title": "Safe mark",
+		"instruction": "The coach puts it up to you. Get under it, then hold the safe mark and let it come into your hands. The safest grab there is, but you have to be standing where it lands.",
+		"kb": [{"keys": "Hold G", "label": "Safe mark"}],
+		"pad": [{"keys": "Hold A", "label": "Safe mark"}],
+	},
+	{
+		"tier": Tuning.Action.MARK_RUNNING,
+		"title": "Running mark",
+		"instruction": "Now it's kicked out in front of you. Run onto it and tap the running mark as it arrives: you take it in stride without stopping.",
+		"kb": [{"keys": "Tap Q", "label": "Running mark"}, {"keys": "Shift", "label": "Sprint"}],
+		"pad": [{"keys": "Tap X", "label": "Running mark"}, {"keys": "RT", "label": "Sprint"}],
+	},
+	{
+		"tier": Tuning.Action.MARK_AGGRESSIVE,
+		"title": "Aggressive mark",
+		"instruction": "A high ball just off you. Commit early: tap the leap and go up to meet it at the top of the jump. Mistime it and it's over your head.",
+		"kb": [{"keys": "Tap H", "label": "Leap"}],
+		"pad": [{"keys": "Tap Y", "label": "Leap"}],
+	},
+]
+
+var _step_index := 0
+var _step_catches := 0
+var _rep_running := false
 
 var _ball: Ball
 var _player: PlayerController
@@ -30,36 +70,54 @@ func begin(ball: Ball, player: PlayerController, coach_position: Vector3) -> voi
 	_coach_position = coach_position
 	_attempts_used = 0
 	_hits = 0
+	_step_index = 0
+	_step_catches = 0
 	_active = true
 	_armed = false
+	_rep_running = false
 	_connect_player()
-	challenge_started.emit(Tuning.MARK_CHALLENGE_ATTEMPTS)
-	# Deliberately terse (user report: "remove the tip/subtitle... only the
-	# basic stuff") — the old version was a full paragraph of coaching prose
-	# shown once and then never repeated; _deliver() below now emits the
-	# same compact "attempt N/6 — control" line every delivery instead, so
-	# the reminder is always on screen rather than front-loaded and
-	# forgotten.
-	hint_changed.emit("Marking practice — get ready")
+	challenge_started.emit(STEPS.size())
+	step_changed.emit(STEPS[0])
+
+
+## Called by kick_to_kick.gd once the player dismisses the step card.
+func begin_rep() -> void:
+	if not _active:
+		return
+	_rep_running = true
+	hint_changed.emit("%s — get ready" % STEPS[_step_index].title)
 	_schedule(Tuning.MARK_CHALLENGE_DELIVERY_DELAY, _deliver)
 
 
-## Which tier this delivery is built to teach — cycles Safe/Running/
-## Aggressive rather than always the same generic floaty ball (see
-## Tuning.MARK_CHALLENGE_RUNNING_LEAD_DISTANCE's own comment for why the
-## old single delivery shape only ever really trained Safe). Cycling by
-## `_attempts_used` rather than random keeps it predictable across a run —
-## the player can tell "attempt 3 of 6 is always the leap one" the same way
-## KickChallenge's fixed attempt count already reads as a structured drill,
-## not a random one.
-func _tier_for_attempt(index: int) -> Tuning.Action:
-	match index % 3:
-		0:
-			return Tuning.Action.MARK_SAFE
-		1:
-			return Tuning.Action.MARK_RUNNING
-		_:
-			return Tuning.Action.MARK_AGGRESSIVE
+## Bound to `decline` while a card is up: drop this step, move on.
+func skip_step() -> void:
+	if not _active:
+		return
+	_armed = false
+	_advance()
+
+
+func rep_active() -> bool:
+	return _rep_running
+
+
+func _advance() -> void:
+	_rep_running = false
+	_step_index += 1
+	_step_catches = 0
+	if _step_index >= STEPS.size():
+		_active = false
+		_disconnect_player()
+		challenge_ended.emit(_hits, _attempts_used)
+	else:
+		_schedule(Tuning.TACKLE_TUTORIAL_STEP_GAP, func() -> void: step_changed.emit(STEPS[_step_index]))
+
+
+## Which tier this delivery is built to teach: the step's (see
+## Tuning.MARK_CHALLENGE_RUNNING_LEAD_DISTANCE's own comment for why one
+## generic floaty ball only ever really trained Safe).
+func _tier_for_attempt(_index: int) -> Tuning.Action:
+	return STEPS[mini(_step_index, STEPS.size() - 1)].tier
 
 
 ## Called by kick_to_kick.gd whenever it has to reposition the ball out
@@ -115,8 +173,8 @@ func _deliver() -> void:
 	_ball.launch(launch_dir, speed, Vector3.ZERO, null, true)
 
 	_armed = true
-	hint_changed.emit("Mark %d/%d — %s" % [
-		_attempts_used + 1, Tuning.MARK_CHALLENGE_ATTEMPTS, _control_note_for_tier(tier)])
+	hint_changed.emit("%s %d/%d — %s" % [STEPS[_step_index].title,
+		_step_catches + 1, Tuning.MARK_TUTORIAL_CATCHES_PER_STEP, _control_note_for_tier(tier)])
 
 
 ## Where this delivery is aimed, built specifically to exercise the tier
@@ -177,20 +235,18 @@ func _resolve(caught: bool, legal_mark: bool, tier: Tuning.Action = Tuning.Actio
 	_attempts_used += 1
 	if caught:
 		_hits += 1
+		_step_catches += 1
 		mark_hit.emit(_hits, _attempts_used, legal_mark)
 		var tier_name := "Safe" if tier == Tuning.Action.MARK_SAFE \
 			else ("Running" if tier == Tuning.Action.MARK_RUNNING else "Aggressive")
 		var quality := "mark!" if legal_mark else "take — a bit short of 15m for a mark, but good hands"
-		hint_changed.emit("%s %s   %d/%d" % [
-			tier_name, quality, _hits, Tuning.MARK_CHALLENGE_ATTEMPTS])
+		hint_changed.emit("%s %s" % [tier_name, quality])
 	else:
 		mark_dropped.emit(_attempts_used)
-		hint_changed.emit("Dropped — %d left." % (Tuning.MARK_CHALLENGE_ATTEMPTS - _attempts_used))
+		hint_changed.emit("Dropped — go again.")
 
-	if _attempts_used >= Tuning.MARK_CHALLENGE_ATTEMPTS:
-		_active = false
-		_disconnect_player()
-		challenge_ended.emit(_hits, Tuning.MARK_CHALLENGE_ATTEMPTS)
+	if _step_catches >= Tuning.MARK_TUTORIAL_CATCHES_PER_STEP:
+		_advance()
 	else:
 		_schedule(Tuning.MARK_CHALLENGE_NEXT_DELAY, _deliver)
 

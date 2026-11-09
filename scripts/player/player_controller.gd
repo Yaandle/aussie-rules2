@@ -206,6 +206,10 @@ var _frozen_timer := 0.0
 ## (_apply_retreat_freeze) passes no spot and just stops where they are.
 ## Cleared alongside _frozen_timer.
 var _frozen_anchor := Vector3.INF
+## Which way the man on the mark faces once he's on it: up the line of the
+## mark, at the kicker (_apply_stand_the_mark). ZERO keeps whatever heading
+## he jogged in on. Cleared with _frozen_anchor.
+var _frozen_facing := Vector3.ZERO
 
 ## Every opponent this player is currently obliging to hold position, for
 ## whatever reason — the one direct opponent standing the mark exactly
@@ -232,6 +236,17 @@ var _pending_jump_speed := 0.0
 ## resolved yet, and the brain still wants it. Read by _update_locomotion
 ## for MARK_SAFE_SPEED_SCALE, same mechanism KICK_STANCE_SPEED_SCALE uses.
 var _mark_readying := false
+## Whether a held Safe mark has planted yet: only in the last
+## Tuning.MARK_SAFE_PLANT_TIME before the ball arrives. Before that the
+## hold costs MARK_SAFE_APPROACH_SPEED_SCALE, so a player can hold A while
+## still running onto the drop (playtest 2026-10-30).
+var _mark_safe_planted := false
+## A held Safe mark's one hop at a ball going over the hands (see
+## _maybe_safe_mark_jump). Cleared once the hold ends with the feet down.
+var _mark_safe_jumped := false
+## Seconds left of a Running mark's catch window, opened by the tap (see
+## _attempt_running_mark). 0 when no tap is live.
+var _running_mark_window := 0.0
 
 ## Seconds left before another Punch/Spoil attempt can connect — a tap
 ## action with no windup, so this is the only thing stopping it being held
@@ -273,6 +288,10 @@ var _bump_dash_active := false
 ## Seconds this dash has spent driving in on a carrier it reached, before
 ## the bodies meet (Tuning.BUMP_IMPACT_DISTANCE) — see _try_bump_contact.
 var _bump_close_in_time := 0.0
+## Who a B-off-the-ball hip-and-shoulder is going at, while its dash runs
+## (Tuning's "B off the ball: the contest bump"), else null. The hit-stick
+## dash only ever looks for carriers; this one has a man to hit.
+var _contest_bump_target: PlayerController = null
 
 ## Seconds left before another Smother attempt can launch — see
 ## _update_smother.
@@ -347,6 +366,8 @@ var _ragdoll: PlayerRagdoll = null
 ## jammed on the carrier's capsule — far enough behind its own body, on a
 ## long fall, to trip PlayerRagdoll's teleport check and snap upright.
 var _ragdoll_partner: PlayerController = null
+## See _react_to_body_contact.
+var _contact_react_cooldown := 0.0
 
 ## A held Lunge's arms round the carrier while both fall (TackleWrap), on
 ## the tackler; null otherwise.
@@ -522,6 +543,7 @@ func _physics_process(delta: float) -> void:
 	_frozen_timer = _tick_down(_frozen_timer, delta)
 	if _frozen_timer <= 0.0 and _frozen_anchor.is_finite():
 		_frozen_anchor = Vector3.INF
+		_frozen_facing = Vector3.ZERO
 	_spoil_cooldown = _tick_down(_spoil_cooldown, delta)
 	_bump_cooldown = _tick_down(_bump_cooldown, delta)
 	_slide_dive_cooldown = _tick_down(_slide_dive_cooldown, delta)
@@ -581,8 +603,10 @@ func _physics_process(delta: float) -> void:
 	_update_locomotion(delta)
 
 	var before := global_position
+	var pre_slide := velocity
 	move_and_slide()
 	_push_rigid_bodies()
+	_react_to_body_contact(pre_slide, delta)
 	_contain_to_field()
 
 	_update_facing(delta)
@@ -636,6 +660,10 @@ func _update_locomotion(delta: float) -> void:
 		_speed = horizontal_kb.length()
 		if _speed > Tuning.PIVOT_SPEED_THRESHOLD:
 			_heading = horizontal_kb / _speed
+		return
+
+	# A ruckman's leap drifts in under the ball (_ruck_reach), up to the tap.
+	if _action == Tuning.Action.HIT_OUT and _ruck_reach():
 		return
 
 	# A tackle hold owns both bodies the same way — the tackler closes and
@@ -782,6 +810,8 @@ func _update_locomotion(delta: float) -> void:
 				velocity.z = _heading.z * _speed
 				return
 			global_position = Vector3(_frozen_anchor.x, global_position.y, _frozen_anchor.z)
+			if _frozen_facing != Vector3.ZERO:
+				_heading = _frozen_facing
 		_speed = 0.0
 		velocity.x = 0.0
 		velocity.z = 0.0
@@ -901,15 +931,17 @@ func _update_locomotion(delta: float) -> void:
 	# Planting to kick or handball costs you your legs for a moment; the
 	# kick stance ahead of that (LT held, still aiming/repositioning) costs
 	# less, same relationship as ADS-walk vs. firing in a shooter. Each mark
-	# tier costs its own amount — see Tuning.action_speed_scale — and
-	# readying a Safe Mark (held, not yet resolved) costs the same as the
-	# mark itself will, so there's no free lunch in holding it early.
+	# tier costs its own amount — see Tuning.action_speed_scale. A Safe
+	# Mark held early costs a little while the player runs onto the drop,
+	# and the mark's full plant once the ball is about to arrive
+	# (_mark_safe_planted).
 	if _action != Tuning.Action.NONE:
 		target_speed *= Tuning.action_speed_scale(_action)
 	elif _charging:
 		target_speed *= Tuning.KICK_STANCE_SPEED_SCALE
 	elif _mark_readying:
-		target_speed *= Tuning.MARK_SAFE_SPEED_SCALE
+		target_speed *= Tuning.MARK_SAFE_SPEED_SCALE if _mark_safe_planted \
+			else Tuning.MARK_SAFE_APPROACH_SPEED_SCALE
 
 	var accel: float
 	if _backpedaling:
@@ -924,6 +956,38 @@ func _update_locomotion(delta: float) -> void:
 
 	velocity.x = _heading.x * _speed
 	velocity.z = _heading.z * _speed
+
+
+## Turns the body to face `point` this instant. For scripted drills
+## (DrillBrain): a bot's kick is aimed along its body facing at stance
+## start (_current_look_yaw), so it squares up to the target first.
+func face_toward(point: Vector3) -> void:
+	var to_point := point - global_position
+	to_point.y = 0.0
+	if to_point.length_squared() < 0.0001:
+		return
+	_facing_yaw = atan2(-to_point.x, -to_point.z)
+	rotation.y = _facing_yaw
+
+
+## The kick charge that lands a kick from here `distance` metres away, by
+## the same flight model the aiming line draws (KickTrajectory), for a
+## scripted kicker (DrillBrain). A bisection on the reach: the flight gets
+## longer as the charge goes up. Full charge if even that's short.
+func charge_for_distance(distance: float) -> float:
+	var low := 0.0
+	var high := 1.0
+	for i in 12:
+		var mid := (low + high) * 0.5
+		var params := _kick_parameters(mid, false)
+		var points := _kick_trajectory._simulate(params.origin, params.launch_velocity)
+		var landing: Vector3 = points[points.size() - 1] if not points.is_empty() else params.origin
+		var reach := Vector2(landing.x - params.origin.x, landing.z - params.origin.z).length()
+		if reach < distance:
+			low = mid
+		else:
+			high = mid
+	return high
 
 
 func _update_facing(delta: float) -> void:
@@ -992,6 +1056,39 @@ func _push_rigid_bodies() -> void:
 		body.apply_impulse(
 			push.normalized() * strength,
 			collision.get_position() - body.global_position)
+
+
+## Two capsules meeting (no tackle, no bump): both players' animations get
+## the push (Tuning's "Body contact reaction"). `pre_slide` is this body's
+## velocity before move_and_slide took the collision out of it.
+func _react_to_body_contact(pre_slide: Vector3, delta: float) -> void:
+	_contact_react_cooldown = maxf(_contact_react_cooldown - delta, 0.0)
+	if _animation == null or _contact_react_cooldown > 0.0 or is_ragdolled():
+		return
+	for i in get_slide_collision_count():
+		var collision := get_slide_collision(i)
+		var other := collision.get_collider() as PlayerController
+		if other == null or other == _ragdoll_partner or other.is_ragdolled() \
+				or other._contact_react_cooldown > 0.0:
+			continue
+		var normal := collision.get_normal()   # from them to me
+		normal.y = 0.0
+		if normal.length_squared() < 0.0001:
+			continue
+		normal = normal.normalized()
+		var closing := Vector3(pre_slide.x - other.velocity.x, 0.0, pre_slide.z - other.velocity.z).dot(-normal)
+		if closing < Tuning.BODY_CONTACT_REACT_SPEED:
+			continue
+		# Half the closing speed each, whatever the masses: it's a look, not
+		# the collision (the capsules have already slid as they always did).
+		_animation.react_to_contact(normal * closing * 0.5,
+			(-global_transform.basis.z).dot(-normal) >= Tuning.BODY_CONTACT_HANDS_DOT)
+		if other._animation != null:
+			other._animation.react_to_contact(-normal * closing * 0.5,
+				(-other.global_transform.basis.z).dot(normal) >= Tuning.BODY_CONTACT_HANDS_DOT)
+		_contact_react_cooldown = Tuning.BODY_CONTACT_REACT_COOLDOWN
+		other._contact_react_cooldown = Tuning.BODY_CONTACT_REACT_COOLDOWN
+		return
 
 
 ## Nothing about CharacterBody3D's collision stops it walking off the
@@ -1070,10 +1167,11 @@ func is_standing_the_mark() -> bool:
 ## `hold_at` is a real point (the mark itself), the player is also slid
 ## onto it and held there; the default Vector3.INF means "hold your current
 ## ground", which is what the 10m retreat crowd gets.
-func stand_the_mark(duration: float, hold_at := Vector3.INF) -> void:
+func stand_the_mark(duration: float, hold_at := Vector3.INF, facing := Vector3.ZERO) -> void:
 	_frozen_timer = maxf(_frozen_timer, duration)
 	if hold_at.is_finite():
 		_frozen_anchor = hold_at
+		_frozen_facing = facing
 
 
 ## Releases early — called on every entry in _frozen_opponents the instant
@@ -1084,6 +1182,7 @@ func stand_the_mark(duration: float, hold_at := Vector3.INF) -> void:
 func release_stand_the_mark() -> void:
 	_frozen_timer = 0.0
 	_frozen_anchor = Vector3.INF
+	_frozen_facing = Vector3.ZERO
 
 
 ## Public entry point onto the same shared attach/possession/signal path
@@ -1351,6 +1450,10 @@ func _update_slide_dive(delta: float) -> void:
 
 	var carrier := _nearest_opposing_carrier()
 	if carrier == null or carrier.is_protected():
+		# Nobody to tackle: B is a bump on whoever's contesting the ball
+		# with you. One that fires isn't also a late-hit foul (_try_tackle).
+		if _try_contest_bump():
+			_slide_just_pressed = false
 		return
 	var to_carrier := carrier.global_position - global_position
 	to_carrier.y = 0.0
@@ -1422,29 +1525,47 @@ func _try_tackle() -> void:
 		_stun_timer = maxf(_stun_timer, Tuning.TACKLE_SLIDE_MISS_STUN_DURATION)
 
 
-## A Slide that holds, both sides of it. A human's hard enough to pass
-## Tuning.TACKLE_SLIDE_KNOCKDOWN_B knocks the target over rather than
+## A Slide that holds, both sides of it. A human's that wins the collision
+## (Tuning's "Who wins the collision": TACKLE_SLIDE_DRIVE_MIN) hard enough to
+## pass Tuning.TACKLE_SLIDE_KNOCKDOWN_B knocks the target over rather than
 ## holding them up: the tackler slings them down on their feet
 ## (Action.TACKLE_SLING, facing the hit) and the target goes down the held
 ## Lunge's ragdoll path, thrown the way the swing goes (_sling_impact).
+## One that doesn't win it — head-on into a carrier with as much momentum,
+## or more — holds them up with both on their feet, the carrier absorbing
+## the hit on the ragdoll ("stand", _hold_up). Otherwise the hold-up clips.
 ## `ruling` false is a tackle off the ball (_commit_foul): the same hit,
 ## minus the ball and the holding-the-ball call (see _get_tackled).
 func _slide_connect(target: PlayerController, impact: Dictionary, ruling: bool) -> void:
-	if _brain is HumanBrain and float(impact.b) >= Tuning.TACKLE_SLIDE_KNOCKDOWN_B:
+	var won := float(impact.get("drive", INF)) >= Tuning.TACKLE_SLIDE_DRIVE_MIN
+	if _brain is HumanBrain and won and float(impact.b) >= Tuning.TACKLE_SLIDE_KNOCKDOWN_B:
 		last_tackle.knocked_down = true
+		last_tackle.outcome = &"sling"
 		_slide_dive_timer = 0.0
 		target._get_tackled(self, false, _sling_impact(impact, target), ruling)
 		_fall_toward(impact.direction)
 		_begin(Tuning.Action.TACKLE_SLING)
 	else:
-		target._get_tackled(self, true, {}, ruling)
-		# Never blocked here: both callers already require _action == NONE.
-		_begin(Tuning.Action.TACKLE_GRAB)
-		# Both sides of the same wrestle, started on the same frame.
-		_begin_tackle_hold(target, true)
-		target._begin_tackle_hold(self, false)
+		last_tackle.outcome = &"hold" if won else &"stand"
+		# An AI's tackle never ragdolls anyone (Tuning's "Active ragdoll
+		# tackles"): its stand is the hold-up clip.
+		_hold_up(target, impact if not won and _brain is HumanBrain else {}, ruling)
 	if ruling:
 		tackle_committed.emit(true)
+
+
+## A tackle that holds the carrier up on their feet: the tackler hangs on
+## (TACKLE_GRAB) and the carrier is held, the ball at their feet and the
+## holding-the-ball call or a ball-up to follow (_get_tackled). With a
+## `stand_impact` the carrier absorbs the hit on the active ragdoll instead
+## of the TACKLE_HELD clip (_stand_ragdoll).
+func _hold_up(target: PlayerController, stand_impact: Dictionary, ruling: bool) -> void:
+	target._get_tackled(self, true, stand_impact, ruling)
+	# Never blocked here: every caller already requires _action == NONE.
+	_begin(Tuning.Action.TACKLE_GRAB)
+	# Both sides of the same wrestle, started on the same frame.
+	_begin_tackle_hold(target, true)
+	target._begin_tackle_hold(self, false)
 
 
 ## The push for a sling (Tuning's "Sling"): the hit's push without the
@@ -1471,16 +1592,39 @@ func _sling_impact(impact: Dictionary, target: PlayerController) -> Dictionary:
 	return out
 
 
-## A Lunge that holds, both sides of it: the target down (ragdoll on a
-## 6thbuild rig), and the tackler down with them, arms wrapped round their
-## waist (Tuning's "Tackle wrap", TackleWrap), going the way they were
-## running. It used to take the tackler down only on a big hit (b past
-## TACKLE_RAGDOLL_TACKLER_MIN_B); playtest 2026-10-27 wanted every held X to
-## hug and fall together. Their strength is capped low so their balance
-## can't keep them up. A target that can't ragdoll (procedural rig) still
-## gets the takedown beat on the tackler's feet. `ruling` as
-## _slide_connect's.
+## A Lunge that holds, both sides of it, one of three ways (Tuning's "Who
+## wins the collision"):
+##  - stand: the carrier won the collision (drive under
+##    TACKLE_LUNGE_DRIVE_MIN — heavier, or running harder into the tackle
+##    than the tackler drives in): they keep their feet and are held up
+##    (_hold_up), the tackler hanging on.
+##  - fall: the tackler only just won it (drive under
+##    TACKLE_LUNGE_WRAP_DRIVE): the target loses balance and goes down
+##    (ragdoll on a 6thbuild rig); the tackler stays up with the takedown
+##    beat.
+##  - wrap: the tackler drove through: the target down, and the tackler down with them,
+##    arms wrapped round their waist (Tuning's "Tackle wrap", TackleWrap),
+##    going the way they were running. Playtest 2026-10-27 wanted every
+##    held X to hug and fall together; 2026-10-30 wanted it to depend on
+##    the hit. The tackler's strength is capped low so their balance can't
+##    keep them up. A target that can't ragdoll (procedural rig) still gets
+##    the takedown beat on the tackler's feet.
+## `ruling` as _slide_connect's.
 func _lunge_connect(target: PlayerController, impact: Dictionary, ruling: bool) -> void:
+	if float(impact.get("drive", INF)) < Tuning.TACKLE_LUNGE_DRIVE_MIN:
+		last_tackle.outcome = &"stand"
+		_hold_up(target, impact, ruling)
+		if ruling:
+			tackle_committed.emit(false)
+		return
+	if float(impact.get("drive", INF)) < Tuning.TACKLE_LUNGE_WRAP_DRIVE:
+		last_tackle.outcome = &"fall"
+		target._get_tackled(self, false, impact, ruling)
+		_begin(Tuning.Action.TACKLE_TAKEDOWN)
+		if ruling:
+			tackle_committed.emit(false)
+		return
+	last_tackle.outcome = &"wrap"
 	target._get_tackled(self, false, impact, ruling)
 	var tackler_b: float = impact.tackler_b
 	if not target.is_ragdolled() or not _begin_ragdoll({
@@ -1637,7 +1781,10 @@ func _step_lunge_dash() -> void:
 ## A Lunge reaching its carrier: the gate, then hold or break, then the fall.
 func _land_lunge(target: PlayerController) -> void:
 	var hit_velocity := _tackle_velocity(target, Tuning.TACKLE_LUNGE_SPEED)
-	if not _resolve_tackle_contact(self, target, false, hit_velocity):
+	# At arm's length the wrap always lands (Tuning's TACKLE_LUNGE_SURE_RANGE);
+	# the gate only judges a lunge from further out.
+	var point_blank := _flat_distance_to(target) <= Tuning.TACKLE_LUNGE_SURE_RANGE
+	if not point_blank and not _resolve_tackle_contact(self, target, false, hit_velocity):
 		last_tackle = {"slide": false, "held": false, "missed": true}
 		_lunge_tap_cooldown = Tuning.TACKLE_LUNGE_TAP_COOLDOWN
 		return
@@ -1681,6 +1828,11 @@ func _land_lunge(target: PlayerController) -> void:
 ## the body reacts exactly the same — the hit is real — but there's no ball
 ## to spill and no holding-the-ball/ball-up call; the free kick or 50 is
 ## FullGame's to award.
+##
+## `is_slide` really means "held up": since 2026-10-30 a Lunge the carrier
+## won the collision holds them up too (_lunge_connect's "stand"), and a
+## held-up carrier given an `impact` absorbs the hit on the ragdoll on their
+## feet (_stand_ragdoll) instead of playing TACKLE_HELD.
 func _get_tackled(by: PlayerController, is_slide: bool, impact := {}, ruling := true) -> void:
 	var ball := _carried_ball if ruling else null
 	# Captured before drop_ball() resets anything, though drop_ball() itself
@@ -1694,7 +1846,8 @@ func _get_tackled(by: PlayerController, is_slide: bool, impact := {}, ruling := 
 	if is_slide:
 		_stun_timer = maxf(_stun_timer, Tuning.TACKLE_HELD_STUN_DURATION)
 		_action = Tuning.Action.NONE
-		_begin(Tuning.Action.TACKLE_HELD)
+		if impact.is_empty() or not _stand_ragdoll(by, impact):
+			_begin(Tuning.Action.TACKLE_HELD)
 	else:
 		var ragdolled := not impact.is_empty() and _begin_ragdoll({
 			"strength": (1.0 - float(impact.b)) * float(impact.get("strength_scale", 1.0)),
@@ -1716,6 +1869,33 @@ func _get_tackled(by: PlayerController, is_slide: bool, impact := {}, ruling := 
 		holding_the_ball_called.emit(by)
 	else:
 		field_ball_up_called.emit(by, self)
+
+
+## A held-up carrier who won the collision (Tuning's "Who wins the
+## collision", "stand"): on their feet through motor control. Their run
+## along the hit line becomes the pair's common velocity (`drive`, the two
+## having met and held on) and the hit staggers them back a step at the
+## chest; strong motors, most of their weight held up and the balance
+## assist reading tilt against the feet keep them standing, and the ragdoll
+## hands back to animation after TACKLE_STAND_TIME. Returns false when this
+## rig can't ragdoll, so the caller plays TACKLE_HELD.
+func _stand_ragdoll(by: PlayerController, impact: Dictionary) -> bool:
+	var line: Vector3 = impact.direction
+	var run := Vector3(velocity.x, 0.0, velocity.z)
+	return _begin_ragdoll({
+		"strength": Tuning.TACKLE_STAND_STRENGTH,
+		"support": Tuning.TACKLE_STAND_SUPPORT,
+		"tilt_from_feet": true,
+		"impulse": (line + Vector3.DOWN * Tuning.TACKLE_RAGDOLL_DRAG_DOWN).normalized()
+			* body_mass * Tuning.TACKLE_STAND_STAGGER,
+		"bone": &"Chest",
+		"contact_offset": impact.get("contact_offset", Vector3.ZERO),
+		"body_share": Tuning.TACKLE_STAND_BODY_SHARE,
+		"partner": by,
+		"velocity": run - line * run.dot(line) + line * float(impact.get("drive", 0.0)),
+		"mass_kg": body_mass,
+		"max_time": Tuning.TACKLE_STAND_TIME,
+	})
 
 
 ## Called on the carrier when a tackle lands but the model says it breaks
@@ -1827,6 +2007,8 @@ func _begin_ragdoll(hit: Dictionary) -> bool:
 		_ragdoll = PlayerRagdoll.new(self, rig, _animation)
 	if not _ragdoll.begin(hit):
 		return false
+	if _animation != null:
+		_animation.clear_contact_reaction()
 	# Tackled out of a wrap of their own: those arms aren't holding anyone.
 	if _tackle_wrap != null:
 		_tackle_wrap.release()
@@ -2091,6 +2273,9 @@ func _apply_bump_assist(delta: float) -> void:
 func _try_bump_contact() -> void:
 	if not _bump_dash_active:
 		return
+	if _contest_bump_target != null:
+		_step_contest_bump()
+		return
 	var carrier := _nearest_opposing_carrier()
 	if carrier != null and _bump_reaches(carrier):
 		# A carrier under protection (mark/free kick) can't be bumped off it —
@@ -2260,11 +2445,43 @@ func _bump_dive(carrier: PlayerController, direction: Vector3) -> void:
 ## that left off) — zeroing horizontal velocity here means the fall starts
 ## from a dead stop exactly where the whiff happened, not several metres
 ## further on.
+##
+## Since 2026-10-30 a human on a 6thbuild rig stumbles on the active ragdoll
+## instead (_bump_miss_stumble): carried on by the dash, pitched forward,
+## strong enough to keep their feet. The canned fall above is what the
+## procedural rig, and any AI, still gets.
 func _resolve_bump_miss() -> void:
+	if _brain is HumanBrain and _bump_miss_stumble():
+		return
 	velocity.x = 0.0
 	velocity.z = 0.0
 	_knockdown(_bump_dash_direction, Tuning.BUMP_MISS_STUN_DURATION)
 	_apply_knockdown_hop()
+
+
+## The whiffed bumper's stumble (Tuning's "Bump miss"): the dash carries the
+## body on, a push at the chest pitches it forward, and strong motors with
+## most of the weight held up keep it on its feet until the ragdoll hands
+## back to locomotion, still standing, after BUMP_MISS_STUMBLE_TIME.
+## Returns false when this rig can't ragdoll.
+func _bump_miss_stumble() -> bool:
+	var direction := _bump_dash_direction
+	if not _begin_ragdoll({
+		"strength": Tuning.BUMP_MISS_STUMBLE_STRENGTH,
+		"support": Tuning.BUMP_MISS_STUMBLE_SUPPORT,
+		"tilt_from_feet": true,
+		"impulse": (direction + Vector3.DOWN * Tuning.BUMP_MISS_STUMBLE_DIP).normalized()
+			* body_mass * Tuning.BUMP_MISS_STUMBLE_DRIVE,
+		"bone": &"Chest",
+		"contact_offset": Vector3.ZERO,
+		"body_share": Tuning.BUMP_MISS_STUMBLE_BODY_SHARE,
+		"velocity": direction * Tuning.BUMP_DASH_SPEED * Tuning.BUMP_MISS_STUMBLE_CARRY,
+		"mass_kg": body_mass,
+		"max_time": Tuning.BUMP_MISS_STUMBLE_TIME,
+	}):
+		return false
+	_stun_timer = maxf(_stun_timer, Tuning.BUMP_MISS_STUMBLE_STUN)
+	return true
 
 
 ## The vertical half of "add a bit of gravity" (playtest feedback on the
@@ -2295,14 +2512,15 @@ func _apply_stand_the_mark() -> void:
 		return
 	# The mark itself is where this player is standing right now — the catch
 	# spot, captured before _begin_mark_retreat() walks them back off it.
-	# Put the man on the mark a metre goal-side of that (this player's
-	# attacking direction) so the two capsules don't overlap as the taker
-	# starts their retreat from the same point.
-	var attack_x := 1.0 if team == Tuning.Team.HOME else -1.0
-	var mark_spot := Vector3(
-		global_position.x + attack_x * Tuning.MARK_STAND_GOAL_SIDE_OFFSET,
-		0.0, global_position.z)
-	opponent.stand_the_mark(Tuning.MARK_HOLD_DURATION, mark_spot)
+	# Put the man on the mark a metre goal-side of that, on the line of the
+	# mark (line_of_the_mark), so the two capsules don't overlap as the
+	# taker starts their retreat from the same point, and he stands between
+	# the kicker and the goal the way a real one does, not straight down
+	# the ground from them when the mark is in a pocket.
+	var line := line_of_the_mark(global_position)
+	var mark_spot := global_position - line * Tuning.MARK_STAND_GOAL_SIDE_OFFSET
+	mark_spot.y = 0.0
+	opponent.stand_the_mark(Tuning.MARK_HOLD_DURATION, mark_spot, line)
 	if opponent not in _frozen_opponents:
 		_frozen_opponents.append(opponent)
 
@@ -2348,6 +2566,112 @@ func _nearest_opposing_carrier() -> PlayerController:
 	return SpatialQuery.nearest_opposing_carrier(self)
 
 
+## B with no carrier to tackle (Tuning's "B off the ball: the contest
+## bump"): a nudge on an opponent alongside, or a hip-and-shoulder on one
+## coming at you, if the ball's loose, in the air or a teammate's and within
+## CONTEST_BUMP_BALL_RADIUS of them. Returns whether one went. Human only.
+func _try_contest_bump() -> bool:
+	if not _brain is HumanBrain or _bump_cooldown > 0.0 or _bump_dash_timer > 0.0 			or is_ragdolled():
+		return false
+	var ball := _live_ball()
+	if ball == null:
+		return false
+	var holder := ball.holder() as PlayerController
+	if ball.is_held and (holder == null or holder.team != team):
+		return false
+	var facing := -global_transform.basis.z
+	var target := _nearest_player(Tuning.CONTEST_BUMP_RANGE, func(other: PlayerController) -> bool:
+		if other.team == team or other.is_carrying() or other.is_ragdolled():
+			return false
+		var to_other := other.global_position - global_position
+		to_other.y = 0.0
+		if to_other.length_squared() < 0.0001 				or facing.dot(to_other.normalized()) < Tuning.CONTEST_BUMP_FACING_DOT:
+			return false
+		var to_ball := ball.global_position - other.global_position
+		to_ball.y = 0.0
+		return to_ball.length() <= Tuning.CONTEST_BUMP_BALL_RADIUS)
+	if target == null:
+		return false
+	var to_target := target.global_position - global_position
+	to_target.y = 0.0
+	var direction := to_target.normalized()
+	var closing := Vector3(velocity.x - target.velocity.x, 0.0, velocity.z - target.velocity.z).dot(direction)
+	_bump_cooldown = Tuning.CONTEST_BUMP_COOLDOWN
+	_slide_dive_cooldown = maxf(_slide_dive_cooldown, Tuning.CONTEST_BUMP_COOLDOWN)
+	if closing >= Tuning.CONTEST_BUMP_HEAD_ON_SPEED:
+		_bump_dash_direction = direction
+		_bump_dash_timer = Tuning.CONTEST_BUMP_DASH_DURATION
+		_bump_dash_active = true
+		_bump_close_in_time = 0.0
+		_contest_bump_target = target
+	else:
+		_contest_nudge(target, direction)
+	return true
+
+
+## Shoulder to shoulder: a push along the line between them on top of the
+## opponent's own run, so they're moved off it rather than stopped dead, and
+## a share of it back on the bumper by mass. Not a knockdown.
+func _contest_nudge(target: PlayerController, direction: Vector3) -> void:
+	var theirs := Vector3(target.velocity.x, 0.0, target.velocity.z)
+	target.receive_bump(theirs + direction * Tuning.CONTEST_BUMP_NUDGE_SPEED,
+		Tuning.CONTEST_BUMP_NUDGE_STUN, self)
+	var mine := Vector3(velocity.x, 0.0, velocity.z)
+	_knockback = mine - direction * Tuning.CONTEST_BUMP_NUDGE_SPEED 		* Tuning.CONTEST_BUMP_NUDGE_RECOIL * target.body_mass / body_mass
+	if _animation != null:
+		_animation.react_to_contact(_knockback - mine, true)
+	bump_landed.emit(self, target, false)
+
+
+## A hip-and-shoulder's dash, one frame after this frame's move: drives in
+## the last bit like the hit stick (_bump_closing_in) and hits, or lets go
+## when the clock runs out. A miss costs nothing more than the cooldown: it
+## was a brace, not the hit stick's full dive.
+func _step_contest_bump() -> void:
+	var target := _contest_bump_target
+	if not is_instance_valid(target) or target.is_ragdolled() or is_ragdolled() 			or target.is_carrying():
+		_end_contest_bump()
+		return
+	if _bump_reaches(target):
+		if _bump_closing_in(target):
+			return
+		_resolve_contest_hit(target)
+		_end_contest_bump()
+	elif _bump_dash_timer <= 0.0:
+		_end_contest_bump()
+
+
+func _end_contest_bump() -> void:
+	_contest_bump_target = null
+	_bump_dash_active = false
+	_bump_dash_timer = 0.0
+
+
+## The hip-and-shoulder connecting. Timed like the hit stick
+## (BUMP_APPROACH_DOT_MIN): one running onto it goes down on the ragdoll,
+## thrown along the hit ("half them"), or the canned knock-back fall on a
+## rig that can't ragdoll; a glancing one is knocked back on their feet.
+## The bumper braces and stays up, taking a little of it back.
+func _resolve_contest_hit(target: PlayerController) -> void:
+	var to_target := target.global_position - global_position
+	to_target.y = 0.0
+	var theirs := Vector3(target.velocity.x, 0.0, target.velocity.z)
+	var onto := 0.0
+	if theirs.length_squared() > 0.01 and to_target.length_squared() > 0.0001:
+		onto = theirs.normalized().dot(-to_target.normalized())
+	var clean := onto >= Tuning.BUMP_APPROACH_DOT_MIN
+	if clean:
+		if not target._bump_ragdoll(self, _bump_dash_direction):
+			target._knockdown(_bump_dash_direction, Tuning.BUMP_KNOCKDOWN_STUN_DURATION,
+				Tuning.Action.KNOCKED_BACK, false)
+			target._apply_knockdown_hop()
+	else:
+		target.receive_bump(_bump_dash_direction * Tuning.BUMP_KNOCKBACK_SPEED,
+			Tuning.BUMP_STUN_DURATION, self)
+	_knockback = -_bump_dash_direction * Tuning.CONTEST_BUMP_NUDGE_SPEED * Tuning.CONTEST_BUMP_NUDGE_RECOIL
+	bump_landed.emit(self, target, clean)
+
+
 ## Called on the bumped player, by the bumper, on every connect (clean or
 ## mistimed) — a knockback that overrides normal movement until it decays
 ## (see _update_locomotion) plus a stun. Never strips the ball, distinct
@@ -2357,6 +2681,10 @@ func _nearest_opposing_carrier() -> PlayerController:
 ## (the carrier goes all the way down, not just knocked off balance); this
 ## function by itself only ever does the physics side.
 func receive_bump(impulse: Vector3, stun_duration: float, _by: PlayerController) -> void:
+	if _animation != null:
+		# The stagger: the torso takes the change in velocity, not the run
+		# a contest nudge carries on with (PlayerAnimation "Contact reaction").
+		_animation.react_to_contact(Vector3(impulse.x - velocity.x, 0.0, impulse.z - velocity.z))
 	_knockback = Vector3(impulse.x, 0.0, impulse.z)
 	_stun_timer = maxf(_stun_timer, stun_duration)
 
@@ -2398,6 +2726,12 @@ func receive_bump(impulse: Vector3, stun_duration: float, _by: PlayerController)
 func _mark_attempt_blocked(ball: Ball = null) -> bool:
 	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE:
 		return true
+	# The umpire's throw-up is hit, not caught: the two ruckmen tap it
+	# (_update_ruck_contest) and everyone else waits for the tap. Found when
+	# Safe's reach and hop grew (2026-10-30): an AI ruckman holding A under
+	# the toss took it before the hit-out, and the stoppage looped.
+	if _is_ruck_contestant or ruck_contest_locked():
+		return true
 	if _gather_cooldown > 0.0:
 		return true
 	if is_instance_valid(ball) and ball.last_disposer() == self \
@@ -2407,13 +2741,19 @@ func _mark_attempt_blocked(ball: Ball = null) -> bool:
 
 
 func _update_marking(delta: float) -> void:
+	# A held Safe mark gets one hop (_maybe_safe_mark_jump); the next hold
+	# can have another once this one has ended and the feet are down.
+	if not _mark_readying and is_on_floor():
+		_mark_safe_jumped = false
 	var ball := _live_ball()
 	if _mark_attempt_blocked(ball):
 		_mark_readying = false
+		_running_mark_window = 0.0
 		return
 
 	if not is_instance_valid(ball) or ball.is_held:
 		_mark_readying = false
+		_running_mark_window = 0.0
 		return
 
 	if ball.is_airborne():
@@ -2436,6 +2776,7 @@ func _update_marking(delta: float) -> void:
 			_mark_readying = false
 			return   # whiff reaction owns this frame — don't also attempt a ground pickup under it
 		_mark_readying = false
+		_running_mark_window = 0.0
 		_update_ground_pickup(ball, delta)
 
 
@@ -2469,8 +2810,12 @@ func _try_spoil(ball: Ball) -> void:
 ## AI never taps Running/Aggressive by default (AIBrain only does behind
 ## Tuning.AI_MARK_USE_CUE_MODEL, off — and those two tiers are graded the
 ## same for every brain anyway), so only Safe needs the split.
-func _update_aerial_contest(ball: Ball, _delta: float) -> void:
+func _update_aerial_contest(ball: Ball, delta: float) -> void:
 	if _brain.wants_mark_safe():
+		_running_mark_window = 0.0
+		var offset := mark_timing_offset(ball, Tuning.Action.MARK_SAFE)
+		_mark_safe_planted = offset > -Tuning.MARK_SAFE_PLANT_TIME \
+			and offset < Tuning.MARK_TIMING_PAST_PEAK_OFFSET
 		if _brain is HumanBrain:
 			# _mark_readying still holds *last* frame's value here — reading
 			# it before the unconditional assignment below is what makes
@@ -2478,19 +2823,23 @@ func _update_aerial_contest(ball: Ball, _delta: float) -> void:
 			if not _mark_readying:
 				InputManager.rumble(Tuning.RUMBLE_MARK_PRESS)
 			_mark_readying = true
-			var mult := _timing_reach_mult(mark_timing_offset(ball, Tuning.Action.MARK_SAFE),
-				Tuning.MARK_SAFE_IDEAL_WINDOW, Tuning.MARK_SAFE_OK_WINDOW)
+			var mult := _timing_reach_mult(offset, Tuning.MARK_SAFE_IDEAL_WINDOW, Tuning.MARK_SAFE_OK_WINDOW)
 			if mult > 0.0 and _ball_in_catch_reach(ball, Tuning.MARK_SAFE_REACH_SCALE * mult):
 				_complete_mark(ball, Tuning.Action.MARK_SAFE)
+				return
 		else:
 			_mark_readying = true
 			if _ball_in_catch_reach(ball, Tuning.MARK_SAFE_REACH_SCALE):
 				_complete_mark(ball, Tuning.Action.MARK_SAFE)
+				return
+		_maybe_safe_mark_jump(ball)
 		return
 	_mark_readying = false
 
-	if _brain.wants_mark_running():
-		_attempt_running_mark(ball)
+	# The window is checked before the brain: a live tap mustn't consume (and
+	# lose) the next buffered press.
+	if _running_mark_window > 0.0 or _brain.wants_mark_running():
+		_attempt_running_mark(ball, delta)
 		return
 
 	# Gate on distance/flight-distance *before* consulting the brain —
@@ -2516,24 +2865,79 @@ func _update_aerial_contest(ball: Ball, _delta: float) -> void:
 		_begin_aggressive_mark()
 
 
-## Running's tap and its resolution are the same instant (unlike Aggressive,
-## whose jump defers resolution to a later contact frame — see
-## _resolve_aggressive_mark), so timing is graded right here, once. A tap
-## that fails outside MARK_CONTEST_RANGE is treated as no attempt at all
-## (silent, matching today) rather than a graded miss — the range gate is
-## the same "is this even live" test _update_aerial_contest's own
-## Aggressive branch already uses, not a new number.
-func _attempt_running_mark(ball: Ball) -> void:
+## A Running tap puts the hands out for Tuning.MARK_RUNNING_CATCH_WINDOW,
+## and every physics frame of that the ball is tested against the hands'
+## reach; the first frame in reach is the catch, the same way an
+## Aggressive leap is graded across the top of its jump. It used to be the
+## tap's frame alone (playtest 2026-10-30: "X marks are hard to trigger"):
+## a ball at 15 m/s spends about a tenth of a second inside an arm's reach,
+## so a tap a few frames early whiffed outright. A window that closes with
+## nothing caught is a miss; one that closes with the ball outside
+## MARK_CONTEST_RANGE is treated as no attempt at all (silent) rather than
+## a graded miss — the range gate is the same "is this even live" test
+## _update_aerial_contest's own Aggressive branch already uses.
+func _attempt_running_mark(ball: Ball, delta: float) -> void:
+	if _running_mark_window <= 0.0:
+		_running_mark_window = Tuning.MARK_RUNNING_CATCH_WINDOW
 	var mult := _timing_reach_mult(mark_timing_offset(ball, Tuning.Action.MARK_RUNNING),
 		Tuning.MARK_RUNNING_IDEAL_WINDOW, Tuning.MARK_RUNNING_OK_WINDOW)
 	if mult > 0.0 and _ball_in_catch_reach(ball, Tuning.MARK_RUNNING_REACH_SCALE * mult):
+		_running_mark_window = 0.0
 		_complete_mark(ball, Tuning.Action.MARK_RUNNING)
 		return
+	_running_mark_window -= delta
+	if _running_mark_window > 0.0:
+		return
+	_running_mark_window = 0.0
 	if ball.global_position.distance_to(_carry_point.global_position) <= Tuning.MARK_CONTEST_RANGE:
 		if _brain is HumanBrain:
 			InputManager.rumble(Tuning.RUMBLE_MARK_MISS)
 		mark_missed.emit(Tuning.Action.MARK_RUNNING)
 		_begin(Tuning.Action.MARK_RUNNING_MISS)
+
+
+## A — the hands-up hop (playtest 2026-10-30: "A should jump when it needs
+## to"). Safe is the high-percentage mark: a chest mark, or a small jump
+## when the ball will go over the hands. Each frame of a held Safe mark
+## that hasn't caught yet, the ball's flight is run forward against the
+## hands (carried on at the body's ground velocity, gravity only, like
+## PlayerAnimation._flight_crossing) to where it passes over them. If that
+## pass is above the hands, out of standing reach but inside it with the
+## hop's lift, the player hops so the top of the hop meets the ball. Then
+## the ordinary Safe reach test catches it, from the hands where they
+## really are. A ball too high even for that is Y's (the big leap). One
+## hop per hold; nothing is rolled, the hop just moves the hands.
+func _maybe_safe_mark_jump(ball: Ball) -> void:
+	if _mark_safe_jumped or _pending_jump_speed > 0.0 or not is_on_floor():
+		return
+	const STEP := 1.0 / 60.0
+	var reach := Tuning.MARK_CATCH_RADIUS * Tuning.MARK_SAFE_REACH_SCALE + Tuning.MARK_ASSIST_RADIUS_BONUS
+	var rise := Tuning.MARK_SAFE_JUMP_SPEED / Tuning.GRAVITY
+	var rel := ball.global_position - _catch_point.global_position
+	var rel_velocity := ball.linear_velocity - Vector3(velocity.x, 0.0, velocity.z)
+	var pass_rel := rel
+	var pass_time := 0.0
+	var pass_flat := Vector2(rel.x, rel.z).length()
+	var t := 0.0
+	while t < Tuning.MARK_SAFE_JUMP_LOOKAHEAD:
+		rel_velocity.y -= Tuning.GRAVITY * STEP
+		rel += rel_velocity * STEP
+		t += STEP
+		var flat := Vector2(rel.x, rel.z).length()
+		if flat >= pass_flat:
+			break
+		pass_flat = flat
+		pass_rel = rel
+		pass_time = t
+	if pass_rel.y <= 0.0 or pass_rel.length() <= reach:
+		return   # at or under the hands, or a chest mark: no hop
+	if pass_time > rise:
+		return   # not yet: hop so the top of it meets the ball
+	var lift := Tuning.MARK_SAFE_JUMP_SPEED * pass_time - 0.5 * Tuning.GRAVITY * pass_time * pass_time
+	if Vector3(pass_rel.x, pass_rel.y - lift, pass_rel.z).length() > reach:
+		return
+	_mark_safe_jumped = true
+	_pending_jump_speed = Tuning.MARK_SAFE_JUMP_SPEED
 
 
 ## A — Ground Pickup once the ball is loose rather than in flight (design
@@ -2565,9 +2969,10 @@ func _complete_mark(ball: Ball, tier: Tuning.Action) -> void:
 	_animation.note_mark_ball(ball)
 	_finish_mark_catch(ball, tier)
 	_mark_readying = false
-	if tier == Tuning.Action.MARK_SAFE:
+	if tier == Tuning.Action.MARK_SAFE and is_on_floor():
 		# A small reactive hop on the catch itself — see Tuning.MARK_SAFE_
-		# HOP_SPEED's own comment for why Safe gets this and not a real jump.
+		# HOP_SPEED's own comment. Not when the take was already in the air
+		# (_maybe_safe_mark_jump): a second push mid-air would float them.
 		_pending_jump_speed = Tuning.MARK_SAFE_HOP_SPEED
 	_begin(tier)
 
@@ -2593,24 +2998,41 @@ func _finish_mark_catch(ball: Ball, tier: Tuning.Action) -> void:
 	mark_caught.emit(tier, legal_mark)
 
 
-## Walking back off the mark (Tuning.MARK_RETREAT_DISTANCE). "Back" is the
-## team's own defensive direction — away from the goal being attacked —
-## which is what backwards means from a kicker's point of view regardless
-## of which way they happened to be facing when they took the grab. HOME
-## attacks +X (Tuning's axis convention), so HOME retreats toward -X.
+## Walking back off the mark (Tuning.MARK_RETREAT_DISTANCE), along the
+## line of the mark: away from the centre of the goal being attacked,
+## through the mark (line_of_the_mark). That's what backwards means from a
+## kicker's point of view regardless of which way they happened to be
+## facing when they took the grab. It used to be straight down the X axis,
+## which in a pocket walked the kicker off the line and left the man on the
+## mark beside them, not in front (playtest 2026-10-30).
 ##
 ## Only ever started from a legal mark: a scrambled catch in general play
 ## isn't a mark and has no mark to walk off.
 func _begin_mark_retreat() -> void:
-	var attack_x := 1.0 if team == Tuning.Team.HOME else -1.0
-	_mark_retreat_dir = Vector3(-attack_x, 0.0, 0.0)
+	_mark_retreat_dir = line_of_the_mark(global_position)
 	_mark_retreat_remaining = Tuning.MARK_RETREAT_DISTANCE
 	# Face the goal being attacked while walking back off it — see this
 	# var's own comment just above. _update_facing() turns the body toward
 	# _heading every frame regardless of which branch of _update_locomotion
 	# is actually driving the feet, so this is the one line that needs to
 	# change for the retreat to turn and look at goal.
-	_heading = Vector3(attack_x, 0.0, 0.0)
+	_heading = -_mark_retreat_dir
+
+
+## The line of the mark at `mark`: the flat unit direction from the centre
+## of the goal this player attacks, through the mark and on past it — the
+## way the kicker walks back, and (negated) the way they face to kick. The
+## man on the mark stands on it goal-side (_apply_stand_the_mark). A mark
+## on the goal line's centre has no line; it falls back to straight up the
+## ground. Public for a future goal-kicking mode, which lines up the same
+## way.
+func line_of_the_mark(mark: Vector3) -> Vector3:
+	var attack_x := 1.0 if team == Tuning.Team.HOME else -1.0
+	var back := mark - Vector3(attack_x * Tuning.FIELD_HALF_LENGTH, mark.y, 0.0)
+	back.y = 0.0
+	if back.length_squared() < 0.01:
+		return Vector3(-attack_x, 0.0, 0.0)
+	return back.normalized()
 
 
 ## Public entry to the walk-back, for the free-kick / turnover restarts that
@@ -2910,6 +3332,45 @@ func catch_point_position() -> Vector3:
 ## live option while the ball hasn't reached normal catching reach yet —
 ## once it has, a leap stops being the natural action even though it
 ## would still technically connect, so it stops being recommended.
+## The tier the mark prompt shows (MarkPrompt's badge and ring, the
+## animation viewer's AUTO): the take the delivery is heading for, not just
+## the first tier that went live. live_mark_prompt() lights (Y) from
+## MARK_CONTEST_RANGE (6 m) but (A) only once the ball is within Safe reach
+## of the hands (~1.2 m), so the ring completed on (Y) for every delivery
+## and a player following it leapt every time (design call 2026-11-09,
+## docs/ANIMATION_RAGDOLL_AUDIT.md). So while (Y) is the only tier live,
+## an uncontested ball whose flight will pass within Safe reach of the
+## hands shows (A) instead (a hold, so it can start early). Contested, or
+## passing above Safe reach, it stays (Y). A cue only: catch resolution and
+## the AI (which reads live_mark_prompt) never read this.
+func prompt_mark_tier(ball: Ball) -> Tuning.Action:
+	var live := live_mark_prompt(ball)
+	if live != Tuning.Action.MARK_AGGRESSIVE:
+		return live
+	if SpatialQuery.nearest_opponent(self, Tuning.MARK_CONTEST_RANGE) != null:
+		return live
+	var reach := Tuning.MARK_CATCH_RADIUS * Tuning.MARK_SAFE_REACH_SCALE + Tuning.MARK_ASSIST_RADIUS_BONUS
+	if _predicted_pass_distance(ball) <= reach:
+		return Tuning.Action.MARK_SAFE
+	return live
+
+
+## How close the ball's flight will come to the hands (CatchPoint) over the
+## next second, gravity only, with the player carrying on at their current
+## velocity. A prompt-sized estimate, like PlayerAnimation._flight_crossing.
+func _predicted_pass_distance(ball: Ball) -> float:
+	const STEP := 1.0 / 60.0
+	var rel := ball.global_position - _catch_point.global_position
+	var body_vel := Vector3(velocity.x, 0.0, velocity.z)
+	var vel := ball.linear_velocity - body_vel
+	var best := rel.length()
+	for i in 60:
+		vel.y -= Tuning.GRAVITY * STEP
+		rel += vel * STEP
+		best = minf(best, rel.length())
+	return best
+
+
 func live_mark_prompt(ball: Ball) -> Tuning.Action:
 	# Rulebook §5: the contest prompt is for a ball *kicked* at you, and
 	# nothing else. This used to read is_airborne(), which is true of any
@@ -2972,12 +3433,18 @@ func set_ruck_contestant(value: bool, window: float = Tuning.RUCK_CONTEST_WINDOW
 		_cancel_ragdoll()
 	_is_ruck_contestant = value
 	_ruck_contest_timer = window if value else 0.0
+	_ruck_collided = false
 	if not value:
 		_hit_out_armed = false
 
 
 func is_ruck_contestant() -> bool:
 	return _is_ruck_contestant
+
+
+## Set once this contest's two ruckmen have met (_ruck_collide), so a pair
+## jostles once per ball-up, not again at the second one's tap.
+var _ruck_collided := false
 
 
 ## True while a ruck contest is live (a centre bounce / field ball-up /
@@ -3043,16 +3510,96 @@ func _begin_hit_out() -> void:
 ## to a runner, not just straight off the body.
 func _resolve_hit_out() -> void:
 	var ball := _live_ball()
-	var connected := is_instance_valid(ball) and not ball.is_held \
-		and ball.global_position.distance_to(_carry_point.global_position) <= Tuning.RUCK_HIT_OUT_REACH
+	var palm := _animation.hand_world_position(&"RightHand") if _animation != null else Vector3.INF
+	var connected := false
+	if is_instance_valid(ball) and not ball.is_held:
+		if palm.is_finite():
+			connected = ball.global_position.distance_to(palm) <= Tuning.RUCK_PALM_REACH
+		else:
+			connected = ball.global_position.distance_to(_carry_point.global_position) \
+				<= Tuning.RUCK_HIT_OUT_REACH
 	if connected:
 		var direction := _brain.hit_out_aim(self)
 		if direction.length_squared() < 0.0001:
 			direction = _hit_out_aim_dir if _hit_out_aim_dir.length_squared() > 0.0001 \
 				else -global_transform.basis.z
 		direction = direction.normalized()
+		# Off the hand: the ball is on the palm as it goes (Tuning's
+		# RUCK_PALM_REACH), so the tap reads as a touch.
+		if palm.is_finite():
+			ball.global_position = palm
 		ball.knock(direction * Tuning.RUCK_HIT_OUT_SPEED + Vector3.UP * Tuning.RUCK_HIT_OUT_UP_SPEED)
+	_ruck_collide()
 	hit_out_resolved.emit(self, connected)
+
+
+## The leap's drift toward the ball (Tuning's RUCK_REACH_ASSIST_SPEED),
+## up to contact: the horizontal velocity that puts the right shoulder,
+## plus RUCK_PALM_FORWARD, under where the ball will be by then. False when
+## there's nothing to reach for, and locomotion carries on as usual.
+func _ruck_reach() -> bool:
+	var contact := Tuning.action_contact_time(Tuning.Action.HIT_OUT)
+	if _action_elapsed >= contact or _animation == null:
+		return false
+	var ball := _live_ball()
+	if not is_instance_valid(ball) or ball.is_held:
+		return false
+	var shoulder := _animation.shoulder_world_position(&"RightHand")
+	if not shoulder.is_finite():
+		return false
+	var remaining := maxf(contact - _action_elapsed, get_physics_process_delta_time())
+	var forward := -global_transform.basis.z
+	var palm := shoulder + Vector3(forward.x, 0.0, forward.z) * Tuning.RUCK_PALM_FORWARD
+	var ahead := ball.global_position + ball.linear_velocity * remaining
+	var wanted := Vector3(ahead.x - palm.x, 0.0, ahead.z - palm.z) / remaining
+	wanted = wanted.limit_length(Tuning.RUCK_REACH_ASSIST_SPEED)
+	velocity.x = wanted.x
+	velocity.z = wanted.z
+	return true
+
+
+## The two ruckmen meeting at the ball (Tuning's RUCK_COLLIDE_*), once a
+## contest, from whichever taps first.
+func _ruck_collide() -> void:
+	if _ruck_collided:
+		return
+	var rival := _nearest_player(Tuning.RUCK_COLLIDE_DISTANCE, func(other: PlayerController) -> bool:
+		return other.team != team and other.is_ruck_contestant())
+	if rival == null:
+		return
+	_ruck_collided = true
+	rival._ruck_collided = true
+	var to_rival := rival.global_position - global_position
+	to_rival.y = 0.0
+	if to_rival.length_squared() < 0.0001:
+		to_rival = -global_transform.basis.z
+	var direction := to_rival.normalized()
+	var ragdoll := Tuning.RUCK_COLLIDE_RAGDOLL and (_brain is HumanBrain or rival.brain() is HumanBrain)
+	_ruck_jostle(-direction, ragdoll, rival)
+	rival._ruck_jostle(direction, ragdoll, self)
+
+
+## This ruckman's half of the meeting, knocked along `direction`.
+func _ruck_jostle(direction: Vector3, ragdoll: bool, by: PlayerController) -> void:
+	var going_up := _action == Tuning.Action.HIT_OUT \
+		and _action_elapsed < Tuning.action_contact_time(Tuning.Action.HIT_OUT)
+	if ragdoll and not going_up and _begin_ragdoll({
+		"strength": Tuning.RUCK_COLLIDE_STRENGTH,
+		"support": Tuning.RUCK_COLLIDE_SUPPORT,
+		"impulse": direction * body_mass * Tuning.RUCK_COLLIDE_DRIVE,
+		"bone": &"Chest",
+		"contact_offset": Vector3.ZERO,
+		"body_share": Tuning.RUCK_COLLIDE_BODY_SHARE,
+		"partner": by,
+		"velocity": Vector3(velocity.x, 0.0, velocity.z) + direction * Tuning.RUCK_COLLIDE_DRIVE,
+		"mass_kg": body_mass,
+		"max_time": Tuning.RUCK_COLLIDE_TIME,
+	}):
+		_stun_timer = maxf(_stun_timer, Tuning.RUCK_COLLIDE_TIME)
+		return
+	_knockback = direction * Tuning.RUCK_COLLIDE_PUSH
+	if _animation != null:
+		_animation.react_to_contact(_knockback - Vector3(velocity.x, 0.0, velocity.z), true)
 
 
 ## Right stick (brain), then left stick, then body-forward — see _begin's
@@ -3118,8 +3665,10 @@ func _update_charge(delta: float) -> void:
 			# the kick starts aimed at goals, not wherever your legs
 			# happened to be carrying you.
 			_kick_aim_yaw = _current_look_yaw()
+			if _full_side_pad_aim():
+				_kick_charge = Tuning.KICK_SIDE_AIM_START_REACH
 		var override := _brain.kick_charge_override()
-		if override >= 0.0:
+		if override >= 0.0 and not _full_side_pad_aim():
 			# Power is wherever the trajectory line currently reaches to —
 			# a gamepad's right stick sets it directly and live, not a
 			# value that only ever ramps up with no way back down.
@@ -3186,6 +3735,10 @@ func _update_charge(delta: float) -> void:
 func _update_kick_aim(delta: float) -> void:
 	if not (_brain is HumanBrain):
 		return
+	if _full_side_pad_aim():
+		_update_full_side_aim(delta)
+		_apply_aim_assist(delta)
+		return
 	var stick := InputManager.get_look_vector()
 	var mouse := InputManager.take_mouse_look()
 	_kick_aim_yaw -= stick.x * deg_to_rad(Tuning.KICK_AIM_YAW_SPEED) * delta \
@@ -3224,6 +3777,31 @@ func _update_kick_aim(delta: float) -> void:
 ## stick/mouse then swings away from in _update_kick_aim regardless of
 ## camera mode, so this is the one spot that needs to know about FULL_SIDE
 ## at all.
+## Tuning's "Full-side kick aim": a human on a gamepad with the full-side
+## camera points the kick instead of turning it.
+func _full_side_pad_aim() -> bool:
+	return _brain is HumanBrain and InputManager.device == InputManager.Device.GAMEPAD \
+		and is_instance_valid(camera_rig) and camera_rig.mode == BroadcastCamera.Mode.FULL_SIDE
+
+
+func _update_full_side_aim(delta: float) -> void:
+	var stick := InputManager.get_look_vector()
+	var push := stick.length()
+	if push < Tuning.KICK_SIDE_AIM_DEADZONE or not is_instance_valid(camera):
+		return   # at rest: the line stays where it was left
+	var forward := -camera.global_transform.basis.z
+	forward.y = 0.0
+	if forward.length_squared() < 0.000001:
+		return
+	forward = forward.normalized()
+	var right := Vector3(-forward.z, 0.0, forward.x)
+	var dir := right * stick.x + forward * stick.y
+	var target_yaw := atan2(-dir.x, -dir.z)
+	_kick_aim_yaw = lerp_angle(_kick_aim_yaw, target_yaw, minf(1.0, Tuning.KICK_SIDE_AIM_TURN_RATE * delta))
+	_kick_charge = remap(minf(push, 1.0), Tuning.KICK_SIDE_AIM_DEADZONE, 1.0,
+		Tuning.KICK_SIDE_AIM_MIN_REACH, 1.0)
+
+
 func _current_look_yaw() -> float:
 	if not is_instance_valid(camera):
 		return _facing_yaw
@@ -3334,8 +3912,14 @@ func _begin(action: Tuning.Action) -> void:
 		# "Toward wherever Left stick is currently held" (CONTROLS section),
 		# captured now rather than at _dispose()'s later contact time, and
 		# falling back to body-forward if the stick is neutral at the
-		# instant of the press.
-		_handball_aim_dir = _wish_dir if _wish_dir.length_squared() > 0.0001 \
+		# instant of the press. Read off the brain, not _wish_dir: standing
+		# on a mark returns from movement before the stick is read, so
+		# _wish_dir there is still the run you marked on and a handball off
+		# the mark went that way whatever you held (found 2026-11-02 in the
+		# kicking-circuit drill, C's handball to A).
+		var wish := _brain.wish_direction(self)
+		wish.y = 0.0
+		_handball_aim_dir = wish.normalized() if wish.length_squared() > 0.0001 \
 			else -global_transform.basis.z
 	elif action == Tuning.Action.HIT_OUT:
 		# Captured on the RB press so a ruckman can palm it to a runner

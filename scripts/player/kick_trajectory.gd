@@ -19,6 +19,13 @@ extends Node3D
 ## _integrate_forces uses by hand (semi-implicit Euler), skipping only
 ## Magnus (spin curl): close enough for a UI readout, and the spin isn't
 ## even decided yet at this point since the ball hasn't been struck.
+##
+## The HUD options (Settings.HUD_OPTIONS, playtest 2026-10-30) style it
+## live: `trajectory` switches it off, `trajectory_colour` picks the colour,
+## `trajectory_pattern` draws the arc as dots, dashes or one solid line, and
+## `trajectory_thickness` scales its width. Dashes and the solid line are
+## one cylinder per chord between the simulated points, on the same
+## MultiMesh the dots use, so every style is still one draw call.
 
 const MAX_DOTS := 22
 const SIM_STEP_TIME := 0.05      ## s of simulated flight per integration step
@@ -47,7 +54,22 @@ const RING_PULSE_ALPHA_AMOUNT := 0.12
 ## grass (green-on-green), so it's lightened and desaturated slightly toward
 ## yellow here purely for outdoor 3D legibility — same accent family, tuned
 ## for this context rather than matched pixel-for-pixel to the UI swatch.
+## Settings.HUD_COLOURS["GREEN"] is this same colour, the default.
 var _colour: Color = SoftBrutalist.ACCENT_PRIMARY.lightened(0.35)
+
+## Per `trajectory_thickness` option: the dot/line radius multiplier.
+const THICKNESS_SCALES := [0.6, 1.0, 1.6]
+## Per `trajectory_pattern` option: how much of each chord a dash fills
+## (0 means dots, not dashes). SOLID overlaps a touch so the joins don't gap.
+const PATTERN_FILL := [0.0, 0.5, 1.06]
+## A line reads thinner than a dot of the same radius, so dashes and the
+## solid line are drawn this much fatter than DOT_RADIUS.
+const LINE_RADIUS_SCALE := 0.75
+
+var _dot_mesh: SphereMesh
+var _line_mesh: CylinderMesh
+var _fill := 0.0
+var _thickness := 1.0
 
 var _inner_ring_material: StandardMaterial3D
 var _outer_ring_material: StandardMaterial3D
@@ -73,6 +95,15 @@ func _ready() -> void:
 	dot_mesh.radial_segments = 8
 	dot_mesh.rings = 4
 	dot_mesh.material = _dot_material
+
+	_dot_mesh = dot_mesh
+	_line_mesh = CylinderMesh.new()
+	_line_mesh.top_radius = DOT_RADIUS * LINE_RADIUS_SCALE
+	_line_mesh.bottom_radius = DOT_RADIUS * LINE_RADIUS_SCALE
+	_line_mesh.height = 1.0
+	_line_mesh.radial_segments = 6
+	_line_mesh.rings = 1
+	_line_mesh.material = _dot_material
 
 	var multimesh := MultiMesh.new()
 	multimesh.transform_format = MultiMesh.TRANSFORM_3D
@@ -110,11 +141,23 @@ func _ready() -> void:
 	ring_mesh.surface_set_material(1, _inner_ring_material)
 	_ring.mesh = ring_mesh
 
+	Settings.hud_changed.connect(func(_key: StringName) -> void: _apply_style())
+	_apply_style()
+
+
+func _apply_style() -> void:
+	_colour = Settings.hud_colour(&"trajectory_colour")
+	_dot_material.albedo_color = _colour
+	_thickness = THICKNESS_SCALES[Settings.hud_index(&"trajectory_thickness")]
+	_fill = PATTERN_FILL[Settings.hud_index(&"trajectory_pattern")]
+	_dots.multimesh.mesh = _dot_mesh if _fill <= 0.0 else _line_mesh
+
 
 ## `origin`/`launch_velocity` are world-space, matching what
 ## PlayerController._kick_parameters() returns. Hides everything when
 ## `active` is false — cheap to call unconditionally every frame.
 func update_preview(active: bool, origin: Vector3, launch_velocity: Vector3) -> void:
+	active = active and Settings.hud_on(&"trajectory")
 	visible = active
 	if not active:
 		return
@@ -126,20 +169,10 @@ func update_preview(active: bool, origin: Vector3, launch_velocity: Vector3) -> 
 	var points := _simulate(origin, launch_velocity)
 	var shown := _downsample(points, MAX_DOTS)
 	var multimesh := _dots.multimesh
-	multimesh.visible_instance_count = shown.size()
-	var last := shown.size() - 1
-	for i in shown.size():
-		var t := 0.0 if last <= 0 else float(i) / float(last)
-		var scale := lerpf(DOT_SCALE_NEAR, DOT_SCALE_FAR, t)
-		var alpha := lerpf(DOT_ALPHA_NEAR, DOT_ALPHA_FAR, t)
-		# MultiMesh instance transforms are local to _dots, which follows
-		# the player like any other child node — to_local() converts the
-		# simulation's world-space points into that space so a dash lands
-		# exactly at its simulated world position regardless of where the
-		# player is standing or facing.
-		var xform := Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * scale), _dots.to_local(shown[i]))
-		multimesh.set_instance_transform(i, xform)
-		multimesh.set_instance_color(i, Color(_colour.r, _colour.g, _colour.b, _colour.a * alpha))
+	if _fill > 0.0:
+		_place_dashes(multimesh, shown)
+	else:
+		_place_dots(multimesh, shown)
 
 	var landing := points[points.size() - 1] if not points.is_empty() else origin
 	landing.y = 0.02   # just off the turf, same reasoning as Field's line markings
@@ -150,6 +183,52 @@ func update_preview(active: bool, origin: Vector3, launch_velocity: Vector3) -> 
 	var alpha_mod := 1.0 + pulse * RING_PULSE_ALPHA_AMOUNT
 	_inner_ring_material.albedo_color = Color(_colour.r, _colour.g, _colour.b, clampf(_colour.a * alpha_mod, 0.0, 1.0))
 	_outer_ring_material.albedo_color = Color(_colour.r, _colour.g, _colour.b, clampf(_colour.a * 0.35 * alpha_mod, 0.0, 1.0))
+
+
+func _place_dots(multimesh: MultiMesh, shown: Array[Vector3]) -> void:
+	multimesh.visible_instance_count = shown.size()
+	var last := shown.size() - 1
+	for i in shown.size():
+		var t := 0.0 if last <= 0 else float(i) / float(last)
+		var scale := lerpf(DOT_SCALE_NEAR, DOT_SCALE_FAR, t) * _thickness
+		var alpha := lerpf(DOT_ALPHA_NEAR, DOT_ALPHA_FAR, t)
+		# MultiMesh instance transforms are local to _dots, which follows
+		# the player like any other child node — to_local() converts the
+		# simulation's world-space points into that space so a dash lands
+		# exactly at its simulated world position regardless of where the
+		# player is standing or facing.
+		var xform := Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * scale), _dots.to_local(shown[i]))
+		multimesh.set_instance_transform(i, xform)
+		multimesh.set_instance_color(i, Color(_colour.r, _colour.g, _colour.b, _colour.a * alpha))
+
+
+## One cylinder per chord between consecutive points, `_fill` of its length,
+## centred on the chord: half-filled reads as dashes, overfilled as a solid
+## line. Same near-to-far taper as the dots, so the arc still reads boot to
+## landing.
+func _place_dashes(multimesh: MultiMesh, shown: Array[Vector3]) -> void:
+	var count := maxi(shown.size() - 1, 0)
+	multimesh.visible_instance_count = count
+	for i in count:
+		var t := 0.0 if count <= 1 else float(i) / float(count - 1)
+		var a := _dots.to_local(shown[i])
+		var b := _dots.to_local(shown[i + 1])
+		var along := b - a
+		var length := along.length()
+		if length < 0.0001:
+			multimesh.set_instance_transform(i, Transform3D(Basis.IDENTITY.scaled(Vector3.ZERO), a))
+			continue
+		var y := along / length
+		var x := y.cross(Vector3.UP)
+		if x.length_squared() < 0.000001:
+			x = Vector3.RIGHT
+		x = x.normalized()
+		var z := x.cross(y)
+		var width := lerpf(DOT_SCALE_NEAR, DOT_SCALE_FAR, t) * _thickness
+		var basis := Basis(x * width, y * length * _fill, z * width)
+		multimesh.set_instance_transform(i, Transform3D(basis, (a + b) * 0.5))
+		var alpha := lerpf(DOT_ALPHA_NEAR, DOT_ALPHA_FAR, t)
+		multimesh.set_instance_color(i, Color(_colour.r, _colour.g, _colour.b, _colour.a * alpha))
 
 
 ## Steps the flight all the way to the ground rather than for a fixed

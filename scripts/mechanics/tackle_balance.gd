@@ -164,6 +164,17 @@ static func resolve(tackler_pos: Vector3, tackler_vel: Vector3, tackler_mass: fl
 	var travel := Vector3(tackler_vel.x, 0.0, tackler_vel.z)
 	var tackler_dir := travel.normalized() if travel.length() > Tuning.PIVOT_SPEED_THRESHOLD else flat
 	var collision := size / Tuning.TACKLE_RAGDOLL_IMPULSE_SCALE
+	# Who wins the collision, separately from how hard it is (b): the pair's
+	# common velocity along the hit line if they meet and hold on (an
+	# inelastic collision). Positive, the tackler drives the carrier back;
+	# about zero, neither moves the other (two players running into each
+	# other with the same momentum); negative, the carrier runs on into the
+	# tackler. b grows with closing speed whoever is doing the closing, so
+	# on its own it read a heavy carrier running head-on into a standing
+	# tackler as the tackler's hardest hit. PlayerController splits a held
+	# tackle's outcome on this (Tuning's "Who wins the collision").
+	var drive := (tackler_mass * tackler_vel.dot(flat) + target_mass * target_vel.dot(flat)) \
+		/ maxf(tackler_mass + target_mass, 1.0)
 	return {
 		"b": b,
 		"raw_b": raw_b,
@@ -171,6 +182,7 @@ static func resolve(tackler_pos: Vector3, tackler_vel: Vector3, tackler_mass: fl
 		"closing_speed": m.closing_speed,
 		"approach_angle": angle,
 		"mass_ratio": ratio,
+		"drive": drive,
 		"direction": flat,
 		"impulse": push_dir * size,
 		# Above the centre of mass, from whichever side: a push there tips

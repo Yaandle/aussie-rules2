@@ -28,6 +28,7 @@ CareerProfile="*res://scripts/autoload/career_profile.gd"
 SceneWipe="*res://scripts/autoload/scene_wipe.gd"
 Settings="*res://scripts/autoload/settings.gd"
 AudioManager="*res://scripts/autoload/audio_manager.gd"
+Highlights="*res://scripts/autoload/highlights.gd"
 
 [display]
 

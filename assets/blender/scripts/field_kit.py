@@ -6,6 +6,12 @@ repo root), props first, since both layouts link their meshes from it:
     blender -b --python assets/blender/scripts/build_park_props.py
     blender -b --python assets/blender/scripts/build_park_oval.py
     blender -b assets/blender/field.blend --python assets/blender/scripts/build_oval1_layout.py
+    blender -b --python assets/blender/scripts/build_training_kit.py
+
+The two layouts are append-only past their first pass: a later addition
+gets its own RNG and spaces against what's placed (Scatter.taken), so the
+seeded park everyone has seen stays put. remove_overlapping() makes room
+for a fixed prop by dropping only the few plants it lands on.
 
 Everything here is low-poly and flat-shaded on purpose. The two reference
 images are pixel art, and the 3D read of that is chunky faceted blobs with a
@@ -120,6 +126,16 @@ class MeshBuilder:
         verts = [self.bm.verts.new((p[0], p[1], z)) for p in points]
         face = self.bm.faces.new(verts)
         if face.normal.z < 0.0:
+            face.normal_flip()
+        self._tag(verts, mat)
+
+    def poly(self, points, mat, facing):
+        """One flat face through 3D points (a gable end, say), turned so its
+        normal points along `facing`. Single-sided like everything else."""
+        verts = [self.bm.verts.new(p) for p in points]
+        face = self.bm.faces.new(verts)
+        face.normal_update()
+        if face.normal.dot(Vector(facing)) < 0.0:
             face.normal_flip()
         self._tag(verts, mat)
 
@@ -251,8 +267,11 @@ def outside_offset(p):
 
 
 def face_centre_rot(p):
-    """rot_z that turns a prop whose front faces -Y toward the oval centre."""
-    return math.atan2(-p[0], p[1]) + math.pi
+    """rot_z that turns a prop whose front faces -Y toward the oval centre.
+    Rotating -Y by t gives (sin t, -cos t); that's -p normalised when
+    t = atan2(-x, y). (Until 2026-10-31 this added a half turn, so every
+    bench round both ovals sat with its back to the game.)"""
+    return math.atan2(-p[0], p[1])
 
 
 def catmull_rom(points, steps=8):
@@ -309,6 +328,22 @@ class Scatter:
             self.reserve(p, radius)
             return True
         return False
+
+
+def remove_overlapping(col, centre, radius, keep=()):
+    """Deletes this collection's placed props within `radius` of `centre`
+    (2D), except names in `keep`. Lets an append-only pass drop a fixed
+    prop into an older seeded layout without re-rolling the whole layout:
+    only the few bushes it lands on go."""
+    c = Vector((centre[0], centre[1]))
+    gone = 0
+    for o in list(col.objects):
+        if o.name in keep or o.type != "MESH":
+            continue
+        if (Vector((o.location.x, o.location.y)) - c).length < radius:
+            bpy.data.objects.remove(o)
+            gone += 1
+    return gone
 
 
 def angle_deg(p):

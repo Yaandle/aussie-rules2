@@ -13,9 +13,13 @@ This is a Godot 4.6 (Jolt) Aussie Rules football game. Work on branch
   ragdoll plan (stage 1 done).
 - `docs/ANIMATION_RAGDOLL_AUDIT.md`: movement animation and ragdoll tackle
   audit (2026-10-28): what was fixed, what's left, what needs a playtest.
+- `docs/BUILD7_MODEL.md`: the Build 7 player model (6thbuild's skeleton,
+  new skin): assets, export, skinning rules, replacing the mesh with a scan.
 - `docs/ML_AI_AUDIT.md`: the ML ladder (LR, GA, MLP marking cue in §9).
 - `docs/CAREER_AUDIT.md`: Career mode audit, the user's decisions, and the
   8-phase plan (all eight phases done; see its "For review").
+- `docs/PLAYTEST_CHECKLIST.md`: one-line checks for everything that needs
+  the user to play it. Add to it whenever you ship something like that.
 - Code comments carry the "why". Read a script's header before changing it.
 
 Don't go looking for `docs/HANDOVER.md`, `FEATURE_AUDIT.md`, `ui_audit.md`

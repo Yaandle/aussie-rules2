@@ -152,6 +152,8 @@ func is_falling() -> bool:
 func _go_rigid() -> void:
 	_ragdoll.capture_target_pose()
 	_ragdoll.strength = clampf(float(_hit.get("strength", 0.0)), 0.0, 1.0)
+	_ragdoll.support_share = float(_hit.get("support", PhysicsRagdoll.SUPPORT_SHARE))
+	_ragdoll.tilt_from_feet = bool(_hit.get("tilt_from_feet", false))
 	_ragdoll.start(_hit.get("velocity", Vector3.ZERO))
 	_push = _hit.get("impulse", Vector3.ZERO) / Tuning.TACKLE_RAGDOLL_PUSH_DURATION
 	_push_left = Tuning.TACKLE_RAGDOLL_PUSH_DURATION if _push != Vector3.ZERO else 0.0
@@ -174,8 +176,11 @@ func _step_falling(delta: float) -> void:
 	_ragdoll.step(delta)
 	_time += delta
 	var settled := _ragdoll.is_asleep() or _ragdoll.peak_speed() < Tuning.TACKLE_RAGDOLL_GETUP_SETTLED_SPEED
-	if (_time >= Tuning.TACKLE_RAGDOLL_GETUP_MIN_TIME and settled) \
-			or _time >= Tuning.TACKLE_RAGDOLL_GETUP_MAX_TIME:
+	# A hit can ask for a shorter fall ("max_time"): a stumble hands back to
+	# animation while the body is still up, rather than waiting to settle.
+	var max_time := float(_hit.get("max_time", Tuning.TACKLE_RAGDOLL_GETUP_MAX_TIME))
+	if (_time >= minf(Tuning.TACKLE_RAGDOLL_GETUP_MIN_TIME, max_time) and settled) \
+			or _time >= max_time:
 		_begin_getup()
 
 

@@ -57,6 +57,11 @@ from mathutils import Matrix, Quaternion, Vector
 
 ARMATURE = "Armature"
 BASE_ACTION = "idle"         # frame 1 of this is the neutral pose clips settle back to
+## Build 7's file keeps the inherited idle under this name once
+## author_7thbuild_idle.py has replaced "idle" with an arms-down one; every
+## clip here was authored against the inherited pose, so it's the base
+## wherever it exists (base_action()).
+BASE_ACTION_KEPT = "idle_base"
 RUN_ACTION = "run_fwd"       # leg/pelvis source for the in-stride clips
 
 # Copied from scripts/tuning.gd (ACTION_DURATION, ACTION_CONTACT), seconds.
@@ -189,11 +194,86 @@ def _arc(a, b):
 	return Quaternion(axis, math.acos(d))
 
 
-def solve_arm(rig, basis, side, target, pole):
+## Hinge-fitted arms (solve_arm's `hinge`): the shoulder twist the roll
+## may use (deg; PhysicsRagdoll's upper-arm twist stop is 60), how far the
+## elbow may swivel off the authored pole (deg), and what a degree of swivel
+## costs against a degree of hinge error. Swivel is what shows: allowed 75°,
+## the run's back swing used up to 73° and lifted the elbow near level behind
+## the body; at 20° it reads like the authored swing, and the worst forearm
+## left at a tackle's hand-off is ~27° off the hinge (73° before any fit).
+HINGE_ROLL_TWIST_MAX = 58.0
+HINGE_SWIVEL_MAX = 20.0
+HINGE_SWIVEL_COST = 0.15
+
+
+def _hinge_fit(rig, ua, la, hd, q0, S, u, v, a, h, T):
+	"""The elbow swivel (about the shoulder-to-wrist line `u`, from the
+	authored pole direction `v`) and upper-arm roll that put the forearm on
+	the ragdoll elbow's hinge plane, bending forward. Returns (E, qd): the
+	elbow and the upper arm's armature rotation.
+
+	The hinge axis is fixed in the upper arm: the forearm's rest direction x
+	forward (PhysicsRagdoll HINGE, flex = forward). It isn't square to the
+	upper arm (the rest pose's carrying angle), so the forearm's plane
+	doesn't hold the upper arm; the roll alone would need up to ~100° of
+	shoulder twist on Build 7's run, past the joint's 60° stop. Searched,
+	not solved: cheap at a few hundred poses a clip."""
+	rest_dir = (rig.rest[hd].translation - rig.rest[la].translation).normalized()
+	axis_local = rig.rest_rot[ua].inverted() @ rest_dir.cross(Vector((0, -1, 0)))
+	rest_la = rig.rest_rot[ua].inverted() @ rest_dir
+	y_zero = q0 @ Vector((0, 1, 0))
+
+	def place(swivel):
+		vv = Quaternion(u, math.radians(swivel)) @ v
+		E = S + u * a + vv * h
+		return E, _arc(y_zero, E - S) @ q0
+
+	def cost(E, qd, swivel, roll):
+		w = (E - S).normalized()
+		d = (T - E).normalized()
+		q = Quaternion(w, math.radians(roll)) @ qd
+		hinge_axis = q @ axis_local
+		off = abs(90.0 - math.degrees(hinge_axis.angle(d)))
+		# Forward bend is a right-hand turn about the axis from the rest forearm.
+		backwards = 30.0 if (q @ rest_la).cross(d).dot(hinge_axis) < -0.05 else 0.0
+		return off + backwards + max(0.0, abs(roll) - HINGE_ROLL_TWIST_MAX) 			+ HINGE_SWIVEL_COST * abs(swivel)
+
+	best = None
+	for swivel in range(-int(HINGE_SWIVEL_MAX), int(HINGE_SWIVEL_MAX) + 1, 5):
+		E, qd = place(swivel)
+		for roll in range(-60, 61, 4):
+			c = cost(E, qd, swivel, roll)
+			if best is None or c < best[0]:
+				best = (c, swivel, roll)
+	_, sw0, ro0 = best
+	for i in range(-5, 6):
+		swivel = sw0 + i * 0.5
+		E, qd = place(swivel)
+		for k in range(-8, 9):
+			roll = ro0 + k * 0.5
+			c = cost(E, qd, swivel, roll)
+			if c < best[0]:
+				best = (c, swivel, roll)
+	_, swivel, roll = best
+	E, qd = place(swivel)
+	return E, Quaternion((E - S).normalized(), math.radians(roll)) @ qd
+
+
+def solve_arm(rig, basis, side, target, pole, hinge=False):
 	"""Two-bone IK for one arm: writes upperarm/lowerarm basis so the wrist
 	(hand bone head) lands on `target` (clamped to reach) with the elbow bent
 	toward `pole` (a direction from the shoulder). Returns the reached wrist
-	position."""
+	position.
+
+	`hinge` swivels the elbow about the shoulder-to-wrist line and rolls the
+	upper arm so the elbow bends about the ragdoll's elbow hinge
+	(_hinge_fit). Without it the upper arm takes the shortest turn and keeps
+	whatever roll that leaves, so the elbow can bend about any axis: Build
+	7's first gaits put the forearm 50-84° off the hinge, and a tackle's
+	hand-off snapped it onto the hinge in one physics tick (forearms at ~43
+	rad/s). The wrist lands in the same place either way; the elbow may sit
+	off the authored pole. Off by default so Build 6's clips re-author
+	exactly as before."""
 	ua, la, hd = "upperarm." + side, "lowerarm." + side, "hand." + side
 	pose = rig.fk(basis)
 	S = pose[ua].translation
@@ -212,8 +292,11 @@ def solve_arm(rig, basis, side, target, pole):
 	T = S + u * d
 
 	q0 = rig.zero_basis_rot(ua, pose)
-	y0 = q0 @ Vector((0, 1, 0))
-	qd = _arc(y0, E - S) @ q0
+	if hinge:
+		E, qd = _hinge_fit(rig, ua, la, hd, q0, S, u, v, a, h, T)
+	else:
+		y0 = q0 @ Vector((0, 1, 0))
+		qd = _arc(y0, E - S) @ q0
 	basis[ua] = (Vector(), q0.inverted() @ qd)
 
 	pose = rig.fk(basis)
@@ -389,7 +472,7 @@ def build_basis(rig, base, spec):
 			delta = pose["spine2"].to_quaternion() @ rig.rest_rot["spine2"].inverted()
 			tgt = pose["upperarm." + side].translation + delta @ tgt
 			pole = delta @ pole
-		reached[side] = solve_arm(rig, basis, side, tgt, pole)
+		reached[side] = solve_arm(rig, basis, side, tgt, pole, spec.get("elbow_hinge", False))
 		w = spec.get("wrist_" + side)
 		if w is not None:
 			basis["hand." + side] = (Vector(), rig.rel_basis("hand." + side, w))
@@ -1142,9 +1225,13 @@ def clip_smother_dive():
 	length, contact = ACTION_TIMING["smother_dive"]
 	# Committed dive at the kicker's boot (the playtest ask: it has to go to
 	# ground): load on the left, launch, full stretch with both arms just off
-	# the turf at contact, held. The last key snaps back to the base pose
-	# because Tuning ends the action there (see the timing note in the
-	# checkpoint report — a real get-up needs a longer ACTION_DURATION).
+	# the turf at contact. Then it pushes off the turf: the hands come back
+	# under the chest and the right foot steps through, and it ends in a low
+	# crouch on the way up, which PlayerAnimation fades into the run over
+	# ACTION_BLEND_OUT_BY_STATE's longer blend. It used to hold the stretch
+	# until 0.51 s and snap back to the standing base pose in the last
+	# 0.04 s (92 rad/s at the knee, scenes/dev/anim_audit.tscn), because
+	# Tuning ends the action there; this keeps Tuning's 0.55 s.
 	return Clip("smother_dive", [
 		(0.0, {}),
 		(contact * 0.35, {
@@ -1171,15 +1258,26 @@ def clip_smother_dive():
 			"elbow_l": P(1.0, 0.0, -0.4), "elbow_r": P(-1.0, 0.0, -0.4),
 			"foot_l": {"pos": P(0, 0.02, 0.13), "pitch": 30}, "foot_r": {"pos": P(0, -0.52, 0.30), "pitch": 45},
 		}),
-		(contact + (length - contact) * 0.75, {
-			"pelvis": {"pos": P(0, 0.54, -0.74), "rot": lean(fwd=62)},
-			"spine1": lean(fwd=6), "spine2": lean(fwd=0), "head": lean(fwd=-22),
+		# Pushing off: hands back under the chest, the trailing leg swinging
+		# through.
+		(contact + (length - contact) * 0.4, {
+			"pelvis": {"pos": P(0, 0.50, -0.66), "rot": lean(fwd=56)},
+			"spine1": lean(fwd=6), "spine2": lean(fwd=2), "head": lean(fwd=-20),
 			"hands_in": "chest",
-			"hand_l": P(0.16, 0.48, 0.32), "hand_r": P(-0.16, 0.48, 0.32),
-			"elbow_l": P(1.0, 0.0, -0.4), "elbow_r": P(-1.0, 0.0, -0.4),
-			"foot_l": {"pos": P(0, 0.02, 0.13), "pitch": 30}, "foot_r": {"pos": P(0, -0.48, 0.26), "pitch": 40},
+			"hand_l": P(0.14, 0.40, 0.10), "hand_r": P(-0.14, 0.40, 0.10),
+			"elbow_l": P(1.0, -0.2, -0.6), "elbow_r": P(-1.0, -0.2, -0.6),
+			"foot_l": {"pos": P(0, 0.06, 0.10), "pitch": 20}, "foot_r": {"pos": P(0, -0.24, 0.24), "pitch": 30},
 		}),
-		(length, {}),
+		# A low crouch on the way up, right foot under the hips: the blend out
+		# to the run finishes standing.
+		(length, {
+			"pelvis": {"pos": P(0, 0.30, -0.40), "rot": lean(fwd=34)},
+			"spine1": lean(fwd=8), "spine2": lean(fwd=4), "head": lean(fwd=-12),
+			"hands_in": "chest",
+			"hand_l": P(0.10, 0.22, -0.30), "hand_r": P(-0.10, 0.22, -0.30),
+			"elbow_l": P(0.8, -0.4, -0.8), "elbow_r": P(-0.8, -0.4, -0.8),
+			"foot_l": {"pos": P(0, 0.10, 0.02), "pitch": 10}, "foot_r": {"pos": P(0, 0.22, 0.04), "pitch": 5},
+		}),
 	])
 
 
@@ -1257,6 +1355,12 @@ CLIPS = {
 }
 
 
+def base_action():
+	"""The action whose first frame every clip is built from (see
+	BASE_ACTION_KEPT)."""
+	return bpy.data.actions.get(BASE_ACTION_KEPT) or bpy.data.actions[BASE_ACTION]
+
+
 def main():
 	argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 	save = "--no-save" not in argv
@@ -1283,7 +1387,8 @@ def main():
 	FOOT_REST_BELOW = math.degrees(math.atan2(-along.z, -along.y))
 
 	rig = Rig(arm_obj)
-	base = sample_action(rig, bpy.data.actions[BASE_ACTION], bpy.data.actions[BASE_ACTION].frame_range[0])
+	base_src = base_action()
+	base = sample_action(rig, base_src, base_src.frame_range[0])
 	for name in names:
 		author_clip(rig, CLIPS[name](), base, fps)
 

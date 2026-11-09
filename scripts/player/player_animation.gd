@@ -35,6 +35,12 @@ extends Node
 ## y = forward speed (-1 backpedal, +1 full sprint), both normalised
 ## against Tuning.SPRINT_SPEED.
 const JOG_BLEND := 0.55
+## A walk clip, where the model has one (Build 7, author_7thbuild_gaits.py),
+## goes on the forward axis at walking pace. Without it, below a jog the
+## blend is idle mixed with jog_fwd: half a jog stride under a walking body,
+## and the feet slid ~1.4 m/s. A model without it keeps BLEND_POINTS as is.
+const WALK_CLIP := &"walk"
+const WALK_BLEND := Tuning.WALK_SPEED / Tuning.SPRINT_SPEED
 const BLEND_POINTS := [
 	[Vector2(0.0, 0.0), &"idle"],
 	[Vector2(0.0, JOG_BLEND), &"jog_fwd"],
@@ -142,10 +148,15 @@ const HIPS_TRACK := ^"Skeleton3D:Hips"
 ## up to STRIDE_BACK_MAX_RATE. Unplaytested feel guesses.
 const GAIT_NODE := &"gait"
 const STRIDE_NODE := &"stride"
-const STRIDE_CLIPS: Array[StringName] = [&"jog_fwd", &"run_fwd", &"run_back"]
+const STRIDE_CLIPS: Array[StringName] = [&"walk", &"jog_fwd", &"run_fwd", &"run_back"]
 const STRIDE_CADENCE := Vector2(3.4, 5.2)
 const STRIDE_CADENCE_LIMITS := Vector2(1.8, 5.8)
 const STRIDE_MIN_RATE := 0.85
+## The floor for a model with a walk clip: a walk authored on the jog's
+## cycle length plays at ~0.7 to put its feet down at walking pace. A model
+## without one keeps STRIDE_MIN_RATE (lowering it for everyone changed
+## Build 6's tackle_sweep output, so the floor does bind somewhere).
+const STRIDE_MIN_RATE_WITH_WALK := 0.6
 const STRIDE_BACK_MAX_RATE := 1.3
 ## Blend magnitude under which the rate eases back to 1, so a standing
 ## player's idle sway plays as authored.
@@ -176,7 +187,7 @@ const STRIDE_SAMPLE_STEP := 1.0 / 60.0
 ## jog: a jog-family clip only turns, and the run family is played back up
 ## to speed by the stride rate anyway. idle has no stride and keeps its own
 ## slow loop.
-const PHASE_LOCK_CLIPS: Array[StringName] = [&"jog_fwd", &"run_fwd", &"run_back", &"strafe_l",
+const PHASE_LOCK_CLIPS: Array[StringName] = [&"walk", &"jog_fwd", &"run_fwd", &"run_back", &"strafe_l",
 	&"strafe_r", &"run_fwd_l", &"run_fwd_r"]
 const PHASE_LOCK_REFERENCE := &"jog_fwd"
 const PHASE_LOCK_SAMPLE_RATE := 60.0
@@ -215,6 +226,28 @@ const LEAN_RELEASE_SMOOTHING := 3.5
 const BANK_SHARE := 0.6
 const BANK_MAX_DEG := 14.0
 const BANK_SMOOTHING := 8.0
+
+## ── Contact reaction ────────────────────────────────────────────────
+## Players who ran into each other, or took a glancing bump or a contest
+## nudge, only had their velocity changed: the capsule slid off or was
+## knocked back under an animation that never knew. react_to_contact()
+## kicks a spring on the torso: it rocks away from the push (the velocity
+## change, in m/s) and back, about CONTACT_SWAY_HZ and a little under
+## critically damped, so a solid knock wobbles once and settles. With
+## `hands` (contact in front) the arms also come up and forward, palms to
+## the other body, and drop again after CONTACT_HANDS_HOLD. Purely visual:
+## rolled into LEAN_BONE and the upper arms in the same post-mix pass as
+## the drive lean; nothing in gameplay reads it, and a ragdoll clears it.
+## docs/ANIMATION_RAGDOLL_AUDIT.md "Phase 3". Unplaytested feel guesses.
+const CONTACT_SWAY_HZ := 3.0
+const CONTACT_SWAY_DAMPING := 0.45   ## of critical
+const CONTACT_SWAY_KICK_DEG := 70.0  ## deg/s of sway rate per m/s of push
+const CONTACT_SWAY_MAX_DEG := 18.0
+const CONTACT_HANDS_REACH_DEG := 55.0  ## shoulder flexion at full brace
+const CONTACT_HANDS_HOLD := 0.3        ## s at full brace after a contact
+const CONTACT_HANDS_RISE := 25.0       ## 1/s, exponential
+const CONTACT_HANDS_FALL := 6.0        ## 1/s
+const CONTACT_ARM_BONES: Array[StringName] = [&"LeftUpperArm", &"RightUpperArm"]
 
 ## ── Ball carry ──────────────────────────────────────────────────────
 ## Playtest 2026-10-28: "the ball is also not in the players hands it is
@@ -274,6 +307,12 @@ const LOCOMOTION_STATE := &"locomotion"
 const BLEND_SMOOTHING := 14.0     ## exponential rate; stops the blend snapping
 const ACTION_BLEND_IN := 0.10     ## s
 const ACTION_BLEND_OUT := 0.18    ## s
+## Longer blends back to locomotion for clips that end far from a standing
+## run (s). Presentation only: gameplay hands control back on the action's
+## own timer either way. smother_dive ends in a low crouch on its way up
+## from the turf (it used to snap upright in its last 0.04 s); a model whose
+## dive still ends standing just blends a little slower.
+const ACTION_BLEND_OUT_BY_STATE := {&"smother_dive": 0.32}
 
 ## HumanoidRig's own Boot mesh sits 0.07m below the ankle (Foot) bone
 ## (_box_on("Boot"..., size.y=0.07, offset.y=-0.035) — a box centred 0.035m
@@ -326,6 +365,12 @@ var _lean_deg := 0.0
 var _last_speed := 0.0
 ## See "Turn bank": degrees, positive = toward the body's right.
 var _bank_deg := 0.0
+## See "Contact reaction": torso sway (x toward the body's right, y
+## forward), degrees and deg/s, and the arms' brace weight and hold time.
+var _sway := Vector2.ZERO
+var _sway_rate := Vector2.ZERO
+var _brace := 0.0
+var _brace_hold := 0.0
 var _last_velocity := Vector3.ZERO
 
 ## See "Ball carry". _grip is {hand bone: {"bone": index, "centre": the
@@ -449,7 +494,15 @@ func _stride_rate_for(speed: float) -> float:
 	else:
 		var jog: Dictionary = _strides.get(&"jog_fwd", {})
 		var run: Dictionary = _strides.get(&"run_fwd", jog)
-		if reach <= JOG_BLEND:
+		var walk: Dictionary = _strides.get(WALK_CLIP, {})
+		if not walk.is_empty() and reach <= WALK_BLEND:
+			authored = reach / WALK_BLEND * float(walk.get("speed", 0.0))
+			cadence = float(walk.get("cadence", 0.0))
+		elif not walk.is_empty() and reach <= JOG_BLEND:
+			var w := (reach - WALK_BLEND) / (JOG_BLEND - WALK_BLEND)
+			authored = lerpf(float(walk.get("speed", 0.0)), float(jog.get("speed", 0.0)), w)
+			cadence = lerpf(float(walk.get("cadence", 0.0)), float(jog.get("cadence", 0.0)), w)
+		elif reach <= JOG_BLEND:
 			authored = reach / JOG_BLEND * float(jog.get("speed", 0.0))
 			cadence = float(jog.get("cadence", 0.0))
 		else:
@@ -465,7 +518,8 @@ func _stride_rate_for(speed: float) -> float:
 		return lerpf(1.0, clampf(speed / authored, 1.0, STRIDE_BACK_MAX_RATE), clampf(reach / STRIDE_FADE, 0.0, 1.0))
 	var steps := clampf(remap(speed, Tuning.JOG_SPEED, Tuning.SPRINT_SPEED, STRIDE_CADENCE.x, STRIDE_CADENCE.y),
 		STRIDE_CADENCE_LIMITS.x, STRIDE_CADENCE_LIMITS.y)
-	var rate := clampf(speed / authored, STRIDE_MIN_RATE, maxf(steps / cadence, STRIDE_MIN_RATE))
+	var floor_rate := STRIDE_MIN_RATE_WITH_WALK if _strides.has(WALK_CLIP) else STRIDE_MIN_RATE
+	var rate := clampf(speed / authored, floor_rate, maxf(steps / cadence, floor_rate))
 	return lerpf(1.0, rate, clampf(reach / STRIDE_FADE, 0.0, 1.0))
 
 
@@ -515,8 +569,9 @@ func bank_degrees() -> float:
 ## PlayerAnimation under both player.tscn and animation_viewer.gd's
 ## equivalent (Godot processes siblings in child order), so its mixing has
 ## already run for this same frame by the time this fires.
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	_apply_lean()
+	_apply_contact_reaction(delta)
 	_clamp_feet_to_ground()
 	_update_ball_hold()
 
@@ -549,6 +604,83 @@ func _apply_lean() -> void:
 		forward = (to_parent * forward).normalized()
 	var turn := Quaternion(right, -deg_to_rad(_lean_deg)) * Quaternion(forward, deg_to_rad(_bank_deg))
 	skeleton.set_bone_pose_rotation(_lean_bone, turn * skeleton.get_bone_pose_rotation(_lean_bone))
+
+
+## See "Contact reaction". `push` is the velocity change the contact gave
+## this body (world, m/s); `hands` brings the arms up to the other body.
+func react_to_contact(push: Vector3, hands := false) -> void:
+	var body := get_parent() as Node3D
+	if ragdoll_active or body == null:
+		return
+	var flat := Vector3(push.x, 0.0, push.z)
+	_sway_rate += Vector2(flat.dot(body.global_basis.x), flat.dot(-body.global_basis.z)) \
+		* CONTACT_SWAY_KICK_DEG
+	if hands:
+		_brace_hold = CONTACT_HANDS_HOLD
+
+
+## Drops any contact reaction at once: a ragdoll taking over (even while
+## its first build is pending) starts from the plain animated pose, and
+## the hit it's taking is its own reaction.
+func clear_contact_reaction() -> void:
+	_sway = Vector2.ZERO
+	_sway_rate = Vector2.ZERO
+	_brace = 0.0
+	_brace_hold = 0.0
+
+
+## True while a contact reaction is still moving the pose (for checks).
+func contact_reaction_active() -> bool:
+	return _sway.length() > 0.05 or _sway_rate.length() > 0.5 or _brace > 0.01
+
+
+func _apply_contact_reaction(delta: float) -> void:
+	if ragdoll_active:
+		clear_contact_reaction()
+		return
+	if not contact_reaction_active() and _brace_hold <= 0.0:
+		return
+	# Semi-implicit spring: steady at physics and render rates alike.
+	var omega := TAU * CONTACT_SWAY_HZ
+	_sway_rate += (-_sway * omega * omega - _sway_rate * 2.0 * CONTACT_SWAY_DAMPING * omega) * delta
+	_sway += _sway_rate * delta
+	if _sway.length() > CONTACT_SWAY_MAX_DEG:
+		_sway = _sway.normalized() * CONTACT_SWAY_MAX_DEG
+		_sway_rate -= _sway.normalized() * maxf(_sway_rate.dot(_sway.normalized()), 0.0)
+	_brace_hold = maxf(_brace_hold - delta, 0.0)
+	var rate := CONTACT_HANDS_RISE if _brace_hold > 0.0 else CONTACT_HANDS_FALL
+	_brace = lerpf(_brace, 1.0 if _brace_hold > 0.0 else 0.0, 1.0 - exp(-rate * delta))
+	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D if _rig != null else null
+	var body := get_parent() as Node3D
+	if skeleton == null or body == null:
+		return
+	var to_skeleton := skeleton.global_basis.orthonormalized().inverse()
+	var right := (to_skeleton * body.global_basis.x).normalized()
+	var forward := (to_skeleton * -body.global_basis.z).normalized()
+	# As in _apply_lean: a skeleton-space turn taken into the bone's parent's
+	# frame. Forward sway tips the spine forward, sideways rolls it.
+	if _lean_bone >= 0:
+		_turn_bone(skeleton, _lean_bone, Quaternion(right, -deg_to_rad(_sway.y))
+			* Quaternion(forward, deg_to_rad(_sway.x)))
+	if _brace > 0.01:
+		var controller := body as PlayerController
+		if controller != null and controller.is_carrying():
+			return   # the carry layer has the arms (see "Ball carry")
+		for bone_name in CONTACT_ARM_BONES:
+			var bone := skeleton.find_bone(bone_name)
+			if bone >= 0:
+				# Opposite sign to the lean's: that tips an upward bone forward,
+				# this swings a hanging one forward.
+				_turn_bone(skeleton, bone, Quaternion(right, deg_to_rad(CONTACT_HANDS_REACH_DEG * _brace)))
+
+
+## Turns `bone` by `turn` (a skeleton-space rotation) on top of its pose.
+static func _turn_bone(skeleton: Skeleton3D, bone: int, turn: Quaternion) -> void:
+	var parent := skeleton.get_bone_parent(bone)
+	if parent >= 0:
+		var to_parent := skeleton.get_bone_global_pose(parent).basis.orthonormalized().get_rotation_quaternion().inverse()
+		turn = to_parent * turn * to_parent.inverse()
+	skeleton.set_bone_pose_rotation(bone, turn * skeleton.get_bone_pose_rotation(bone))
 
 
 ## A deliberately simple ground-contact fix, not full per-leg IK: the
@@ -636,6 +768,37 @@ func _update_ball_hold() -> void:
 func note_catch(world_position: Vector3) -> void:
 	_catch_from = world_position
 	_catch_glide = 0.0
+
+
+func _skeleton_or_null() -> Skeleton3D:
+	if _rig == null:
+		return null
+	return _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
+
+
+## World position of where a ball held in `hand` would sit — that hand's
+## grip centre, so the palm plus the ball's own radius — or Vector3.INF on a
+## rig with no measured grip. The ruck's hit-out measures from it, so the
+## tap needs the hand on the ball, not just the body near it.
+func hand_world_position(hand: StringName = &"RightHand") -> Vector3:
+	var skeleton := _skeleton_or_null()
+	if skeleton == null or not _grip.has(hand):
+		return Vector3.INF
+	var grip: Dictionary = _grip[hand]
+	return skeleton.global_transform * (skeleton.get_bone_global_pose(int(grip.bone)) * (grip.centre as Vector3))
+
+
+## World position of the shoulder `hand` hangs off (the hand bone's
+## grandparent: forearm, then upper arm), or Vector3.INF. Steadier than the
+## hand itself for aiming a leap: it doesn't swing up as the arm does.
+func shoulder_world_position(hand: StringName = &"RightHand") -> Vector3:
+	var skeleton := _skeleton_or_null()
+	if skeleton == null or not _grip.has(hand):
+		return Vector3.INF
+	var bone := skeleton.get_bone_parent(skeleton.get_bone_parent(int((_grip[hand] as Dictionary).bone)))
+	if bone < 0:
+		return Vector3.INF
+	return skeleton.global_transform * skeleton.get_bone_global_pose(bone).origin
 
 
 ## Where the hands have the ball, body space: between the two grips while
@@ -1182,7 +1345,7 @@ func _build_state_machine() -> AnimationNodeStateMachine:
 				AnimationNodeStateMachineTransition.SWITCH_MODE_IMMEDIATE,
 				AnimationNodeStateMachineTransition.ADVANCE_MODE_ENABLED))
 		machine.add_transition(state, LOCOMOTION_STATE,
-			_transition(ACTION_BLEND_OUT,
+			_transition(ACTION_BLEND_OUT_BY_STATE.get(state, ACTION_BLEND_OUT),
 				AnimationNodeStateMachineTransition.SWITCH_MODE_AT_END,
 				AnimationNodeStateMachineTransition.ADVANCE_MODE_AUTO))
 
@@ -1290,6 +1453,10 @@ func _build_blend_space() -> AnimationNodeBlendSpace2D:
 		var clip := AnimationNodeAnimation.new()
 		clip.animation = point[1] as StringName
 		space.add_blend_point(clip, point[0] as Vector2)
+	if _player.has_animation(WALK_CLIP):
+		var walk := AnimationNodeAnimation.new()
+		walk.animation = WALK_CLIP
+		space.add_blend_point(walk, Vector2(0.0, WALK_BLEND))
 	return space
 
 

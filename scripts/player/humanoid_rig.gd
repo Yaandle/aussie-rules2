@@ -79,8 +79,11 @@ extends Node3D
 ## kit_* overrides below, else TeamKit (HOME = the CHARACTER screen's kit,
 ## AWAY = a preset picked to contrast with it). An imported mesh is
 ## recoloured by material name (_recolour_imported: "Shirt"/"Jersey",
-## "Short", "Shoe"/"Boot", "Sock", "Skin") and, since neither Blender build
-## has socks, gets a sock tube per lower leg (_add_imported_socks). Only
+## "Short", "Shoe"/"Boot", "Sock", "Skin", plus "Trim"/"Number" in a colour
+## contrasting with the jersey) and, unless it models its own socks (only
+## 7thbuild does), gets a sock tube per lower leg (_add_imported_socks).
+## 7thbuild is one surface on one "Kit" material instead: the kit shader
+## colours it per face and draws guernsey_number (_apply_kit_shader). Only
 ## kit_stripes stays procedural-only, so Umpire still sets
 ## allow_imported_character = false before add_child() to keep its stripes.
 
@@ -129,6 +132,22 @@ const COLOUR_TREAD := Color("#141513")
 @export var kit_stripes := 0
 @export var kit_stripe_colour := Color("#1b1c20")
 
+## The number on the back, 1-99, set before add_child by whoever spawns the
+## player (a Career roster's number, else the team slot). Only a model with
+## the kit shader draws it (7thbuild); 0 means none was set and shows
+## DEFAULT_GUERNSEY_NUMBER, the single number the first Build 7 wore.
+@export var guernsey_number := 0
+const DEFAULT_GUERNSEY_NUMBER := 17
+
+## Hair colour, alpha 0 = unset: then one of HAIR_COLOURS picked by the
+## guernsey number, so a team isn't all one hair colour and a player keeps
+## theirs from match to match. Kit-shader models only (7thbuild).
+@export var kit_hair := Color(0.0, 0.0, 0.0, 0.0)
+## Dark brown, black, brown, mid brown, dark blond, auburn, near black,
+## sandy. Weighted to the darker shades by repetition. Unplaytested look.
+const HAIR_COLOURS := [Color("#2b1d14"), Color("#121012"), Color("#3e2a1c"), Color("#4a3322"),
+	Color("#8a6a3e"), Color("#5c2e1c"), Color("#1d1714"), Color("#a78452")]
+
 ## Viewer-only high-fidelity switch (scripts/dev/animation_viewer.gd sets it
 ## before _ready). A dev screen renders one to three bodies, not 16-a-side,
 ## so it can afford much rounder primitives and slightly richer materials
@@ -152,6 +171,10 @@ const DETAIL_SCALE := 2.4
 const CHARACTER_MODELS := {
 	"fifthbuild": "res://assets/characters/fifthbuild.glb",
 	"6thbuild": "res://assets/characters/6thbuild.glb",
+	## Build 7: 6thbuild's skeleton and clips under a new skin (docs/
+	## BUILD7_MODEL.md). Same bones, so the ragdoll, mark variants and every
+	## gameplay anchor treat it exactly as 6thbuild.
+	"7thbuild": "res://assets/characters/7thbuild.glb",
 }
 
 ## Set false by callers whose kit_* colour overrides only work on the
@@ -246,7 +269,8 @@ func _build() -> void:
 	if allow_imported_character and _try_build_from_import():
 		_imported = true
 		_recolour_imported(self, kit)
-		_add_imported_socks(kit["socks"])
+		if not _imported_has_socks:
+			_add_imported_socks(kit["socks"])
 		return
 
 	var guernsey: Color = kit["jersey"]
@@ -352,6 +376,11 @@ func _build() -> void:
 ## no skeleton inside — never partially builds.
 func _try_build_from_import() -> bool:
 	var model_path: String = CHARACTER_MODELS.get(selected_model(), "")
+	# Dev reviews (scripts/dev/build_compare.gd) can name a .glb directly, so
+	# a "before" copy of a model stands beside its rebuilt self without a
+	# CHARACTER_MODELS entry. A saved profile never holds a path.
+	if model_path == "" and selected_model().begins_with("res://"):
+		model_path = selected_model()
 	if model_path == "" or not ResourceLoader.exists(model_path):
 		return false
 	var packed: PackedScene = load(model_path)
@@ -415,18 +444,32 @@ func _resolved_kit() -> Dictionary:
 		if c.a > 0.0:
 			kit[slot] = c
 	kit["skin"] = kit_skin if kit_skin.a > 0.0 else COLOUR_SKIN
+	kit["trim"] = COLOUR_TRIM_ON_LIGHT if (kit["jersey"] as Color).get_luminance() > TRIM_LUMINANCE_SPLIT else COLOUR_TRIM
 	return kit
 
 
 ## Material resource_name fragment (lower case) -> kit slot, first match
 ## wins. Covers both builds' Blender names (6thbuild: Shirt_Mat/Shorts_Mat/
 ## Shoes_Mat/Skin.001, fifthbuild: JerseyColour/ShortsColour/BootsColour/
-## SkinColour). A future export with a "Sock" material gets recoloured too;
-## an unmatched material keeps its Blender colour.
+## SkinColour, 7thbuild: Socks_Mat, Trim_Mat, Number_Mat as well). An
+## unmatched material keeps its Blender colour (7thbuild's Hair, Eyes, Studs).
+## "trim" (a collar) and "number" (the guernsey number) take kit["trim"],
+## which contrasts with the jersey, so neither vanishes on any kit.
 const IMPORTED_MATERIAL_SLOTS := [
 	["sock", "socks"], ["short", "shorts"], ["shirt", "jersey"], ["jersey", "jersey"],
 	["guernsey", "jersey"], ["shoe", "boot"], ["boot", "boot"], ["skin", "skin"],
+	["trim", "trim"], ["number", "trim"],
 ]
+
+## kit["trim"]: dark trim on a jersey brighter than this luminance, else the
+## off-white COLOUR_TRIM. Unplaytested feel guess; only an import with a
+## Trim/Number material (7thbuild) reads it.
+const TRIM_LUMINANCE_SPLIT := 0.55
+const COLOUR_TRIM_ON_LIGHT := Color("#1b1c20")
+
+## True once _recolour_imported() has met a "sock" material: the model brings
+## its own socks, so _add_imported_socks() mustn't wrap capsules over them.
+var _imported_has_socks := false
 
 ## (source material, colour) -> recoloured duplicate, shared across every
 ## rig so 32 players in two kits share two sets of materials, not 32.
@@ -440,7 +483,12 @@ func _recolour_imported(node: Node, kit: Dictionary) -> void:
 				var source := mi.mesh.surface_get_material(surface) as BaseMaterial3D
 				if source == null:
 					continue
+				if source.resource_name.to_lower().contains(KIT_MATERIAL_WORD):
+					_apply_kit_shader(mi, surface, kit)
+					continue
 				var slot := _imported_slot(source.resource_name)
+				if slot == "socks":
+					_imported_has_socks = true
 				# Unset skin keeps the model's own authored tone rather
 				# than snapping to the procedural COLOUR_SKIN.
 				if slot == "skin" and kit_skin.a <= 0.0:
@@ -449,6 +497,33 @@ func _recolour_imported(node: Node, kit: Dictionary) -> void:
 					mi.set_surface_override_material(surface, _imported_material(source, kit[slot]))
 	for child in node.get_children():
 		_recolour_imported(child, kit)
+
+
+## A material whose Blender name holds this word ("Kit_Mat", 7thbuild's
+## only material) is the whole body in one surface, coloured per face by
+## assets/shaders/player_kit.gdshader. Every rig shares one ShaderMaterial;
+## each MeshInstance3D carries its own colours and number as instance
+## shader parameters, so two kits (and 36 numbers) cost no extra materials.
+## Its socks are part of it, so no stand-in sock capsules.
+const KIT_MATERIAL_WORD := "kit"
+const KIT_SHADER := preload("res://assets/shaders/player_kit.gdshader")
+static var _kit_material: ShaderMaterial
+
+func _apply_kit_shader(mi: MeshInstance3D, surface: int, kit: Dictionary) -> void:
+	if _kit_material == null:
+		_kit_material = ShaderMaterial.new()
+		_kit_material.shader = KIT_SHADER
+	mi.set_surface_override_material(surface, _kit_material)
+	_imported_has_socks = true
+	for slot: String in ["jersey", "shorts", "socks", "boot", "trim"]:
+		mi.set_instance_shader_parameter(&"kit_" + slot, kit[slot])
+	# Unset skin keeps the model's own authored tone (the shader's default).
+	if kit_skin.a > 0.0:
+		mi.set_instance_shader_parameter(&"kit_skin", kit["skin"])
+	var number := guernsey_number if guernsey_number > 0 else DEFAULT_GUERNSEY_NUMBER
+	mi.set_instance_shader_parameter(&"kit_number", clampi(number, 0, 99))
+	var hair: Color = kit_hair if kit_hair.a > 0.0 else HAIR_COLOURS[number % HAIR_COLOURS.size()]
+	mi.set_instance_shader_parameter(&"kit_hair", hair)
 
 
 func _imported_slot(material_name: String) -> String:
@@ -469,8 +544,9 @@ func _imported_material(source: BaseMaterial3D, colour: Color) -> BaseMaterial3D
 	return material
 
 
-## Neither Blender build models socks (bare skinned legs), so a capsule per
-## lower leg stands in, riding the same BoneAttachment3D path the procedural
+## fifthbuild and 6thbuild don't model socks (bare skinned legs), so a
+## capsule per lower leg stands in (7thbuild has its own; see
+## _imported_has_socks), riding the same BoneAttachment3D path the procedural
 ## parts use. Placed along the real LowerLeg -> Foot rest vector rather than
 ## the procedural rig's "-Y hangs down the limb" convention, which is
 ## unverified for imported skeletons (see the axis note in the header).

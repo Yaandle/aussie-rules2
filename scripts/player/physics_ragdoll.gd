@@ -330,6 +330,21 @@ var bodies := {}
 ## 0 = passive (stage 1), 1 = motors and balance at full strength. The one
 ## dial a caller turns — see the header's "Motors".
 var strength := 0.0
+## Share of the body's weight the balance assist carries while it holds —
+## SUPPORT_SHARE unless the hit asks for more (PlayerRagdoll sets it each
+## time it goes rigid). A stumble that should stay on its feet carries more
+## of it, so the body doesn't sink onto its heels.
+var support_share := SUPPORT_SHARE
+## Whether the balance assist reads the body's tilt relative to its feet,
+## not from its absolute momentum. A body carried along at running pace
+## isn't tilting, but read absolutely the assist takes a runner's whole run
+## as a forward topple and cancels it: a strong stumbling body stopped dead
+## in a tenth of a second and over-corrected into a backward lean
+## (2026-10-30). Off for tackles: their bodies are weak enough that the
+## assist barely acts, and switching it on for all of them moved the
+## tackle sweep's falls (one carrier spun at 200 rad/s). Set each time the
+## ragdoll goes rigid (PlayerRagdoll, the hit's "tilt_from_feet").
+var tilt_from_feet := false
 
 ## bone -> world direction its segment should point (body +Y), set fresh
 ## each tick by whoever owns those limbs for now: TackleWrap's arms reaching
@@ -986,13 +1001,18 @@ func _apply_balance(s: float, delta: float) -> bool:
 	# the lean. Full support from the ramp's top keeps those standing until
 	# the give-up angle decides; under its bottom (every live tackle sits at
 	# 0.4 or less) there's next to none, so a connected tackle goes down.
-	var support := Vector3.UP * _gravity() * delta * SUPPORT_SHARE \
+	var support := Vector3.UP * _gravity() * delta * support_share \
 		* smoothstep(SUPPORT_RAMP.x, SUPPORT_RAMP.y, s)
 	s *= s   # tilt authority — see UPRIGHT_*
 	var axis := lean.cross(Vector3.UP)
 	var err := axis.normalized() * angle if axis.length_squared() > 1e-10 else Vector3.ZERO
-	# The whole body's tilt rate about the pivot, from its centre of mass.
-	var spin := r.cross(linear_momentum() / total_mass()) / (height * height)
+	# The whole body's tilt rate about the pivot, from its centre of mass —
+	# relative to the feet when tilt_from_feet (see there).
+	var carried := Vector3.ZERO
+	if tilt_from_feet:
+		carried = ((bodies["LeftFoot"] as PhysicalBone3D).linear_velocity
+			+ (bodies["RightFoot"] as PhysicalBone3D).linear_velocity) * 0.5
+	var spin := r.cross(linear_momentum() / total_mass() - carried) / (height * height)
 	var dw := (err * UPRIGHT_RATE - spin) * UPRIGHT_GAIN * s
 	dw.y = 0.0
 	var turning := dw.length_squared() > 1e-10

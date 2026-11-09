@@ -1,0 +1,10 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/dev/build_compare.gd" id="1_compare"]
+
+; Dev-only (not on any menu): Build 6 and Build 7 side by side on the same
+; clips, plus a passive ragdoll and the kits, saved to docs/review/7thbuild/.
+; Run windowed; see the script header.
+
+[node name="BuildCompare" type="Node3D"]
+script = ExtResource("1_compare")

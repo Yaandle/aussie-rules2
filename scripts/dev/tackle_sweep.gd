@@ -2,7 +2,8 @@ extends Node3D
 
 ## Headless regression sweep for ragdoll tackles: real held-Lunge (X),
 ## Sling (B) and clean-bump connects between pairs of 6thbuild players who
-## are already running, and how every body falls. Each pair's hit is its
+## are already running, and how every body falls; and a whiffed bump (the
+## bumper's stumble, which should end "up"). Each pair's hit is its
 ## FIRST, so each ragdoll builds on the spot, mid-animation — the path a
 ## match takes. Nothing here runs in gameplay and nothing is saved
 ## (CharacterProfile.model_id is only set in memory).
@@ -35,13 +36,35 @@ extends Node3D
 ## the tacklers' worst joint was an elbow in 8 of 12 Lunges (up to +47°)
 ## and a forearm whipped to 335 rad/s. The code before the audit, on the
 ## same cases: hip_back ~100°, knees folding to ~180°, start up to 62 (t).
+##
+## 2026-10-30: the bump_miss case added (t: up, 2.1 m on, back at 0.47 s,
+## peak spin 15). The sweep is deterministic run to run, but a new case
+## moves every pair's spawn point, and the falls are chaotic enough that
+## the old cases' rows shift with it: same worst-of numbers for the
+## carriers (74 spin, 60 hip_back, +42 joint), and lunge standing from 90°
+## left its tackler up (DOWN before). Without the new case the code of
+## 2026-10-30 reproduces the 10-28 rows exactly. Compare like with like.
+##
+## Then "who wins the collision" (each row prints its outcome, drive and b):
+## head-on X at an even pace and 45°/315° are now "fall" (the carrier down
+## on their own, tackler up); every side-on, from-behind and standing X is
+## still "wrap" with both down; the head-on B and the 100/80 kg head-on X
+## are "stand" (c up, ~0.1 m); a sprinting B into a jogging carrier slings.
+## Worst of: c spin 82 rad/s, hip_back 60°, joint +38°; t spin 47,
+## hip_back 54°, joint +42°; every wrap tackler down.
+##
+## 2026-11-09: still byte-identical on Build 6. Build 7 (a copy with
+## MODEL_ID = "7thbuild") after its elbows were fitted to the hinge: start
+## worst 17.5 / 18.0, spin 82 / 118; docs/ANIMATION_RAGDOLL_AUDIT.md's
+## Phase 3 section has the 256-fall comparison.
 
 const PlayerScene := preload("res://scenes/player/player.tscn")
 const MODEL_ID := "6thbuild"
 
 ## [kind, carrier's run bearing (deg, 0 = -Z), carrier gait (0 = standing),
 ## where the tackler comes from relative to the carrier's run (0 = head-on,
-## 90 = their right, 180 = behind), tackler gait]
+## 90 = their right, 180 = behind), tackler gait, and optionally carrier and
+## tackler body mass (kg, else PLAYER_DEFAULT_MASS_KG)]
 const CASES := [
 	[&"lunge", 0.0, 1.0, 0.0, 1.0],
 	[&"lunge", 0.0, 1.0, 45.0, 1.0],
@@ -59,6 +82,12 @@ const CASES := [
 	[&"sling", 0.0, 1.0, 90.0, 1.0],
 	[&"bump", 0.0, 1.0, 0.0, 0.7],
 	[&"bump", 0.0, 1.0, 90.0, 0.7],
+	[&"bump_miss", 0.0, 1.0, 0.0, 1.0],
+	# Who wins the collision (2026-10-30): head-on, by mass and pace.
+	[&"lunge", 0.0, 1.0, 0.0, 1.0, 100.0, 80.0],
+	[&"lunge", 0.0, 1.0, 0.0, 1.0, 65.0, 90.0],
+	[&"sling", 0.0, 0.6, 0.0, 1.0],
+	[&"sling", 0.0, 1.0, 0.0, 0.6],
 ]
 ## Physics frames of running before the hit (long enough to be mid-stride at
 ## pace), then frames watched after it (past the longest get-up).
@@ -135,6 +164,9 @@ func _spawn_pair(spec: Array, base: Vector3) -> Dictionary:
 	carrier.team = Tuning.Team.HOME
 	var tackler: PlayerController = PlayerScene.instantiate()
 	tackler.team = Tuning.Team.AWAY
+	if spec.size() > 6:
+		carrier.body_mass = spec[5]
+		tackler.body_mass = spec[6]
 	add_child(carrier)
 	add_child(tackler)
 	var carrier_brain := ScriptedBrain.new()
@@ -170,6 +202,7 @@ func _hit(pair: Dictionary) -> void:
 				carrier.global_position, carrier.velocity, carrier.body_mass,
 				Tuning.TACKLE_RAGDOLL_MIN_BALANCE_LOSS, -carrier.global_transform.basis.z)
 			pair.direction = impact.direction
+			tackler.last_tackle = impact.duplicate()
 			tackler._lunge_connect(carrier, impact, false)
 		&"sling":
 			var impact := TackleBalance.resolve(tackler.global_position,
@@ -179,11 +212,21 @@ func _hit(pair: Dictionary) -> void:
 			# Always the knockdown, whatever this hit's b would have been.
 			impact.b = maxf(float(impact.b), Tuning.TACKLE_SLIDE_KNOCKDOWN_B)
 			pair.direction = impact.direction
+			tackler.last_tackle = impact.duplicate()
 			tackler._slide_connect(carrier, impact, false)
 		&"bump":
 			tackler._bump_dash_direction = -from
 			pair.direction = -from
 			tackler._resolve_bump_contact(carrier, true)
+		&"bump_miss":
+			# A whiffed dash: nobody there. The tackler's own run line, well
+			# clear of the carrier, at the dash's speed when it ran out.
+			tackler.global_position = (pair.contact as Vector3) + Vector3(12.0, 0.0, 0.0)
+			pair.contact = tackler.global_position
+			tackler._bump_dash_direction = -from
+			tackler.velocity = -from * Tuning.BUMP_DASH_SPEED
+			pair.direction = -from
+			tackler._resolve_bump_miss()
 	(carrier.brain() as ScriptedBrain).direction = Vector3.ZERO
 	(tackler.brain() as ScriptedBrain).direction = Vector3.ZERO
 
@@ -225,7 +268,12 @@ func _report() -> void:
 	var totals := {}
 	for pair in _pairs:
 		var spec: Array = pair.spec
+		var tackler: PlayerController = pair[&"t"]
 		var line := "%-5s %s from %3.0f°" % [spec[0], "running " if spec[2] > 0.0 else "standing", spec[3]]
+		if spec.size() > 6:
+			line += " %.0f/%.0f kg" % [spec[5], spec[6]]
+		line += " -> %s (drive %+.1f, b %.2f)" % [tackler.last_tackle.get("outcome", "-"),
+			float(tackler.last_tackle.get("drive", NAN)), float(tackler.last_tackle.get("b", NAN))]
 		for tag: StringName in [&"c", &"t"]:
 			line += " | " + _describe(pair, tag, totals)
 		print(line)
