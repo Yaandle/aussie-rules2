@@ -22,11 +22,12 @@ the first version (commit 467e256).
 | Review sheets from Blender | `tools/blender/render_7thbuild_review.py`: turnaround, poses, close-ups, wireframe |
 | Kit shader | `assets/shaders/player_kit.gdshader` |
 | Gait clips (Build 7 only) | `tools/blender/author_7thbuild_gaits.py` (walk, jog, run, diagonals); `fix_7thbuild_knee_flips.py` (IK pole re-key); motion notes in `ANIMATION_RAGDOLL_AUDIT.md` (2026-11-09) |
+| Idle (Build 7 only) | `tools/blender/author_7thbuild_idle.py`: arms down, a slow breath. The inherited A-pose idle is kept as `idle_base`, which the clip scripts build from |
 | Runtime asset | `assets/characters/7thbuild.glb` |
 | Godot entry | `HumanoidRig.CHARACTER_MODELS["7thbuild"]` |
 | In-game side-by-side | `scenes/dev/build_compare.tscn` (run windowed; takes `--models=`, `--shots=`) |
 | Render cost | `scenes/dev/model_cost.tscn` (run windowed; a grid of N bodies, or a real match) |
-| Review images | `docs/review/7thbuild/polish/` (this pass), `docs/review/7thbuild/` (Build 7 before); `.gdignore`d |
+| Review images | `docs/review/7thbuild/shoulders/` (2026-11-09), `docs/review/7thbuild/polish/` (2026-11-08), `docs/review/7thbuild/` (Build 7 before); `.gdignore`d |
 
 Build 6 still lives at `F:\dev\learning-&-development\New Folder\6thbuild.blend`
 (outside the repo) and `assets/characters/6thbuild.glb`. Neither was written to.
@@ -57,20 +58,26 @@ export reads the actions, not the viewport pose.
 
 ## What it looks like
 
-- **Proportions.** An athlete's V: the guernsey is 0.49 m across its
-  shoulder yoke (the deltoids sit outside that) and 0.32 m at the waist,
-  over 0.46 m shorts (Blender units on the 2.15 m rig; Build 7 before had
-  0.43 m of guernsey over 0.49 m of shorts). The guernsey runs out to a shoulder yoke with a
-  trapezius slope up to the collar, and each yoke end tucks under its
-  deltoid. Height and skeleton are unchanged; the bulk is mesh only.
-- **Kit.** A sleeveless guernsey with a crew collar in the trim colour and
-  the player's number on the back. Fitted AFL shorts with the waistband on
+- **Proportions.** Build 6's: a lean AFL build (the league averages
+  about 186 cm and 84 kg) with square shoulders. The guernsey is 0.54 m
+  across its shoulder cap, 0.45 m at the chest and 0.30 m at the waist,
+  over 0.46 m shorts (Blender units on the 2.15 m rig). From the collar the
+  top runs out at ~20° (the trapezius) to a cap over each deltoid, and the
+  cap's side drops straight to the armpit, so the shoulders are one block
+  and the arms hang from under it. Height and skeleton are unchanged; the
+  bulk is mesh only. (The 2026-11-08 polish was a barrel: widest at the
+  chest, 0.26 m deep, its top falling at 32° to deltoids stuck on below
+  it.)
+- **Kit.** A sleeveless guernsey with a crew collar and an armhole binding
+  in the trim colour, and the player's number on the back. Fitted AFL shorts with the waistband on
   the hips, so the guernsey is the biggest colour block at any distance.
   Socks to just below the knee, low-cut boots with a sole a shade off the
   boot colour.
 - **Body.** Quads (the outer sweep and the teardrop over the knee),
-  hamstrings, a kneecap, calves with the inner head lower. Deltoid,
-  biceps and triceps, a forearm bulge below the elbow. A thick neck.
+  hamstrings, a kneecap, calves with the inner head lower. A lean arm: the
+  deltoid's lower half below the cap, a long upper arm (~0.055 m radius),
+  an elbow narrower than the forearm, a forearm bulge below it. A thick
+  neck.
 - **Head.** A V jaw, cheekbones, a brow ridge, a wedge nose, almond eyes in
   the brow's shade, a mouth line, ears. Short back and sides with the
   volume on top and a lift at the front.
@@ -79,8 +86,41 @@ export reads the actions, not the viewport pose.
 - **Shading.** Flat. The profiles run in straight tapers between a few
   kinks, so the facets are big planes, and the joints' support rings sit
   on straight runs where they can, so they don't show as bands.
-- **Budget.** 4,154 triangles in one surface, against Build 7 before's 3,502
-  in ten and Build 6's 4,666 in six (four materials plus two sock capsules).
+- **Budget.** 4,554 triangles in one surface (the guernsey went from 20
+  segments round to 24 for the shoulder's corners, plus the armhole
+  bands), against the 2026-11-08 polish's 4,154, Build 7 before's 3,502 in
+  ten and Build 6's 4,666 in six (four materials plus two sock capsules).
+
+## Shoulders, arms and idle (2026-11-09)
+
+Playtest: the elbows, biceps and shoulders were too large, with no
+transition from arm to shoulder, or from shoulder to torso and neck;
+Build 6's body composition was the one to follow. What changed:
+
+- **Arms** (`build_arms`' table): ~20% slimmer through the deltoid and
+  biceps, the elbow 0.041 m against the forearm's 0.050. The hands are
+  unchanged.
+- **Guernsey** (`GUERNSEY`): Build 6's square shoulder line and V. The
+  cap's outer edge takes 30% of the upper arm (`torso_w`), so a hanging
+  arm rounds it over the deltoid and a raised one lifts it, as the cloth
+  over a real shoulder does. Rigid, the cap stood out over a hanging arm
+  like a shoulder pad.
+- **Armhole binding** (`build_armholes`): a 2.2 cm trim band round the seam
+  where the arm leaves the guernsey at rest. The seam is traced by walking
+  out along the arm mesh until it's outside the guernsey (a ray cast back
+  along the arm missed the cap over the top). It's weighted as the
+  guernsey under it, so the arm turns under it.
+- **Idle** (`author_7thbuild_idle.py`): arms hanging, elbows soft and
+  pointing back on the ragdoll's hinge, a 3 s breath. The upper arm turns
+  ~50° of the ragdoll's 75° swing to hang. Build 6's idle is untouched.
+- **Previews**: `CharacterBackdrop` loops the model's idle (it used to show
+  the rest pose), so the character screens stand in it too.
+
+The deformation check prints the same as before this pass for every clip
+and ragdoll pose (it skips arm-against-guernsey by design; the arm clips
+and the ragdoll limits were checked by eye in `blender_arm_poses.png`).
+The tackle sweep wasn't re-run on Build 7: its standing idle is new, so a
+Build 7 sweep would differ from the old one anyway. Build 6's is untouched.
 
 ## One mesh, one material, per-player kit
 
@@ -247,3 +287,4 @@ Build 7 works round these; a rebuilt skeleton could remove them:
 - **The sprint, dives and falls**: no skin at the shorts' crease should
   show anywhere now.
 - The character screens show 17 (no number is passed to a preview yet).
+- **The 2026-11-09 shoulders and idle**: `docs/PLAYTEST_CHECKLIST.md`.

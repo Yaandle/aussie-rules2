@@ -224,6 +224,14 @@ mostly superseded history. The full text lives outside the repo, in
   (`user://career_profile.cfg`, `settings.cfg`, under
   `%APPDATA%\Godot\app_userdata\Aussie Rules 2`). Back them up first, or
   set state in memory and open the screen directly instead.
+- **A windowed capture gets the user's gamepad.** Godot reads joypads in
+  an unfocused window, so a controller in use (the user playing their own
+  build alongside) drives your capture too: rows moved, a stat nudged, and
+  a Back on the character screen saves `character_profile.cfg`. Back the
+  save files up around any windowed run of a menu, and don't read the
+  frames' cursor or values as yours.
+- `--scene res://...` picks the run scene reliably next to `--write-movie`;
+  a bare positional scene path after it was ignored (the main menu ran).
 - **Committing next to another session's edits in the same file:** with no
   `git add -p`, build the staged copy as `git show HEAD:<file>` plus only
   your hunk, then `git hash-object -w` it and `git update-index --cacheinfo`.

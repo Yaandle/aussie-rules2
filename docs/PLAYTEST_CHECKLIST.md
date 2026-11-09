@@ -7,6 +7,19 @@ own docs: `ANIMATION_RAGDOLL_AUDIT.md` (kick, carry, phase lock, bank,
 tackles), `MECHANICS_AUDIT.md` (ragdoll stages 2-5) and the 2026-10-30
 playtest commit (HUD, park turf, ruck, training).
 
+## Build 7 shoulders, idle and the character screen (2026-11-09, branch `build7-polish`)
+
+See `docs/BUILD7_MODEL.md` ("Shoulders, arms and idle") and the images in
+`docs/review/7thbuild/shoulders/`.
+
+- [ ] **Build 7 body:** square shoulders that run into the arms, slimmer arms and elbows, a V from chest to waist; it should read closer to Build 6's build.
+- [ ] **Armhole edge:** the trim band round each armhole reads as the guernsey's edge at match distance and doesn't flicker when the arms swing.
+- [ ] **Raised arms (marks, spoils):** the shoulder cap lifts with the arm; nothing pokes through on top of the shoulder.
+- [ ] **Standing idle (Build 7):** arms hang relaxed at the sides with a slow breath, at stoppages and on the character screens; no A-pose.
+- [ ] **Tackle on a standing player (Build 7):** the ragdoll starts cleanly from the arms-down idle (no arm snap on the first frame).
+- [ ] **CHARACTER screen:** the player stands on Field 1 (the park) under the match sky, centred right of the card; ATTRIBUTES / APPEARANCE tabs switch with Tab / Y or a click; the hint strip is readable.
+- [ ] **APPEARANCE zoom:** the whole player, head to boots, is in frame (Career's Create/Edit screens got the same framing).
+
 ## Contact (2026-11-09, branch `build7-polish`)
 
 Both builds; see `docs/ANIMATION_RAGDOLL_AUDIT.md`'s Phase 3 section.
