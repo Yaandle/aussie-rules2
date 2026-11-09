@@ -7,6 +7,17 @@ own docs: `ANIMATION_RAGDOLL_AUDIT.md` (kick, carry, phase lock, bank,
 tackles), `MECHANICS_AUDIT.md` (ragdoll stages 2-5) and the 2026-10-30
 playtest commit (HUD, park turf, ruck, training).
 
+## Contact (2026-11-09, branch `build7-polish`)
+
+Both builds; see `docs/ANIMATION_RAGDOLL_AUDIT.md`'s Phase 3 section.
+
+- [ ] **Running into a player head-on (no tackle):** both rock back a few degrees and get their hands up to each other, then settle within a second.
+- [ ] **Shoulder to shoulder at a sprint:** a small sideways sway on contact, no buzzing while you stay pressed together.
+- [ ] **Glancing bump and contest nudge:** the one bumped staggers away from the hit; the nudger rocks back a little.
+- [ ] **Ruck shove against the AI:** both ruckmen rock off the contact.
+- [ ] **Sway size:** 6° on a head-on jog and up to 18° on a hard knock feel right (PlayerAnimation "Contact reaction").
+- [ ] **Build 7 run, arms:** the elbows now point a little differently in the swing (fitted to the ragdoll's elbow); check the swing still looks natural.
+
 ## Mark prompt (2026-11-09)
 
 - [ ] **Uncontested chest mark:** the prompt shows (A) from the start, and holding (A) on the ring takes it.
@@ -23,7 +34,7 @@ Build 7 only; see `docs/ANIMATION_RAGDOLL_AUDIT.md`'s 2026-11-09 section.
 - [ ] **Smother dive:** the diver pushes up and runs on, no snap upright at the end.
 - [ ] **Tackled (canned and the ragdoll get-up):** the knees never flip to the other side.
 - [ ] **Running marks and bounces:** the legs keep the new stride under the catch and the bounce.
-- [ ] **Tackles on Build 7:** the first frames of the fall don't snap (the sweep's hand-off spin roughly doubled; Phase 3).
+- [ ] **Tackles on Build 7:** the first frames of the fall don't snap, and the forearms don't flick (fixed in Phase 3; the hand-off now matches Build 6).
 - [ ] **Turning on the spot:** still spins over idle with sliding feet (not fixed yet).
 
 ## Build 7 polish (2026-11-08, branch `build7-polish`)
