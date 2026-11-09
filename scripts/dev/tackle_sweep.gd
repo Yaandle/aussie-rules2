@@ -53,6 +53,10 @@ extends Node3D
 ## Worst of: c spin 82 rad/s, hip_back 60°, joint +38°; t spin 47,
 ## hip_back 54°, joint +42°; every wrap tackler down.
 ##
+## 2026-11-10: rows shift by centimetres where a held-up tackler now builds
+## a ragdoll for its knock (Jolt solver order); the SUMMARY is unchanged.
+## Knocks on the feet are contact_sweep.tscn's.
+##
 ## 2026-11-09: still byte-identical on Build 6. Build 7 (a copy with
 ## MODEL_ID = "7thbuild") after its elbows were fitted to the hinge: start
 ## worst 17.5 / 18.0, spin 82 / 118; docs/ANIMATION_RAGDOLL_AUDIT.md's

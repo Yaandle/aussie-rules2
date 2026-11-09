@@ -519,3 +519,89 @@ ragdoll for a glancing hit.
 Balance: nothing above touches `TackleBalance`, the GA weights in
 `data/ml/tackle_weights.json` or the MLP mark cue. Item 1 changes no
 contest. Items 2 and 4 would, and need the user's go-ahead.
+
+## 2026-11-10: Contact on the motor ragdoll
+
+The user's brief: players that bump or touch without a tackle should still
+be moved by it, a tackle that leaves both standing (a ball-up) should show,
+and nothing should snap to a stiff clip. Phase 3's contact reaction was a
+procedural sway; this puts the knock on the active ragdoll.
+
+### What changed
+
+| | Before | Now |
+|---|---|---|
+| Two players colliding, a glancing bump, a contest nudge, an AI ruck shove | procedural torso sway | **upper body on physics** over animated legs (PlayerRagdoll REACTING, PhysicsRagdoll "Upper-body reactions"); the sway stays as the procedural rig's fallback |
+| A tackle that lands but breaks | carrier's speed x 0.75, nothing visible | both bodies knocked: the carrier lurches forward over the grab, the tackler is yanked after them |
+| A held-up tackle (AI Slides; the tackler in a human's "stand") | TACKLE_GRAB / TACKLE_HELD clips, both stopped dead in one frame | the clips with both trunks on physics; the pair moves on at their common velocity and brakes out (TACKLE_HOLD_BRAKE, ~2 m from a sprint) |
+| Stand, bump-miss stumble, ruck stagger (whole-body ragdolls that stay up) | muscles pull toward the pose at contact, frozen mid-stride | muscles pull toward the live animation (`track_pose`) |
+| Stamina | didn't exist | per player, drains above a jog; sets body tone only (knocks looser, ragdoll muscles weaker), never an outcome |
+
+How hard a knock is comes from the tackle formula: tone = 1 - 0.85 b, with
+b = `TackleBalance.balance_loss` on the contact (closing speed, how square,
+mass ratio), times stamina's tone. The numbers are in Tuning's "Physical
+contact reactions" and "Stamina".
+
+### How the partial ragdoll works, and what it took
+
+The trunk, head and arms simulate; the hips and legs stay posed on the
+animation, so the spine's joint to the hips keeps the trunk on the legs.
+The trunk follows the animated pose at a rate set by tone (14/s at full)
+and stiffens toward full between 15 and 35 degrees off it. The arms have
+joint motors only (a carrier's also follow their carry pose relative to
+the physical chest). Each problem `scenes/dev/contact_sweep.tscn` found, in
+order:
+
+1. **Motors alone sag** a trunk 0.6 m behind a sprinter: hence the follow.
+2. **A tick of lag, twice.** The posed hips body only moves when the
+   skeleton updates, after the physics step; and Godot copies body state to
+   nodes at the start of the *next* tick, so what renders is a tick old.
+   Together the trunk drew 14 cm behind the legs at a sprint. The reaction
+   now steps after `move_and_slide` with the hips put on the animated pose,
+   and `sync_partial_nodes()` copies server state to the nodes before the
+   skeleton draws. The rendered trunk is within ~3 cm.
+3. **Unsimulated bodies collide.** With any bone simulating, Godot makes
+   the rest kinematic with collision on: a held-up tackler's animated legs
+   shoved the carrier's standing ragdoll 1.7 m. Partial bodies touch only
+   the ground; the posed ones touch nothing.
+4. **Arms fought their limits.** A world-space follow on the arms, where a
+   clip reaches past the joints (TACKLE_GRAB), buzzed the chest +/-20-60
+   degrees at 40-90 rad/s. The arms got motors only.
+5. **Kinematic arms jointed to a simulated chest** (a carrier's, left on the
+   animation to keep the ball) wrenched it to 55 degrees. Every reaction
+   simulates the arms.
+6. **The inertial lurch** (the trunk starting at the pre-contact velocity)
+   is right for a grab that stops the legs and wrong for a shove: a bump
+   whipped the trunk round the hips at 40 rad/s. Only the broken tackle's
+   drag uses it, at half.
+7. **A pre-existing bug:** a ~40 m/s kick arriving under a catcher's
+   capsule counted as a moving platform, and the catcher left the catch at
+   41 m/s (reproduced with every contact feature off).
+   `platform_floor_layers` is now the world only.
+
+### Measured (contact_sweep: 18 knock cases and 7 contested marks)
+
+| | Build 6 | Build 7 |
+|---|---|---|
+| Chest jolt beyond the clip, worst | 15 rad/s (one repeated knock 22) | 14 (repeat 23) |
+| Trunk-to-hips gap, worst | 3.6 cm | 3.4 cm |
+| Ball from a knocked carrier's wrists | <= 0.39 m (animated hands 0.1-0.35) | <= 0.39 m |
+| Contested marks (Build 6) | the winner plays `mark_safe_contested` over the knock; jolt 12-25 rad/s, waist <= 3.7 cm | |
+
+`tackle_sweep` (falls): Build 6's summary is identical to the 2026-10-30
+baseline; rows shift by centimetres where a reacting tackler's ragdoll now
+exists (Jolt's solver order). Build 7's one 94-degree elbow tear is
+pre-existing: it's the same with every new feature off (Phase 3's open
+ground-impact item).
+
+### Still open
+
+- **How big a knock should look.** Tone and push are first guesses; a
+  head-on sprint collision moves the chest ~30 cm. Playtest.
+- **Stamina into outcomes.** It's body tone only. Feeding it into
+  `TackleBalance` (the ML model's original third input) would change who
+  wins contacts: a gameplay call.
+- **Shoulder-to-shoulder push** (Phase 3 design item 2) and **hands on the
+  other body** (item 3) aren't built.
+- **Turning on the spot**, **per-leg foot IK** and **limb velocity at a
+  full ragdoll's hand-off** are as before.

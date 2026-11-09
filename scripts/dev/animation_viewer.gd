@@ -332,16 +332,9 @@ const PHYSICS_RAGDOLL_LAB_SCENE := "res://scenes/dev/physics_ragdoll_lab.tscn"
 const PlayerScene := preload("res://scenes/player/player.tscn")
 const BallScene := preload("res://scenes/ball/ball.tscn")
 const MLExperimentViewerScript := preload("res://scripts/dev/ml_experiment_viewer.gd")
-const TackleModelScript := preload("res://scripts/dev/tackle_model.gd")
-
-## Tackle model integration: baseline stamina value (not tracked in viewer; use constant).
-const CONTEST_STAMINA_BASELINE := 1.0
 
 @onready var _camera: Camera3D = $Camera3D
 @onready var _ui: Control = $Overlay/UI
-
-## Seeded RNG for tackle model roll_break() in contest simulation.
-var _contest_rng := RandomNumberGenerator.new()
 
 var _subject: Node3D
 var _rig: HumanoidRig
@@ -397,24 +390,20 @@ var _sequence_stage := ContestStage.NONE
 var _sequence_timer := 0.0
 var _sequence_triggered := false
 
-## Tackle model prediction result (for debug display in _step_contest).
-var _contest_tackle_prediction := ""
-var _tackle_model_manual := false
-var _tackle_model_rolled := false
-var _tackle_model_manual_inputs := {
-	"dspeed": 0.7,
-	"angle": 0.7,
-	"stamina": 0.7,
-}
-var _tackle_model_dspeed_slider: HSlider
-var _tackle_model_angle_slider: HSlider
-var _tackle_model_stamina_slider: HSlider
-var _tackle_model_dspeed_value: Label
-var _tackle_model_angle_value: Label
-var _tackle_model_stamina_value: Label
-var _tackle_model_z_label: Label
-var _tackle_model_p_label: Label
-var _tackle_model_panel: VBoxContainer
+## CONTACT (CONTESTS tab, 2026-11-10): B's pace for the tackles and both
+## players' stamina (Tuning's "Stamina"), read at the next contest press;
+## the readout is what the real resolver decided (A's last_tackle) and how
+## each body took it. Replaced the sandbox tackle model's AUTO/MANUAL
+## inputs and P(break) roll: live tackles never roll (TackleBalance), so the
+## roll here was a different game from the one being watched.
+var _b_speed := 0.0
+var _stamina_a := 1.0
+var _stamina_b := 1.0
+var _contact_result: Label
+var _contact_detail: Label
+## What each body did over the contest so far (the deepest it got): a
+## knock is over in ~0.75 s, long before anyone reads the panel.
+var _contact_seen := {}
 
 ## Free move — solo real PlayerController under real input, roaming the
 ## bigger grid above. Built lazily on the first FREE MOVE press, same
@@ -1061,8 +1050,7 @@ func _build_contest_group() -> VBoxContainer:
 	group.add_child(_build_mark_delivery_panel())
 
 	group.add_child(_make_spacer(MENU_SECTION_GAP - MENU_ROW_GAP))
-	_tackle_model_panel = _build_tackle_model_panel()
-	group.add_child(_tackle_model_panel)
+	group.add_child(_build_contact_panel())
 
 	group.add_child(_make_spacer(MENU_SECTION_GAP - MENU_ROW_GAP))
 	group.add_child(_section_heading("Sequences"))
@@ -1102,8 +1090,8 @@ func _build_approach_panel() -> VBoxContainer:
 	return panel
 
 
-## Same 3-column shape as _make_tackle_model_input_row, but owning its own
-## value rather than writing into _tackle_model_manual_inputs.
+## Label / slider / readout row, the same 3-column shape as
+## MLExperimentViewer._slider_row.
 func _make_slider_row(label_text: String, min_value: float, max_value: float, step: float,
 		value: float, on_change: Callable) -> Dictionary:
 	var row := GridContainer.new()
@@ -1436,124 +1424,65 @@ func _bearing_name(deg: float) -> String:
 	return NAMES[roundi(deg / 45.0) % 8]
 
 
-func _build_tackle_model_panel() -> VBoxContainer:
+## CONTACT: B's pace and both staminas for the next contest, and what the
+## last one came to (see _b_speed).
+func _build_contact_panel() -> VBoxContainer:
 	var panel := VBoxContainer.new()
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_theme_constant_override(&"separation", 6)
-	panel.add_child(_section_heading("Model inputs"))
-
-	var mode_row := HBoxContainer.new()
-	mode_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	mode_row.add_theme_constant_override(&"separation", 6)
-	var toggle_group := ButtonGroup.new()
-	var auto_button := _button("AUTO", true)
-	auto_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	auto_button.button_group = toggle_group
-	auto_button.button_pressed = true
-	auto_button.pressed.connect(func() -> void:
-		_tackle_model_manual = false
-		_update_tackle_model_panel_state())
-	var manual_button := _button("MANUAL", true)
-	manual_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	manual_button.button_group = toggle_group
-	manual_button.pressed.connect(func() -> void:
-		_tackle_model_manual = true
-		_update_tackle_model_panel_state())
-	mode_row.add_child(auto_button)
-	mode_row.add_child(manual_button)
-	panel.add_child(mode_row)
-
-	var dspeed_row := _make_tackle_model_input_row("Δ speed", -2.0, 4.0, "dspeed")
-	panel.add_child(dspeed_row)
-	var angle_row := _make_tackle_model_input_row("angle", -2.0, 2.0, "angle")
-	panel.add_child(angle_row)
-	var stamina_row := _make_tackle_model_input_row("stamina", 0.0, 2.0, "stamina")
-	panel.add_child(stamina_row)
-
-	var action_row := HBoxContainer.new()
-	action_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	action_row.add_theme_constant_override(&"separation", 6)
-	var baseline_button := _button("BASELINE")
-	baseline_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	baseline_button.pressed.connect(func() -> void:
-		_tackle_model_manual = true
-		manual_button.set_pressed_no_signal(true)
-		_tackle_model_manual_inputs = {"dspeed": 0.7, "angle": 0.7, "stamina": 0.7}
-		_update_tackle_model_panel_state())
-	var randomise_button := _button("RANDOMISE")
-	randomise_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	randomise_button.pressed.connect(func() -> void:
-		_tackle_model_manual = true
-		manual_button.set_pressed_no_signal(true)
-		_tackle_model_manual_inputs = {
-			"dspeed": randf_range(-2.0, 4.0),
-			"angle": randf_range(-2.0, 2.0),
-			"stamina": randf_range(0.0, 2.0),
-		}
-		_update_tackle_model_panel_state())
-	action_row.add_child(baseline_button)
-	action_row.add_child(randomise_button)
-	panel.add_child(action_row)
-
-	var readouts := HBoxContainer.new()
-	readouts.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	readouts.add_theme_constant_override(&"separation", 8)
-	panel.add_child(readouts)
-
-	var z_card := _metric_card("Z")
-	_tackle_model_z_label = z_card.value_label
-	z_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	readouts.add_child(z_card.node)
-
-	var p_card := _metric_card("P(BREAK)")
-	_tackle_model_p_label = p_card.value_label
-	p_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	readouts.add_child(p_card.node)
-
-	_update_tackle_model_panel_state()
+	panel.add_child(_section_heading("Contact"))
+	panel.add_child(_make_slider_row("B m/s", 0.0, APPROACH_SPEED_MAX, 0.1, _b_speed,
+		func(v: float) -> void: _b_speed = v).node)
+	panel.add_child(_make_slider_row("A STAM", 0.0, 1.0, 0.05, _stamina_a,
+		func(v: float) -> void: _stamina_a = v).node)
+	panel.add_child(_make_slider_row("B STAM", 0.0, 1.0, 0.05, _stamina_b,
+		func(v: float) -> void: _stamina_b = v).node)
+	var card := _metric_card("RESULT")
+	_contact_result = card.value_label
+	panel.add_child(card.node)
+	_contact_detail = _muted_caption("")
+	_contact_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	panel.add_child(_contact_detail)
 	return panel
 
 
-## Label / slider / readout row, same 3-column GridContainer shape as
-## MLExperimentViewer._slider_row.
-func _make_tackle_model_input_row(label_text: String, min_value: float, max_value: float, key: String) -> GridContainer:
-	var row := GridContainer.new()
-	row.columns = 3
-	row.add_theme_constant_override(&"h_separation", 8)
-
-	var label := UIStyle.label(label_text.to_upper(), UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
-	label.custom_minimum_size.x = 56.0
-	row.add_child(label)
-
-	var slider := HSlider.new()
-	slider.min_value = min_value
-	slider.max_value = max_value
-	slider.step = 0.01
-	slider.value = _tackle_model_manual_inputs[key]
-	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(slider)
-
-	var value_label := UIStyle.label("%.2f" % _tackle_model_manual_inputs[key], UIStyle.SIZE_LABEL, UIStyle.TEXT_PRIMARY)
-	value_label.custom_minimum_size.x = 36.0
-	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	row.add_child(value_label)
-
-	slider.value_changed.connect(func(value: float) -> void:
-		_tackle_model_manual_inputs[key] = value
-		_update_tackle_model_panel_state())
-
-	if key == "dspeed":
-		_tackle_model_dspeed_slider = slider
-		_tackle_model_dspeed_value = value_label
-	elif key == "angle":
-		_tackle_model_angle_slider = slider
-		_tackle_model_angle_value = value_label
+## The readout: the tackle as resolved (TackleBalance on the real contact)
+## and each body's state — FALL (whole ragdoll), REACT tone (upper body on
+## physics, 1 = nothing lost), or nothing physical.
+func _update_contact_readout() -> void:
+	if _contact_result == null or _contest_a == null:
+		return
+	var t: Dictionary = _contest_a.last_tackle
+	if _contest_kind != ContestKind.TACKLE_SLIDE and _contest_kind != ContestKind.TACKLE_LUNGE:
+		_contact_result.text = "—"
+	elif t.is_empty():
+		_contact_result.text = "…"
+	elif t.get("missed", false):
+		_contact_result.text = "MISSED"
+	elif not t.get("held", false):
+		_contact_result.text = "BROKE"
 	else:
-		_tackle_model_stamina_slider = slider
-		_tackle_model_stamina_value = value_label
+		_contact_result.text = String(t.get("outcome", "held")).to_upper()
+	var line := ""
+	if t.has("b"):
+		line = "b %.2f  p(break) %.2f  drive %+.1f  closing %.1f m/s  %.0f°\n" % [float(t.b),
+			float(t.get("p_break", NAN)), float(t.get("drive", NAN)),
+			float(t.get("closing_speed", NAN)), float(t.get("approach_angle", NAN))]
+	_contact_detail.text = "%sA %s   B %s" % [line, _body_state(&"a", _contest_a), _body_state(&"b", _contest_b)]
 
-	return row
+
+## FALL (whole ragdoll), react and the lowest tone the knock left (upper
+## body on physics, 1 = nothing lost), or "-": the deepest seen this
+## contest.
+func _body_state(tag: StringName, player: PlayerController) -> String:
+	var r := player.ragdoll_controller()
+	if player.is_ragdolled():
+		_contact_seen[tag] = -1.0
+	elif r != null and r.phase() == PlayerRagdoll.Phase.REACTING and float(_contact_seen.get(tag, 2.0)) >= 0.0:
+		_contact_seen[tag] = minf(float(_contact_seen.get(tag, 2.0)), r.reaction_tone())
+	var seen := float(_contact_seen.get(tag, 2.0))
+	var state := "FALL" if seen < 0.0 else ("react %.2f" % seen if seen <= 1.0 else "-")
+	return "%s  stam %.2f" % [state, player.stamina]
 
 
 # ── Menu building blocks ─────────────────────────────────────────────
@@ -1632,83 +1561,6 @@ func _section_heading(text: String) -> Label:
 
 func _muted_caption(text: String) -> Label:
 	return UIStyle.label(text, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
-
-
-func _update_tackle_model_panel_state() -> void:
-	if _tackle_model_dspeed_slider == null:
-		return
-
-	var inputs := _tackle_model_inputs_for_current_state()
-	_tackle_model_dspeed_slider.editable = _tackle_model_manual
-	_tackle_model_angle_slider.editable = _tackle_model_manual
-	_tackle_model_stamina_slider.editable = _tackle_model_manual
-	_tackle_model_dspeed_slider.value = inputs["dspeed"]
-	_tackle_model_angle_slider.value = inputs["angle"]
-	_tackle_model_stamina_slider.value = inputs["stamina"]
-	_tackle_model_dspeed_value.text = "%.2f" % inputs["dspeed"]
-	_tackle_model_angle_value.text = "%.2f" % inputs["angle"]
-	_tackle_model_stamina_value.text = "%.2f" % inputs["stamina"]
-	_tackle_model_z_label.text = "%.2f" % _tackle_model_z_for_inputs(inputs)
-	_tackle_model_p_label.text = "%.2f%%" % (_tackle_model_p_for_inputs(inputs) * 100.0)
-
-
-func _tackle_model_inputs_for_current_state() -> Dictionary:
-	if _tackle_model_manual:
-		return _tackle_model_manual_inputs.duplicate()
-	if _contest_a == null or _contest_b == null:
-		return {"dspeed": 0.0, "angle": 0.0, "stamina": CONTEST_STAMINA_BASELINE}
-	var vel_a := Vector3(_contest_a.velocity.x, 0.0, _contest_a.velocity.z)
-	var vel_b := Vector3(_contest_b.velocity.x, 0.0, _contest_b.velocity.z)
-	var pos_a := _contest_a.global_position
-	var pos_b := _contest_b.global_position
-	var approach_dir := pos_b - pos_a
-	if approach_dir.length_squared() < 0.0001:
-		return {"dspeed": 0.0, "angle": 0.0, "stamina": CONTEST_STAMINA_BASELINE}
-	approach_dir = approach_dir.normalized()
-	var dspeed := -(vel_b - vel_a).dot(approach_dir)
-	var a_forward := Vector3(sin(_contest_a.rotation.y), 0.0, cos(_contest_a.rotation.y))
-	var angle_cos := a_forward.dot(approach_dir)
-	var raw_angle := acos(clampf(angle_cos, -1.0, 1.0))
-	var angle := 2.0 * (1.0 - raw_angle / PI)
-	return {"dspeed": dspeed, "angle": angle, "stamina": CONTEST_STAMINA_BASELINE}
-
-
-## `model` is whatever the ML Experiments page's MODEL tab currently has
-## dialled in (get_active_model()) — including a Stage 2 GA result after
-## APPLY TO MODEL — not a fresh default-weight instance. Previously these
-## three functions each built their own `TackleModelScript.new()` and
-## silently ignored that page entirely, so nothing dialled in there, by
-## hand or by the GA, ever reached this simulation.
-func _tackle_model_z_for_inputs(inputs: Dictionary) -> float:
-	# Explicitly typed: _experiment_ui itself has no static type (shared
-	# instance var used for many other things in this file), so without
-	# this `model` would resolve as Variant and every `:=` below would
-	# fail to infer a type at parse time.
-	var model: TackleModel = _experiment_ui.get_active_model()
-	var nd := model.normalise(inputs["dspeed"], model.NORM_MIN["dspeed"], model.NORM_MAX["dspeed"])
-	var na := model.normalise(inputs["angle"], model.NORM_MIN["angle"], model.NORM_MAX["angle"])
-	var ns := model.normalise(inputs["stamina"], model.NORM_MIN["stamina"], model.NORM_MAX["stamina"])
-	return model.w_speed * nd + model.w_angle * na + model.w_stamina * ns + model.bias
-
-
-func _tackle_model_p_for_inputs(inputs: Dictionary) -> float:
-	var model: TackleModel = _experiment_ui.get_active_model()
-	return model.p_break(inputs["dspeed"], inputs["angle"], inputs["stamina"])
-
-
-func _compute_tackle_model_prediction() -> void:
-	var inputs := _tackle_model_inputs_for_current_state()
-	var model: TackleModel = _experiment_ui.get_active_model()
-	var broke := model.roll_break(_contest_rng, inputs["dspeed"], inputs["angle"], inputs["stamina"])
-	var p_break := model.p_break(inputs["dspeed"], inputs["angle"], inputs["stamina"])
-	var z := _tackle_model_z_for_inputs(inputs)
-	var result_text := "BREAK" if broke else "TACKLE"
-	var log_line := "raw: dspeed=%.2f angle=%.2f stamina=%.2f | z=%.2f | P(break)=%.2f%% | roll=%s → %s" % [
-		inputs["dspeed"], inputs["angle"], inputs["stamina"], z, p_break * 100.0, broke, result_text
-	]
-	print("CONTEST TACKLE MODEL: " + log_line)
-	_contest_tackle_prediction = "%s %.1f%%" % [result_text, p_break * 100.0]
-	_update_tackle_model_panel_state()
 
 
 ## Swaps which subject is visible/live — the bare single-figure rig for
@@ -1983,9 +1835,6 @@ func _launch_contest(kind: ContestKind) -> void:
 	_show_contest()
 	_reset_contest_state()
 
-	# Initialize tackle model RNG with a fixed seed for reproducibility.
-	_contest_rng.seed = 42
-
 	# Every scenario stages the same way — see CONTEST_TARGET_POS. A spawns
 	# on APPROACH FROM's bearing already moving at APPROACH SPEED (not from
 	# a standstill), so the speed it meets B at is the speed asked for, not
@@ -2006,12 +1855,17 @@ func _launch_contest(kind: ContestKind) -> void:
 		# rather than the two clips playing side by side. Nothing here
 		# arranges that — it comes from the real _try_tackle path this
 		# vignette already runs through.
-		ContestKind.TACKLE_SLIDE:
+		ContestKind.TACKLE_SLIDE, ContestKind.TACKLE_LUNGE:
 			_contest_b.give_possession(_contest_ball)
-			_brain_a.tackle_wanted = true
-		ContestKind.TACKLE_LUNGE:
-			_contest_b.give_possession(_contest_ball)
-			_brain_a.lunge_wanted = true
+			if kind == ContestKind.TACKLE_SLIDE:
+				_brain_a.tackle_wanted = true
+			else:
+				_brain_a.lunge_wanted = true
+			# B runs on along their facing at CONTACT's pace.
+			_contest_b.velocity = Vector3.FORWARD * _b_speed
+			_contest_b._speed = _b_speed
+			_brain_b.wish_dir = Vector3.FORWARD if _b_speed > 0.05 else Vector3.ZERO
+			_brain_b.gait_value = _gait_for_speed(_b_speed)
 		ContestKind.BUMP_CLEAN:
 			# B runs on along their own facing — see BUMP_CLEAN_CARRIER_GAIT.
 			# Whether that counts as clean timing is the real resolver's call:
@@ -2032,7 +1886,10 @@ func _launch_contest(kind: ContestKind) -> void:
 	_contest_stage = ContestStage.APPROACH
 	_contest_timer = 0.0
 	_contest_bump_triggered = false
-	_tackle_model_rolled = false
+	_contest_a.last_tackle = {}
+	_contact_seen.clear()
+	_contest_a.stamina = _stamina_a
+	_contest_b.stamina = _stamina_b
 
 
 ## Teleports a contest body and points it along `facing` (ground plane),
@@ -2059,10 +1916,13 @@ func _approach_source_dir() -> Vector3:
 ## Where A and B meet if neither changes course: B's staging spot, except
 ## for BUMP — CLEAN, where B walks forward for the run-in's duration first.
 func _approach_meet_point(kind: ContestKind) -> Vector3:
-	if kind != ContestKind.BUMP_CLEAN:
-		return CONTEST_TARGET_POS
+	var b_speed := 0.0
+	if kind == ContestKind.BUMP_CLEAN:
+		b_speed = Tuning.speed_for_gait(BUMP_CLEAN_CARRIER_GAIT)
+	elif kind == ContestKind.TACKLE_SLIDE or kind == ContestKind.TACKLE_LUNGE:
+		b_speed = _b_speed
 	var run_in_time := float(CONTEST_RUN_IN[kind]) / _approach_speed
-	return CONTEST_TARGET_POS 		+ Vector3.FORWARD * Tuning.speed_for_gait(BUMP_CLEAN_CARRIER_GAIT) * run_in_time
+	return CONTEST_TARGET_POS + Vector3.FORWARD * b_speed * run_in_time
 
 
 ## Where A spawns for `kind`: CONTEST_RUN_IN out from the meet point along
@@ -2204,14 +2064,7 @@ func _step_contest(delta: float) -> void:
 		if resolved or _contest_timer > CONTEST_TIMEOUT:
 			_contest_stage = ContestStage.HOLD
 
-		if _contest_kind == ContestKind.TACKLE_SLIDE or _contest_kind == ContestKind.TACKLE_LUNGE:
-			if not _tackle_model_rolled:
-				_compute_tackle_model_prediction()
-				_tackle_model_rolled = true
-		else:
-			_contest_tackle_prediction = ""
-
-	_contest_status_label.text = "A: %s   B: %s   %s" % [
+	_update_contact_readout()
+	_contest_status_label.text = "A: %s   B: %s" % [
 		Tuning.Action.keys()[_contest_a._action], Tuning.Action.keys()[_contest_b._action],
-		_contest_tackle_prediction,
 	]

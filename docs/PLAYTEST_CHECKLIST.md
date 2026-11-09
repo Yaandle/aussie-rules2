@@ -7,6 +7,22 @@ own docs: `ANIMATION_RAGDOLL_AUDIT.md` (kick, carry, phase lock, bank,
 tackles), `MECHANICS_AUDIT.md` (ragdoll stages 2-5) and the 2026-10-30
 playtest commit (HUD, park turf, ruck, training).
 
+## Contact on the motor ragdoll (2026-11-10, branch `update`)
+
+See `docs/ANIMATION_RAGDOLL_AUDIT.md` ("Contact on the motor ragdoll").
+The animation viewer's CONTESTS tab has a CONTACT panel (B's pace, both
+staminas) and reads out what the real tackle decided.
+
+- [ ] **Running into someone:** both torsos give and come back; nobody looks frozen or rubbery. Head-on at a sprint should look like a real knock, a brush hardly anything.
+- [ ] **A tackle that breaks:** the carrier rocks forward over the grab and runs on with the ball still in their hands; the tackler is jerked after them.
+- [ ] **A held-up tackle (AI Slides, ball-ups):** both stay on their feet but visibly take it; the pair slides on a metre or two instead of stopping dead.
+- [ ] **Held-up stand, bump-miss stumble, ruck stagger:** the legs come back under the body rather than staying frozen mid-stride.
+- [ ] **Contested marks:** bodies meeting in the contest jolt each other; the catcher's hands stay on the ball.
+- [ ] **No snaps:** nothing jerks at the end of a knock (physics fades out over 0.2 s); watch the waist for any gap between shirt and shorts.
+- [ ] **Stamina:** late in a long sprint, a knock should look looser than the same knock fresh. Is that noticeable, and is it wanted?
+- [ ] **The catcher flung by the ball (fixed):** a fast kick into a pack no longer launches the player who catches it.
+- [ ] **Frame rate:** a crowded contest (several knocks at once) doesn't hitch. Each player builds their ragdoll (~1-1.5 ms) on their first knock.
+
 ## Build 7 shoulders, idle and the character screen (2026-11-09, branch `build7-polish`)
 
 See `docs/BUILD7_MODEL.md` ("Shoulders, arms and idle") and the images in

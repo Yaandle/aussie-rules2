@@ -632,6 +632,21 @@ results above are history, not a current measurement:
 
 Retrain or re-probe before using the Running model for anything.
 
+### Status check (2026-11-10)
+
+Re-run: `tackle_selftest`, `tackle_ga_selftest` and `mark_cue_selftest` all
+pass. Stage 1/2 are live as described: `TackleBalance` evaluates
+`data/ml/tackle_weights.json` (the GA's weights, third input the mass
+ratio) on every real tackle, as a threshold, and since 2026-11-10 the same
+formula sets how hard every on-the-feet knock is (tone = 1 - 0.85 b;
+`ANIMATION_RAGDOLL_AUDIT.md` "Contact on the motor ragdoll"). Stage 3: the
+cue is GATED in matches, the MLP dev-only, the AI flag off, and the Running
+model stale since the 2026-10-30 retune. Section 3's "stamina has no
+equivalent in live gameplay" no longer holds: `PlayerController.stamina`
+exists, but only as body tone. Making it the model's input again is a
+gameplay call, not done. The animation viewer's CONTESTS no longer rolls
+the sandbox model (section 8); it reads out what the live tackle decided.
+
 ## 10. Stage 4 (DQL): queued — AI difficulty and movement
 
 Not started. The user's plan (2026-10-30) is to make it the home for:
