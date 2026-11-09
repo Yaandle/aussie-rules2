@@ -257,7 +257,15 @@ mostly superseded history. The full text lives outside the repo, in
   can land on any frame and the ragdoll starts from the pose: Build 7's
   first new sprint went 50° back at the hip and started tackle_sweep's
   falls at 100 rad/s. Check a gait's hip, knee and ankle ranges against
-  PhysicsRagdoll.BODIES before shipping it.
+  PhysicsRagdoll.BODIES before shipping it. **That includes the hinge's
+  axis:** a hinge allows one axis only, and a forearm bent about any other
+  (the upper arm rolled wrong by the arm IK) is snapped onto it in one
+  tick. `joint_report` can't see it (it measures bend, not twist or
+  off-axis). Build 7's gaits had elbows 50-84° off-axis: forearms at 43
+  rad/s at the hand-off, while every joint read inside its limits. The
+  rest pose's carrying angle means the elbow's plane doesn't hold the
+  upper arm, so fit the swivel and roll together
+  (`author_6thbuild_clips.solve_arm(..., hinge=True)`).
 - **A rigid foot rolls over its toe tip, not the ball.** With no toe bone,
   a heel-off pivoting on the ball sank the toe 6 cm into the turf.
 - **Ragdoll tackles:** `scenes/dev/tackle_sweep.tscn` runs real X, B and

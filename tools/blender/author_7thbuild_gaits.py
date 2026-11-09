@@ -226,6 +226,8 @@ def pose_spec(rig, g, phi, travel):
 		"spine2": A.lean(fwd=g["lean"] * 0.5, turn=(counter - turn) * 0.5 - turn_travel * 0.3),
 		"head": A.lean(fwd=-g["lean"] * 0.9, turn=-counter - turn_travel * 0.4),
 		"hands_in": "chest",
+		# Elbows bend about the ragdoll's hinge (author_6thbuild_clips.solve_arm).
+		"elbow_hinge": True,
 	}
 	# Arms: each swings opposite its own leg, from the shoulder, in the
 	# chest's frame; elbows bend more as the hand comes forward.
