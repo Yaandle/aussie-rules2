@@ -1248,6 +1248,80 @@ const BUMP_MISS_STUMBLE_STUN := 1.4        # s
 const BODY_CONTACT_REACT_SPEED := 1.5      # m/s
 const BODY_CONTACT_REACT_COOLDOWN := 0.4   # s
 const BODY_CONTACT_HANDS_DOT := 0.6
+
+# Physical contact reactions (2026-11-09, docs/ANIMATION_RAGDOLL_AUDIT.md
+# "Contact on the motor ragdoll"). On a rig that can ragdoll, every knock
+# that keeps a player on their feet goes to PlayerRagdoll.react instead of
+# the procedural sway above: the upper body is simulated over the animated
+# legs (PhysicsRagdoll's "Upper-body reactions") while the player keeps
+# running under the controller. That's two capsules meeting, a tackle that
+# lands but breaks (both players), a held-up tackle (both, AI or human), a
+# glancing bump or contest nudge, and a ruck shove on an AI. The procedural
+# rig keeps the sway. Nothing in gameplay reads any of it.
+#
+# The push is the tackle push's own sizing: the pair's reduced mass times
+# the closing speed, times IMPULSE_SHARE (most of a collision goes into the
+# legs and the capsules, which already took it), capped at IMPULSE_MAX, on
+# the chest on the side that was hit. The tone it leaves is the tackle
+# model's formula on the same contact: tone = 1 - TONE_DROP·b, with b from
+# TackleBalance.balance_loss (closing speed, how square, mass ratio), times
+# the player's stamina tone (below). A square hit at pace leaves a body
+# loose; a brush leaves it nearly as it was. FOLLOW is the rate (1/s) the
+# simulated bodies close on the animated pose at full tone (14/s closes
+# ~21% a tick at 60 Hz: a 60 N·s knock moves a sprinter's chest ~10-14 cm
+# at low tone and it's back inside ~0.3 s). MOTOR is the joint motors'
+# strength at full tone. Tone climbs back over RECOVER; physics hands back
+# to the animation over BLEND_OUT once TIME has passed. Unplaytested feel
+# guesses.
+const CONTACT_RAGDOLL_ENABLED := true
+const CONTACT_REACT_FOLLOW := 14.0          # 1/s at full tone
+const CONTACT_REACT_MOTOR := 0.6
+const CONTACT_REACT_TONE_DROP := 0.85
+const CONTACT_REACT_RECOVER := 0.45         # s
+const CONTACT_REACT_TIME := 0.55            # s
+const CONTACT_REACT_BLEND_OUT := 0.2        # s
+const CONTACT_REACT_PUSH_DURATION := 0.08   # s
+const CONTACT_REACT_IMPULSE_SHARE := 0.15
+const CONTACT_REACT_IMPULSE_MAX := 60.0    # N·s
+# A tackle that breaks, or one that holds the carrier up: both bodies take
+# half the closing speed along the hit line, as two players running into
+# each other do. The carrier's tone is the hit's own b; a held-up tackler's
+# is half of it, and a broken tackler bounces off with BREAK_RECOIL_SHARE
+# of the push at the carrier's share, 1 - b (PlayerController._break_tackle).
+const CONTACT_REACT_BREAK_RECOIL_SHARE := 0.5
+# A held-up pair used to stop dead on the frame the tackle held. They now
+# meet at their common velocity (mass-weighted, an inelastic collision) and
+# the carrier's legs brake it out at this rate, the tackler hanging on
+# behind (PlayerController._begin_tackle_hold). From a sprint that's ~2 m
+# over ~0.7 s. Unplaytested feel guess.
+const TACKLE_HOLD_BRAKE := 11.0             # m/s²
+# The whole-body ragdolls that keep a player standing (a held-up carrier's
+# stand, the whiffed bump's stumble, the ruck stagger) had their muscles
+# pulling toward the pose the animation had at contact, for their whole
+# 0.45-0.6 s: a body frozen mid-stride while it staggered. With this on,
+# they pull toward the live animation (PhysicsRagdoll.track_pose), which
+# while ragdolled is the controller's standing blend: the legs come back
+# under the body and the arms settle as it recovers.
+const STANDING_RAGDOLL_TRACKS := true
+
+# Stamina (2026-11-09): how fresh a player's body is, 0-1. It drains while
+# running faster than JOG_SPEED (all of SPRINT_DRAIN per second at a full
+# sprint, less in between), comes back below it (RECOVERY per second
+# standing, less while moving), and each knock takes CONTACT_COST × b. It
+# sets body tone only, never an outcome: contact reactions are
+# looser (tone × lerp(TONE_FLOOR, 1, stamina)) and every whole-body ragdoll's
+# muscles weaker (strength × lerp(STRENGTH_FLOOR, 1, stamina)), so a tired
+# player who's held up rocks further and a tired player who's tackled goes
+# down looser. Whether a tackle holds and who wins the collision don't read
+# it (RULES_REFERENCE.md §3's contests are unchanged); feeding it into
+# TackleBalance is a gameplay call left for a playtest. Unplaytested feel
+# guesses: 40 s of flat-out sprinting empties a full tank.
+const STAMINA_SPRINT_DRAIN := 0.025         # per s at SPRINT_SPEED
+const STAMINA_RECOVERY := 0.05              # per s standing still
+const STAMINA_CONTACT_COST := 0.04          # × b, per knock
+const STAMINA_TONE_FLOOR := 0.55
+const STAMINA_STRENGTH_FLOOR := 0.85
+
 # Every PlayerController's body mass when nothing sets it — Career sets it
 # from the roster's weight (RosterGenerator 58-92 kg). The ragdoll's
 # segment masses scale from PhysicsRagdoll's ~86 kg build.

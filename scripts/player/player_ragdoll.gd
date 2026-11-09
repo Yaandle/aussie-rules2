@@ -32,10 +32,18 @@ extends RefCounted
 ##                Tuning.TACKLE_RAGDOLL_GETUP_BLEND — physics pose fading into
 ##                the clip. A ragdoll that never went down (a stagger) does
 ##                the same into locomotion instead.
+##   REACTING   — (2026-11-09) a knock that keeps the player on their feet:
+##                only the upper body is simulated (PhysicsRagdoll's
+##                "Upper-body reactions"), the legs and the player stay on
+##                the animation and the controller, and nothing in gameplay
+##                changes. Muscle tone drops by the hit's balance loss and
+##                recovers over Tuning.CONTACT_REACT_RECOVER, then physics
+##                fades back out over CONTACT_REACT_BLEND_OUT. is_active()
+##                is false throughout: the player isn't ragdolled.
 ## Any teleport (a stoppage repositioning the player) or cancel() drops
 ## straight back to animation.
 
-enum Phase { OFF, PENDING, FALLING, GETTING_UP }
+enum Phase { OFF, PENDING, FALLING, GETTING_UP, REACTING }
 
 ## How far the player's body may sit from the ragdoll's hips before it's
 ## taken as a teleport (a stoppage moved the player) rather than following.
@@ -55,6 +63,12 @@ var _push_left := 0.0
 var _time := 0.0
 var _blend := 0.0
 var _getup_state: StringName = &""
+## REACTING: the hit being taken (react()'s), how long it has run, and
+## whether PENDING is waiting to start one rather than a fall.
+var _reaction := {}
+var _pending_reaction := false
+var _react_time := 0.0
+var _react_blend := 0.0
 
 ## For headless checks and the lab: what the last hit was, and how the
 ## fall ended.
@@ -75,8 +89,15 @@ static func supported(rig: HumanoidRig) -> bool:
 		and PhysicsRagdoll.supports(rig.skeleton())
 
 
+## Whether physics owns the body (a fall or its get-up). A reaction isn't
+## that: see is_reacting().
 func is_active() -> bool:
-	return _phase != Phase.OFF
+	return _phase != Phase.OFF and not is_reacting()
+
+
+## An upper-body reaction running (or its first build pending).
+func is_reacting() -> bool:
+	return _phase == Phase.REACTING or (_phase == Phase.PENDING and _pending_reaction)
 
 
 func phase() -> Phase:
@@ -95,22 +116,71 @@ func ragdoll() -> PhysicsRagdoll:
 func begin(hit: Dictionary) -> bool:
 	if not supported(_rig):
 		return false
+	if _phase == Phase.PENDING:
+		# Still inside the first build's wait (a reaction's, or another hit's):
+		# the fall takes the rest of it rather than starting a body built a
+		# frame ago (LESSONS.md's same-frame construction race).
+		_hit = hit
+		last_hit = hit
+		last_landing = {}
+		_pending_reaction = false
+		return true
 	if _phase != Phase.OFF:
 		cancel()
 	_hit = hit
 	last_hit = hit
 	last_landing = {}
 	if _ragdoll == null:
-		_mass_kg = float(hit.get("mass_kg", Tuning.PLAYER_DEFAULT_MASS_KG))
-		_ragdoll = PhysicsRagdoll.new()
-		if not _ragdoll.build(_rig.skeleton(), _mass_kg / _rest_mass()):
-			_ragdoll = null
+		if not _build(hit):
 			return false
-		_ragdoll.park()
-		_phase = Phase.PENDING
-		_pending_frames = Tuning.TACKLE_RAGDOLL_BUILD_FRAMES
+		_pending_reaction = false
 		return true
 	_go_rigid()
+	return true
+
+
+## An upper-body reaction (see the header's REACTING). `hit`: "impulse"
+## (N·s, world), "bone" and "contact_offset" (as begin()'s), "tone" (0-1:
+## muscle tone at the hit, 1 = none lost), "arms" (simulate the arms too —
+## false for a ball carrier, whose arms hold the ball), "mass_kg". A
+## reaction already running takes the new push on top, at the lower of the
+## two tones, and starts its recovery again. Returns false when this rig
+## can't, or physics already has the body.
+func react(hit: Dictionary) -> bool:
+	if not supported(_rig) or is_active():
+		return false
+	if is_reacting():
+		_reaction.impulse = (_reaction.get("impulse", Vector3.ZERO) as Vector3) \
+			+ (hit.get("impulse", Vector3.ZERO) as Vector3)
+		_reaction.tone = minf(float(_reaction.get("tone", 1.0)), float(hit.get("tone", 1.0)))
+		_reaction.bone = hit.get("bone", &"Chest")
+		_reaction.contact_offset = hit.get("contact_offset", Vector3.ZERO)
+		if _phase == Phase.REACTING:
+			_react_time = 0.0
+			_react_blend = 0.0
+			_ragdoll.simulator.influence = 1.0
+			_push = (hit.get("impulse", Vector3.ZERO) as Vector3) / Tuning.CONTACT_REACT_PUSH_DURATION
+			_push_left = Tuning.CONTACT_REACT_PUSH_DURATION
+		return true
+	_reaction = hit.duplicate()
+	if _ragdoll == null:
+		if not _build(hit):
+			return false
+		_pending_reaction = true
+		return true
+	_start_reacting()
+	return true
+
+
+func _build(hit: Dictionary) -> bool:
+	_mass_kg = float(hit.get("mass_kg", Tuning.PLAYER_DEFAULT_MASS_KG))
+	_ragdoll = PhysicsRagdoll.new()
+	if not _ragdoll.build(_rig.skeleton(), _mass_kg / _rest_mass()):
+		_ragdoll = null
+		return false
+	_ragdoll.park()
+	_phase = Phase.PENDING
+	_pending_frames = Tuning.TACKLE_RAGDOLL_BUILD_FRAMES
 	return true
 
 
@@ -119,6 +189,7 @@ func cancel() -> void:
 	if _ragdoll != null:
 		_ragdoll.park()
 	_phase = Phase.OFF
+	_pending_reaction = false
 	_push_left = 0.0
 	if _animation != null:
 		_animation.ragdoll_active = false
@@ -130,11 +201,17 @@ func step(delta: float) -> void:
 		Phase.PENDING:
 			_pending_frames -= 1
 			if _pending_frames <= 0:
-				_go_rigid()
+				if _pending_reaction:
+					_pending_reaction = false
+					_start_reacting()
+				else:
+					_go_rigid()
 		Phase.FALLING:
 			_step_falling(delta)
 		Phase.GETTING_UP:
 			_step_getting_up(delta)
+		Phase.REACTING:
+			_step_reacting(delta)
 
 
 ## Where the player's body should be while FALLING: the hips, on the ground.
@@ -150,6 +227,7 @@ func is_falling() -> bool:
 
 
 func _go_rigid() -> void:
+	_ragdoll.track_pose = bool(_hit.get("track", false))
 	_ragdoll.capture_target_pose()
 	_ragdoll.strength = clampf(float(_hit.get("strength", 0.0)), 0.0, 1.0)
 	_ragdoll.support_share = float(_hit.get("support", PhysicsRagdoll.SUPPORT_SHARE))
@@ -255,6 +333,72 @@ func _step_getting_up(delta: float) -> void:
 	_ragdoll.simulator.influence = 1.0 - smoothstep(0.0, 1.0, t)
 	if t >= 1.0:
 		cancel()
+
+
+func _start_reacting() -> void:
+	_ragdoll.track_pose = true
+	_ragdoll.capture_target_pose()
+	# The trunk starts at the velocity the body had before the contact
+	# ("velocity"), not the capsule's after it: when the legs are stopped or
+	# turned by the collision, the trunk carries on by its own momentum and
+	# lurches over them until the follow brings it back. That's the inertial
+	# half of the knock, and it's free; the push is only the other body's
+	# contact on the chest.
+	_ragdoll.carry_velocity = _reaction.get("velocity", _player.velocity)
+	_apply_reaction_tone(0.0)
+	_ragdoll.start_partial(PhysicsRagdoll.UPPER_BODY if bool(_reaction.get("arms", true))
+		else PhysicsRagdoll.TRUNK)
+	_push = (_reaction.get("impulse", Vector3.ZERO) as Vector3) / Tuning.CONTACT_REACT_PUSH_DURATION
+	_push_left = Tuning.CONTACT_REACT_PUSH_DURATION if _push != Vector3.ZERO else 0.0
+	_react_time = 0.0
+	_react_blend = 0.0
+	_phase = Phase.REACTING
+
+
+## Tone climbs from the hit's back to full over CONTACT_REACT_RECOVER,
+## eased, and sets both the follow and the joint motors.
+func _apply_reaction_tone(t: float) -> void:
+	var hit_tone := clampf(float(_reaction.get("tone", 1.0)), 0.0, 1.0)
+	var tone := lerpf(hit_tone, 1.0, smoothstep(0.0, Tuning.CONTACT_REACT_RECOVER, t))
+	_ragdoll.follow = Tuning.CONTACT_REACT_FOLLOW * tone
+	_ragdoll.strength = Tuning.CONTACT_REACT_MOTOR * tone
+
+
+## See the header's REACTING.
+func _step_reacting(delta: float) -> void:
+	# A stoppage moved the player: the posed hips went with them, and the
+	# trunk mustn't be dragged after them through the joint.
+	if _ragdoll.body(&"Chest").global_position.distance_to(
+			_ragdoll.animated_transform(&"Chest").origin) > TELEPORT_DISTANCE * 0.25:
+		cancel()
+		return
+	_react_time += delta
+	_ragdoll.carry_velocity = _player.velocity
+	_apply_reaction_tone(_react_time)
+	if _push_left > 0.0:
+		var dt := minf(delta, _push_left)
+		var bone: StringName = _reaction.get("bone", &"Chest")
+		var pb := _ragdoll.body(bone)
+		if pb != null:
+			_ragdoll.apply_impact_at(bone, _push * dt,
+				pb.global_position + (_reaction.get("contact_offset", Vector3.ZERO) as Vector3))
+		_push_left -= dt
+	_ragdoll.step(delta)
+	if _react_time < Tuning.CONTACT_REACT_TIME:
+		return
+	_react_blend += delta
+	var t := clampf(_react_blend / Tuning.CONTACT_REACT_BLEND_OUT, 0.0, 1.0)
+	_ragdoll.simulator.influence = 1.0 - smoothstep(0.0, 1.0, t)
+	if t >= 1.0:
+		cancel()
+
+
+## For checks: the reaction's tone right now (1 = none lost), or -1 when
+## none is running.
+func reaction_tone() -> float:
+	if _phase != Phase.REACTING:
+		return -1.0
+	return _ragdoll.follow / maxf(Tuning.CONTACT_REACT_FOLLOW, 0.0001)
 
 
 func _rest_mass() -> float:

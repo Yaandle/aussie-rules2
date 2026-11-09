@@ -195,6 +195,10 @@ func _hit(pair: Dictionary) -> void:
 	var from: Vector3 = pair.from
 	carrier.global_position = pair.contact
 	tackler.global_position = (pair.contact as Vector3) + from * CONTACT_GAP
+	# Fresh legs, whatever the run-in took (Tuning's "Stamina"), unless the
+	# case sets them: a tired body's muscles are weaker.
+	carrier.stamina = 1.0
+	tackler.stamina = 1.0
 	match pair.spec[0]:
 		&"lunge":
 			var impact := TackleBalance.resolve(tackler.global_position,

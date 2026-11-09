@@ -322,6 +322,43 @@ const BODIES := [
 ## simulation already in contact with (or a hair inside) the floor.
 const FOOT_CLEARANCE := 0.008
 
+## ── Upper-body reactions (2026-11-09) ────────────────────────────────
+## A knock that doesn't put a player down (two players running into each
+## other, a tackle that breaks, a held-up tackle, a glancing bump) used to
+## change only the capsule's velocity, or play a clip over a body that never
+## felt it. start_partial() simulates just these bodies while the legs and
+## hips stay on the animation, so the player keeps running, standing or
+## wrestling on their own feet while the torso, head and arms take the hit.
+## The Hips body is left posed (kinematic), so the spine's joint to it keeps
+## the trunk on the legs: measured on a sprinting runner, the spine's root
+## stayed within 2-3 cm of the animated one.
+##
+## Joint motors alone can't hold a trunk up over moving hips (it sagged
+## 0.6 m behind a sprinter), so a partial ragdoll also has `follow`: each
+## tick every simulated body's linear and angular velocity closes that share
+## of the gap to where the animation has it one tick ahead. That's the
+## muscle tone: near 1 the body is the animation, near 0 it's a passive
+## ragdoll hung off the hips. A hit drops it and it recovers (PlayerRagdoll's
+## REACTING). With `track_pose` the motors' target is re-read from the
+## animation every tick rather than frozen at contact (capture_target_pose),
+## which works because Skeleton3D keeps reporting the animated pose while the
+## simulator overrides what's rendered (probed 2026-11-09).
+const UPPER_BODY: Array[StringName] = [&"Spine", &"Chest", &"head",
+	&"LeftUpperArm", &"LeftLowerArm", &"RightUpperArm", &"RightLowerArm"]
+## A ball carrier's arms stay on the animation: they ride the simulated chest
+## in the carry pose, so the ball stays in their hands.
+const TRUNK: Array[StringName] = [&"Spine", &"Chest", &"head"]
+## Stabilisers for a partial ragdoll. Arms near passive (low tone, light
+## links) flailed into the shoulder's 75° swing limit and Jolt bounced them
+## off it at 80-290 rad/s (contact_sweep, 2026-11-09), so the arms never
+## follow at less than ARM_FOLLOW_FLOOR of full tone, and no simulated body
+## turns faster than PARTIAL_MAX_SPIN (rad/s; arms PARTIAL_MAX_ARM_SPIN).
+## A running arm swings at ~10-15 rad/s, a whipped head ~20: the caps only
+## bite on what a body can't do anyway.
+const ARM_FOLLOW_FLOOR := 0.45
+const PARTIAL_MAX_SPIN := 14.0
+const PARTIAL_MAX_ARM_SPIN := 24.0
+
 var simulator: PhysicalBoneSimulator3D
 
 ## bone name -> PhysicalBone3D
@@ -353,6 +390,18 @@ var tilt_from_feet := false
 ## fall, and it skips the brace. Cleared by start().
 var aim_dirs := {}
 var aim_strength := 0.0
+
+## Partial ragdolls only (see "Upper-body reactions"): the share of the gap
+## to the animated pose each simulated body closes per tick, as a rate (1/s;
+## the share is 1 - exp(-follow·dt), so it means the same at any tick rate).
+var follow := 0.0
+## Re-read the motors' target from the animation every tick (see "Upper-body
+## reactions"). Off, the target is the pose at capture_target_pose().
+var track_pose := false
+## The player's own velocity (world): a partial ragdoll's follow aims where
+## the animated pose will be after the body moves this tick.
+var carry_velocity := Vector3.ZERO
+var _partial: Array[StringName] = []
 
 ## bone name -> half the body's segment length in world metres (scaled),
 ## for segment_tip().
@@ -502,6 +551,7 @@ func is_simulating() -> bool:
 ## sprint carries that momentum into the fall rather than stopping dead.
 ## Motors (strength > 0) also need capture_target_pose() first.
 func start(initial_velocity := Vector3.ZERO) -> void:
+	_partial.clear()
 	simulator.active = true
 	simulator.influence = 1.0
 	snap_to_pose()
@@ -526,12 +576,95 @@ func start(initial_velocity := Vector3.ZERO) -> void:
 	_set_settle_blend(0.0, true)
 
 
+## Goes rigid in `bones` only (see "Upper-body reactions"); every other body
+## stays posed on the animation. Each starts at the velocity it has on the
+## animated, moving player (`carry_velocity` must be set first), so the
+## hand-off doesn't stop a runner's torso dead. Motors need `strength` and a
+## target (track_pose, or capture_target_pose first); `follow` holds the
+## pose.
+func start_partial(bones: Array[StringName]) -> void:
+	simulator.active = true
+	simulator.influence = 1.0
+	snap_to_pose()
+	_partial = bones.duplicate()
+	simulator.physical_bones_start_simulation(_partial)
+	# While any bone simulates, Godot makes the rest kinematic WITH their
+	# collision on, and kinematic bodies have infinite mass: a held-up
+	# tackler's animated legs shoved the carrier's standing ragdoll 1.7 m
+	# (tackle_sweep, 2026-11-09). The simulated ones are as bad in a pile-up,
+	# since the follow drives them almost kinematically at full tone. So a
+	# partial ragdoll touches only the ground, and the posed bodies nothing.
+	# Server-side only: the next start() puts every node's own layers back.
+	for bone: String in bodies:
+		var rid := (bodies[bone] as PhysicalBone3D).get_rid()
+		var simulated := _partial.has(StringName(bone))
+		PhysicsServer3D.body_set_collision_layer(rid, 0)
+		PhysicsServer3D.body_set_collision_mask(rid, (1 << 0) if simulated else 0)
+	for bone: StringName in _partial:
+		var pb := body(bone)
+		pb.angular_velocity = Vector3.ZERO
+		_inertia[String(bone)] = _floored_inertia(String(bone))
+		PhysicsServer3D.body_set_param(pb.get_rid(), PhysicsServer3D.BODY_PARAM_INERTIA,
+			_inertia[String(bone)])
+		PhysicsServer3D.body_set_state(pb.get_rid(), PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY,
+			carry_velocity)
+		pb.linear_velocity = carry_velocity
+	_sim_time = 0.0
+	_falling = false
+	aim_dirs.clear()
+	_set_settle_blend(0.0, true)
+
+
+func is_partial() -> bool:
+	return not _partial.is_empty()
+
+
+## The bodies a partial ragdoll simulates (empty when it isn't one).
+func partial_bones() -> Array[StringName]:
+	return _partial
+
+
+## Godot copies a body's state from the physics server onto its node at the
+## START of the next physics tick (flush_queries), so between a step and the
+## next tick every PhysicalBone3D node is a tick behind its body, and so is
+## what the simulator writes into the skeleton. A whole ragdoll is all a tick
+## late together; a partial one hangs off animated legs that are current, so
+## its trunk rendered a tick behind them (14 cm at a sprint, with the server
+## 1.8 cm off). Call before the skeleton updates (PlayerAnimation._process):
+## puts each simulated body's node where its body really is.
+func sync_partial_nodes() -> void:
+	for bone: StringName in _partial:
+		var pb := body(bone)
+		var at: Transform3D = PhysicsServer3D.body_get_state(pb.get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM)
+		pb.global_transform = at
+
+
+## Where the animation has `bone`'s body right now (world) — what a partial
+## ragdoll's follow pulls toward.
+func animated_transform(bone: StringName) -> Transform3D:
+	var pb := body(bone)
+	return _skeleton.global_transform * _skeleton.get_bone_global_pose(_skeleton.find_bone(bone)) \
+		* pb.body_offset
+
+
+## How far physics has moved `bone`'s body off the animated pose, as the
+## world transform that takes the one onto the other. A partial ragdoll's
+## hands ride its chest, so this is how PlayerAnimation keeps the ball in
+## them.
+func pose_offset(bone: StringName) -> Transform3D:
+	var pb := body(bone)
+	if pb == null or not is_simulating():
+		return Transform3D.IDENTITY
+	return pb.global_transform.orthonormalized() * animated_transform(bone).orthonormalized().affine_inverse()
+
+
 ## Back to kinematic. `reset_pose` puts the skeleton back to its rest pose
 ## (the simulator's last written pose would otherwise stick) — the lab
 ## wants that; a player whose AnimationTree is about to write the next
 ## pose anyway doesn't.
 func stop(reset_pose := true) -> void:
 	simulator.physical_bones_stop_simulation()
+	_partial.clear()
 	if reset_pose:
 		_skeleton.reset_bone_poses()
 	_set_settle_blend(0.0, true)
@@ -583,6 +716,11 @@ func step(delta: float) -> void:
 	if not is_simulating():
 		return
 	_sim_time += delta
+	if track_pose:
+		capture_target_pose()
+	if is_partial():
+		_step_partial(delta)
+		return
 	# A sleeping body keeps reporting its last velocity — nothing to read.
 	if is_asleep():
 		return
@@ -951,6 +1089,62 @@ func _apply_motors(delta: float) -> void:
 			var goal := parent.global_basis.get_rotation_quaternion() * (_target_rel[bone] as Quaternion)
 			err = _rotation_vector(goal * child.global_basis.get_rotation_quaternion().inverse())
 		_drive_joint(child, parent, err, s, delta)
+
+
+## A partial ragdoll's tick (see "Upper-body reactions"): the joint motors
+## of the simulated bodies (no balance assist — the legs are the
+## animation's), then each simulated body's follow toward the animated pose
+## one tick ahead. Both are velocity changes, so the push a reaction is
+## given stays in the bodies until the follow takes it back out.
+func _step_partial(delta: float) -> void:
+	# The posed bodies the chain hangs off (the Hips) are only moved when the
+	# skeleton next updates, after this tick's physics step, so the trunk was
+	# pinned to last tick's hips: a full tick of travel behind (14 cm at a
+	# sprint, measured), a visible tear at the waist. Put them where the
+	# animation will have them once the player has moved this tick (which is
+	# where the simulator puts them itself at the next render, so nothing
+	# jumps back). The rendered copy of the simulated bodies is
+	# sync_partial_nodes()'s job.
+	var ahead := carry_velocity * delta
+	for bone: String in bodies:
+		if _partial.has(StringName(bone)):
+			continue
+		var child_simulated := false
+		for other: StringName in _partial:
+			if _parent_body(String(other)) == bodies[bone]:
+				child_simulated = true
+				break
+		if child_simulated:
+			var posed := animated_transform(StringName(bone))
+			posed.origin += ahead
+			PhysicsServer3D.body_set_state((bodies[bone] as PhysicalBone3D).get_rid(),
+				PhysicsServer3D.BODY_STATE_TRANSFORM, posed)
+	if strength > 0.0 and has_target_pose():
+		for j: Dictionary in _joints:
+			var bone: String = j.bone
+			var parent: PhysicalBone3D = j.get("parent")
+			if parent == null or not _target_rel.has(bone) or not _partial.has(StringName(bone)):
+				continue
+			var child: PhysicalBone3D = bodies[bone]
+			var s := maxf(strength, HEAD_PROTECT_STRENGTH) if bone == "head" else strength
+			var goal := parent.global_basis.get_rotation_quaternion() * (_target_rel[bone] as Quaternion)
+			_drive_joint(child, parent, _rotation_vector(goal * child.global_basis.get_rotation_quaternion().inverse()),
+				s, delta)
+	for bone: StringName in _partial:
+		var pb := body(bone)
+		var arm := not TRUNK.has(bone)
+		if follow > 0.0:
+			var rate := maxf(follow, Tuning.CONTACT_REACT_FOLLOW * ARM_FOLLOW_FLOOR) if arm else follow
+			var k := 1.0 - exp(-rate * delta)
+			var target := animated_transform(bone)
+			var v_goal := (target.origin + ahead - pb.global_position) / delta
+			pb.linear_velocity += (v_goal - pb.linear_velocity) * k
+			var w_goal := _rotation_vector(target.basis.get_rotation_quaternion()
+				* pb.global_basis.get_rotation_quaternion().inverse()) / delta
+			pb.angular_velocity += (w_goal - pb.angular_velocity) * k
+		var cap := PARTIAL_MAX_ARM_SPIN if arm else PARTIAL_MAX_SPIN
+		if pb.angular_velocity.length() > cap:
+			pb.angular_velocity = pb.angular_velocity.normalized() * cap
 
 
 ## One joint's velocity servo (see header): an equal-and-opposite angular

@@ -570,6 +570,9 @@ func bank_degrees() -> float:
 ## equivalent (Godot processes siblings in child order), so its mixing has
 ## already run for this same frame by the time this fires.
 func _process(delta: float) -> void:
+	var controller := get_parent() as PlayerController
+	if controller != null:
+		controller.sync_reaction_pose()
 	_apply_lean()
 	_apply_contact_reaction(delta)
 	_clamp_feet_to_ground()
@@ -760,6 +763,12 @@ func _update_ball_hold() -> void:
 		if _catch_glide >= CATCH_GLIDE_TIME:
 			_catch_from = Vector3.INF
 	_last_hold = at
+	# A carrier taking a knock on their feet has their trunk on physics and
+	# their arms riding it (PhysicsRagdoll's "Upper-body reactions"), so the
+	# hands are wherever the chest went: move the ball with them.
+	var shift := controller.reaction_offset(&"Chest")
+	if shift != Transform3D.IDENTITY:
+		at = controller.global_transform.affine_inverse() * (shift * (controller.global_transform * at))
 	_ball_hold.transform = Transform3D(Basis(Vector3.RIGHT, deg_to_rad(pitch)), at)
 
 
