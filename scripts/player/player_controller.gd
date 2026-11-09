@@ -564,10 +564,6 @@ func _physics_process(delta: float) -> void:
 		# get-up sets its own stun in on_ragdoll_getup.
 		if is_ragdolled() and _ragdoll.phase() != PlayerRagdoll.Phase.GETTING_UP:
 			_stun_timer = maxf(_stun_timer, 0.1)
-	elif _ragdoll != null and _ragdoll.is_reacting():
-		# An upper-body knock (take_knock): physics has the trunk, the
-		# player keeps their legs and their controls.
-		_ragdoll.step(delta)
 	if _tackle_wrap != null:
 		_tackle_wrap.step(delta)
 		if _tackle_wrap.is_done():
@@ -612,6 +608,13 @@ func _physics_process(delta: float) -> void:
 	var before := global_position
 	var pre_slide := velocity
 	move_and_slide()
+	if _ragdoll != null and _ragdoll.is_reacting():
+		# An upper-body knock (take_knock): physics has the trunk, the
+		# player keeps their legs and their controls. Stepped after the
+		# move, so it aims at where the animation really is now rather than
+		# where this tick's velocity says it will be (a held-up tackler's
+		# catch-up velocity overshot and yanked the trunk at 70-90 rad/s).
+		_ragdoll.step(delta)
 	_push_rigid_bodies()
 	_react_to_body_contact(pre_slide, delta)
 	_contain_to_field()
@@ -1126,7 +1129,7 @@ func _react_to_body_contact(pre_slide: Vector3, delta: float) -> void:
 func take_knock(push: Vector3, b: float, hands := false, before := Vector3.INF) -> void:
 	b = clampf(b, 0.0, 1.0)
 	stamina = clampf(stamina - Tuning.STAMINA_CONTACT_COST * b, 0.0, 1.0)
-	if _knock_on_physics(push, b, before if before.is_finite() else velocity):
+	if _knock_on_physics(push, b, before):
 		if _animation != null and hands:
 			_animation.react_to_contact(Vector3.ZERO, true)
 		return
@@ -1138,7 +1141,7 @@ func _knock_on_physics(push: Vector3, b: float, before: Vector3) -> bool:
 	if not Tuning.CONTACT_RAGDOLL_ENABLED or is_ragdolled():
 		return false
 	var flat := Vector3(push.x, 0.0, push.z)
-	var lurch := Vector3(before.x - velocity.x, 0.0, before.z - velocity.z)
+	var lurch := Vector3(before.x - velocity.x, 0.0, before.z - velocity.z) if before.is_finite() 		else Vector3.ZERO
 	if flat.length_squared() < 0.0001 and lurch.length_squared() < 0.0001:
 		return false
 	var rig := get_node_or_null(^"Rig") as HumanoidRig
@@ -1149,16 +1152,23 @@ func _knock_on_physics(push: Vector3, b: float, before: Vector3) -> bool:
 	var impulse := flat * body_mass * Tuning.CONTACT_REACT_IMPULSE_SHARE
 	if impulse.length() > Tuning.CONTACT_REACT_IMPULSE_MAX:
 		impulse = impulse.normalized() * Tuning.CONTACT_REACT_IMPULSE_MAX
-	if not _ragdoll.react({
+	var hit := {
 			"impulse": impulse,
 			"bone": &"Chest",
-			"contact_offset": -flat.normalized() * Tuning.TACKLE_RAGDOLL_CONTACT_SIDE_OFFSET
+			"contact_offset": -flat.normalized() * Tuning.CONTACT_REACT_SIDE_OFFSET
 				if flat.length_squared() > 0.0001 else Vector3.ZERO,
 			"tone": (1.0 - Tuning.CONTACT_REACT_TONE_DROP * b) * stamina_tone(),
 			"arms": not is_carrying(),
-			"velocity": Vector3(before.x, 0.0, before.z),
 			"mass_kg": body_mass,
-		}):
+		}
+	# The lurch is only for knocks that grab the legs (a broken tackle's drag);
+	# anything that shoves the whole body — a bump, a hold, two players
+	# meeting — starts the trunk with the body as it is when physics takes
+	# over. Given the bump's old pace, the trunk whipped round the hips at
+	# ~40 rad/s while the capsule was knocked sideways.
+	if before.is_finite():
+		hit.velocity = Vector3(velocity.x, 0.0, velocity.z) + lurch * Tuning.CONTACT_REACT_LURCH_SHARE
+	if not _ragdoll.react(hit):
 		return false
 	if _animation != null:
 		_animation.clear_contact_reaction()

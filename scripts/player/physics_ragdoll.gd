@@ -345,17 +345,33 @@ const FOOT_CLEARANCE := 0.008
 ## simulator overrides what's rendered (probed 2026-11-09).
 const UPPER_BODY: Array[StringName] = [&"Spine", &"Chest", &"head",
 	&"LeftUpperArm", &"LeftLowerArm", &"RightUpperArm", &"RightLowerArm"]
-## A ball carrier's arms stay on the animation: they ride the simulated chest
-## in the carry pose, so the ball stays in their hands.
+## The trunk's bodies (the rest of UPPER_BODY is arms). Every partial
+## ragdoll simulates the arms too: an arm left on the animation is a
+## kinematic body still jointed to the simulated chest, with infinite mass,
+## placed off last frame's chest, and those joints wrenched a carrier's chest
+## to 55° at 44-65 rad/s (contact_sweep, 2026-11-09). A ball carrier's arms
+## hold the carry pose instead on full-strength motors (arm_motor_floor).
 const TRUNK: Array[StringName] = [&"Spine", &"Chest", &"head"]
 ## Stabilisers for a partial ragdoll. Arms near passive (low tone, light
 ## links) flailed into the shoulder's 75° swing limit and Jolt bounced them
-## off it at 80-290 rad/s (contact_sweep, 2026-11-09), so the arms never
-## follow at less than ARM_FOLLOW_FLOOR of full tone, and no simulated body
-## turns faster than PARTIAL_MAX_SPIN (rad/s; arms PARTIAL_MAX_ARM_SPIN).
-## A running arm swings at ~10-15 rad/s, a whipped head ~20: the caps only
-## bite on what a body can't do anyway.
-const ARM_FOLLOW_FLOOR := 0.45
+## off it at 80-290 rad/s (contact_sweep, 2026-11-09). Given the trunk's
+## world-space follow as well, they were worse: wherever a clip asks for an
+## arm pose its joints can't reach (TACKLE_GRAB's reach does), the follow
+## and the joint limit fought through the chest, which buzzed ±20-60° at
+## 40-80 rad/s under a held-up tackler. So the arms only have their joint
+## motors, which act between arm and chest and can't drive the trunk, at no
+## less than ARM_MOTOR_FLOOR; and no simulated body turns faster than
+## PARTIAL_MAX_SPIN (rad/s; arms PARTIAL_MAX_ARM_SPIN). A running arm swings
+## at ~10-15 rad/s, a whipped head ~20: the caps only bite on what a body
+## can't do anyway.
+const ARM_MOTOR_FLOOR := 0.5
+const ARM_FOLLOW := 0.0   ## a loose arm: motors only (TACKLE_GRAB's reach is past the joints, and any follow fought them)
+## A loosened trunk knocked far enough reached the spine's bend limits
+## (35° forward a joint), and Jolt bounced it off them at 45-65 rad/s
+## (a broken tackle's lurch). Like tissue at the end of its range, a trunk
+## body's follow climbs from the knock's tone to full between these angles
+## off its animated pose (degrees), so it's caught well short of the stop.
+const END_RANGE_DEG := Vector2(15.0, 35.0)
 const PARTIAL_MAX_SPIN := 14.0
 const PARTIAL_MAX_ARM_SPIN := 24.0
 
@@ -402,6 +418,13 @@ var track_pose := false
 ## the animated pose will be after the body moves this tick.
 var carry_velocity := Vector3.ZERO
 var _partial: Array[StringName] = []
+## A partial ragdoll's arm motors never drop below this (ARM_MOTOR_FLOOR, or
+## 1 to hold a carry pose).
+var arm_motor_floor := ARM_MOTOR_FLOOR
+## The arms' follow (1/s), toward their animated pose relative to the
+## physical chest: ARM_FOLLOW for a loose arm, the full contact follow to
+## keep a carrier's hands on the ball.
+var arm_follow := ARM_FOLLOW
 
 ## bone name -> half the body's segment length in world metres (scaled),
 ## for segment_tip().
@@ -1126,22 +1149,41 @@ func _step_partial(delta: float) -> void:
 			if parent == null or not _target_rel.has(bone) or not _partial.has(StringName(bone)):
 				continue
 			var child: PhysicalBone3D = bodies[bone]
-			var s := maxf(strength, HEAD_PROTECT_STRENGTH) if bone == "head" else strength
+			var s := strength
+			if bone == "head":
+				s = maxf(s, HEAD_PROTECT_STRENGTH)
+			elif not TRUNK.has(StringName(bone)):
+				s = maxf(s, arm_motor_floor)
 			var goal := parent.global_basis.get_rotation_quaternion() * (_target_rel[bone] as Quaternion)
 			_drive_joint(child, parent, _rotation_vector(goal * child.global_basis.get_rotation_quaternion().inverse()),
 				s, delta)
 	for bone: StringName in _partial:
 		var pb := body(bone)
 		var arm := not TRUNK.has(bone)
-		if follow > 0.0:
-			var rate := maxf(follow, Tuning.CONTACT_REACT_FOLLOW * ARM_FOLLOW_FLOOR) if arm else follow
-			var k := 1.0 - exp(-rate * delta)
+		if follow > 0.0 and not arm:
 			var target := animated_transform(bone)
+			var turn := _rotation_vector(target.basis.get_rotation_quaternion()
+				* pb.global_basis.get_rotation_quaternion().inverse())
+			# End-of-range stiffening (see END_RANGE_DEG).
+			var rate := maxf(follow, Tuning.CONTACT_REACT_FOLLOW
+				* smoothstep(END_RANGE_DEG.x, END_RANGE_DEG.y, rad_to_deg(turn.length())))
+			var k := 1.0 - exp(-rate * delta)
 			var v_goal := (target.origin + ahead - pb.global_position) / delta
 			pb.linear_velocity += (v_goal - pb.linear_velocity) * k
-			var w_goal := _rotation_vector(target.basis.get_rotation_quaternion()
-				* pb.global_basis.get_rotation_quaternion().inverse()) / delta
-			pb.angular_velocity += (w_goal - pb.angular_velocity) * k
+			pb.angular_velocity += (turn / delta - pb.angular_velocity) * k
+		if arm and arm_follow > 0.0:
+			# The arm's animated pose relative to the animated chest, put on
+			# the chest as it really is: a target the joints can always
+			# reach, so this can't fight them the way a world-space one did.
+			var chest := body(&"Chest")
+			var rel := animated_transform(&"Chest").affine_inverse() * animated_transform(bone)
+			var target := chest.global_transform * rel
+			var k := 1.0 - exp(-arm_follow * delta)
+			var v_goal := (target.origin - pb.global_position) / delta
+			pb.linear_velocity += (v_goal - pb.linear_velocity) * k
+			var turn := _rotation_vector(target.basis.get_rotation_quaternion()
+				* pb.global_basis.get_rotation_quaternion().inverse())
+			pb.angular_velocity += (turn / delta - pb.angular_velocity) * k
 		var cap := PARTIAL_MAX_ARM_SPIN if arm else PARTIAL_MAX_SPIN
 		if pb.angular_velocity.length() > cap:
 			pb.angular_velocity = pb.angular_velocity.normalized() * cap

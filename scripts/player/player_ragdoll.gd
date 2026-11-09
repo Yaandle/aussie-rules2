@@ -346,8 +346,12 @@ func _start_reacting() -> void:
 	# contact on the chest.
 	_ragdoll.carry_velocity = _reaction.get("velocity", _player.velocity)
 	_apply_reaction_tone(0.0)
-	_ragdoll.start_partial(PhysicsRagdoll.UPPER_BODY if bool(_reaction.get("arms", true))
-		else PhysicsRagdoll.TRUNK)
+	# A carrier's arms hold the ball on full-strength motors (see
+	# PhysicsRagdoll.TRUNK for why they're simulated at all).
+	var loose_arms := bool(_reaction.get("arms", true))
+	_ragdoll.arm_motor_floor = PhysicsRagdoll.ARM_MOTOR_FLOOR if loose_arms else 1.0
+	_ragdoll.arm_follow = PhysicsRagdoll.ARM_FOLLOW if loose_arms else Tuning.CONTACT_REACT_FOLLOW * 2.0
+	_ragdoll.start_partial(PhysicsRagdoll.UPPER_BODY)
 	_push = (_reaction.get("impulse", Vector3.ZERO) as Vector3) / Tuning.CONTACT_REACT_PUSH_DURATION
 	_push_left = Tuning.CONTACT_REACT_PUSH_DURATION if _push != Vector3.ZERO else 0.0
 	_react_time = 0.0
@@ -373,7 +377,9 @@ func _step_reacting(delta: float) -> void:
 		cancel()
 		return
 	_react_time += delta
-	_ragdoll.carry_velocity = _player.velocity
+	# Stepped after the player's move (PlayerController), so the animated
+	# pose is already where it'll be when physics steps: nothing to lead by.
+	_ragdoll.carry_velocity = Vector3.ZERO
 	_apply_reaction_tone(_react_time)
 	if _push_left > 0.0:
 		var dt := minf(delta, _push_left)

@@ -27,6 +27,7 @@ extends Node3D
 ##            (the trunk is capped at PhysicsRagdoll.PARTIAL_MAX_SPIN, so
 ##            anything far past that is the hand-in or hand-back)
 ##   stam   — stamina after
+##   ball   — a carrier's ball, furthest from between their wrists (m)
 ## SUMMARY gives the worst of each.
 
 const PlayerScene := preload("res://scenes/player/player.tscn")
@@ -241,6 +242,10 @@ func _watch(pair: Dictionary, tag: StringName) -> void:
 		rows.erase(key + "last_chest")
 		return
 	rows[key + "kind"] = "react"
+	if player.is_carrying():
+		var ball := player.carried_ball()
+		var hands := (ragdoll.segment_tip(&"LeftLowerArm") + ragdoll.segment_tip(&"RightLowerArm")) * 0.5
+		_keep_max(rows, key + "ball", ball.global_position.distance_to(hands))
 	_keep_min(rows, key + "tone", controller.reaction_tone())
 	var chest := ragdoll.body(&"Chest")
 	var animated := ragdoll.animated_transform(&"Chest")
@@ -260,11 +265,12 @@ func _watch(pair: Dictionary, tag: StringName) -> void:
 	var drawn := a_rot.slerp(chest.global_basis.get_rotation_quaternion(), influence)
 	var dt := get_process_delta_time()
 	if rows.has(key + "last_chest"):
-		var extra := (drawn * (rows[key + "last_chest"] as Quaternion).inverse()).get_angle() \
-			- (a_rot * (rows[key + "last_anim"] as Quaternion).inverse()).get_angle()
-		# Only physics turning it faster than the clip: a clip turning faster
-		# than the trunk follows is lag, not a snap.
-		var pop := maxf(extra, 0.0) / maxf(dt, 0.0001)
+		# How fast the knock's offset from the clip changes: the turn physics
+		# adds on top of the animation (comparing the two turns' sizes read
+		# a clip turning one way and the trunk lagging the other as a snap).
+		var offset := drawn * a_rot.inverse()
+		var last_offset := (rows[key + "last_chest"] as Quaternion) * (rows[key + "last_anim"] as Quaternion).inverse()
+		var pop := offset.angle_to(last_offset) / maxf(dt, 0.0001)
 		if pop > float(rows.get(key + "pop", 0.0)):
 			rows[key + "pop"] = pop
 			rows[key + "pop_at"] = "%.2fs@%.2f" % [float(_frame - RUN_IN) / 60.0, influence]
@@ -294,6 +300,8 @@ func _report() -> void:
 				float(rows.get(key + "shift", 0.0)), float(rows.get(key + "waist", 0.0)),
 				float(rows.get(key + "spin", 0.0)), rows.get(key + "spin_bone", ""), float(rows.get(key + "pop", 0.0)),
 				rows.get(key + "pop_at", ""), float(rows.get(key + "stamina", 0.0))]
+			if rows.has(key + "ball"):
+				line += " ball %.2f" % float(rows[key + "ball"])
 			if rows.get(key + "kind", "-") == "react":
 				worst.reacts = int(worst.get("reacts", 0)) + 1
 				for stat in ["shift", "waist", "spin", "pop"]:

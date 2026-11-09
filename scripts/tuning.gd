@@ -1280,7 +1280,10 @@ const CONTACT_REACT_TONE_DROP := 0.85
 const CONTACT_REACT_RECOVER := 0.45         # s
 const CONTACT_REACT_TIME := 0.55            # s
 const CONTACT_REACT_BLEND_OUT := 0.2        # s
-const CONTACT_REACT_PUSH_DURATION := 0.08   # s
+const CONTACT_REACT_PUSH_DURATION := 0.15   # s
+# How far off the chest's centre the push lands, toward the other body
+# (the tackle push's 0.12 m turned the trunk at 35-40 rad/s on the hit).
+const CONTACT_REACT_SIDE_OFFSET := 0.05     # m
 const CONTACT_REACT_IMPULSE_SHARE := 0.15
 const CONTACT_REACT_IMPULSE_MAX := 60.0    # N·s
 # A tackle that breaks, or one that holds the carrier up: both bodies take
@@ -1289,6 +1292,12 @@ const CONTACT_REACT_IMPULSE_MAX := 60.0    # N·s
 # is half of it, and a broken tackler bounces off with BREAK_RECOIL_SHARE
 # of the push at the carrier's share, 1 - b (PlayerController._break_tackle).
 const CONTACT_REACT_BREAK_RECOIL_SHARE := 0.5
+# A broken tackle drags the carrier's legs (TACKLE_BREAK_SPEED_KEEP), and
+# their trunk lurches on over them by its own momentum. All of it (2 m/s off
+# a sprint) pitched a loosened trunk 25° forward into the spine's bend limit,
+# which Jolt snapped on to 53° at 65 rad/s; this share of it rocks them
+# forward a step's worth. Unplaytested feel guess.
+const CONTACT_REACT_LURCH_SHARE := 0.5
 # A held-up pair used to stop dead on the frame the tackle held. They now
 # meet at their common velocity (mass-weighted, an inelastic collision) and
 # the carrier's legs brake it out at this rate, the tackler hanging on
