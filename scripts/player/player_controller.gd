@@ -502,6 +502,16 @@ func _ready() -> void:
 	_heading.y = 0.0
 	_heading = _heading.normalized()
 
+	# Only the ground is ever something to stand on. CharacterBody3D treats
+	# any body it touches from above as a moving platform and, by default,
+	# hands the player that body's velocity when they leave it; players'
+	# mask includes the ball and other players. A kick arriving at ~40 m/s
+	# into a contested mark slid under the catcher's capsule, and the catcher
+	# was flung off at 41 m/s on the catch frame (contact_sweep, 2026-11-10;
+	# the same with every contact reaction switched off).
+	platform_floor_layers = 1
+	platform_wall_layers = 0
+
 	# Own the gather shape rather than editing the one in the .tscn, so
 	# GATHER_RADIUS stays single-sourced in Tuning and instances of this
 	# scene do not share a mutated resource. Sized to the largest reach a

@@ -11,6 +11,10 @@ extends Node3D
 ##
 ##   godot --headless --path . res://scenes/dev/contact_sweep.tscn --fixed-fps 60 --quit-after 400
 ##   ... -- --model=7thbuild    (default 6thbuild)
+##   ... -- --cases=18          (only these CASES indices)
+## The mark cases need running one at a time: a match has one ball, and
+## PlayerController._live_ball() reads the first in the "ball" group, so
+## with several in the scene every marker watches someone else's.
 ##
 ## Per case: the outcome (and b, the tackle formula's balance loss), then
 ## for A (the one coming in) and B:
@@ -28,6 +32,7 @@ extends Node3D
 ##            anything far past that is the hand-in or hand-back)
 ##   stam   — stamina after
 ##   ball   — a carrier's ball, furthest from between their wrists (m)
+##   [...]  — mark cases: the action clips each played
 ## SUMMARY gives the worst of each.
 
 const PlayerScene := preload("res://scenes/player/player.tscn")
@@ -58,7 +63,21 @@ const CASES := [
 	[&"hold", 0.0, 0.6, 0.0, 1.0, 1.0],
 	[&"glance", 90.0, 1.0, 1.0, 1.0, 1.0],
 	[&"glance", 90.0, 1.0, 1.0, 1.0, 0.2],
+	# A contested mark: both go for a kick arriving chest high where they
+	# meet (MARK_LEAD after the hit), on the AI's Safe path.
+	[&"mark", 0.0, 0.6, 0.6, 1.0, 1.0],
+	[&"mark", 45.0, 0.6, 0.6, 1.0, 1.0],
+	[&"mark", 90.0, 1.0, 0.6, 1.0, 1.0],
+	[&"mark", 90.0, 0.6, 0.0, 1.0, 1.0],
+	[&"mark", 135.0, 1.0, 0.6, 1.0, 1.0],
+	[&"mark", 180.0, 1.0, 0.6, 1.0, 1.0],
+	[&"mark", 270.0, 1.0, 1.0, 0.3, 1.0],
 ]
+## A contested mark's ball: kicked from this far out along B's run, to reach
+## chest height at the meeting point this long after the hit.
+const MARK_KICK_DISTANCE := 20.0
+const MARK_LEAD := 0.3
+const MARK_HEIGHT := 1.4
 
 
 ## Runs one way at one pace. An AIBrain stand-in (not a HumanBrain) so a
@@ -73,6 +92,11 @@ class ScriptedBrain extends PlayerBrain:
 	func gait() -> float:
 		return pace
 
+	var marking := false
+
+	func wants_mark_safe() -> bool:
+		return marking
+
 
 var _pairs: Array[Dictionary] = []
 var _frame := 0
@@ -80,9 +104,13 @@ var _frame := 0
 
 func _ready() -> void:
 	var model := "6thbuild"
+	var only: Array[int] = []
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--model="):
 			model = arg.trim_prefix("--model=")
+		elif arg.begins_with("--cases="):
+			for index in arg.trim_prefix("--cases=").split(","):
+				only.append(int(index))
 	CharacterProfile.model_id = model
 	print("contact_sweep: model %s" % model)
 	add_child(_build_floor())
@@ -91,7 +119,8 @@ func _ready() -> void:
 		add_child(throwaway)
 		throwaway.queue_free()
 	for i in CASES.size():
-		_pairs.append(_spawn_pair(CASES[i], Vector3((i - CASES.size() * 0.5) * PAIR_SPACING, 0.0, 0.0)))
+		if only.is_empty() or only.has(i):
+			_pairs.append(_spawn_pair(CASES[i], Vector3((i - CASES.size() * 0.5) * PAIR_SPACING, 0.0, 0.0)))
 	# After the players' own physics (and their ragdoll steps) each tick.
 	process_physics_priority = 100
 	process_priority = 100
@@ -200,6 +229,24 @@ func _hit(pair: Dictionary) -> void:
 			else:
 				a._lunge_connect(b, impact, false)
 				pair.outcome = String(a.last_tackle.get("outcome", "held"))
+		&"mark":
+			a.global_position = (pair.contact as Vector3) + from * (0.7 + Tuning.speed_for_gait(spec[2]) * COLLIDE_LEAD)
+			b.global_position = (pair.contact as Vector3) - Vector3.FORWARD * Tuning.speed_for_gait(spec[3]) * COLLIDE_LEAD
+			(a.brain() as ScriptedBrain).marking = true
+			(b.brain() as ScriptedBrain).marking = true
+			var ball := _ball_for(b)
+			var meet := (pair.contact as Vector3) + Vector3.FORWARD * Tuning.speed_for_gait(spec[3]) * MARK_LEAD
+			var at := meet + Vector3.UP * MARK_HEIGHT
+			var from_point := meet + Vector3.FORWARD * MARK_KICK_DISTANCE + Vector3.UP * 1.0
+			var v := _launch_velocity(from_point, at, MARK_LEAD + COLLIDE_LEAD)
+			ball.global_position = from_point
+			ball.launch(v.normalized(), v.length(), Vector3.ZERO, null, true)
+			pair.ball = ball
+			for tag: StringName in [&"a", &"b"]:
+				var who: StringName = tag
+				(pair[tag] as PlayerController).mark_caught.connect(func(_tier: Tuning.Action, _legal: bool) -> void:
+					pair.outcome = "%s marks" % who)
+			pair.outcome = "spilled"
 		&"glance":
 			var dir := -from
 			b.receive_bump(dir * Tuning.BUMP_KNOCKBACK_SPEED * Tuning.BUMP_MISTIMED_SCALE,
@@ -218,6 +265,22 @@ static func _face(player: PlayerController, dir: Vector3, speed := 0.0) -> void:
 	player._speed = speed
 
 
+## Gravity-only aim, refined against the Ball's drag (as MarkCueHarness).
+static func _launch_velocity(from: Vector3, to: Vector3, t: float) -> Vector3:
+	var v := (to - from) / t + Vector3.UP * 0.5 * Tuning.GRAVITY * t
+	for i in 8:
+		var p := from
+		var w := v
+		var elapsed := 0.0
+		while elapsed < t:
+			var dt := minf(1.0 / 120.0, t - elapsed)
+			w += (-w * w.length() * Tuning.BALL_DRAG_COEFF / Tuning.BALL_MASS + Vector3.DOWN * Tuning.GRAVITY) * dt
+			p += w * dt
+			elapsed += dt
+		v += (to - p) / t
+	return v
+
+
 func _ball_for(player: PlayerController) -> Ball:
 	var ball := preload("res://scenes/ball/ball.tscn").instantiate() as Ball
 	add_child(ball)
@@ -231,6 +294,10 @@ func _watch(pair: Dictionary, tag: StringName) -> void:
 	var rows: Dictionary = pair.rows
 	var key := String(tag) + "."
 	rows[key + "stamina"] = player.stamina
+	if pair.spec[0] == &"mark":
+		var state := String(player._animation.current_state())
+		if state != "locomotion" and not String(rows.get(key + "clips", "")).contains(state):
+			rows[key + "clips"] = String(rows.get(key + "clips", "")) + state + " "
 	if controller == null or controller.ragdoll() == null:
 		return
 	var ragdoll := controller.ragdoll()
@@ -300,6 +367,8 @@ func _report() -> void:
 				float(rows.get(key + "shift", 0.0)), float(rows.get(key + "waist", 0.0)),
 				float(rows.get(key + "spin", 0.0)), rows.get(key + "spin_bone", ""), float(rows.get(key + "pop", 0.0)),
 				rows.get(key + "pop_at", ""), float(rows.get(key + "stamina", 0.0))]
+			if rows.has(key + "clips"):
+				line += " [%s]" % String(rows[key + "clips"]).strip_edges()
 			if rows.has(key + "ball"):
 				line += " ball %.2f" % float(rows[key + "ball"])
 			if rows.get(key + "kind", "-") == "react":

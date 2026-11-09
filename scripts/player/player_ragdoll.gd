@@ -346,17 +346,21 @@ func _start_reacting() -> void:
 	# contact on the chest.
 	_ragdoll.carry_velocity = _reaction.get("velocity", _player.velocity)
 	_apply_reaction_tone(0.0)
-	# A carrier's arms hold the ball on full-strength motors (see
-	# PhysicsRagdoll.TRUNK for why they're simulated at all).
-	var loose_arms := bool(_reaction.get("arms", true))
-	_ragdoll.arm_motor_floor = PhysicsRagdoll.ARM_MOTOR_FLOOR if loose_arms else 1.0
-	_ragdoll.arm_follow = PhysicsRagdoll.ARM_FOLLOW if loose_arms else Tuning.CONTACT_REACT_FOLLOW * 2.0
+	_set_arms_loose(bool(_reaction.get("arms", true)))
 	_ragdoll.start_partial(PhysicsRagdoll.UPPER_BODY)
 	_push = (_reaction.get("impulse", Vector3.ZERO) as Vector3) / Tuning.CONTACT_REACT_PUSH_DURATION
 	_push_left = Tuning.CONTACT_REACT_PUSH_DURATION if _push != Vector3.ZERO else 0.0
 	_react_time = 0.0
 	_react_blend = 0.0
 	_phase = Phase.REACTING
+
+
+## A carrier's arms hold the ball on full-strength motors, following the
+## carry pose on the chest (see PhysicsRagdoll.TRUNK for why they're
+## simulated at all); anyone else's hang on the floor motors.
+func _set_arms_loose(loose: bool) -> void:
+	_ragdoll.arm_motor_floor = PhysicsRagdoll.ARM_MOTOR_FLOOR if loose else 1.0
+	_ragdoll.arm_follow = PhysicsRagdoll.ARM_FOLLOW if loose else Tuning.CONTACT_REACT_FOLLOW * 2.0
 
 
 ## Tone climbs from the hit's back to full over CONTACT_REACT_RECOVER,
@@ -381,6 +385,10 @@ func _step_reacting(delta: float) -> void:
 	# pose is already where it'll be when physics steps: nothing to lead by.
 	_ragdoll.carry_velocity = Vector3.ZERO
 	_apply_reaction_tone(_react_time)
+	# The ball can change hands mid-knock (a contested mark spills off one
+	# body into the other's arms). Duck-typed, as on_ragdoll_getup is.
+	if _player.has_method(&"is_carrying"):
+		_set_arms_loose(not bool(_player.call(&"is_carrying")))
 	if _push_left > 0.0:
 		var dt := minf(delta, _push_left)
 		var bone: StringName = _reaction.get("bone", &"Chest")
