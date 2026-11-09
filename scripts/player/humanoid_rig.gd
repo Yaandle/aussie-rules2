@@ -81,7 +81,9 @@ extends Node3D
 ## recoloured by material name (_recolour_imported: "Shirt"/"Jersey",
 ## "Short", "Shoe"/"Boot", "Sock", "Skin", plus "Trim"/"Number" in a colour
 ## contrasting with the jersey) and, unless it models its own socks (only
-## 7thbuild does), gets a sock tube per lower leg (_add_imported_socks). Only
+## 7thbuild does), gets a sock tube per lower leg (_add_imported_socks).
+## 7thbuild is one surface on one "Kit" material instead: the kit shader
+## colours it per face and draws guernsey_number (_apply_kit_shader). Only
 ## kit_stripes stays procedural-only, so Umpire still sets
 ## allow_imported_character = false before add_child() to keep its stripes.
 
@@ -129,6 +131,22 @@ const COLOUR_TREAD := Color("#141513")
 ## reads on the front and the back at once rather than needing two.
 @export var kit_stripes := 0
 @export var kit_stripe_colour := Color("#1b1c20")
+
+## The number on the back, 1-99, set before add_child by whoever spawns the
+## player (a Career roster's number, else the team slot). Only a model with
+## the kit shader draws it (7thbuild); 0 means none was set and shows
+## DEFAULT_GUERNSEY_NUMBER, the single number the first Build 7 wore.
+@export var guernsey_number := 0
+const DEFAULT_GUERNSEY_NUMBER := 17
+
+## Hair colour, alpha 0 = unset: then one of HAIR_COLOURS picked by the
+## guernsey number, so a team isn't all one hair colour and a player keeps
+## theirs from match to match. Kit-shader models only (7thbuild).
+@export var kit_hair := Color(0.0, 0.0, 0.0, 0.0)
+## Dark brown, black, brown, mid brown, dark blond, auburn, near black,
+## sandy. Weighted to the darker shades by repetition. Unplaytested look.
+const HAIR_COLOURS := [Color("#2b1d14"), Color("#121012"), Color("#3e2a1c"), Color("#4a3322"),
+	Color("#8a6a3e"), Color("#5c2e1c"), Color("#1d1714"), Color("#a78452")]
 
 ## Viewer-only high-fidelity switch (scripts/dev/animation_viewer.gd sets it
 ## before _ready). A dev screen renders one to three bodies, not 16-a-side,
@@ -358,6 +376,11 @@ func _build() -> void:
 ## no skeleton inside — never partially builds.
 func _try_build_from_import() -> bool:
 	var model_path: String = CHARACTER_MODELS.get(selected_model(), "")
+	# Dev reviews (scripts/dev/build_compare.gd) can name a .glb directly, so
+	# a "before" copy of a model stands beside its rebuilt self without a
+	# CHARACTER_MODELS entry. A saved profile never holds a path.
+	if model_path == "" and selected_model().begins_with("res://"):
+		model_path = selected_model()
 	if model_path == "" or not ResourceLoader.exists(model_path):
 		return false
 	var packed: PackedScene = load(model_path)
@@ -460,6 +483,9 @@ func _recolour_imported(node: Node, kit: Dictionary) -> void:
 				var source := mi.mesh.surface_get_material(surface) as BaseMaterial3D
 				if source == null:
 					continue
+				if source.resource_name.to_lower().contains(KIT_MATERIAL_WORD):
+					_apply_kit_shader(mi, surface, kit)
+					continue
 				var slot := _imported_slot(source.resource_name)
 				if slot == "socks":
 					_imported_has_socks = true
@@ -471,6 +497,33 @@ func _recolour_imported(node: Node, kit: Dictionary) -> void:
 					mi.set_surface_override_material(surface, _imported_material(source, kit[slot]))
 	for child in node.get_children():
 		_recolour_imported(child, kit)
+
+
+## A material whose Blender name holds this word ("Kit_Mat", 7thbuild's
+## only material) is the whole body in one surface, coloured per face by
+## assets/shaders/player_kit.gdshader. Every rig shares one ShaderMaterial;
+## each MeshInstance3D carries its own colours and number as instance
+## shader parameters, so two kits (and 36 numbers) cost no extra materials.
+## Its socks are part of it, so no stand-in sock capsules.
+const KIT_MATERIAL_WORD := "kit"
+const KIT_SHADER := preload("res://assets/shaders/player_kit.gdshader")
+static var _kit_material: ShaderMaterial
+
+func _apply_kit_shader(mi: MeshInstance3D, surface: int, kit: Dictionary) -> void:
+	if _kit_material == null:
+		_kit_material = ShaderMaterial.new()
+		_kit_material.shader = KIT_SHADER
+	mi.set_surface_override_material(surface, _kit_material)
+	_imported_has_socks = true
+	for slot: String in ["jersey", "shorts", "socks", "boot", "trim"]:
+		mi.set_instance_shader_parameter(&"kit_" + slot, kit[slot])
+	# Unset skin keeps the model's own authored tone (the shader's default).
+	if kit_skin.a > 0.0:
+		mi.set_instance_shader_parameter(&"kit_skin", kit["skin"])
+	var number := guernsey_number if guernsey_number > 0 else DEFAULT_GUERNSEY_NUMBER
+	mi.set_instance_shader_parameter(&"kit_number", clampi(number, 0, 99))
+	var hair: Color = kit_hair if kit_hair.a > 0.0 else HAIR_COLOURS[number % HAIR_COLOURS.size()]
+	mi.set_instance_shader_parameter(&"kit_hair", hair)
 
 
 func _imported_slot(material_name: String) -> String:

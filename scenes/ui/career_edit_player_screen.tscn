@@ -9,7 +9,7 @@ edit_mode = true
 
 [node name="CharacterBackdrop" parent="." instance=ExtResource("2_backdrop")]
 subject_screen_x = 0.833
-dress_field_2 = true
+dress_field = 2
 
 [node name="Overlay" type="CanvasLayer" parent="."]
 

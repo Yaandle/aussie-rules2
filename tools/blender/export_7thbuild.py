@@ -1,13 +1,15 @@
 """Export assets/blender/7thbuild.blend's Armature + B7_* meshes to
 res://assets/characters/7thbuild.glb: Build 7, the visual upgrade of 6thbuild.
 
-A copy of export_6thbuild.py with only this header, SOURCE_MESHES and
-EXPORT_PATH changed. 7thbuild.blend started as a byte copy of 6thbuild.blend,
-so the Armature, its actions, BONE_RENAME, the pelvis.001 merge and
-CLIP_RENAME are 6thbuild's, unchanged: Godot gets the same skeleton and the
-same clips, and only the skin differs. Keep the maps in step with
-export_6thbuild.py if either rig grows a bone or a clip. The meshes come
-from build_7thbuild_mesh.py; see docs/BUILD7_MODEL.md.
+A copy of export_6thbuild.py with this header, SOURCE_MESHES, EXPORT_PATH
+and one step changed: the five parts are joined into one mesh on the
+duplicate before export (they share one material, so Godot gets one
+surface). 7thbuild.blend started as a byte copy of 6thbuild.blend, so the
+Armature, its actions, BONE_RENAME, the pelvis.001 merge and CLIP_RENAME
+are 6thbuild's, unchanged: Godot gets the same skeleton and the same clips,
+and only the skin differs. Keep the maps in step with export_6thbuild.py if
+either rig grows a bone or a clip. The meshes come from
+build_7thbuild_mesh.py; see docs/BUILD7_MODEL.md.
 
 Run from Blender's Scripting workspace (Open this file, Run Script) with
 7thbuild.blend open, or headless:
@@ -74,6 +76,9 @@ STRAY_WEIGHT_MERGE = {
 # 6thbuild so far — add entries here as action clips get animated.
 CLIP_RENAME = {
 	"idle": "idle",
+	# Build 7 only (author_7thbuild_gaits.py): PlayerAnimation adds a walk
+	# blend point for a model that has it.
+	"walk": "walk",
 	"jog_fwd": "jog_fwd",
 	"run_fwd": "run_fwd",
 	"run_back": "run_back",
@@ -251,6 +256,32 @@ def export_7thbuild():
 		for dup_obj in dup_mesh_objs}
 	off_chain = {name: bad for name, bad in off_chain.items() if bad}
 
+	# One mesh: join the parts on the duplicate. They share Kit_Mat, so the
+	# player is one skinned mesh with one surface in Godot, which costs one
+	# skinning pass and one draw per render pass instead of five and ten.
+	# Vertex groups merge by name, and both UV maps (UVMap: the number box,
+	# Slot: the kit slot) by name too, so every part needs both.
+	joined_name = None
+	if len(dup_mesh_objs) > 1:
+		override_join = _find_view3d_override()
+		with bpy.context.temp_override(**override_join):
+			bpy.ops.object.select_all(action='DESELECT')
+		for dup_obj in dup_mesh_objs:
+			dup_obj.select_set(True)
+		bpy.context.view_layer.objects.active = dup_mesh_objs[0]
+		with bpy.context.temp_override(active_object=dup_mesh_objs[0],
+				selected_editable_objects=dup_mesh_objs, **override_join):
+			bpy.ops.object.join()
+		joined = dup_mesh_objs[0]
+		joined.name = "B7_Player_EXPORT_TMP"
+		joined_name = joined.name
+		keep = joined.data
+		dup_mesh_objs = [joined]
+		for data in dup_mesh_datas:
+			if data is not keep and data.users == 0:
+				bpy.data.meshes.remove(data)
+		dup_mesh_datas = [keep]
+
 	# Independent copies of only the wanted actions, stashed onto the
 	# duplicate under their final clip names — same shape as
 	# export_fifthbuild.py's approach, so this exports one glTF animation
@@ -325,7 +356,7 @@ def export_7thbuild():
 		bpy.data.actions.remove(copy, do_unlink=True)
 
 	print("export_7thbuild: wrote", EXPORT_PATH)
-	print("  meshes exported:", [o.name for o in src_mesh_objs])
+	print("  meshes exported:", [o.name for o in src_mesh_objs], "joined into one" if joined_name else "")
 	print("  clips exported:", sorted(action_copies.keys()))
 	print("  stray weights merged (vertices per group):", merged)
 	if off_chain:

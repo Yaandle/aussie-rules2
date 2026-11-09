@@ -52,6 +52,11 @@ extends Node3D
 ## are "stand" (c up, ~0.1 m); a sprinting B into a jogging carrier slings.
 ## Worst of: c spin 82 rad/s, hip_back 60°, joint +38°; t spin 47,
 ## hip_back 54°, joint +42°; every wrap tackler down.
+##
+## 2026-11-09: still byte-identical on Build 6. Build 7 (a copy with
+## MODEL_ID = "7thbuild") after its elbows were fitted to the hinge: start
+## worst 17.5 / 18.0, spin 82 / 118; docs/ANIMATION_RAGDOLL_AUDIT.md's
+## Phase 3 section has the 256-fall comparison.
 
 const PlayerScene := preload("res://scenes/player/player.tscn")
 const MODEL_ID := "6thbuild"

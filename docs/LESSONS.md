@@ -224,6 +224,14 @@ mostly superseded history. The full text lives outside the repo, in
   (`user://career_profile.cfg`, `settings.cfg`, under
   `%APPDATA%\Godot\app_userdata\Aussie Rules 2`). Back them up first, or
   set state in memory and open the screen directly instead.
+- **A windowed capture gets the user's gamepad.** Godot reads joypads in
+  an unfocused window, so a controller in use (the user playing their own
+  build alongside) drives your capture too: rows moved, a stat nudged, and
+  a Back on the character screen saves `character_profile.cfg`. Back the
+  save files up around any windowed run of a menu, and don't read the
+  frames' cursor or values as yours.
+- `--scene res://...` picks the run scene reliably next to `--write-movie`;
+  a bare positional scene path after it was ignored (the main menu ran).
 - **Committing next to another session's edits in the same file:** with no
   `git add -p`, build the staged copy as `git show HEAD:<file>` plus only
   your hunk, then `git hash-object -w` it and `git update-index --cacheinfo`.
@@ -238,6 +246,36 @@ mostly superseded history. The full text lives outside the repo, in
   on a clip against itself. Check skin and cloth with
   `tools/blender/check_7thbuild_deform.py` and by eye (`build_compare.tscn`):
   a face crossing a crease can show with every vertex inside (Build 7).
+- **Test a poke by the line from the vertex's own bone, not the nearest
+  face.** A vertex deep in a folded crease finds a face whose normal points
+  at it and reads "outside" (a jog read 38 mm that renders clean).
+- **Hidden geometry under cloth at a ball joint has to fit the sphere the
+  cloth leaves round the pivot.** Linear-blend creases cave in toward a
+  bent joint; 6thbuild's hips leave ~5 cm in front of each hip joint, so
+  Build 7's thigh under the shorts is a slim cone.
+- **Draws scale with surfaces, times every shadow cascade.** Build 7
+  before's ten surfaces cost 48 draws a player; one surface with per-face
+  slots and instance shader parameters costs 5, and 36 players share one
+  material. glTF flips V: a projection authored in Blender UVs reads
+  upside down in Godot.
+- **Windowed review renders:** `scenes/dev/build_compare.tscn` (in-game
+  look, takes a `res://` .glb for a before/after) and
+  `scenes/dev/model_cost.tscn` (render cost, v-sync off).
+- **Animated poses must stay inside the ragdoll's joint limits.** A tackle
+  can land on any frame and the ragdoll starts from the pose: Build 7's
+  first new sprint went 50° back at the hip and started tackle_sweep's
+  falls at 100 rad/s. Check a gait's hip, knee and ankle ranges against
+  PhysicsRagdoll.BODIES before shipping it. **That includes the hinge's
+  axis:** a hinge allows one axis only, and a forearm bent about any other
+  (the upper arm rolled wrong by the arm IK) is snapped onto it in one
+  tick. `joint_report` can't see it (it measures bend, not twist or
+  off-axis). Build 7's gaits had elbows 50-84° off-axis: forearms at 43
+  rad/s at the hand-off, while every joint read inside its limits. The
+  rest pose's carrying angle means the elbow's plane doesn't hold the
+  upper arm, so fit the swivel and roll together
+  (`author_6thbuild_clips.solve_arm(..., hinge=True)`).
+- **A rigid foot rolls over its toe tip, not the ball.** With no toe bone,
+  a heel-off pivoting on the ball sank the toe 6 cm into the turf.
 - **Ragdoll tackles:** `scenes/dev/tackle_sweep.tscn` runs real X, B and
   bump connects between running 6thbuild players and prints how every body
   fell. Its header holds the 2026-10-28 baseline.

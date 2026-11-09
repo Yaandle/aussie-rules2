@@ -6,23 +6,33 @@ skeleton, every clip and every gameplay anchor are Build 6's, so it plays
 exactly the same. Build 6 is untouched and still selectable. Build 7 isn't
 the default.
 
+The same day it had a polish pass (branch `build7-polish`): a new body,
+one mesh with one material, per-player numbers and hair, and a deformation
+check that covers the ragdoll's joint limits. "Build 7 before" below means
+the first version (commit 467e256).
+
 ## Where things are
 
 | What | Path |
 |---|---|
-| Blender source | `assets/blender/7thbuild.blend`: started as a byte copy of `6thbuild.blend`, then its four Build 6 meshes were swapped for five generated ones |
-| Mesh generator | `tools/blender/build_7thbuild_mesh.py` |
-| Exporter | `tools/blender/export_7thbuild.py`: `export_6thbuild.py` with only the meshes and the output path changed |
-| Deformation check | `tools/blender/check_7thbuild_deform.py` |
+| Blender source | `assets/blender/7thbuild.blend`: a byte copy of `6thbuild.blend` whose meshes are generated |
+| Mesh generator | `tools/blender/build_7thbuild_mesh.py` (the source of truth for the mesh) |
+| Exporter | `tools/blender/export_7thbuild.py`: `export_6thbuild.py` plus a join of the five parts |
+| Deformation check | `tools/blender/check_7thbuild_deform.py`: every clip, plus ragdoll-limit poses |
+| Review sheets from Blender | `tools/blender/render_7thbuild_review.py`: turnaround, poses, close-ups, wireframe |
+| Kit shader | `assets/shaders/player_kit.gdshader` |
+| Gait clips (Build 7 only) | `tools/blender/author_7thbuild_gaits.py` (walk, jog, run, diagonals); `fix_7thbuild_knee_flips.py` (IK pole re-key); motion notes in `ANIMATION_RAGDOLL_AUDIT.md` (2026-11-09) |
+| Idle (Build 7 only) | `tools/blender/author_7thbuild_idle.py`: arms down, a slow breath. The inherited A-pose idle is kept as `idle_base`, which the clip scripts build from |
 | Runtime asset | `assets/characters/7thbuild.glb` |
 | Godot entry | `HumanoidRig.CHARACTER_MODELS["7thbuild"]` |
-| Side-by-side capture | `scenes/dev/build_compare.tscn` (run windowed) |
-| Review images | `docs/review/7thbuild/` (`.gdignore`d) |
+| In-game side-by-side | `scenes/dev/build_compare.tscn` (run windowed; takes `--models=`, `--shots=`) |
+| Render cost | `scenes/dev/model_cost.tscn` (run windowed; a grid of N bodies, or a real match) |
+| Review images | `docs/review/7thbuild/shoulders/` (2026-11-09), `docs/review/7thbuild/polish/` (2026-11-08), `docs/review/7thbuild/` (Build 7 before); `.gdignore`d |
 
 Build 6 still lives at `F:\dev\learning-&-development\New Folder\6thbuild.blend`
 (outside the repo) and `assets/characters/6thbuild.glb`. Neither was written to.
 
-## Rebuild and export
+## Rebuild, check, export, review
 
 ```powershell
 & "F:\blender\blender.exe" assets/blender/7thbuild.blend --background --python tools/blender/build_7thbuild_mesh.py -- --save
@@ -31,177 +41,250 @@ Build 6 still lives at `F:\dev\learning-&-development\New Folder\6thbuild.blend`
 & "D:\Downloads\Godot_v4.6-stable_win64.exe\Godot_v4.6-stable_win64_console.exe" --headless --path . --import
 ```
 
-Each script also runs from Blender's Scripting tab or the Blender MCP. The
-generator is the source of truth for the mesh: tune its tables and re-run
-rather than hand-editing the result. Hand edits are fine, but a re-run
-replaces them, so pick one way of working and say which in the commit.
-Don't commit `assets/blender/7thbuild.blend1`.
+Each step takes seconds. To iterate on the generator without saving, chain
+it in front of the checker or the review sheet in one Blender run:
+`--python tools/blender/build_7thbuild_mesh.py --python tools/blender/render_7thbuild_review.py -- out.png --close --wire`.
+`check_7thbuild_deform.py -- --only=tackled,rd_fetal` checks a few poses.
 
-The active action in the .blend is `tackled` with NLA on, as 6thbuild left
-it. The export reads the actions, not the viewport pose, but leave
-`Armature.data.pose_position` on `POSE`.
+In Godot, `build_compare.tscn` renders the in-game look (match lighting, the
+kit shader, the game's chase and full-side cameras). For a before/after,
+copy an old `.glb` anywhere under `res://` and pass its path as a model:
+`-- --models=6thbuild,res://tmp/7thbuild_before.glb,7thbuild`.
 
-## What changed visually
+The generator replaces the meshes on every run, so tune its tables rather
+than hand-editing the result. Don't commit `7thbuild.blend1`. The active
+action in the .blend is `tackled` with NLA on, as 6thbuild left it; the
+export reads the actions, not the viewport pose.
 
-- **Proportions.** The guernsey widens from a 0.158 m half-width at the
-  waist to 0.216 m across the chest. That gives a V-taper, pec and lat
-  bulges, and deltoids that cap out over a sleeveless guernsey. The thighs
-  run to 0.10 m and the calves to 0.078 m. The head is a little larger, at
-  about 0.24 m from chin to crown. Height and skeleton are unchanged; the
-  bulk comes from the mesh only (approved decision).
-- **Face.** A faceted head with a square jaw, cheekbones, a brow ridge, a
-  wedge nose, ears, dark eye slits, hair-coloured brows, and a hair shell
-  with a hairline and nape.
-- **Kit.** Sleeveless guernsey with a crew collar (shallow V) and a "17" on
-  the back. AFL shorts with a waistband and folded hems. Socks to just below
-  the knee with a top band. Low-cut boots with a contrasting sole and six
-  studs.
-- **Hands.** A palm, four two-segment fingers and a thumb, in a relaxed
-  half-curl. There are no finger bones, so they're rigid on the hand bone.
-- **Budget.** 3,502 triangles against Build 6's 4,666 (about 3,400 of those
-  are in Build 6's hands). It has 10 material surfaces against Build 6's 4
-  plus two sock capsules, so more draw calls per player (see "Needs your
-  eyes").
+## What it looks like
+
+- **Proportions.** Build 6's: a lean AFL build (the league averages
+  about 186 cm and 84 kg) with square shoulders. The guernsey is 0.54 m
+  across its shoulder cap, 0.45 m at the chest and 0.30 m at the waist,
+  over 0.46 m shorts (Blender units on the 2.15 m rig). From the collar the
+  top runs out at ~20° (the trapezius) to a cap over each deltoid, and the
+  cap's side drops straight to the armpit, so the shoulders are one block
+  and the arms hang from under it. Height and skeleton are unchanged; the
+  bulk is mesh only. (The 2026-11-08 polish was a barrel: widest at the
+  chest, 0.26 m deep, its top falling at 32° to deltoids stuck on below
+  it.)
+- **Kit.** A sleeveless guernsey with a crew collar and an armhole binding
+  in the trim colour, and the player's number on the back. Fitted AFL shorts with the waistband on
+  the hips, so the guernsey is the biggest colour block at any distance.
+  Socks to just below the knee, low-cut boots with a sole a shade off the
+  boot colour.
+- **Body.** Quads (the outer sweep and the teardrop over the knee),
+  hamstrings, a kneecap, calves with the inner head lower. A lean arm: the
+  deltoid's lower half below the cap, a long upper arm (~0.055 m radius),
+  an elbow narrower than the forearm, a forearm bulge below it. A thick
+  neck.
+- **Head.** A V jaw, cheekbones, a brow ridge, a wedge nose, almond eyes in
+  the brow's shade, a mouth line, ears. Short back and sides with the
+  volume on top and a lift at the front.
+- **Hands.** A palm, four chunky fingers that touch, and a thumb, in a
+  half-curl. Rigid on the hand bone (there are no finger bones).
+- **Shading.** Flat. The profiles run in straight tapers between a few
+  kinks, so the facets are big planes, and the joints' support rings sit
+  on straight runs where they can, so they don't show as bands.
+- **Budget.** 4,554 triangles in one surface (the guernsey went from 20
+  segments round to 24 for the shoulder's corners, plus the armhole
+  bands), against the 2026-11-08 polish's 4,154, Build 7 before's 3,502 in
+  ten and Build 6's 4,666 in six (four materials plus two sock capsules).
+
+## Shoulders, arms and idle (2026-11-09)
+
+Playtest: the elbows, biceps and shoulders were too large, with no
+transition from arm to shoulder, or from shoulder to torso and neck;
+Build 6's body composition was the one to follow. What changed:
+
+- **Arms** (`build_arms`' table): ~20% slimmer through the deltoid and
+  biceps, the elbow 0.041 m against the forearm's 0.050. The hands are
+  unchanged.
+- **Guernsey** (`GUERNSEY`): Build 6's square shoulder line and V. The
+  cap's outer edge takes 30% of the upper arm (`torso_w`), so a hanging
+  arm rounds it over the deltoid and a raised one lifts it, as the cloth
+  over a real shoulder does. Rigid, the cap stood out over a hanging arm
+  like a shoulder pad.
+- **Armhole binding** (`build_armholes`): a 2.2 cm trim band round the seam
+  where the arm leaves the guernsey at rest. The seam is traced by walking
+  out along the arm mesh until it's outside the guernsey (a ray cast back
+  along the arm missed the cap over the top). It's weighted as the
+  guernsey under it, so the arm turns under it.
+- **Idle** (`author_7thbuild_idle.py`): arms hanging, elbows soft and
+  pointing back on the ragdoll's hinge, a 3 s breath. The upper arm turns
+  ~50° of the ragdoll's 75° swing to hang. Build 6's idle is untouched.
+- **Previews**: `CharacterBackdrop` loops the model's idle (it used to show
+  the rest pose), so the character screens stand in it too.
+
+The deformation check prints the same as before this pass for every clip
+and ragdoll pose (it skips arm-against-guernsey by design; the arm clips
+and the ragdoll limits were checked by eye in `blender_arm_poses.png`).
+The tackle sweep wasn't re-run on Build 7: its standing idle is new, so a
+Build 7 sweep would differ from the old one anyway. Build 6's is untouched.
+
+## One mesh, one material, per-player kit
+
+The five generated parts (`B7_Body`, `B7_Hair`, `B7_Guernsey`, `B7_Shorts`,
+`B7_Boots`) share one material, `Kit_Mat`, and `export_7thbuild.py` joins
+them, so a player is one skinned mesh with one surface. Each face carries a
+kit slot as the integer part of its second UV (Godot's `UV2`):
+
+| Slot | Colour |
+|---|---|
+| 0 skin | `kit_skin` (the model's own tone unless the kit sets one) |
+| 1 jersey, 2 number | `kit_jersey`; the number faces draw the digits in `kit_trim` |
+| 3 trim (collar) | `kit_trim`: dark on a jersey brighter than luminance 0.55, else off-white |
+| 4 shorts, 5 socks, 6 boot | the kit's |
+| 7 sole | the boot colour darkened |
+| 8 studs, 10 eyes | fixed |
+| 9 hair | `kit_hair` |
+| 11 mouth | the skin darkened |
+
+The numbers are a contract between `SLOTS` in the generator and the
+shader's `SLOT_*` constants: change both or neither.
+
+`HumanoidRig._apply_kit_shader` puts one shared `ShaderMaterial` on every
+Build 7 and sets each player's colours as instance shader parameters. Two
+kits and 36 numbers cost no extra materials. Build 6, fifthbuild and the
+procedural rig don't have a "Kit" material and are recoloured as before.
+
+- **Number.** `HumanoidRig.guernsey_number`: the Career roster's number,
+  else the team slot (1-18) in a Full Game; 0 shows 17, the number
+  every Build 7 before wore (character previews, practice). The back
+  faces carry a planar projection of the number box (`NUMBER_CENTRE`/
+  `NUMBER_SIZE` in the generator, `NUMBER_BOX_ASPECT` in the shader) and the
+  shader draws chamfered block digits as a signed distance, crisp at any
+  size. They fade once a stroke is under about two pixels, rather than
+  shimmer. Highlights record each body's number and the replay wears it.
+- **Hair.** `HumanoidRig.kit_hair`, else one of `HAIR_COLOURS` picked by
+  the number.
 
 ## Topology and skin weights
 
 Every part is a loft of rings along a bone, so each vertex's weight is
-written from where it sits rather than guessed by Blender's heat diffusion
-(which failed on Build 6's Body):
+written from where it sits rather than guessed by Blender's heat diffusion:
 
 - Every joint gets a ring on the pivot, weighted 50/50, plus a support ring
-  either side. Long segments get two or three rings.
-- **Cloth uses the same weight function as the skin under it** (`torso_w`,
-  `ankle_foot`), so they bend together.
-- **Ball joints overlap rather than weld.** The arm into the guernsey, the
-  thigh into the shorts, the hand into the forearm and the neck into the
-  head each end in a dome round the joint's pivot. The dome is rigid to its
-  own bone, so it turns in place without opening a gap.
-- **Hidden skin under the shorts is slimmer than it looks** and close to a
-  sphere round the hip pivot. The shorts' centre seam can't follow either
-  thigh, so a full-size thigh came through it on a stride.
-- **The shorts' leg opening is weighted by side**: front 55% thigh, seat 72%,
-  and the front panel over each hip takes 10-30% of its thigh. A lifted knee
-  shoves the shorts up, as real ones do.
+  either side.
+- Cloth uses the same weight function as the skin under it (`torso_w`,
+  `ankle_foot`), so they bend together. Sock and boot are weighted per
+  vertex by height: a sock ring weighted by its centre slid out of the boot
+  when the foot pointed.
+- Ball joints overlap rather than weld: the arm, hand and neck end in domes
+  rigid to their own bone, so they turn in place without a gap.
+- **The thigh under the shorts is a slim cone from the hip pivot, not a
+  thigh.** 6thbuild's hip joints sit far out on the hips, so the shorts in
+  front of each pivot are only ~5 cm away. Anything of the thigh further
+  out than that sweeps through the shorts as the hip bends, and a blended
+  crease caves in toward the pivot on a deep bend. The visible thigh starts
+  under the hem.
+- **The shorts' lower rings are centred on the hip joints**, not on the
+  spine 2.4 cm behind them, and a little squarer, for room in front of the
+  hips.
+- The shorts' legs split at an inseam of three vertices shared by both legs
+  (front seam, crotch, back seam). With the crotch alone, each leg's inner
+  side was one flat chord and the inner thigh came through it at rest.
+- The shorts' leg opening is weighted by side: front 55% thigh, seat 72%. The
+  front panel over each hip takes 12-34% of its thigh (a lifted knee shoves
+  real shorts up), and the lower seat 22% (a trailing leg in a dive).
+- The top of the guernsey and the collar are centred on the neck's line, 1.2
+  cm behind the spine's, so the collar sits between the neck and the
+  guernsey all the way round.
 
-## Skeleton and animation compatibility
+## Deformation check
 
-Build 7's skeleton is Build 6's armature, unchanged. These were checked in
-Godot and on the raw glTF:
+`check_7thbuild_deform.py` samples every clip and twelve ragdoll poses
+(each joint at `PhysicsRagdoll.BODIES`' limits from the rest pose, with leg
+IK muted; the `_over` poses add the 10-45° a landing spine overshoots). A
+vertex counts as poking when the line from its own bone to it crosses the
+layer over it; the nearest face's normal misread vertices deep in a folded
+crease. Crossings are inner faces cutting an outer face with their corners
+still inside.
 
-- **Bones.** The same 18, with the same parents and rests: `Hips`, `Spine`,
-  `Chest`, `head`, `Left/RightShoulder`, `-UpperArm`, `-LowerArm`, `-Hand`,
-  `-UpperLeg`, `-LowerLeg`, `-Foot`. There's no Neck, Toes, finger or twist
-  bone, and `head` is lowercase.
-- **Clips.** The same 26, key for key: 1,404 channels, 0 differences in the
-  raw glTF and 0 mismatched keys after import.
-- **Inverse bind matrices.** Identical (max difference 0.0).
+| | Build 7 before (same checker) | Build 7 now |
+|---|---|---|
+| Rest pose | clean | clean |
+| Gait, marks, kick, handball | skin through the shorts in 12 of 17 clips, 4-13 mm | no pokes; 3-6 hidden crossings at the crease in some |
+| Ragdoll poses within the limits | pokes in fetal, sit, splits, tuck, 7-11 mm | clean (a 9-face crossing in the wide tuck) |
+| `knocked_back` | 13 verts, 30 mm; guernsey 16 mm | 6 verts, 14 mm |
+| `smother_dive`, `tackled`, `tackle_takedown` | 29-36 mm (the earlier checker) | 22, 17 and 12 mm, inside the folded crotch, under the body |
+| Sock and boot, fully pointed foot (`tackled`) | 26 mm | 10 mm |
 
-The Blender-side names (`pelvis`, `spine1`, `upperarm.l`, ...) and the IK
-helpers (`iktarget.*`, `ikpole.*`) are as in `export_6thbuild.py`'s
-`BONE_RENAME`. The helpers never reach Godot.
+The deepest frames were rendered from four sides (`compare_dive`,
+`compare_sit`); nothing shows. The remaining numbers are hidden geometry
+inside the fold.
 
-## Kit colours
+## Cost (GTX 1660 SUPER, 1600x900, v-sync off, `model_cost.tscn`)
 
-`HumanoidRig` recolours by material name, as it does for Build 6:
+| | Build 6 | Build 7 before | Build 7 now |
+|---|---|---|---|
+| 72 bodies: frame | 4.40 ms | 6.18 ms | 3.99 ms |
+| 72 bodies: render CPU | 1.56 ms | 2.74 ms | 0.42 ms |
+| 72 bodies: draws | 1,975 | 3,306 | 340 |
+| 72 bodies: GPU | 3.68 ms | 3.79 ms | 3.59 ms |
+| Quick-play match, 20 s: frame | 7.62 ms | 7.92 ms | 7.24-7.50 ms (two runs) |
+| Quick-play match: render CPU / draws | 1.19 ms / 990 | 1.48 ms / 1,233 | 0.89 ms / 728 |
 
-| Material | Kit slot |
-|---|---|
-| `Shirt_Mat` | jersey |
-| `Shorts_Mat` | shorts |
-| `Socks_Mat` | socks |
-| `Boots_Mat` | boot |
-| `Skin_Mat` | skin (only when a skin colour is set) |
-| `Trim_Mat`, `Number_Mat` | new `trim` slot: dark on a jersey brighter than luminance 0.55, else off-white |
-| `Hair_Mat`, `Eyes_Mat`, `Studs_Mat` | keep their authored colours |
+A match frame is mostly game CPU (AI, physics, animation); the model's
+share is the render CPU and draws.
 
-Two additions to `humanoid_rig.gd` support this. Neither changes anything
-for Build 6, fifthbuild or the procedural rig:
+## Skeleton, animation and ragdoll compatibility
 
-- the `trim` / `number` slots, and
-- an import with its own `Sock` material doesn't get the stand-in sock
-  capsules.
-
-These were checked on your CHARACTER kit (dark), the AWAY preset and a
-white/navy custom kit (`build6_vs_build7_kits.png`).
-
-## Ragdoll alignment
-
-The ragdoll reads only the skeleton (`PhysicsRagdoll.BODIES` sizes on the
-bone rests), so nothing on the physics side changed:
-
-- `scenes/dev/tackle_sweep.tscn` prints byte-identical output for Build 6
-  and Build 7, run with a temporary copy whose only change was
-  `MODEL_ID = "7thbuild"`. The SUMMARY matches the 2026-10-30 baseline: c
-  spin 82, hip_back 60, joint +38; t spin 47, hip_back 54, joint +42.
-- `build6_vs_build7_rest_shapes.png` draws the bodies over both skins. Build
-  7's guernsey, head, arms and legs sit on their bodies about as closely as
-  Build 6's do.
-- The mesh is a little fuller than some bodies: thighs up to 1.5 cm over
-  the 0.085 m capsule, and the chest about 2 cm wider than its box. A body
-  lying on its side or front sinks that far into the turf visually. That
-  only affects how it looks.
-
-## Deformation check results
-
-`check_7thbuild_deform.py` runs every frame of every clip. Most of what
-remains is hidden geometry:
-
-| | What's left |
-|---|---|
-| Idle, carry, handball, smothered, `mark_safe`, `tackle_held` | Clean, or 2-4 hidden crossings |
-| Gait, marks, kick | 1-3 vertices, 5-13 mm. One frame of jog/run (high knee) is 28-34 mm at the shorts' front crease; a sliver is visible from a low side angle (below) |
-| `knocked_back`, `smother_dive`, `tackle_takedown`, `tackled` | 30-50 mm at the crotch and seat in deep sits and dives, under the body; plus up to 26-35 mm of sock at the boot collar when the foot points fully (`tackled` points it to 5° off the shin) |
-
-`tackled`, `knocked_back` and the takedown play in contests that don't go
-to the ragdoll, which in practice means mostly AI against AI. When a human
-is in the contest, the body ragdolls instead.
+Build 7's skeleton is Build 6's armature, unchanged: the same 18 bones,
+parents, rests and inverse bind matrices, and the same 26 clips key for key.
+The ragdoll reads only the skeleton. `scenes/dev/tackle_sweep.tscn`, run on
+a temporary copy with `MODEL_ID = "7thbuild"`, prints byte-identical output
+to the 6thbuild run and to the 2026-10-30 baseline (SUMMARY: c spin 82,
+hip_back 60, joint +38; t spin 47, hip_back 54, joint +42).
 
 ## Replacing the mesh later (LiDAR or a scan)
 
 Keep the Armature and swap the meshes:
 
-1. Import the scanned body into `7thbuild.blend` (or a copy, as a new build
-   id) in the rest pose: an A-pose with arms about 53° off the sides, knees
-   bent 12° and elbows 27°. Match its scale to the bones, not the other way
-   round. Moving a bone changes the ragdoll and gameplay anchors.
+1. Import the scan into `7thbuild.blend` (or a copy, as a new build id) in
+   the rest pose: an A-pose with arms about 53° off the sides, knees bent
+   12° and elbows 27°. Match its scale to the bones, not the other way round.
 2. Parent it to `Armature` with an Armature modifier and vertex groups
-   named after the Blender bones (`pelvis`, `spine1`, `spine2`, `head`,
-   `shoulder.l`, ...). Weight only to deform bones, never to `pelvis.001` or
-   the IK helpers.
-3. Split it by material name (`Skin`, `Shirt`, `Short`, `Sock`, `Boot`,
-   `Trim`, `Number`) so kit colours keep working. Keep team colours out of
-   textures; a texture would need a mask per slot.
-4. Add the object names to `SOURCE_MESHES` and to the checker's `MESHES` /
-   `PAIRS`, run the checker, then export and run
-   `scenes/dev/build_compare.tscn`.
+   named after the Blender bones. Weight only to deform bones.
+3. Colours, either way: materials named `Skin`, `Shirt`, `Short`, `Sock`,
+   `Boot`, `Trim` (the older recolour by name), or one `Kit` material and a
+   second UV map whose U is each face's slot + 0.5 (the kit shader, one
+   draw). Keep team colours out of textures.
+4. Add the objects to `SOURCE_MESHES` and the checker's `MESHES`/`PAIRS`,
+   run the checker, export, and run `build_compare.tscn`.
 
-Limits a scan has to live with:
+Limits a scan lives with: 18 bones (no fingers, toes, neck or twist bones);
+the ragdoll's body sizes (a much wider body sinks into the turf when down);
+the gameplay anchors (`CatchPoint`, `BootPoint`); boot soles about 0.08 m
+below the ankle bone; and cloth needs its own weights matched to the skin
+under it, as above.
 
-- **18 bones.** No fingers, toes, neck or twist bones, so hands and feet
-  stay rigid and forearm twist is skin-only.
-- **Proportions.** A body much wider than the ragdoll bodies will sink into
-  the turf when down. A much longer limb will miss the gameplay anchors
-  (`CatchPoint` at 1.4 m, `BootPoint` on the instep).
-- **Boot soles** sit about 0.08 m below the ankle bone (the foot clamp
-  allows for 0.07).
-- **Clothing** needs its own weights matched to the skin under it, as
-  above. A scan with cloth fused to skin will deform as skin.
+## What a new armature (4D) should fix
+
+Build 7 works round these; a rebuilt skeleton could remove them:
+
+- **Hip joints set in.** They sit ~0.29 m apart on a 2.15 m figure, out at
+  the sides of the hips. That forces the slim hidden cone, a slight flare
+  at the shorts' hem, and very little room in front of each hip.
+- **A neck bone.** The `head` bone pivots at the base of the neck, so the
+  collar has to take a share of the head's turn.
+- **Twist bones** in the upper arm and forearm (the forearm's twist is skin
+  only), **finger and toe bones** (hands and boots are rigid), and more
+  clavicle range (a mark's arms go 115-152° up on a clavicle that turns
+  22°).
+- **Identity rests** (HumanoidRig's contract point 2), so procedural poses and
+  imported clips share frames.
+- Ragdoll bodies would need refitting to any new bones, and every gameplay
+  anchor re-checked.
 
 ## Needs your eyes
 
-- **Art direction, proportions and face** across the review images. Things
-  to judge:
-  - the hair colour (fixed brown for every player)
-  - the eye slits
-  - the "17" on every player
-  - whether the guernsey should have short cap sleeves (sleeveless now)
-- **In-game at broadcast distance**: whether the detail reads, and whether
-  the dark trim/number on light kits is the right call (luminance split
-  0.55, an unplaytested guess).
-- **GPU cost** of 10 surfaces per player × 36 players. Headless frame rate
-  was the same, but headless doesn't render. Merging `Studs`/`Eyes`/`Hair`
-  into fewer surfaces would cut the count if it shows.
-- **The sprint's knee lift** and the deep falls in the table above.
-- **Ragdoll falls look right**, but the rest pose is the only like-for-like
-  comparison, because two ragdolls side by side fall a little differently.
+- **The look at match distance and close up**, in your own matches:
+  proportions, the face, the hair (the weakest part up close), the hands.
+- **Numbers**: the digit style, size and placement, and the dark/light
+  flip (luminance 0.55, an unplaytested guess).
+- **Hair colours** per player (`HAIR_COLOURS`, an unplaytested pick).
+- **The sprint, dives and falls**: no skin at the shorts' crease should
+  show anywhere now.
+- The character screens show 17 (no number is passed to a preview yet).
+- **The 2026-11-09 shoulders and idle**: `docs/PLAYTEST_CHECKLIST.md`.

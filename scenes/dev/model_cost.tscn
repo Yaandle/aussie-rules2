@@ -1,0 +1,10 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/dev/model_cost.gd" id="1_cost"]
+
+; Dev-only (not on any menu): what a player model costs to render, as a
+; grid of animated bodies or in a real 36-player quick-play match. Run
+; windowed; see the script header.
+
+[node name="ModelCost" type="Node3D"]
+script = ExtResource("1_cost")

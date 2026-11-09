@@ -1343,7 +1343,7 @@ func _step_mark_preview(delta: float) -> void:
 	var b := _contest_b
 	var tier := _mark_tier
 	if tier == MarkPreviewTier.AUTO:
-		match b.live_mark_prompt(ball):
+		match b.prompt_mark_tier(ball):
 			Tuning.Action.MARK_SAFE:
 				tier = MarkPreviewTier.SAFE
 			Tuning.Action.MARK_RUNNING:

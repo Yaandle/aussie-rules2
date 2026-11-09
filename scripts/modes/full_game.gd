@@ -470,8 +470,13 @@ func _spawn_team(team: Tuning.Team, attack_direction: float) -> Array[PlayerCont
 		# the solver blow-up described above.
 		var formation_slot := _kickoff_slot(i, attack_direction, team)
 		instance.position = _centre_bounce_slot(i, attack_direction, team)
+		# The guernsey number (a model with the kit shader draws it): the
+		# Career roster's, else the team slot's.
+		var rig := instance.get_node("Rig") as HumanoidRig
+		rig.guernsey_number = i + 1
 		if GameState.career_active:
 			var roster := CareerProfile.roster if team == Tuning.Team.HOME else _away_roster
+			rig.guernsey_number = int(roster[i].get("number", i + 1))
 			instance.roster_name = roster[i]["name"]
 			instance.roster_id = "H%d" % int(roster[i].get("id", i)) if team == Tuning.Team.HOME \
 				else "A%d" % i

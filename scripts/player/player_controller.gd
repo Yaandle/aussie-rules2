@@ -366,6 +366,8 @@ var _ragdoll: PlayerRagdoll = null
 ## jammed on the carrier's capsule — far enough behind its own body, on a
 ## long fall, to trip PlayerRagdoll's teleport check and snap upright.
 var _ragdoll_partner: PlayerController = null
+## See _react_to_body_contact.
+var _contact_react_cooldown := 0.0
 
 ## A held Lunge's arms round the carrier while both fall (TackleWrap), on
 ## the tackler; null otherwise.
@@ -601,8 +603,10 @@ func _physics_process(delta: float) -> void:
 	_update_locomotion(delta)
 
 	var before := global_position
+	var pre_slide := velocity
 	move_and_slide()
 	_push_rigid_bodies()
+	_react_to_body_contact(pre_slide, delta)
 	_contain_to_field()
 
 	_update_facing(delta)
@@ -1052,6 +1056,39 @@ func _push_rigid_bodies() -> void:
 		body.apply_impulse(
 			push.normalized() * strength,
 			collision.get_position() - body.global_position)
+
+
+## Two capsules meeting (no tackle, no bump): both players' animations get
+## the push (Tuning's "Body contact reaction"). `pre_slide` is this body's
+## velocity before move_and_slide took the collision out of it.
+func _react_to_body_contact(pre_slide: Vector3, delta: float) -> void:
+	_contact_react_cooldown = maxf(_contact_react_cooldown - delta, 0.0)
+	if _animation == null or _contact_react_cooldown > 0.0 or is_ragdolled():
+		return
+	for i in get_slide_collision_count():
+		var collision := get_slide_collision(i)
+		var other := collision.get_collider() as PlayerController
+		if other == null or other == _ragdoll_partner or other.is_ragdolled() \
+				or other._contact_react_cooldown > 0.0:
+			continue
+		var normal := collision.get_normal()   # from them to me
+		normal.y = 0.0
+		if normal.length_squared() < 0.0001:
+			continue
+		normal = normal.normalized()
+		var closing := Vector3(pre_slide.x - other.velocity.x, 0.0, pre_slide.z - other.velocity.z).dot(-normal)
+		if closing < Tuning.BODY_CONTACT_REACT_SPEED:
+			continue
+		# Half the closing speed each, whatever the masses: it's a look, not
+		# the collision (the capsules have already slid as they always did).
+		_animation.react_to_contact(normal * closing * 0.5,
+			(-global_transform.basis.z).dot(-normal) >= Tuning.BODY_CONTACT_HANDS_DOT)
+		if other._animation != null:
+			other._animation.react_to_contact(-normal * closing * 0.5,
+				(-other.global_transform.basis.z).dot(normal) >= Tuning.BODY_CONTACT_HANDS_DOT)
+		_contact_react_cooldown = Tuning.BODY_CONTACT_REACT_COOLDOWN
+		other._contact_react_cooldown = Tuning.BODY_CONTACT_REACT_COOLDOWN
+		return
 
 
 ## Nothing about CharacterBody3D's collision stops it walking off the
@@ -1970,6 +2007,8 @@ func _begin_ragdoll(hit: Dictionary) -> bool:
 		_ragdoll = PlayerRagdoll.new(self, rig, _animation)
 	if not _ragdoll.begin(hit):
 		return false
+	if _animation != null:
+		_animation.clear_contact_reaction()
 	# Tackled out of a wrap of their own: those arms aren't holding anyone.
 	if _tackle_wrap != null:
 		_tackle_wrap.release()
@@ -2579,6 +2618,8 @@ func _contest_nudge(target: PlayerController, direction: Vector3) -> void:
 		Tuning.CONTEST_BUMP_NUDGE_STUN, self)
 	var mine := Vector3(velocity.x, 0.0, velocity.z)
 	_knockback = mine - direction * Tuning.CONTEST_BUMP_NUDGE_SPEED 		* Tuning.CONTEST_BUMP_NUDGE_RECOIL * target.body_mass / body_mass
+	if _animation != null:
+		_animation.react_to_contact(_knockback - mine, true)
 	bump_landed.emit(self, target, false)
 
 
@@ -2640,6 +2681,10 @@ func _resolve_contest_hit(target: PlayerController) -> void:
 ## (the carrier goes all the way down, not just knocked off balance); this
 ## function by itself only ever does the physics side.
 func receive_bump(impulse: Vector3, stun_duration: float, _by: PlayerController) -> void:
+	if _animation != null:
+		# The stagger: the torso takes the change in velocity, not the run
+		# a contest nudge carries on with (PlayerAnimation "Contact reaction").
+		_animation.react_to_contact(Vector3(impulse.x - velocity.x, 0.0, impulse.z - velocity.z))
 	_knockback = Vector3(impulse.x, 0.0, impulse.z)
 	_stun_timer = maxf(_stun_timer, stun_duration)
 
@@ -3287,6 +3332,45 @@ func catch_point_position() -> Vector3:
 ## live option while the ball hasn't reached normal catching reach yet —
 ## once it has, a leap stops being the natural action even though it
 ## would still technically connect, so it stops being recommended.
+## The tier the mark prompt shows (MarkPrompt's badge and ring, the
+## animation viewer's AUTO): the take the delivery is heading for, not just
+## the first tier that went live. live_mark_prompt() lights (Y) from
+## MARK_CONTEST_RANGE (6 m) but (A) only once the ball is within Safe reach
+## of the hands (~1.2 m), so the ring completed on (Y) for every delivery
+## and a player following it leapt every time (design call 2026-11-09,
+## docs/ANIMATION_RAGDOLL_AUDIT.md). So while (Y) is the only tier live,
+## an uncontested ball whose flight will pass within Safe reach of the
+## hands shows (A) instead (a hold, so it can start early). Contested, or
+## passing above Safe reach, it stays (Y). A cue only: catch resolution and
+## the AI (which reads live_mark_prompt) never read this.
+func prompt_mark_tier(ball: Ball) -> Tuning.Action:
+	var live := live_mark_prompt(ball)
+	if live != Tuning.Action.MARK_AGGRESSIVE:
+		return live
+	if SpatialQuery.nearest_opponent(self, Tuning.MARK_CONTEST_RANGE) != null:
+		return live
+	var reach := Tuning.MARK_CATCH_RADIUS * Tuning.MARK_SAFE_REACH_SCALE + Tuning.MARK_ASSIST_RADIUS_BONUS
+	if _predicted_pass_distance(ball) <= reach:
+		return Tuning.Action.MARK_SAFE
+	return live
+
+
+## How close the ball's flight will come to the hands (CatchPoint) over the
+## next second, gravity only, with the player carrying on at their current
+## velocity. A prompt-sized estimate, like PlayerAnimation._flight_crossing.
+func _predicted_pass_distance(ball: Ball) -> float:
+	const STEP := 1.0 / 60.0
+	var rel := ball.global_position - _catch_point.global_position
+	var body_vel := Vector3(velocity.x, 0.0, velocity.z)
+	var vel := ball.linear_velocity - body_vel
+	var best := rel.length()
+	for i in 60:
+		vel.y -= Tuning.GRAVITY * STEP
+		rel += vel * STEP
+		best = minf(best, rel.length())
+	return best
+
+
 func live_mark_prompt(ball: Ball) -> Tuning.Action:
 	# Rulebook §5: the contest prompt is for a ball *kicked* at you, and
 	# nothing else. This used to read is_airborne(), which is true of any
@@ -3514,6 +3598,8 @@ func _ruck_jostle(direction: Vector3, ragdoll: bool, by: PlayerController) -> vo
 		_stun_timer = maxf(_stun_timer, Tuning.RUCK_COLLIDE_TIME)
 		return
 	_knockback = direction * Tuning.RUCK_COLLIDE_PUSH
+	if _animation != null:
+		_animation.react_to_contact(_knockback - Vector3(velocity.x, 0.0, velocity.z), true)
 
 
 ## Right stick (brain), then left stick, then body-forward — see _begin's
