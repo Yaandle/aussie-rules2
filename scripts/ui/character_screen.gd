@@ -52,14 +52,15 @@ const ATTRIBUTE_ROWS := [
 ## an edit any more than leaving a stat row does.
 const APPLY_MODE_TEXT := {true: "ALL PLAYERS", false: "START PLAYER"}
 
-## CUSTOMISE / BACK toggle, floating over the 3D preview in the preview's
-## own right-hand region (the stat card occupies CARD_LEFT..CARD_LEFT+
-## CARD_WIDTH on the left) — the same ActionButton shape PLAY already
-## uses, so it inherits the one mouse-click mechanism already proven to
-## work on this screen rather than being its own one-off widget.
-const CUSTOMISE_BUTTON_POSITION := Vector2(860.0, 650.0)
-const CUSTOMISE_TEXT := "CUSTOMISE"
-const BACK_TEXT := "BACK"
+## The card's two tabs: the stats (ATTRIBUTE_ROWS) and the look
+## (CUSTOMISE_ROWS). Y on a pad / Tab on a keyboard flips between them, a
+## click picks one. Until 2026-11-09 the look was behind a CUSTOMISE / BACK
+## button floating on the turf at the bottom right, apart from the card it
+## changed (playtest: "update the menu so that the menu is better
+## positioned"). A tab strip in the card's header says there are two pages
+## and which one is up, where the eye already is.
+const TAB_ATTRIBUTES := "ATTRIBUTES"
+const TAB_APPEARANCE := "APPEARANCE"
 
 ## Customise panel rows, shown instead of ATTRIBUTE_ROWS while
 ## _customising is true — the MODEL row (existing CharacterProfile.
@@ -120,37 +121,46 @@ const SWATCHES := {
 }
 
 const TITLE := "PLAYER PROFILE"
-const SUBTITLE := "CUSTOMISE YOUR CHARACTER"
 const ACTION_TEXT := "SAVE"
 
-# ── Left column geometry, in design-resolution px (1280x720) ─────────
-const LEFT_MARGIN := 58.0
-const HEADER_TOP := 62.0
-const STAT_TOP := 160.0
-const ROW_SEPARATION := 8
-const BUTTON_TOP := 613.0
+# ── Layout, in design-resolution px (1280x720) ───────────────────────
+## The card sits in the left column with an even 40 px margin to the
+## screen's top and left; the hint strip sits under it, clear of its
+## shadow, with the same margin to the bottom. The player stands centred
+## in the open space to the card's right (the backdrop's
+## subject_screen_x, set in character_screen.tscn), on Field 1. The first
+## layout ran the card 38..681 px down a 720 px screen with the hints
+## squeezed into the 30 px left under it, and the player half behind the
+## card's right edge.
+const CARD_LEFT := 40.0
+const CARD_TOP := 40.0
+const CARD_PAD := 24.0
+## Header: title, its rust underline, then the tab strip.
+const TAB_TOP := 82.0           ## card-relative, under the title and its rule
+const TAB_HEIGHT := 30.0
+const TAB_PAD_X := 14.0
+const TAB_GAP := 6.0
+## Rows start under the tabs; ROW_SEPARATION is tighter than the first
+## layout's 8 px so nine rows and the footer fit with room for the hints.
+const STAT_TOP := TAB_TOP + TAB_HEIGHT + 16.0   ## card-relative
+const ROW_SEPARATION := 4
+const ROW_COUNT := 9            ## ATTRIBUTE_ROWS plus APPLY TO, the longer list
+const BUTTON_GAP := 18.0        ## last row to the SAVE button
+const BUTTON_TOP := STAT_TOP + ROW_COUNT * StatRow.HEIGHT + (ROW_COUNT - 1) * ROW_SEPARATION + BUTTON_GAP
 
 ## Retro card shell behind the left column — the same windowed-console
 ## treatment (parchment fill, thick near-black border, hard offset shadow)
 ## team_list_screen.gd and the dev animation/ML-experiments viewers already
-## use, so this screen reads as the same family instead of its rows sitting
-## bare on the live 3D backdrop. Only the shell is new: StatRow,
-## ActionButton and KeyHintBar are untouched, same content just framed.
-## Derived from the existing row geometry above (CARD_PAD in from
-## LEFT_MARGIN/HEADER_TOP) rather than a second hand-tuned layout.
-const CARD_PAD := 24.0
-const CARD_LEFT := LEFT_MARGIN - CARD_PAD
-const CARD_TOP := HEADER_TOP - CARD_PAD
-## Includes the selected row's right-hand nudge arrow, which StatRow
-## draws past its own WIDTH (ARROW_RIGHT_X) — without it the arrow sat on
-## the card's 4px border.
+## use. Its width includes the selected row's right-hand nudge arrow,
+## which StatRow draws past its own WIDTH (ARROW_RIGHT_X).
 const CARD_WIDTH := StatRow.WIDTH + StatRow.ARROW_GAP + StatRow.ARROW_SIZE + CARD_PAD * 2.0
-const CARD_HEIGHT := BUTTON_TOP + ActionButton.HEIGHT - CARD_TOP + CARD_PAD
+const CARD_HEIGHT := BUTTON_TOP + ActionButton.HEIGHT + CARD_PAD
 
-## Below the card's own hard shadow (RetroWindow.SHADOW_OFFSET.y), clear of
-## the card entirely rather than sitting on its edge the way the old
-## HINTS_TOP (inside the card's old footprint) did.
-const HINTS_TOP := CARD_TOP + CARD_HEIGHT + RetroWindow.SHADOW_OFFSET.y + 6.0
+## The hint strip: a slim parchment panel of its own (the bare legend's
+## grey labels vanished against the park's grass), left-aligned with the
+## card, clear of its hard shadow.
+const HINTS_TOP := CARD_TOP + CARD_HEIGHT + RetroWindow.SHADOW_OFFSET.y + 12.0
+const HINTS_PAD := Vector2(12.0, 6.0)
 
 
 @onready var _ui: Control = $Overlay/UI
@@ -166,8 +176,9 @@ var _rows: Array[StatRow] = []
 var _model_ids: Array[String] = ["procedural"]   ## + HumanoidRig.CHARACTER_MODELS.keys(), in _ready()
 var _apply_row: StatRow          ## APPLY TO toggle, at index _apply_index()
 var _play: ActionButton
-var _customise_button: ActionButton
+var _tabs: Array[Panel] = []      ## [ATTRIBUTES, APPEARANCE]
 var _hints: DeviceHintBar
+var _hint_strip: Control
 var _selected := 0
 var _busy := false   ## true while a wipe is in flight — input is inert
 
@@ -424,13 +435,12 @@ func _build() -> void:
 	underline_style.bg_color = RetroWindow.ACCENT
 	underline.add_theme_stylebox_override(&"panel", underline_style)
 	header.add_child(underline)
-
-	header.add_child(UIStyle.label(SUBTITLE, UIStyle.SIZE_SUBTITLE, UIStyle.TEXT_MUTED,
-		UIStyle.WEIGHT_REGULAR, UIStyle.TRACK_SUBTITLE))
 	card_panel.add_child(header)
 
+	_build_tabs(card_panel)
+
 	var list := VBoxContainer.new()
-	list.position = Vector2(CARD_PAD, STAT_TOP - CARD_TOP)
+	list.position = Vector2(CARD_PAD, STAT_TOP)
 	list.add_theme_constant_override(&"separation", ROW_SEPARATION)
 	list.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card_panel.add_child(list)
@@ -448,56 +458,119 @@ func _build() -> void:
 	list.add_child(_apply_row)
 	_apply_row.configure(&"gear", "APPLY TO", false, false)
 
+	# A hairline over the footer, so SAVE reads as the card's action rather
+	# than one more row (the APPEARANCE list is shorter, and without it SAVE
+	# floated under a gap).
+	var rule := ColorRect.new()
+	rule.color = Color(UIStyle.TEXT_PRIMARY, 0.18)
+	rule.position = Vector2(CARD_PAD, BUTTON_TOP - BUTTON_GAP * 0.5 - 1.0)
+	rule.size = Vector2(CARD_WIDTH - CARD_PAD * 2.0, 2.0)
+	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card_panel.add_child(rule)
+
 	_play = ActionButton.new(ACTION_TEXT)
 	_play.mouse_filter = Control.MOUSE_FILTER_STOP
 	_play.gui_input.connect(_on_play_gui_input)
-	_play.position = Vector2(CARD_PAD, BUTTON_TOP - CARD_TOP)
+	_play.position = Vector2(CARD_PAD, BUTTON_TOP)
 	card_panel.add_child(_play)
 
-	_hints = DeviceHintBar.new()
-	_hints.position = Vector2(LEFT_MARGIN, HINTS_TOP)
-	_ui.add_child(_hints)
-	_hints.set_hint_sets({
-		InputManager.Device.KEYBOARD: [
-			{"keys": "W / S", "label": "Select"},
-			{"keys": "A / D", "label": "Adjust"},
-			{"keys": "Enter", "label": "Play"},
-			{"keys": "Tab", "label": "Customise"},
-			{"keys": "B / Esc / C", "label": "Back"},
-		],
-		InputManager.Device.GAMEPAD: [
-			{"keys": "D-Pad ↕", "label": "Select"},
-			{"keys": "D-Pad ↔", "label": "Adjust"},
-			{"keys": "A", "label": "Play"},
-			{"keys": "Y", "label": "Customise"},
-			{"keys": "B", "label": "Back"},
-		],
-	})
-
-	_build_customise_button()
+	_build_hints()
 	_apply_row_mode()
 
 
-## CUSTOMISE / BACK toggle — the only mouse-interactive thing outside the
-## card besides PLAY, built the exact same way (an ActionButton with its
-## mouse_filter explicitly set to STOP and gui_input connected directly)
-## rather than as its own one-off Button, since that's the one mechanism
-## already proven to take a click on this screen.
-func _build_customise_button() -> void:
-	_customise_button = ActionButton.new(CUSTOMISE_TEXT)
-	_customise_button.set_icon(&"gear")
-	_customise_button.mouse_filter = Control.MOUSE_FILTER_STOP
-	_customise_button.gui_input.connect(_on_customise_gui_input)
-	_customise_button.position = CUSTOMISE_BUTTON_POSITION
-	_ui.add_child(_customise_button)
+## Two tab chips under the title: the active one solid ink with parchment
+## text, the other a hairline outline with muted text. Panels, not
+## Buttons, for the reason ActionButton gives: the row cursor owns
+## "current", and a Button's own focus/hover states would fight it. A
+## click on the inactive tab switches; the active one ignores it.
+func _build_tabs(card_panel: Panel) -> void:
+	var x := CARD_PAD
+	for i in 2:
+		var tab := Panel.new()
+		tab.mouse_filter = Control.MOUSE_FILTER_STOP
+		tab.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		var label := UIStyle.label(TAB_ATTRIBUTES if i == 0 else TAB_APPEARANCE,
+			UIStyle.SIZE_LABEL, UIStyle.TEXT_PRIMARY, UIStyle.WEIGHT_BOLD, UIStyle.TRACK_LABEL)
+		label.name = "Label"
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tab.add_child(label)
+		label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		var width := label.get_minimum_size().x + TAB_PAD_X * 2.0
+		tab.position = Vector2(x, TAB_TOP)
+		tab.size = Vector2(width, TAB_HEIGHT)
+		tab.gui_input.connect(_on_tab_gui_input.bind(i == 1))
+		card_panel.add_child(tab)
+		_tabs.append(tab)
+		x += width + TAB_GAP
+	_style_tabs()
 
 
-func _on_customise_gui_input(event: InputEvent) -> void:
-	if _busy:
+func _style_tabs() -> void:
+	for i in _tabs.size():
+		var active := (i == 1) == _customising
+		var style := StyleBoxFlat.new()
+		style.bg_color = UIStyle.TEXT_PRIMARY if active else Color(RetroWindow.PANEL, 0.0)
+		style.border_color = UIStyle.TEXT_PRIMARY if active else Color(UIStyle.TEXT_PRIMARY, 0.35)
+		style.set_border_width_all(2)
+		style.set_corner_radius_all(RetroWindow.RADIUS)
+		_tabs[i].add_theme_stylebox_override(&"panel", style)
+		var label := _tabs[i].get_node("Label") as Label
+		label.add_theme_color_override(&"font_color",
+			RetroWindow.PANEL if active else UIStyle.TEXT_MUTED)
+
+
+func _on_tab_gui_input(event: InputEvent, appearance: bool) -> void:
+	if _busy or appearance == _customising:
 		return
 	if event is InputEventMouseButton and event.pressed \
 			and event.button_index == MOUSE_BUTTON_LEFT:
 		_toggle_customise()
+
+
+## The control legend on a slim parchment strip of its own under the card,
+## sized to whatever the current device's legend needs.
+func _build_hints() -> void:
+	_hint_strip = Control.new()
+	_hint_strip.position = Vector2(CARD_LEFT, HINTS_TOP)
+	_hint_strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ui.add_child(_hint_strip)
+	var strip := Panel.new()
+	strip.set_anchors_preset(Control.PRESET_FULL_RECT)
+	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style := RetroWindow.panel_style(Color(RetroWindow.PANEL, 0.92))
+	style.set_border_width_all(2)
+	strip.add_theme_stylebox_override(&"panel", style)
+	_hint_strip.add_child(strip)
+
+	_hints = DeviceHintBar.new()
+	_hints.position = HINTS_PAD
+	_hint_strip.add_child(_hints)
+	_hints.minimum_size_changed.connect(_fit_hint_strip)
+	_hints.set_hint_sets({
+		InputManager.Device.KEYBOARD: [
+			{"keys": "W / S", "label": "Select"},
+			{"keys": "A / D", "label": "Adjust"},
+			{"keys": "Tab", "label": "Switch tab"},
+			{"keys": "Enter", "label": "Save"},
+			{"keys": "Esc / C", "label": "Back"},
+		],
+		InputManager.Device.GAMEPAD: [
+			{"keys": "D-Pad ↕", "label": "Select"},
+			{"keys": "D-Pad ↔", "label": "Adjust"},
+			{"keys": "Y", "label": "Switch tab"},
+			{"keys": "A", "label": "Save"},
+			{"keys": "B", "label": "Back"},
+		],
+	})
+	_fit_hint_strip.call_deferred()
+
+
+func _fit_hint_strip() -> void:
+	var needed := _hints.get_combined_minimum_size()
+	_hints.size = needed
+	_hint_strip.size = needed + HINTS_PAD * 2.0
 
 
 ## Swaps the stat card between ATTRIBUTE_ROWS and CUSTOMISE_ROWS and eases
@@ -507,13 +580,12 @@ func _on_customise_gui_input(event: InputEvent) -> void:
 ## differently-kinded row.
 func _toggle_customise() -> void:
 	_customising = not _customising
-	_customise_button.set_text(BACK_TEXT if _customising else CUSTOMISE_TEXT)
-	_customise_button.set_icon(&"arrow_right" if _customising else &"gear")
 	if _customising:
 		_backdrop.zoom_in()
 	else:
 		_backdrop.zoom_out()
 	_selected = 0
+	_style_tabs()
 	_apply_row_mode()
 	_refresh()
 
