@@ -36,3 +36,6 @@ desktop.ini
 # Highlights exports (videos, replays, moments.json), written beside the
 # game; from the editor that is the project root. Never tracked.
 /highlights/
+
+# Blender auto-backups
+*.blend1
