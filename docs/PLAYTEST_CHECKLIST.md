@@ -115,3 +115,4 @@ default). See `docs/BUILD7_MODEL.md`.
 - [ ] Shoulder push (2026-11-11): run alongside an opponent and lean in — the heavier/fresher one should move the other off their line (~0.2-0.5 m/s), both trunks leaning in. `Tuning.SHOULDER_PUSH_*`; switch off with `SHOULDER_PUSH_ENABLED`.
 - [ ] Hands on the body (2026-11-11): in a held-up tackle or a front-on collision the palms should land on the other player's chest, not swing past. `ArmIK`, `PlayerAnimation.CONTACT_HANDS_*`.
 - [ ] AI ragdolls you (2026-11-11, 6T): let an AI Slide-tackle you while carrying; a winning sling should put you down on the ragdoll, a stand should hold you up on physics. AI-v-AI tackles stay on clips. Watch how often it fires.
+- [ ] AI-v-AI ragdoll tackles (2026-11-11): watch AI Slides on each other; slings should fall on the ragdoll, stands fight on their feet, holds wrestle. Check frame rate with many at once; `Tuning.TACKLE_RAGDOLL_AI_V_AI` turns it off.

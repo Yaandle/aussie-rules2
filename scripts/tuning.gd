@@ -1016,7 +1016,11 @@ const TACKLE_SLIDE_DIVE_MIN_DOT := 0.5      # facing . to-carrier must clear thi
 # on their clips, and so does any player on the procedural rig (no
 # 6thbuild skeleton to build bodies on). Slide is the AI's only tackle; since
 # 2026-11-11 its sling and stand ragdoll when either player is human (as the
-# ruck collision), so the AI can put the human down. AI on AI never ragdolls.
+# ruck collision), so the AI can put the human down, and with
+# TACKLE_RAGDOLL_AI_V_AI AI on AI as well: the model's b and drive pick sling
+# (to ground) or stand (on their feet), and motor control plays it out.
+# Off puts AI-v-AI Slides back on the clips (cheaper: up to 36 ragdolls).
+const TACKLE_RAGDOLL_AI_V_AI := true
 #
 # Balance loss b (TackleBalance.balance_loss) is the tackle model's own
 # formula, σ(w_speed·speed + w_angle·angle + w_stamina·mass + bias), with
