@@ -686,4 +686,4 @@ holds off the line. `contact_sweep` also prints which way each chest went
   player being human, as the ruck already does: the AI slings or stands you up
   with the same b threshold, and AI-v-AI stays on clips (cost unchanged);
   (b) give the AI a Lunge in `AIBrain` (balance and tuning work); (c) keep it.
-  (a) is a two-line change plus a playtest of how often it fires.
+  (a) is a two-line change plus a playtest of how often it fires. **Built 2026-11-11 (option a).**

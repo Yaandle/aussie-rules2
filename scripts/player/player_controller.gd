@@ -1790,7 +1790,12 @@ func _try_tackle() -> void:
 ## minus the ball and the holding-the-ball call (see _get_tackled).
 func _slide_connect(target: PlayerController, impact: Dictionary, ruling: bool) -> void:
 	var won := float(impact.get("drive", INF)) >= Tuning.TACKLE_SLIDE_DRIVE_MIN
-	if _brain is HumanBrain and won and float(impact.b) >= Tuning.TACKLE_SLIDE_KNOCKDOWN_B:
+	# Ragdolls when either player is human (as the ruck collision does): an
+	# AI's Slide can sling or stand up the human by the same b threshold
+	# (2026-11-11, note 6T). AI on AI stays on the clips, so a match's
+	# ragdoll cost is unchanged.
+	var human := _brain is HumanBrain or target.brain() is HumanBrain
+	if human and won and float(impact.b) >= Tuning.TACKLE_SLIDE_KNOCKDOWN_B:
 		last_tackle.knocked_down = true
 		last_tackle.outcome = &"sling"
 		_slide_dive_timer = 0.0
@@ -1799,9 +1804,9 @@ func _slide_connect(target: PlayerController, impact: Dictionary, ruling: bool) 
 		_begin(Tuning.Action.TACKLE_SLING)
 	else:
 		last_tackle.outcome = &"hold" if won else &"stand"
-		# An AI's tackle never ragdolls anyone (Tuning's "Active ragdoll
-		# tackles"): its stand is the hold-up clip.
-		_hold_up(target, impact if not won and _brain is HumanBrain else {}, ruling, impact)
+		# AI on AI never ragdolls (Tuning's "Active ragdoll tackles"): its
+		# stand is the hold-up clip.
+		_hold_up(target, impact if not won and human else {}, ruling, impact)
 	if ruling:
 		tackle_committed.emit(true)
 
