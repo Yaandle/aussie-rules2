@@ -605,3 +605,63 @@ ground-impact item).
   other body** (item 3) aren't built.
 - **Turning on the spot**, **per-leg foot IK** and **limb velocity at a
   full ragdoll's hand-off** are as before.
+
+## 2026-11-10: the held-up wrestle and direction from the angle of contact
+
+Phase 2, steps 1-2 of `docs/prompts/fable_pass_1.md`. Whether a tackle
+holds is still `TackleBalance`'s threshold; this moves the bodies by it.
+
+### The wrestle (`PlayerController._step_wrestle`, Tuning's "The held-up wrestle")
+
+A held-up pair used to meet at its common velocity and brake out. Now, for
+the length of the hold, it is one body driven by both players' legs: the
+tackler along the line into the carrier at effort b, the carrier the way
+they were running at effort 1 - b, each times mass and stamina tone, with
+the feet bleeding speed on a 0.3 s time constant. The tackler's sideways
+speed at contact swings them round the carrier. Both trunks stay on physics
+for the whole hold (`PlayerRagdoll.sustain`), lean into their own drive as
+the motors' target (`PlayerAnimation.set_press`) and take the force between
+the bodies on the chest (`press`). The legs step on the locomotion blend
+under the hold-up clips. At the end the trunk's remaining tilt becomes the
+animation's own sway (`adopt_lean`), so physics fades into a pose that is
+already where the body is.
+
+Measured, `contact_sweep`, metres moved in the hold's second (along the hit
+line / to its left), tackler then carrier:
+
+| Hold | Before | Now |
+|---|---|---|
+| Head-on, both sprinting, even | braked at ~0 | 0.62 / 0.56: carrier walked back |
+| Head-on, tackler 95 kg v 70 | same | 1.06 / 1.00 |
+| Head-on, tackler 70 kg v 95 | same | 0.17 / 0.11: the carrier stands |
+| Side-on (90° or 270°) | along the carrier's run | 1.9 along, 1.1 across: diagonal |
+| From behind (b 0.13) | carried on, braked | 2.46 / 2.41: carrier drags the tackler |
+| Head-on, tired carrier / tired tackler | no difference | 1.24 / 1.02 |
+
+Trunk twist off the clip in a hold is 5-23°; the worst snap in a hold row
+is 38 rad/s (the 95 kg tackler; the old worst row was 48).
+
+### Direction from the angle of contact (`PlayerController.contact_change`)
+
+A knock's change of velocity is the closing speed along the contact normal
+plus the rubbing speed across it, capped at `CONTACT_FRICTION` times the
+first, landing on the chest's surface toward the other body. Glancing bumps
+and contest hits knock their target along that, not along the bumper's run.
+New sweep rows cover 270°, 225°, the rear, glances from four sides and
+holds off the line. `contact_sweep` also prints which way each chest went
+(`away`), its twist and how far each capsule moved.
+
+### What it found, not fixed
+
+- **A runner hit side-on still isn't moved sideways.** Their chest goes 90°
+  off "away from the hitter": the capsules only slide, so the trunk's lag
+  is the runner's own deflection. Step 3's shoulder push is what moves them.
+- **A body whose facing whips drags its trunk.** One contested-mark row's
+  loser turns 52° and back in a quarter second; the trunk, capped at
+  14 rad/s, lags 73° and snaps at 65 rad/s (16 before this pass; friction,
+  the chest lever and the lean hand-back were each ruled out). The follow
+  should carry the body's own yaw rate.
+- The stand ragdoll and the bump-miss stumble (whole-body) still hand back
+  upright; only upper-body knocks adopt the lean.
+- `contact_sweep` in one line ran past x = 500 m with the new rows, where
+  `_contain_to_field` squeezes pairs into a heap. New rows go on a second line.

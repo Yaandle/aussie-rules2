@@ -355,6 +355,13 @@ var _tackle_hold_partner: PlayerController = null
 var _tackle_hold_is_tackler := false
 ## The held-up pair's shared velocity, braking out (Tuning.TACKLE_HOLD_BRAKE).
 var _tackle_hold_velocity := Vector3.ZERO
+## The held-up wrestle (Tuning's "The held-up wrestle"), one Dictionary shared
+## by both players for the hold: "b" (the tackle formula's balance loss),
+## "run" (the way the carrier drives, zero if they were standing), "velocity"
+## (the pair's, the carrier's to integrate), "bearing" and "spin" (where the
+## tackler hangs round the carrier, the tackler's to turn) and "force" (N,
+## the tackler's on the carrier, for both trunks). Empty outside a wrestle.
+var _wrestle := {}
 
 ## This player's active ragdoll (Tuning's "Active ragdoll tackles"), made
 ## on their first ragdoll tackle and kept (parked) after — see
@@ -692,6 +699,9 @@ func _update_locomotion(delta: float) -> void:
 	# still goes through move_and_slide's own collision response on the
 	# very next line of _physics_process, and neither body can be shoved
 	# into geometry by the lock. See _begin_tackle_hold.
+	if _tackle_hold_timer > 0.0 and is_instance_valid(_tackle_hold_partner) and not _wrestle.is_empty():
+		_step_wrestle(delta)
+		return
 	if _tackle_hold_timer > 0.0 and is_instance_valid(_tackle_hold_partner):
 		var to_partner := _tackle_hold_partner.global_position - global_position
 		to_partner.y = 0.0
@@ -1100,9 +1110,13 @@ func _react_to_body_contact(pre_slide: Vector3, delta: float) -> void:
 		if normal.length_squared() < 0.0001:
 			continue
 		normal = normal.normalized()
-		var closing := Vector3(pre_slide.x - other.velocity.x, 0.0, pre_slide.z - other.velocity.z).dot(-normal)
+		var relative := Vector3(other.velocity.x - pre_slide.x, 0.0, other.velocity.z - pre_slide.z)
+		var closing := relative.dot(normal)
 		if closing < Tuning.BODY_CONTACT_REACT_SPEED:
 			continue
+		# Along the normal, and across it as far as friction carries (a body
+		# clipped off-centre is turned by it): contact_change.
+		var change := contact_change(relative, normal)
 		# Half the closing speed each, whatever the masses: it's a look, not
 		# the collision (the capsules have already slid as they always did).
 		# How much it takes out of each is the tackle formula's read of the
@@ -1111,12 +1125,12 @@ func _react_to_body_contact(pre_slide: Vector3, delta: float) -> void:
 			global_position, pre_slide)
 		var theirs := TackleBalance.contact_metrics(global_position, pre_slide,
 			other.global_position, other.velocity)
-		take_knock(normal * closing * 0.5, TackleBalance.balance_loss(closing,
+		take_knock(change * 0.5, TackleBalance.balance_loss(closing,
 				float(mine.approach_angle), other.body_mass / maxf(body_mass, 1.0)),
-			(-global_transform.basis.z).dot(-normal) >= Tuning.BODY_CONTACT_HANDS_DOT)
-		other.take_knock(-normal * closing * 0.5, TackleBalance.balance_loss(closing,
+			(-global_transform.basis.z).dot(-normal) >= Tuning.BODY_CONTACT_HANDS_DOT, Vector3.INF, -normal)
+		other.take_knock(-change * 0.5, TackleBalance.balance_loss(closing,
 				float(theirs.approach_angle), body_mass / maxf(other.body_mass, 1.0)),
-			(-other.global_transform.basis.z).dot(normal) >= Tuning.BODY_CONTACT_HANDS_DOT)
+			(-other.global_transform.basis.z).dot(normal) >= Tuning.BODY_CONTACT_HANDS_DOT, Vector3.INF, normal)
 		_contact_react_cooldown = Tuning.BODY_CONTACT_REACT_COOLDOWN
 		other._contact_react_cooldown = Tuning.BODY_CONTACT_REACT_COOLDOWN
 		return
@@ -1136,10 +1150,15 @@ func _react_to_body_contact(pre_slide: Vector3, delta: float) -> void:
 ## to a body in front: on physics, the brace is in the animated pose the
 ## arms follow. Never changes velocity, possession or anything else in
 ## gameplay.
-func take_knock(push: Vector3, b: float, hands := false, before := Vector3.INF) -> void:
+## `toward` (flat, unit) points at the other body: the push lands on that
+## side of the chest, CONTACT_REACT_CHEST_RADIUS out, so any part of it
+## across that line turns the trunk (Tuning's "Direction from the angle of
+## contact"). Without it the push lands as it used to, on its own line.
+func take_knock(push: Vector3, b: float, hands := false, before := Vector3.INF,
+		toward := Vector3.ZERO) -> void:
 	b = clampf(b, 0.0, 1.0)
 	stamina = clampf(stamina - Tuning.STAMINA_CONTACT_COST * b, 0.0, 1.0)
-	if _knock_on_physics(push, b, before):
+	if _knock_on_physics(push, b, before, toward):
 		if _animation != null and hands:
 			_animation.react_to_contact(Vector3.ZERO, true)
 		return
@@ -1147,7 +1166,21 @@ func take_knock(push: Vector3, b: float, hands := false, before := Vector3.INF) 
 		_animation.react_to_contact(push, hands)
 
 
-func _knock_on_physics(push: Vector3, b: float, before: Vector3) -> bool:
+## What a contact does to the velocity of the body it lands on (Tuning's
+## "Direction from the angle of contact"). `relative` is the hitter's
+## velocity relative to that body, `normal` the unit line from the hitter
+## into it: the closing speed along the normal, plus the rubbing speed across
+## it up to CONTACT_FRICTION times that. Nothing if they aren't closing.
+static func contact_change(relative: Vector3, normal: Vector3) -> Vector3:
+	relative.y = 0.0
+	var closing := relative.dot(normal)
+	if closing <= 0.0:
+		return Vector3.ZERO
+	var across := relative - normal * closing
+	return normal * closing + across.limit_length(closing * Tuning.CONTACT_FRICTION)
+
+
+func _knock_on_physics(push: Vector3, b: float, before: Vector3, toward := Vector3.ZERO) -> bool:
 	if not Tuning.CONTACT_RAGDOLL_ENABLED or is_ragdolled():
 		return false
 	var flat := Vector3(push.x, 0.0, push.z)
@@ -1165,8 +1198,9 @@ func _knock_on_physics(push: Vector3, b: float, before: Vector3) -> bool:
 	var hit := {
 			"impulse": impulse,
 			"bone": &"Chest",
-			"contact_offset": -flat.normalized() * Tuning.CONTACT_REACT_SIDE_OFFSET
-				if flat.length_squared() > 0.0001 else Vector3.ZERO,
+			"contact_offset": toward * Tuning.CONTACT_REACT_CHEST_RADIUS if toward != Vector3.ZERO
+				else (-flat.normalized() * Tuning.CONTACT_REACT_SIDE_OFFSET
+					if flat.length_squared() > 0.0001 else Vector3.ZERO),
 			"tone": (1.0 - Tuning.CONTACT_REACT_TONE_DROP * b) * stamina_tone(),
 			"arms": not is_carrying(),
 			"mass_kg": body_mass,
@@ -1707,13 +1741,13 @@ func _hold_up(target: PlayerController, stand_impact: Dictionary, ruling: bool,
 		var closing := maxf(float(impact.closing_speed), 0.0)
 		var b := float(impact.b)
 		if not target.is_ragdolled():
-			target.take_knock(line * closing * 0.5, b, true)
-		take_knock(-line * closing * 0.5, b * 0.5, true)
+			target.take_knock(line * closing * 0.5, b, true, Vector3.INF, -line)
+		take_knock(-line * closing * 0.5, b * 0.5, true, Vector3.INF, line)
 	# Never blocked here: every caller already requires _action == NONE.
 	_begin(Tuning.Action.TACKLE_GRAB)
 	# Both sides of the same wrestle, started on the same frame.
 	_begin_tackle_hold(target, true)
-	target._begin_tackle_hold(self, false)
+	target._begin_tackle_hold(self, false, impact)
 
 
 ## The push for a sling (Tuning's "Sling"): the hit's push without the
@@ -2076,8 +2110,9 @@ func _break_tackle(by: PlayerController = null, impact := {}) -> void:
 	# back off the hit.
 	var run := Vector3(before.x, 0.0, before.z)
 	var drag := run * (1.0 - Tuning.TACKLE_BREAK_SPEED_KEEP) * body_mass / maxf(by.body_mass, 1.0)
-	take_knock(line * closing * 0.5, b, false, before)
-	by.take_knock(drag - line * closing * 0.5 * Tuning.CONTACT_REACT_BREAK_RECOIL_SHARE, 1.0 - b, true)
+	take_knock(line * closing * 0.5, b, false, before, -line)
+	by.take_knock(drag - line * closing * 0.5 * Tuning.CONTACT_REACT_BREAK_RECOIL_SHARE, 1.0 - b, true,
+		Vector3.INF, line)
 
 
 ## Rulebook §6: a Slide connect should read as one wrestle, not two clips
@@ -2092,7 +2127,7 @@ func _break_tackle(by: PlayerController = null, impact := {}) -> void:
 ## rather than a constant of its own: the hold IS the clip, and the two
 ## going out of sync is exactly the "snaps to a resolved state" the
 ## rulebook is describing.
-func _begin_tackle_hold(partner: PlayerController, is_tackler: bool) -> void:
+func _begin_tackle_hold(partner: PlayerController, is_tackler: bool, impact := {}) -> void:
 	_tackle_hold_partner = partner
 	_tackle_hold_is_tackler = is_tackler
 	_tackle_hold_timer = Tuning.action_duration(Tuning.Action.TACKLE_GRAB)
@@ -2104,6 +2139,8 @@ func _begin_tackle_hold(partner: PlayerController, is_tackler: bool) -> void:
 			/ maxf(body_mass + partner.body_mass, 1.0)
 		_tackle_hold_velocity = common
 		partner._tackle_hold_velocity = common
+		if Tuning.TACKLE_WRESTLE_ENABLED and impact.has("b"):
+			_begin_wrestle(partner, common, float(impact.b))
 	# The two capsules would otherwise hold each other 0.70m apart — far
 	# enough that the wrap can't reach and the pair reads as two bodies
 	# bumping. Lifted only for the length of the hold, and only between
@@ -2123,9 +2160,109 @@ func _begin_tackle_hold(partner: PlayerController, is_tackler: bool) -> void:
 func _end_tackle_hold() -> void:
 	if is_instance_valid(_tackle_hold_partner):
 		remove_collision_exception_with(_tackle_hold_partner)
+	if not _wrestle.is_empty():
+		_wrestle = {}
+		# Locomotion takes its heading from the way a body is moving: handed a
+		# carrier still being walked backward at 0.6 m/s, it spun them to face
+		# the way they were going and back (72 degrees in a quarter second).
+		velocity.x = 0.0
+		velocity.z = 0.0
+		if _ragdoll != null:
+			_ragdoll.release()
+		if _animation != null:
+			_animation.set_press(Vector3.ZERO, 0.0)
 	_tackle_hold_timer = 0.0
 	_tackle_hold_partner = null
 	_tackle_hold_is_tackler = false
+
+
+## Called on the carrier as the hold begins, the tackler's hold already set:
+## the wrestle both will step (Tuning's "The held-up wrestle"). `common` is
+## the pair's shared velocity, `b` the tackle formula's read of the contact.
+func _begin_wrestle(tackler: PlayerController, common: Vector3, b: float) -> void:
+	var arm := tackler.global_position - global_position
+	arm.y = 0.0
+	if arm.length_squared() < 0.0001:
+		arm = global_transform.basis.z
+	var run := Vector3(velocity.x, 0.0, velocity.z)
+	var relative := Vector3(tackler.velocity.x - velocity.x, 0.0, tackler.velocity.z - velocity.z)
+	# The tackler's speed across the line, as a turn about the carrier.
+	var spin := arm.cross(relative).y / maxf(arm.length_squared(), Tuning.TACKLE_HOLD_DISTANCE ** 2) \
+		* Tuning.TACKLE_WRESTLE_SPIN_SHARE
+	_wrestle = {
+		"b": clampf(b, 0.0, 1.0),
+		"run": run.normalized() if run.length() > Tuning.PIVOT_SPEED_THRESHOLD else Vector3.ZERO,
+		"velocity": common,
+		"bearing": arm.normalized(),
+		"spin": clampf(spin, -Tuning.TACKLE_WRESTLE_SPIN_MAX, Tuning.TACKLE_WRESTLE_SPIN_MAX),
+		"force": Vector3.ZERO,
+	}
+	tackler._wrestle = _wrestle
+
+
+## One tick of the held-up wrestle for this player (_update_locomotion's hold
+## branch). The carrier integrates the pair's velocity from both players'
+## drives; the tackler turns their bearing and keeps their hold spot on it.
+## Then each one's trunk: tone, the force between the bodies on the chest,
+## and the lean into their own drive as the motors' target.
+func _step_wrestle(delta: float) -> void:
+	var w := _wrestle
+	var partner := _tackle_hold_partner
+	var to_partner := partner.global_position - global_position
+	to_partner.y = 0.0
+	if to_partner.length_squared() > 0.000001:
+		_heading = to_partner.normalized()
+	_speed = 0.0
+	var fade := clampf(_tackle_hold_timer / Tuning.TACKLE_WRESTLE_RELEASE, 0.0, 1.0)
+	var b: float = w.b
+	var line := _heading if _tackle_hold_is_tackler else -_heading   # tackler into carrier
+	var tackler := self if _tackle_hold_is_tackler else partner
+	var carrier := partner if _tackle_hold_is_tackler else self
+	var tackler_effort := b * tackler.stamina_tone() * fade
+	var carrier_effort := (1.0 - b) * carrier.stamina_tone() * fade
+	var run: Vector3 = w.run
+	if run == Vector3.ZERO:
+		run = -line   # a standing carrier only pushes back
+	var drive_dir := line
+	var effort := tackler_effort
+	var other_effort := carrier_effort
+	var force: Vector3 = -(w.force as Vector3)
+	if _tackle_hold_is_tackler:
+		w.spin = float(w.spin) * exp(-delta / Tuning.TACKLE_WRESTLE_SETTLE)
+		w.bearing = (w.bearing as Vector3).rotated(Vector3.UP, float(w.spin) * delta)
+		# TACKLE_HOLD_DISTANCE out on the bearing, closed within this frame but
+		# never faster than the dive that got here.
+		var correction := partner.global_position + (w.bearing as Vector3) * Tuning.TACKLE_HOLD_DISTANCE \
+			- global_position
+		correction.y = 0.0
+		var closing := (correction / delta).limit_length(Tuning.TACKLE_SLIDE_DIVE_SPEED)
+		velocity.x = closing.x
+		velocity.z = closing.z
+	else:
+		var tackler_force := line * tackler.body_mass * Tuning.TACKLE_WRESTLE_DRIVE * tackler_effort
+		var carrier_force := run * body_mass * Tuning.TACKLE_WRESTLE_DRIVE * carrier_effort
+		var total := maxf(body_mass + tackler.body_mass, 1.0)
+		var pair: Vector3 = w.velocity
+		# Over the release the feet take the last of it out four times as fast:
+		# what's left when the hold ends is dropped (_end_tackle_hold).
+		var settle := Tuning.TACKLE_WRESTLE_SETTLE * lerpf(0.25, 1.0, fade)
+		pair += ((tackler_force + carrier_force) / total - pair / settle) * delta
+		w.velocity = pair
+		# What the tackler's body puts on the carrier's for both to share that
+		# acceleration: the carrier's mass × it, less the carrier's own drive.
+		w.force = (tackler_force * body_mass - carrier_force * tackler.body_mass) / total
+		velocity.x = pair.x
+		velocity.z = pair.z
+		drive_dir = run
+		effort = carrier_effort
+		other_effort = tackler_effort
+		force = w.force
+	if _ragdoll != null and _ragdoll.is_reacting():
+		_ragdoll.sustain((1.0 - Tuning.TACKLE_WRESTLE_TONE_DROP * other_effort) * stamina_tone())
+		_ragdoll.press(force * delta * Tuning.TACKLE_WRESTLE_TRUNK_SHARE,
+			_heading * Tuning.CONTACT_REACT_CHEST_RADIUS)
+	if _animation != null:
+		_animation.set_press(drive_dir, Tuning.TACKLE_WRESTLE_LEAN_DEG * effort)
 
 
 func _update_tackle_hold(delta: float) -> void:
@@ -2544,7 +2681,7 @@ func _resolve_bump_contact(carrier: PlayerController, always_clean := false) -> 
 	var clean := always_clean or approach_dot >= Tuning.BUMP_APPROACH_DOT_MIN
 	var scale := 1.0 if clean else Tuning.BUMP_MISTIMED_SCALE
 
-	carrier.receive_bump(_bump_dash_direction * Tuning.BUMP_KNOCKBACK_SPEED * scale,
+	carrier.receive_bump(_knock_direction(carrier) * Tuning.BUMP_KNOCKBACK_SPEED * scale,
 		Tuning.BUMP_STUN_DURATION * scale, self)
 	if clean:
 		# The ball comes loose on the hit, synced with the KNOCKED_BACK fall
@@ -2852,7 +2989,7 @@ func _resolve_contest_hit(target: PlayerController) -> void:
 				Tuning.Action.KNOCKED_BACK, false)
 			target._apply_knockdown_hop()
 	else:
-		target.receive_bump(_bump_dash_direction * Tuning.BUMP_KNOCKBACK_SPEED,
+		target.receive_bump(_knock_direction(target) * Tuning.BUMP_KNOCKBACK_SPEED,
 			Tuning.BUMP_STUN_DURATION, self)
 	_knockback = -_bump_dash_direction * Tuning.CONTEST_BUMP_NUDGE_SPEED * Tuning.CONTEST_BUMP_NUDGE_RECOIL
 	bump_landed.emit(self, target, clean)
@@ -2866,12 +3003,31 @@ func _resolve_contest_hit(target: PlayerController) -> void:
 ## connect layers _knockdown() on top of this from _resolve_bump_contact
 ## (the carrier goes all the way down, not just knocked off balance); this
 ## function by itself only ever does the physics side.
+## Which way a bump dash knocks `target` back on their feet: along the line
+## from this body into theirs, plus as much of the dash across that line as
+## friction carries (contact_change), not straight along the dash. Square
+## on, the two are the same; clipping their side, they go away from the
+## bumper rather than along the bumper's run.
+func _knock_direction(target: PlayerController) -> Vector3:
+	var normal := target.global_position - global_position
+	normal.y = 0.0
+	if normal.length_squared() < 0.0001:
+		return _bump_dash_direction
+	var change := contact_change(_bump_dash_direction, normal.normalized())
+	return change.normalized() if change.length_squared() > 0.0001 else normal.normalized()
+
+
 func receive_bump(impulse: Vector3, stun_duration: float, _by: PlayerController) -> void:
 	# The stagger: the torso takes the change in velocity, not the run a
 	# contest nudge carries on with (take_knock). A glancing bump is a hard
 	# knock: b from the tackle formula at that change of speed, square on.
 	var change := Vector3(impulse.x - velocity.x, 0.0, impulse.z - velocity.z)
-	take_knock(change, TackleBalance.balance_loss(change.length(), 0.0, 1.0))
+	var toward := Vector3.ZERO
+	if is_instance_valid(_by):
+		toward = _by.global_position - global_position
+		toward.y = 0.0
+		toward = toward.normalized() if toward.length_squared() > 0.0001 else Vector3.ZERO
+	take_knock(change, TackleBalance.balance_loss(change.length(), 0.0, 1.0), false, Vector3.INF, toward)
 	_knockback = Vector3(impulse.x, 0.0, impulse.z)
 	_stun_timer = maxf(_stun_timer, stun_duration)
 

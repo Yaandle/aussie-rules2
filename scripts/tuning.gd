@@ -1304,6 +1304,63 @@ const CONTACT_REACT_LURCH_SHARE := 0.5
 # behind (PlayerController._begin_tackle_hold). From a sprint that's ~2 m
 # over ~0.7 s. Unplaytested feel guess.
 const TACKLE_HOLD_BRAKE := 11.0             # m/s²
+
+# The held-up wrestle (2026-11-10). With WRESTLE_ENABLED a held-up pair
+# isn't braked out (TACKLE_HOLD_BRAKE above, still the path with it off):
+# for the length of the hold the two are one body that goes where its
+# forces send it (PlayerController._step_wrestle).
+#  - It starts at the pair's common velocity, as before: shared momentum.
+#  - Each player's legs drive at WRESTLE_DRIVE m/s² times their effort. The
+#    tackler drives along the line into the carrier; the carrier drives the
+#    way they were running (a standing one straight back at the tackler).
+#    Effort is the tackle formula's read of the contact, b for the tackler
+#    and 1 - b for the carrier, times each one's stamina tone. Force is
+#    mass × that, so the heavier, fresher player with the better of the hit
+#    walks the other back, and a side-on hit carries the pair off diagonally.
+#  - The feet bleed the pair's speed with time constant WRESTLE_SETTLE, so
+#    it settles at (net drive) × SETTLE: about 0.9 m/s when one side has
+#    all of it, nothing when they're even.
+#  - The tackler's sideways speed at contact swings them round the carrier:
+#    SPIN_SHARE of that angular rate, capped at SPIN_MAX, bled the same way.
+#  - Both trunks stay on physics for the hold (PlayerRagdoll.sustain). Each
+#    leans WRESTLE_LEAN_DEG × effort into their drive (the motors' target,
+#    PlayerAnimation.set_press) and the force between the bodies lands on
+#    both chests, TRUNK_SHARE of it; tone is 1 - WRESTLE_TONE_DROP × the
+#    other one's effort, so who's being overpowered shows in who gives.
+#  - With WRESTLE_LEGS the legs step on the locomotion blend under the
+#    hold-up clips once the pair moves faster than WRESTLE_LEGS_SPEED,
+#    instead of sliding on the clip's planted feet.
+# Whether the tackle holds is still TackleBalance's threshold; this only
+# moves the bodies by it. Where the pair ends up does change (it used to be
+# the common velocity braked out), so it's a gameplay-visible number.
+# Unplaytested feel guesses.
+const TACKLE_WRESTLE_ENABLED := true
+const TACKLE_WRESTLE_DRIVE := 6.0           # m/s² at full effort
+const TACKLE_WRESTLE_SETTLE := 0.3          # s
+const TACKLE_WRESTLE_SPIN_SHARE := 0.25
+const TACKLE_WRESTLE_SPIN_MAX := 2.5        # rad/s
+const TACKLE_WRESTLE_TRUNK_SHARE := 1.0
+const TACKLE_WRESTLE_TONE_DROP := 0.2
+const TACKLE_WRESTLE_LEAN_DEG := 14.0
+const TACKLE_WRESTLE_LEGS := true
+const TACKLE_WRESTLE_LEGS_SPEED := 0.5      # m/s
+# Efforts fade over the hold's last RELEASE seconds, so the pair is nearly
+# still when the controller takes the legs back.
+const TACKLE_WRESTLE_RELEASE := 0.25        # s
+
+# Direction from the angle of contact (2026-11-10). A knock's push used to
+# run straight along the line between the bodies, or along the hitter's
+# travel, applied at a point on that same line: nothing could turn a trunk,
+# and a glancing bump knocked its target along the bumper's run whatever
+# side it landed on. Now a contact's change of velocity is the closing
+# speed along the contact normal plus the rubbing speed across it, the
+# second capped at CONTACT_FRICTION × the first (a friction cone), and it
+# lands on the chest's surface CONTACT_REACT_CHEST_RADIUS toward the other
+# body: square on it shoves, off-centre it also turns the trunk. Glancing
+# bumps and contest hits knock their target that way too
+# (PlayerController.contact_change). Unplaytested feel guesses.
+const CONTACT_FRICTION := 0.35
+const CONTACT_REACT_CHEST_RADIUS := 0.16   # m
 # The whole-body ragdolls that keep a player standing (a held-up carrier's
 # stand, the whiffed bump's stumble, the ruck stagger) had their muscles
 # pulling toward the pose the animation had at contact, for their whole

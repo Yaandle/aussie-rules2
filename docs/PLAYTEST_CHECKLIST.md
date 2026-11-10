@@ -7,6 +7,21 @@ own docs: `ANIMATION_RAGDOLL_AUDIT.md` (kick, carry, phase lock, bank,
 tackles), `MECHANICS_AUDIT.md` (ragdoll stages 2-5) and the 2026-10-30
 playtest commit (HUD, park turf, ruck, training).
 
+## The held-up wrestle and contact direction (2026-11-10, branch `update`)
+
+See `docs/ANIMATION_RAGDOLL_AUDIT.md` (last section). Numbers are Tuning's
+"The held-up wrestle" and "Direction from the angle of contact".
+
+- [ ] **Held-up tackle, head-on:** the pair fights for a second and the player with the better of the hit walks the other back about half a metre; it reads as a contest, not a slide.
+- [ ] **Held-up tackle from the side:** the pair goes off diagonally and the tackler swings round the carrier; neither teleports or spins on the spot.
+- [ ] **Held-up from behind:** the carrier drags the tackler on a couple of metres.
+- [ ] **Legs in the hold:** the feet step the way the pair moves instead of sliding (`TACKLE_WRESTLE_LEGS`); say if the stepping legs look wrong under the grab and held clips.
+- [ ] **Trunks in the hold:** both lean into each other and give when overpowered; the amount (`TACKLE_WRESTLE_LEAN_DEG` 14, `TRUNK_SHARE` 1) looks right.
+- [ ] **End of the hold:** both come out of it smoothly, no snap upright and no spin to face the way they were pushed.
+- [ ] **Heavy v light (Career weights):** the heavier player wins ground in a hold.
+- [ ] **Glancing bump from the side:** the carrier is knocked away from the bumper, not along the bumper's run.
+- [ ] **Contested mark, the loser:** watch for the trunk whipping round as they turn away (one sweep row snaps; not fixed).
+
 ## Dev tool screens (2026-11-10, branch `update`)
 
 Before and after captures are in `docs/review/devtools/` (720 and 1080).

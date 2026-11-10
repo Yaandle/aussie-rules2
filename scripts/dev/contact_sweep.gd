@@ -33,10 +33,20 @@ extends Node3D
 ##   stam   — stamina after
 ##   ball   — a carrier's ball, furthest from between their wrists (m)
 ##   [...]  — mark cases: the action clips each played
+##   away   — (2026-11-10) which way the chest went at its furthest, as the
+##            angle off "straight away from the other body" (deg, 0 = pushed
+##            directly away, 90 = across, 180 = toward them)
+##   twist  — the trunk's furthest turn about the vertical off the clip
+##            (deg, + = anticlockwise from above): a hit off-centre turns it
+##   moved  — how far the player's capsule went from the hit to the end of
+##            the hit to a second later, along the hit line (A into B) / to its left (m):
+##            who gave ground, and whether a side hit moved anyone sideways
 ## SUMMARY gives the worst of each.
 
 const PlayerScene := preload("res://scenes/player/player.tscn")
 const PAIR_SPACING := 30.0
+const FIRST_ROW := 25
+const SECOND_ROW_Z := -200.0
 const RUN_IN := 75
 const WATCH := 120
 const CONTACT_GAP := 0.75
@@ -72,6 +82,25 @@ const CASES := [
 	[&"mark", 135.0, 1.0, 0.6, 1.0, 1.0],
 	[&"mark", 180.0, 1.0, 0.6, 1.0, 1.0],
 	[&"mark", 270.0, 1.0, 1.0, 0.3, 1.0],
+	# 2026-11-10, side and rear: appended, so the rows above keep their
+	# indices (and --cases= numbers). A's left side, the rear quarters, a
+	# heavier runner, and holds off the line.
+	[&"collide", 270.0, 1.0, 1.0, 1.0, 1.0],
+	[&"collide", 225.0, 1.0, 0.6, 1.0, 1.0],
+	[&"collide", 180.0, 1.0, 0.0, 1.0, 1.0],
+	[&"glance", 0.0, 1.0, 1.0, 1.0, 1.0],
+	[&"glance", 180.0, 1.0, 0.6, 1.0, 1.0],
+	[&"glance", 270.0, 1.0, 1.0, 1.0, 1.0],
+	[&"glance", 135.0, 1.0, 1.0, 1.0, 1.0],
+	[&"hold", 270.0, 1.0, 1.0, 1.0, 1.0],
+	[&"hold", 45.0, 1.0, 1.0, 1.0, 1.0],
+	[&"hold", 135.0, 1.0, 0.6, 1.0, 1.0],
+	[&"hold", 0.0, 1.0, 0.6, 1.0, 0.2],
+	[&"hold", 0.0, 1.0, 0.6, 0.2, 1.0],
+	# [.., A kg, B kg]: weight, at the same contact.
+	[&"hold", 0.0, 1.0, 1.0, 1.0, 1.0, 95.0, 70.0],
+	[&"hold", 0.0, 1.0, 1.0, 1.0, 1.0, 70.0, 95.0],
+	[&"collide", 90.0, 1.0, 1.0, 1.0, 1.0, 95.0, 70.0],
 ]
 ## A contested mark's ball: kicked from this far out along B's run, to reach
 ## chest height at the meeting point this long after the hit.
@@ -120,10 +149,20 @@ func _ready() -> void:
 		throwaway.queue_free()
 	for i in CASES.size():
 		if only.is_empty() or only.has(i):
-			_pairs.append(_spawn_pair(CASES[i], Vector3((i - CASES.size() * 0.5) * PAIR_SPACING, 0.0, 0.0)))
+			_pairs.append(_spawn_pair(CASES[i], _pair_base(i)))
 	# After the players' own physics (and their ragdoll steps) each tick.
 	process_physics_priority = 100
 	process_priority = 100
+
+
+## Where case `i` meets. The first FIRST_ROW cases keep the line they've
+## always had, so their rows compare with older runs; the rest go on a
+## second line. One line of all of them runs past x = 500 m, where
+## PlayerController._contain_to_field squeezes every pair into a heap.
+func _pair_base(i: int) -> Vector3:
+	if i < FIRST_ROW:
+		return Vector3((i - FIRST_ROW * 0.5) * PAIR_SPACING, 0.0, 0.0)
+	return Vector3((i - FIRST_ROW - (CASES.size() - FIRST_ROW) * 0.5) * PAIR_SPACING, 0.0, SECOND_ROW_Z)
 
 
 func _build_floor() -> StaticBody3D:
@@ -131,9 +170,9 @@ func _build_floor() -> StaticBody3D:
 	floor_body.collision_layer = 1
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(PAIR_SPACING * (CASES.size() + 2), 1.0, 300.0)
+	box.size = Vector3(PAIR_SPACING * (FIRST_ROW + 2), 1.0, 300.0 - SECOND_ROW_Z)
 	shape.shape = box
-	shape.position = Vector3(0.0, -0.5, 0.0)
+	shape.position = Vector3(0.0, -0.5, SECOND_ROW_Z * 0.5)
 	floor_body.add_child(shape)
 	return floor_body
 
@@ -169,7 +208,11 @@ func _physics_process(_delta: float) -> void:
 		for pair in _pairs:
 			_hit(pair)
 	elif _frame > RUN_IN and _frame <= RUN_IN + WATCH:
-		pass
+		# `moved` is read a second after the hit: the length of a hold.
+		if _frame == RUN_IN + 60:
+			for pair in _pairs:
+				pair.end_a = (pair[&"a"] as PlayerController).global_position
+				pair.end_b = (pair[&"b"] as PlayerController).global_position
 	elif _frame > RUN_IN + WATCH:
 		_report()
 		get_tree().quit()
@@ -199,6 +242,10 @@ func _hit(pair: Dictionary) -> void:
 	_face(b, Vector3.FORWARD, Tuning.speed_for_gait(spec[3]))
 	a.stamina = spec[4]
 	b.stamina = spec[5]
+	if spec.size() > 7:
+		a.body_mass = spec[6]
+		b.body_mass = spec[7]
+	pair.line = -from
 	match spec[0]:
 		&"collide":
 			# Nothing to resolve: both converge on the contact point over
@@ -252,6 +299,8 @@ func _hit(pair: Dictionary) -> void:
 			b.receive_bump(dir * Tuning.BUMP_KNOCKBACK_SPEED * Tuning.BUMP_MISTIMED_SCALE,
 				Tuning.BUMP_STUN_DURATION * Tuning.BUMP_MISTIMED_SCALE, a)
 			pair.outcome = "glancing bump"
+	pair.start_a = a.global_position
+	pair.start_b = b.global_position
 
 
 ## Points `player` along `dir`, moving at `speed` — the controller's own
@@ -318,6 +367,14 @@ func _watch(pair: Dictionary, tag: StringName) -> void:
 	var animated := ragdoll.animated_transform(&"Chest")
 	var influence := ragdoll.simulator.influence
 	_keep_max(rows, key + "shift", chest.global_position.distance_to(animated.origin) * influence)
+	var shift := (chest.global_position - animated.origin) * influence
+	shift.y = 0.0
+	if shift.length() > (rows.get(key + "shift_vec", Vector3.ZERO) as Vector3).length():
+		rows[key + "shift_vec"] = shift
+	var twist := rad_to_deg(PhysicsRagdoll._rotation_vector(chest.global_basis.get_rotation_quaternion()
+		* animated.basis.get_rotation_quaternion().inverse()).y) * influence
+	if absf(twist) > absf(float(rows.get(key + "twist", 0.0))):
+		rows[key + "twist"] = twist
 	var spine_root := ragdoll.segment_root(&"Spine")
 	var skeleton := (player.get_node("Rig") as HumanoidRig).skeleton()
 	var spine_anim := (skeleton.global_transform * skeleton.get_bone_global_pose(skeleton.find_bone(&"Spine"))).origin
@@ -367,6 +424,17 @@ func _report() -> void:
 				float(rows.get(key + "shift", 0.0)), float(rows.get(key + "waist", 0.0)),
 				float(rows.get(key + "spin", 0.0)), rows.get(key + "spin_bone", ""), float(rows.get(key + "pop", 0.0)),
 				rows.get(key + "pop_at", ""), float(rows.get(key + "stamina", 0.0))]
+			# Away from the other body: A is on the line's near side.
+			var line_dir: Vector3 = pair.get("line", Vector3.FORWARD)
+			var away := -line_dir if tag == &"a" else line_dir
+			var shift: Vector3 = rows.get(key + "shift_vec", Vector3.ZERO)
+			var player: PlayerController = pair[tag]
+			var moved: Vector3 = (pair.get("end_" + String(tag), player.global_position) as Vector3) - (pair.get("start_" + String(tag), player.global_position) as Vector3)
+			line += " away %3.0f twist %+3.0f moved %+.2f/%+.2f" % [
+				rad_to_deg(shift.angle_to(away)) if shift.length() > 0.005 else 0.0,
+				float(rows.get(key + "twist", 0.0)),
+				moved.dot(line_dir), moved.dot(Vector3.UP.cross(line_dir))]
+			worst.twist = snappedf(maxf(float(worst.get("twist", 0.0)), absf(float(rows.get(key + "twist", 0.0)))), 0.1)
 			if rows.has(key + "clips"):
 				line += " [%s]" % String(rows[key + "clips"]).strip_edges()
 			if rows.has(key + "ball"):
