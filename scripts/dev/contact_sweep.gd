@@ -51,6 +51,7 @@ const RUN_IN := 75
 const WATCH := 120
 const CONTACT_GAP := 0.75
 const COLLIDE_LEAD := 0.2   ## s before the capsules meet
+const SHOULDER_GAP := 0.8   ## m between centres, side by side
 
 ## [kind, A's bearing in (deg, 0 = head-on into B's run, 180 = from behind),
 ##  A pace, B pace (0-1 gait), A stamina, B stamina]
@@ -101,6 +102,14 @@ const CASES := [
 	[&"hold", 0.0, 1.0, 1.0, 1.0, 1.0, 95.0, 70.0],
 	[&"hold", 0.0, 1.0, 1.0, 1.0, 1.0, 70.0, 95.0],
 	[&"collide", 90.0, 1.0, 1.0, 1.0, 1.0, 95.0, 70.0],
+	# 2026-11-11, shoulder to shoulder: A runs beside B on B's right,
+	# steering in by the bearing (deg), and keeps pressing. `moved` across
+	# is along the hit line here (A into B, square to both runs).
+	[&"shoulder", 10.0, 1.0, 1.0, 1.0, 1.0],
+	[&"shoulder", 10.0, 1.0, 1.0, 1.0, 1.0, 95.0, 70.0],
+	[&"shoulder", 10.0, 1.0, 1.0, 1.0, 1.0, 70.0, 95.0],
+	[&"shoulder", 10.0, 1.0, 0.6, 1.0, 1.0],
+	[&"shoulder", 10.0, 1.0, 1.0, 0.2, 1.0],
 ]
 ## A contested mark's ball: kicked from this far out along B's run, to reach
 ## chest height at the meeting point this long after the hit.
@@ -294,6 +303,13 @@ func _hit(pair: Dictionary) -> void:
 				(pair[tag] as PlayerController).mark_caught.connect(func(_tier: Tuning.Action, _legal: bool) -> void:
 					pair.outcome = "%s marks" % who)
 			pair.outcome = "spilled"
+		&"shoulder":
+			var dir := Vector3.FORWARD.rotated(Vector3.UP, deg_to_rad(spec[1]))
+			a.global_position = (pair.contact as Vector3) + Vector3.RIGHT * SHOULDER_GAP
+			(a.brain() as ScriptedBrain).direction = dir
+			_face(a, dir, Tuning.speed_for_gait(spec[2]))
+			pair.line = Vector3.LEFT
+			pair.outcome = "shoulder"
 		&"glance":
 			var dir := -from
 			b.receive_bump(dir * Tuning.BUMP_KNOCKBACK_SPEED * Tuning.BUMP_MISTIMED_SCALE,

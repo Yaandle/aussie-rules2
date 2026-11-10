@@ -1361,6 +1361,24 @@ const TACKLE_WRESTLE_RELEASE := 0.25        # s
 # (PlayerController.contact_change). Unplaytested feel guesses.
 const CONTACT_FRICTION := 0.35
 const CONTACT_REACT_CHEST_RADIUS := 0.16   # m
+# Shoulder-to-shoulder push (2026-11-11, ANIMATION_RAGDOLL_AUDIT "Phase 3
+# contact" item 2). Two players running the same way with their capsules
+# pressed together used to just slide along each other: nobody gave ground.
+# Now each drives into the other with mass × run speed × stamina tone (the
+# held-up wrestle's drive), and the pair moves sideways toward the weaker
+# side at SHOULDER_PUSH_SPEED × (stronger share - weaker share): the heavier
+# or faster one runs the other off their line while both lean in. Only
+# between runs within SHOULDER_PUSH_ALIGN of each other (head-on contacts
+# are knocks, not pushes) and both at SHOULDER_PUSH_MIN_SPEED. It changes
+# who wins a footrace for position, so it has its own switch.
+# PlayerController._shoulder_push. Unplaytested feel guesses.
+const SHOULDER_PUSH_ENABLED := true
+const SHOULDER_PUSH_MIN_SPEED := 2.5      # m/s, each
+const SHOULDER_PUSH_ALIGN := 0.5          # cos of the widest angle between the two runs (60°)
+const SHOULDER_PUSH_SPEED := 3.0          # m/s sideways at a total mismatch
+const SHOULDER_PUSH_SETTLE := 0.15        # s, time constant in and out
+const SHOULDER_PUSH_HOLD := 0.12          # s the press outlives the last touch
+const SHOULDER_PUSH_LEAN_DEG := 9.0       # trunk lean into the other, each
 # The whole-body ragdolls that keep a player standing (a held-up carrier's
 # stand, the whiffed bump's stumble, the ruck stagger) had their muscles
 # pulling toward the pose the animation had at contact, for their whole

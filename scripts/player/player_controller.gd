@@ -377,6 +377,12 @@ var _ragdoll: PlayerRagdoll = null
 var _ragdoll_partner: PlayerController = null
 ## See _react_to_body_contact.
 var _contact_react_cooldown := 0.0
+## See _shoulder_push: the sideways velocity a shoulder-to-shoulder press is
+## giving this body now, where it's heading, and how long the press lasts
+## without another touch.
+var _shove := Vector3.ZERO
+var _shove_target := Vector3.ZERO
+var _shove_time := 0.0
 
 ## A held Lunge's arms round the carrier while both fall (TackleWrap), on
 ## the tackler; null otherwise.
@@ -620,6 +626,7 @@ func _physics_process(delta: float) -> void:
 		_pending_jump_speed = 0.0
 
 	_update_locomotion(delta)
+	_apply_shove(delta)
 	_update_stamina(delta)
 
 	var before := global_position
@@ -634,6 +641,7 @@ func _physics_process(delta: float) -> void:
 		_ragdoll.step(delta)
 	_push_rigid_bodies()
 	_react_to_body_contact(pre_slide, delta)
+	_shoulder_push()
 	_contain_to_field()
 
 	_update_facing(delta)
@@ -1134,6 +1142,77 @@ func _react_to_body_contact(pre_slide: Vector3, delta: float) -> void:
 		_contact_react_cooldown = Tuning.BODY_CONTACT_REACT_COOLDOWN
 		other._contact_react_cooldown = Tuning.BODY_CONTACT_REACT_COOLDOWN
 		return
+
+
+## Shoulder to shoulder (Tuning's "Shoulder-to-shoulder push"): two
+## capsules pressed together while both run the same way. Each drives into
+## the other with mass × run speed × stamina tone, as the held-up wrestle's
+## drive is sized, and the pair moves sideways toward the weaker one at
+## SHOULDER_PUSH_SPEED × the difference of their shares, so the heavier or
+## faster player runs the other off their line. Both trunks lean in
+## (PlayerAnimation.set_press), the contact reaction's own lean. Sets both
+## players' target, so it doesn't matter which capsule reported the touch.
+func _shoulder_push() -> void:
+	if not Tuning.SHOULDER_PUSH_ENABLED or not _shove_free():
+		return
+	for i in get_slide_collision_count():
+		var other := get_slide_collision(i).get_collider() as PlayerController
+		if other == null or other == _ragdoll_partner or not other._shove_free():
+			continue
+		var mine := Vector3(velocity.x, 0.0, velocity.z)
+		var theirs := Vector3(other.velocity.x, 0.0, other.velocity.z)
+		if mine.length() < Tuning.SHOULDER_PUSH_MIN_SPEED or theirs.length() < Tuning.SHOULDER_PUSH_MIN_SPEED 				or mine.normalized().dot(theirs.normalized()) < Tuning.SHOULDER_PUSH_ALIGN:
+			continue
+		# Across both runs, from me to them (the collision normal tilts with
+		# the capsules' overlap; the push is square to where they're going).
+		var run := (mine + theirs).normalized()
+		var to_other := other.global_position - global_position
+		to_other.y = 0.0
+		to_other -= run * to_other.dot(run)
+		if to_other.length_squared() < 0.0001:
+			continue
+		to_other = to_other.normalized()
+		var drive_me := body_mass * mine.length() * stamina_tone()
+		var drive_them := other.body_mass * theirs.length() * other.stamina_tone()
+		var gain := (drive_me - drive_them) / maxf(drive_me + drive_them, 0.001)
+		var pair_velocity := to_other * Tuning.SHOULDER_PUSH_SPEED * gain
+		_shove_target = pair_velocity
+		other._shove_target = pair_velocity
+		_shove_time = Tuning.SHOULDER_PUSH_HOLD
+		other._shove_time = Tuning.SHOULDER_PUSH_HOLD
+		if _animation != null:
+			_animation.set_press(to_other, Tuning.SHOULDER_PUSH_LEAN_DEG)
+		if other._animation != null:
+			other._animation.set_press(-to_other, Tuning.SHOULDER_PUSH_LEAN_DEG)
+		return
+
+
+## Whether this body can take part in a shoulder push: on its feet, not in
+## a hold, a knockback or a ragdoll's charge.
+func _shove_free() -> bool:
+	return not is_ragdolled() and _tackle_hold_timer <= 0.0 and _wrestle.is_empty() 		and _knockback.length_squared() < 0.0001
+
+
+## Adds the push to the velocity locomotion just set (it's rebuilt from the
+## heading each tick, so this never accumulates), easing in and out on
+## SHOULDER_PUSH_SETTLE. When the press ends the lean is let go.
+func _apply_shove(delta: float) -> void:
+	if _shove_time > 0.0:
+		_shove_time -= delta
+		if _shove_time <= 0.0 or not _shove_free():
+			_shove_time = 0.0
+			_shove_target = Vector3.ZERO
+			if _animation != null and _wrestle.is_empty():
+				_animation.set_press(Vector3.ZERO, 0.0)
+	if _shove == Vector3.ZERO and _shove_target == Vector3.ZERO:
+		return
+	_shove = _shove.lerp(_shove_target, 1.0 - exp(-delta / Tuning.SHOULDER_PUSH_SETTLE))
+	if _shove_target == Vector3.ZERO and _shove.length_squared() < 0.0004:
+		_shove = Vector3.ZERO
+		return
+	if _shove_free():
+		velocity.x += _shove.x
+		velocity.z += _shove.z
 
 
 ## A knock this player takes on their feet: `push` is the change of velocity

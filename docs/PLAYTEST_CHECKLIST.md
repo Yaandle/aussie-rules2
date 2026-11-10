@@ -112,3 +112,4 @@ default). See `docs/BUILD7_MODEL.md`.
 - [ ] **Frame rate:** a full match on Build 7 runs at least as smoothly as Build 6 on your machine.
 - [ ] **Character screens:** the preview wears 17 for now (no number is passed to a preview); say if that should change.
 - [ ] **Highlights export window:** E / Y or the EXPORT CLIPS button blurs the page and opens the picker; ticking, EXPORT, CANCEL, Esc-to-cancel mid-export and the done message all work with pad, keyboard and mouse, and the files land in `highlights/`.
+- [ ] Shoulder push (2026-11-11): run alongside an opponent and lean in — the heavier/fresher one should move the other off their line (~0.2-0.5 m/s), both trunks leaning in. `Tuning.SHOULDER_PUSH_*`; switch off with `SHOULDER_PUSH_ENABLED`.
