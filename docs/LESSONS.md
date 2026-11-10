@@ -6,6 +6,30 @@ mostly superseded history. The full text lives outside the repo, in
 `F:\dev\aussie-rules2-archive\2026-10-24_docs\HANDOVER.md`, and in git history
 (`git log -- docs/HANDOVER.md`). Read this file instead of digging through it.
 
+## Architecture principles
+
+Written 2026-09-20, at the end of the technical architecture study. Every
+change should fit them.
+
+- **Separation of concerns:** logic, rendering, physics and visuals stay in
+  their own layers. *In the code:* `PlayerController` simulates, a
+  `PlayerBrain` decides, `PlayerAnimation` draws, `scripts/ui` shows.
+- **Data driven:** telemetry, configs and assets; numbers live in Tuning or
+  data files, not inline. *In the code:* `scripts/tuning.gd`,
+  `data/ml/*.json`, `character_profile.cfg`.
+- **Modular and extensible:** features, mechanics and AI plug in without
+  rewiring the rest. *In the code:* `AIBrain` / `HumanBrain` / `DrillBrain`
+  behind `set_brain()`; `TackleWrap` and `PlayerRagdoll` as child helpers.
+- **Physics is authoritative for gameplay:** contests are decided by bodies,
+  mass, speed and timing, never a probability roll. *In the code:*
+  `TackleBalance` on the real contact, `PhysicsRagdoll`, `RULES_REFERENCE.md` §3.
+- **Maintainable and scalable:** clean code, short accurate docs. *In the
+  code:* a script's header carries the why; this file stays short.
+- **Rendering and animation are decoupled:** gameplay never reads the
+  animated pose; the visual layer follows the simulation. *In the code:*
+  ragdoll state is read from bodies, not `get_bone_global_pose`;
+  `PlayerAnimation` is driven by velocity and action, and nothing reads it back.
+
 ## Design decisions to keep
 
 - **Weight is emergent, not scripted.** Turn rate falls as speed rises, and

@@ -7,6 +7,16 @@ own docs: `ANIMATION_RAGDOLL_AUDIT.md` (kick, carry, phase lock, bank,
 tackles), `MECHANICS_AUDIT.md` (ragdoll stages 2-5) and the 2026-10-30
 playtest commit (HUD, park turf, ruck, training).
 
+## Dev tool screens (2026-11-10, branch `update`)
+
+Before and after captures are in `docs/review/devtools/` (720 and 1080).
+
+- [ ] **Animation viewer, CONTESTS:** RESULT sits beside the contest buttons with no scrolling at 1280×720 and 1920×1080; OUTCOME, the A/B lines and the formula lines are readable while the contest plays.
+- [ ] **ML page:** every stage's cards, chart and text show in the RESULTS column beside its controls; RUN, TRAIN, APPLY and SAVE still do what they did.
+- [ ] **Ragdoll lab:** the menu fits without scrolling and the readout's columns line up.
+- [ ] **Keyboard and pad focus (new):** Tab or the d-pad lands on the first button, walks the panel in reading order and shows a rust outline; a mouse click doesn't leave focus behind, so the lab's Space / K / T / L / R still work after one.
+- [ ] **FREE MOVE:** pad or keyboard input doesn't press a panel button while you're moving the player.
+
 ## Contact on the motor ragdoll (2026-11-10, branch `update`)
 
 See `docs/ANIMATION_RAGDOLL_AUDIT.md` ("Contact on the motor ragdoll").
