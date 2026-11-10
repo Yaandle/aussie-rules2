@@ -86,3 +86,4 @@ default). See `docs/BUILD7_MODEL.md`.
 - [ ] **Kits:** home, away and a custom kit each recolour every part (guernsey, collar, shorts, socks, boots).
 - [ ] **Frame rate:** a full match on Build 7 runs at least as smoothly as Build 6 on your machine.
 - [ ] **Character screens:** the preview wears 17 for now (no number is passed to a preview); say if that should change.
+- [ ] **Highlights export window:** E / Y or the EXPORT CLIPS button blurs the page and opens the picker; ticking, EXPORT, CANCEL, Esc-to-cancel mid-export and the done message all work with pad, keyboard and mouse, and the files land in `highlights/`.
