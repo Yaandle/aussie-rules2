@@ -1135,10 +1135,10 @@ func _react_to_body_contact(pre_slide: Vector3, delta: float) -> void:
 			other.global_position, other.velocity)
 		take_knock(change * 0.5, TackleBalance.balance_loss(closing,
 				float(mine.approach_angle), other.body_mass / maxf(body_mass, 1.0)),
-			(-global_transform.basis.z).dot(-normal) >= Tuning.BODY_CONTACT_HANDS_DOT, Vector3.INF, -normal)
+			(-global_transform.basis.z).dot(-normal) >= Tuning.BODY_CONTACT_HANDS_DOT, Vector3.INF, -normal, other)
 		other.take_knock(-change * 0.5, TackleBalance.balance_loss(closing,
 				float(theirs.approach_angle), body_mass / maxf(other.body_mass, 1.0)),
-			(-other.global_transform.basis.z).dot(normal) >= Tuning.BODY_CONTACT_HANDS_DOT, Vector3.INF, normal)
+			(-other.global_transform.basis.z).dot(normal) >= Tuning.BODY_CONTACT_HANDS_DOT, Vector3.INF, normal, self)
 		_contact_react_cooldown = Tuning.BODY_CONTACT_REACT_COOLDOWN
 		other._contact_react_cooldown = Tuning.BODY_CONTACT_REACT_COOLDOWN
 		return
@@ -1233,9 +1233,13 @@ func _apply_shove(delta: float) -> void:
 ## side of the chest, CONTACT_REACT_CHEST_RADIUS out, so any part of it
 ## across that line turns the trunk (Tuning's "Direction from the angle of
 ## contact"). Without it the push lands as it used to, on its own line.
+## `by` is the other body, for the hands to land on (PlayerAnimation's
+## set_hands_target / ArmIK); null keeps the plain forward swing.
 func take_knock(push: Vector3, b: float, hands := false, before := Vector3.INF,
-		toward := Vector3.ZERO) -> void:
+		toward := Vector3.ZERO, by: PlayerController = null) -> void:
 	b = clampf(b, 0.0, 1.0)
+	if _animation != null and hands:
+		_animation.set_hands_target(by)
 	stamina = clampf(stamina - Tuning.STAMINA_CONTACT_COST * b, 0.0, 1.0)
 	if _knock_on_physics(push, b, before, toward):
 		if _animation != null and hands:
@@ -1820,8 +1824,8 @@ func _hold_up(target: PlayerController, stand_impact: Dictionary, ruling: bool,
 		var closing := maxf(float(impact.closing_speed), 0.0)
 		var b := float(impact.b)
 		if not target.is_ragdolled():
-			target.take_knock(line * closing * 0.5, b, true, Vector3.INF, -line)
-		take_knock(-line * closing * 0.5, b * 0.5, true, Vector3.INF, line)
+			target.take_knock(line * closing * 0.5, b, true, Vector3.INF, -line, self)
+		take_knock(-line * closing * 0.5, b * 0.5, true, Vector3.INF, line, target)
 	# Never blocked here: every caller already requires _action == NONE.
 	_begin(Tuning.Action.TACKLE_GRAB)
 	# Both sides of the same wrestle, started on the same frame.
@@ -2191,7 +2195,7 @@ func _break_tackle(by: PlayerController = null, impact := {}) -> void:
 	var drag := run * (1.0 - Tuning.TACKLE_BREAK_SPEED_KEEP) * body_mass / maxf(by.body_mass, 1.0)
 	take_knock(line * closing * 0.5, b, false, before, -line)
 	by.take_knock(drag - line * closing * 0.5 * Tuning.CONTACT_REACT_BREAK_RECOIL_SHARE, 1.0 - b, true,
-		Vector3.INF, line)
+		Vector3.INF, line, self)
 
 
 ## Rulebook §6: a Slide connect should read as one wrestle, not two clips

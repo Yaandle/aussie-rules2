@@ -665,3 +665,25 @@ holds off the line. `contact_sweep` also prints which way each chest went
   upright; only upper-body knocks adopt the lean.
 - `contact_sweep` in one line ran past x = 500 m with the new rows, where
   `_contain_to_field` squeezes pairs into a heap. New rows go on a second line.
+
+## 2026-11-11: shoulder push, hands on the body, and why the AI never ragdolls you
+
+- **Shoulder push** (`PlayerController._shoulder_push`, Tuning "Shoulder-to-shoulder push"):
+  see commit 5341a61 for the sweep numbers (rows 40-44 of `contact_sweep`).
+- **Hands on the other body** (`ArmIK`, `PlayerAnimation._hands_on_other`): a knock
+  with `hands` now solves two-bone IK each frame onto the other player's chest,
+  elbow swivel + upper-arm roll searched onto the ragdoll's elbow hinge (the
+  same fit as `solve_arm(hinge=True)`). The partial ragdoll's arm motors follow
+  that animated pose. `take_knock(..., by)` carries the other body. A raycast
+  hit point would work as the target too (6Q, "hands on a wall"). Not checked by eye.
+- **Why the AI never lands a ragdoll tackle on the human (6T).** The AI's only
+  tackle is Slide. Every ragdoll start on a Slide is gated on the *tackler*
+  being human: the sling (`_slide_connect`, `_brain is HumanBrain and won and
+  b >= TACKLE_SLIDE_KNOCKDOWN_B`) and the stand ragdoll (`_hold_up`'s
+  `stand_impact` only `if _brain is HumanBrain`). Lunge and the contest bump
+  are human-input only. The one exception is the ruck collision, which ragdolls
+  if either player is human. Options, none built: (a) gate on *either*
+  player being human, as the ruck already does: the AI slings or stands you up
+  with the same b threshold, and AI-v-AI stays on clips (cost unchanged);
+  (b) give the AI a Lunge in `AIBrain` (balance and tuning work); (c) keep it.
+  (a) is a two-line change plus a playtest of how often it fires.

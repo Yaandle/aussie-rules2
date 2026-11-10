@@ -248,6 +248,12 @@ const CONTACT_HANDS_HOLD := 0.3        ## s at full brace after a contact
 const CONTACT_HANDS_RISE := 25.0       ## 1/s, exponential
 const CONTACT_HANDS_FALL := 6.0        ## 1/s
 const CONTACT_ARM_BONES: Array[StringName] = [&"LeftUpperArm", &"RightUpperArm"]
+## Hands on the other body (ArmIK, 2026-11-11): palms this far either side
+## of their chest, this far out from its centre on this player's side, and
+## only within this range of them. Unplaytested feel guesses.
+const CONTACT_HANDS_SPREAD := 0.14   ## m
+const CONTACT_HANDS_SURFACE := 0.16  ## m, as Tuning.CONTACT_REACT_CHEST_RADIUS
+const CONTACT_HANDS_RANGE := 1.3     ## m between the players
 
 ## ── Wrestle ─────────────────────────────────────────────────────────
 ## A held-up tackle (Tuning's "The held-up wrestle"). set_press() tips the
@@ -744,12 +750,58 @@ func _apply_contact_reaction(delta: float) -> void:
 		var controller := body as PlayerController
 		if controller != null and controller.is_carrying():
 			return   # the carry layer has the arms (see "Ball carry")
+		if _hands_on_other(skeleton, body, right, forward):
+			return
 		for bone_name in CONTACT_ARM_BONES:
 			var bone := skeleton.find_bone(bone_name)
 			if bone >= 0:
 				# Opposite sign to the lean's: that tips an upward bone forward,
 				# this swings a hanging one forward.
 				_turn_bone(skeleton, bone, Quaternion(right, deg_to_rad(CONTACT_HANDS_REACH_DEG * _brace)))
+
+
+## The other body a brace's hands go to (set_hands_target), if any.
+var _hands_target: Node3D = null
+
+
+## Aims the next brace's palms at `other`'s chest (Phase 2 step 4) rather
+## than just swinging the arms forward. Null goes back to the swing.
+func set_hands_target(other: Node3D) -> void:
+	_hands_target = other
+
+
+## Two-bone IK (ArmIK) of both arms onto the other body's chest, the hands
+## CONTACT_HANDS_SPREAD either side of it on this player's side, blended in
+## by the brace. Only within CONTACT_HANDS_RANGE; false when it didn't run
+## (no target, out of reach), so the plain swing does.
+func _hands_on_other(skeleton: Skeleton3D, body: Node3D, right: Vector3, _forward: Vector3) -> bool:
+	if _hands_target == null or not is_instance_valid(_hands_target):
+		return false
+	var other_rig := _hands_target.get_node_or_null(^"Rig/Skeleton3D") as Skeleton3D
+	if other_rig == null:
+		return false
+	var chest_bone := other_rig.find_bone(&"Chest")
+	if chest_bone < 0:
+		return false
+	var chest := other_rig.global_transform * other_rig.get_bone_global_pose(chest_bone).origin
+	var to_me := body.global_position - _hands_target.global_position
+	to_me.y = 0.0
+	if to_me.length() > CONTACT_HANDS_RANGE or to_me.length_squared() < 1e-4:
+		return false
+	to_me = to_me.normalized()
+	var world_right := body.global_basis.x.normalized()
+	var to_skeleton := skeleton.global_transform.affine_inverse()
+	for side in [[&"Left", -1.0], [&"Right", 1.0]]:
+		var upper := skeleton.find_bone(StringName(String(side[0]) + "UpperArm"))
+		var lower := skeleton.find_bone(StringName(String(side[0]) + "LowerArm"))
+		var hand := skeleton.find_bone(StringName(String(side[0]) + "Hand"))
+		if upper < 0 or lower < 0 or hand < 0:
+			return false
+		var target_world: Vector3 = chest + to_me * CONTACT_HANDS_SURFACE 			+ world_right * CONTACT_HANDS_SPREAD * float(side[1])
+		# The elbow down and out to its own side, as a brace holds it.
+		var pole := (right * float(side[1]) * 0.6 + Vector3.DOWN).normalized()
+		ArmIK.solve(skeleton, upper, lower, hand, to_skeleton * target_world, pole, _brace)
+	return true
 
 
 ## Turns `bone` by `turn` (a skeleton-space rotation) on top of its pose.
