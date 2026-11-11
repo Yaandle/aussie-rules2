@@ -471,13 +471,13 @@ func _create_camera_panel(
 	field.size = Vector2(panel_size.x - 20.0, panel_size.y - 50.0)
 	field.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(field)
-	
+
 	# Store panel references for visibility toggling
 	if full_side:
 		_camera_panel_full_side = panel
 	else:
 		_camera_panel_third_person = panel
-	
+
 	return panel
 
 
@@ -606,9 +606,9 @@ func _sync_camera_preview() -> void:
 	if not is_instance_valid(_camera_panel_third_person) \
 			or not is_instance_valid(_camera_panel_full_side):
 		return
-	
+
 	var full_side := Settings.full_game_camera_mode == Settings.FullGameCameraMode.FULL_SIDE
-	
+
 	# Only show the panel matching the current camera mode
 	_camera_panel_third_person.visible = not full_side
 	_camera_panel_full_side.visible = full_side

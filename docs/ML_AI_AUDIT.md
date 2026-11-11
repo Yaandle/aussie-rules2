@@ -554,14 +554,14 @@ All of these go through one function, `MarkCueModel.cue_time_to_press()` /
   - It takes the ball in stride (Running) at pace when a straight-line
     closest approach is inside 0.75 × Running's reach.
   - Otherwise it holds Safe.
-  
+
   The tier choice is a rule; there is no learned catchability.
-  
+
   Headless check, AI marker with a passive opponent at its shoulder, 12
   deliveries:
   - flag off: Safe 11/12 caught
   - flag on: Aggressive 7 caught, 5 missed
-  
+
   So leaping on every contest is worse than Safe against a passive
   opponent. The model was trained on straight-line runs, and an AI arrives
   at odd angles. Leave it off until it has a catchability gate and has

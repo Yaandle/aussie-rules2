@@ -685,7 +685,7 @@ func _on_card_hover(index: int) -> void:
 	_index = index
 	_refresh()
 
-	
+
 func _build_icon_badge(icon_name: StringName, badge_size: float) -> Panel:
 	var badge := Panel.new()
 	badge.custom_minimum_size = Vector2(badge_size, badge_size)
