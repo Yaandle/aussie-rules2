@@ -11,6 +11,12 @@ extends Node3D
 ## keep, and the kept ones exported (HighlightExporter) to the folder shown
 ## in the EXPORT section (HighlightPaths: `highlights/` beside the game).
 ##
+## A TYPES grid above the list has a toggle per moment type with a count
+## (keys 1-8, or click). A type that's off isn't listed and isn't exported;
+## switching it on lists it and ticks its best few (Highlights.set_type_on).
+## The choices are saved (HighlightPrefs). The pad reaches them, the export
+## format and each type's default camera in the export window (Y).
+##
 ## The replay is a ReplayStage drawn through a SubViewport that fills the
 ## area right of the column, so the picture is centred in the space you can
 ## see, and the portrait preview is the same 9:16 framing the export uses.
@@ -56,7 +62,7 @@ static func open_from(from: String) -> bool:
 
 
 var _moments: Array[Dictionary] = []
-var _index := 0
+var _index := -1
 var _t := 0.0
 var _hold := 0.0
 var _playing := true
@@ -74,6 +80,10 @@ var _camera: Camera3D
 var _entry_panels: Array[Panel] = []
 var _entry_titles: Array[Label] = []
 var _entry_captions: Array[Label] = []
+var _type_panels: Array[Panel] = []
+var _type_labels: Array[Label] = []
+var _moments_head: Label
+var _empty_text: Label
 var _list: VBoxContainer
 var _kept_label: Label
 var _path_label: Label
@@ -100,16 +110,11 @@ func _ready() -> void:
 	add_child(_exporter)
 	_exporter.progress.connect(_on_export_progress)
 	_build_ui()
-	if _moments.is_empty():
-		_empty_card.visible = true
-		_overlay.visible = false
-	else:
-		_select(0)
-	_refresh()
+	_apply_filter()
 
 
 func _process(delta: float) -> void:
-	if _moments.is_empty() or _exporter.busy:
+	if not _any_shown() or _exporter.busy:
 		return
 	if _playing:
 		if _t >= _stage.duration():
@@ -136,6 +141,56 @@ func _preset() -> String:
 	return String(_moments[_index].get("camera", _stage.default_preset()))
 
 
+## Whether moment `i` is listed: its type is switched on.
+func _shown(i: int) -> bool:
+	return HighlightPrefs.type_on(String(_moments[i].type))
+
+
+func _any_shown() -> bool:
+	for i in _moments.size():
+		if _shown(i):
+			return true
+	return false
+
+
+## The next listed moment from `from` going `step` (+1 / -1), wrapping, or -1.
+func _next_shown(from: int, step: int) -> int:
+	for k in range(1, _moments.size() + 1):
+		var i := posmod(from + step * k, _moments.size())
+		if _shown(i):
+			return i
+	return -1
+
+
+## Switches a moment type on or off (saved), ticking or unticking its moments,
+## and brings the list into line.
+func _toggle_type(slot: int) -> void:
+	if slot < 0 or slot >= HighlightTable.TYPE_ORDER.size():
+		return
+	var type: String = HighlightTable.TYPE_ORDER[slot]
+	Highlights.set_type_on(type, not HighlightPrefs.type_on(type))
+	_apply_filter()
+
+
+## After a type changes (or the export window closes): hides the entries of
+## types that are off, moves the selection onto a listed one, and shows or
+## hides the replay and the empty card.
+func _apply_filter() -> void:
+	for i in _entry_panels.size():
+		_entry_panels[i].visible = _shown(i)
+	var any := _any_shown()
+	_overlay.visible = any
+	_view_container.visible = any
+	_empty_card.visible = not any
+	if not any:
+		_empty_text.text = "No highlights from this match yet.\nPlay a Full Game: goals, big marks, tackles and long kicks are picked out as it goes." \
+			if _moments.is_empty() else "Every moment type is switched off.\nTurn some back on above (keys 1-8)."
+		_playing = false
+	elif _index < 0 or _index >= _moments.size() or not _shown(_index):
+		_select(_next_shown(maxi(_index, 0) - 1, 1))
+	_refresh()
+
+
 # ── Input ───────────────────────────────────────────────────────────
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -148,12 +203,14 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"pause") or event.is_action_pressed(&"ui_cancel") \
 			or event.is_action_pressed(&"decline"):
 		_leave()
-	elif _moments.is_empty():
+	elif _type_key(event) >= 0:
+		_toggle_type(_type_key(event))
+	elif not _any_shown():
 		return
 	elif event.is_action_pressed(&"ui_up") or event.is_action_pressed(&"move_forward"):
-		_select(_index - 1)
+		_select(_next_shown(_index, -1))
 	elif event.is_action_pressed(&"ui_down") or event.is_action_pressed(&"move_back"):
-		_select(_index + 1)
+		_select(_next_shown(_index, 1))
 	elif event.is_action_pressed(&"ui_left") or event.is_action_pressed(&"move_left") \
 			or _pad_button(event, JOY_BUTTON_LEFT_SHOULDER):
 		_cycle_camera(-1)
@@ -182,6 +239,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	_refresh()
 	get_viewport().set_input_as_handled()
+
+
+## Which type slot a number key 1-8 asks for, or -1.
+func _type_key(event: InputEvent) -> int:
+	var key := event as InputEventKey
+	if key == null or not key.pressed or key.echo:
+		return -1
+	var slot := int(key.physical_keycode) - int(KEY_1)
+	return slot if slot >= 0 and slot < HighlightTable.TYPE_ORDER.size() else -1
 
 
 func _key(event: InputEvent, keycode: Key) -> bool:
@@ -214,7 +280,9 @@ func _step(direction: float) -> void:
 
 
 func _select(index: int) -> void:
-	_index = posmod(index, _moments.size())
+	if index < 0 or index >= _moments.size():
+		return
+	_index = index
 	_stage.load_clip(_moments[_index].clip)
 	_t = 0.0
 	_hold = 0.0
@@ -244,12 +312,13 @@ func _export() -> void:
 	_dialog = HighlightExportDialog.new(_moments)
 	_dialog.export_requested.connect(_run_export)
 	_dialog.cancel_requested.connect(_exporter.cancel)
-	_dialog.closed.connect(_refresh)
+	_dialog.closed.connect(_apply_filter)
 	_ui_root.add_child(_dialog)
 
 
 func _run_export(picked: Array[Dictionary]) -> void:
-	var folder := await _exporter.export_moments(picked, Highlights.match_info)
+	var folder := await _exporter.export_moments(picked, Highlights.match_info,
+		{"aspect": HighlightPrefs.aspect(), "footage": Highlights.footage})
 	var text := "Exported %d clip%s to\n%s" % [picked.size(), "" if picked.size() == 1 else "s", folder]
 	_status_label.text = text
 	if is_instance_valid(_dialog):
@@ -302,6 +371,7 @@ func _build_ui() -> void:
 			{"keys": "↑ / ↓", "label": "Select"},
 			{"keys": "Enter", "label": "Play / pause"},
 			{"keys": "Space", "label": "Keep"},
+			{"keys": "1-8", "label": "Types"},
 			{"keys": "← / →", "label": "Camera"},
 			{"keys": "E", "label": "Export"},
 			{"keys": "Esc", "label": "Back"},
@@ -337,7 +407,26 @@ func _build_ui() -> void:
 	_list.add_theme_constant_override(&"separation", 8)
 	margin.add_child(_list)
 
-	_section(_list, "MOMENTS  (%d)" % _moments.size())
+	_section(_list, "TYPES  (keys 1-8)")
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override(&"h_separation", 8)
+	grid.add_theme_constant_override(&"v_separation", 6)
+	_list.add_child(grid)
+	for slot in HighlightTable.TYPE_ORDER.size():
+		var chip := Panel.new()
+		chip.custom_minimum_size = Vector2((COLUMN_WIDTH - 32.0 - 8.0) * 0.5, 30.0)
+		chip.mouse_filter = Control.MOUSE_FILTER_STOP
+		chip.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		chip.gui_input.connect(_on_type_input.bind(slot))
+		var chip_text := StudioStyle.text("", 12, StudioStyle.INK, StudioStyle.body_font())
+		chip_text.position = Vector2(8.0, 6.0)
+		chip.add_child(chip_text)
+		grid.add_child(chip)
+		_type_panels.append(chip)
+		_type_labels.append(chip_text)
+
+	_moments_head = _section(_list, "MOMENTS")
 	for i in _moments.size():
 		var moment := _moments[i]
 		var panel := Panel.new()
@@ -377,7 +466,7 @@ func _build_ui() -> void:
 	_path_label = StudioStyle.text("", 11, StudioStyle.INK_SOFT, StudioStyle.mono_font())
 	_path_label.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
 	_path_label.custom_minimum_size.x = COLUMN_WIDTH - 56.0
-	_path_label.text = "Folder: %s\nPer moment: 16:9 1920x1080 and 9:16 1080x1920 MJPEG .avi at %d fps (.mp4 too if ffmpeg is installed), a .replay, and moments.json." % [
+	_path_label.text = "Folder: %s\nPer moment: MJPEG .avi at %d fps in the shapes chosen in the export window (16:9 1920x1080, 9:16 1080x1920; .mp4 too if ffmpeg is installed), a .replay, and moments.json." % [
 		HighlightPaths.root(), HighlightTable.EXPORT_FPS]
 	_list.add_child(_path_label)
 	_status_label = StudioStyle.text("", 12, StudioStyle.INK, StudioStyle.body_font())
@@ -442,12 +531,10 @@ func _build_ui() -> void:
 	_empty_card.position = Vector2(COLUMN_WIDTH + 40.0, StudioStyle.HEADER_HEIGHT + 40.0)
 	_empty_card.visible = false
 	root.add_child(_empty_card)
-	var empty_text := StudioStyle.text(
-		"No highlights from this match yet.\nPlay a Full Game: goals, big marks, tackles and long kicks are picked out as it goes.",
-		13, StudioStyle.INK, StudioStyle.body_font())
-	empty_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	empty_text.custom_minimum_size.x = 420.0
-	_empty_card.get_child(0).add_child(empty_text)
+	_empty_text = StudioStyle.text("", 13, StudioStyle.INK, StudioStyle.body_font())
+	_empty_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_empty_text.custom_minimum_size.x = 420.0
+	_empty_card.get_child(0).add_child(_empty_text)
 
 
 ## The replay fills the space right of the column; the portrait preview is
@@ -477,7 +564,7 @@ func _padded(style: StyleBox, across: int, down: int) -> PanelContainer:
 	return panel
 
 
-func _section(parent: Control, title: String) -> void:
+func _section(parent: Control, title: String) -> Label:
 	var head := StudioStyle.text(title, 11, StudioStyle.INK_SOFT, StudioStyle.mono_font())
 	head.custom_minimum_size.y = 22.0
 	head.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
@@ -486,6 +573,13 @@ func _section(parent: Control, title: String) -> void:
 	rule.color = StudioStyle.INK
 	rule.custom_minimum_size = Vector2(0.0, 2.0)
 	parent.add_child(rule)
+	return head
+
+
+func _on_type_input(event: InputEvent, slot: int) -> void:
+	var click := event as InputEventMouseButton
+	if click != null and click.pressed and click.button_index == MOUSE_BUTTON_LEFT:
+		_toggle_type(slot)
 
 
 static func clock_text(moment: Dictionary) -> String:
@@ -494,9 +588,21 @@ static func clock_text(moment: Dictionary) -> String:
 
 
 func _refresh() -> void:
+	for slot in _type_panels.size():
+		var type: String = HighlightTable.TYPE_ORDER[slot]
+		var on := HighlightPrefs.type_on(type)
+		_type_panels[slot].add_theme_stylebox_override(&"panel",
+			StudioStyle.box(StudioStyle.LIME if on else StudioStyle.WHITE, 2, StudioStyle.SHADOW if on else 0))
+		_type_labels[slot].text = "%s %s  %d   [%d]" % ["■" if on else "□",
+			String((HighlightTable.TYPES[type] as Dictionary).plural), Highlights.count_of(type), slot + 1]
+		_type_labels[slot].add_theme_color_override(&"font_color", StudioStyle.INK if on else StudioStyle.INK_SOFT)
+	var shown := 0
 	var kept := 0
 	for i in _entry_panels.size():
 		var moment := _moments[i]
+		if not _shown(i):
+			continue
+		shown += 1
 		var picked := i == _index
 		if moment.keep:
 			kept += 1
@@ -508,8 +614,9 @@ func _refresh() -> void:
 		_entry_titles[i].add_theme_color_override(&"font_color", StudioStyle.LIME if picked else StudioStyle.INK)
 		_entry_captions[i].add_theme_color_override(&"font_color",
 			StudioStyle.PAPER if picked else StudioStyle.INK_SOFT)
-	_kept_label.text = "Kept for export: %d of %d" % [kept, _moments.size()]
-	if _moments.is_empty():
+	_moments_head.text = "MOMENTS  (%d of %d)" % [shown, _moments.size()]
+	_kept_label.text = "Kept for export: %d of %d" % [kept, shown]
+	if not _any_shown() or _index < 0:
 		return
 	var moment := _moments[_index]
 	_chip_label.text = "%s  ·  %s  ·  %s×%s" % [

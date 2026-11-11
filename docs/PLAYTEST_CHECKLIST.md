@@ -125,3 +125,19 @@ default). See `docs/BUILD7_MODEL.md`.
 - [ ] Hands on the body (2026-11-11): in a held-up tackle or a front-on collision the palms should land on the other player's chest, not swing past. `ArmIK`, `PlayerAnimation.CONTACT_HANDS_*`.
 - [ ] AI ragdolls you (2026-11-11, 6T): let an AI Slide-tackle you while carrying; a winning sling should put you down on the ragdoll, a stand should hold you up on physics. AI-v-AI tackles stay on clips. Watch how often it fires.
 - [ ] AI-v-AI ragdoll tackles (2026-11-11): watch AI Slides on each other; slings should fall on the ragdoll, stands fight on their feet, holds wrestle. Check frame rate with many at once; `Tuning.TACKLE_RAGDOLL_AI_V_AI` turns it off.
+
+## Highlights v2 (2026-11-11)
+
+Needs a real match (or the generator) and the Highlights screen. See `docs/HIGHLIGHTS.md`.
+
+- [ ] **Type toggles:** keys 1-8 (or a click) switch goals, behinds, marks, tackles, bumps, long kicks, rucks and general play. An off type disappears from the list and is never exported; on ticks its best few. The counts look right and the choices are still there after a restart.
+- [ ] **Tackles reach an export:** play a half, tick TACKLES, export: `NN_tackle_16x9.avi` clips exist, filmed from behind the tackler. Goals and marks no longer crowd them out of the list.
+- [ ] **Third-person camera framing:** behind and above the kicker / marker / tackler, looking the way they run, like the match's chase camera. Check it holds on a turn, when the player stops, and when the ball is in the air. `ReplayStage.THIRD_*`.
+- [ ] **Third-person in 9:16:** the narrow frame still holds the tackle (`THIRD_FOV_PORTRAIT`).
+- [ ] **Camera pick:** in the export window left / right on a type row changes that type's default, on a moment row changes that moment's camera; both stick.
+- [ ] **Format row:** 16:9 only renders roughly half the frames of both shapes (the count line says how many), and no `_9x16` files appear.
+- [ ] **General play:** switch it on; clips of a 3+ disposal chain or a bouncing run read as a passage of play, not a random cut. Say if the lead-in is too long or short (`GENERAL_*`).
+- [ ] **Goal camera after the score:** the broadcast camera stops following the ball a few metres past the posts and holds, instead of chasing it into the trees or swinging to the centre.
+- [ ] **End-on camera:** stays inside the boundary fence on a goal at the far end.
+- [ ] **Cancelled export:** cancel part-way; the clip being rendered is in moments.json with `"complete": false` and a smaller `frames`.
+- [ ] **Generator** (`scenes/dev/highlight_generator.tscn`, windowed, `--fixed-fps 60`): a run exports goal / mark / tackle clips from mixed cameras into `highlights/generated/`; the footage reads as AI play, and moments.json says `"footage": "generated"`, `"mode": "ai_vs_ai"`.

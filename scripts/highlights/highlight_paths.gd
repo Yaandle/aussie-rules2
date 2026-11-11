@@ -27,10 +27,13 @@ static func root() -> String:
 
 
 ## A fresh per-match folder under root(): `<date>_<time>_<HOME>-v-<AWAY>`.
-static func match_folder(home: String, away: String) -> String:
+## `sub` puts it one folder down (the generator's footage goes in `generated/`,
+## apart from the player's own matches).
+static func match_folder(home: String, away: String, sub := "") -> String:
 	var t := Time.get_datetime_dict_from_system()
 	var stamp := "%04d-%02d-%02d_%02d%02d%02d" % [t.year, t.month, t.day, t.hour, t.minute, t.second]
-	var dir := root().path_join("%s_%s-v-%s" % [stamp, _slug(home), _slug(away)])
+	var parent := root() if sub == "" else root().path_join(sub)
+	var dir := parent.path_join("%s_%s-v-%s" % [stamp, _slug(home), _slug(away)])
 	DirAccess.make_dir_recursive_absolute(dir)
 	return dir
 

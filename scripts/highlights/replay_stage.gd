@@ -17,18 +17,45 @@ const ENVIRONMENT := preload("res://materials/broadcast_environment.tres")
 
 ## Broadcast: up in the stand on the wing. Close: down at ground level,
 ## circling the contest. End: from behind the play, looking back at it (for
-## a goal, from behind the posts). All distances in metres, unplaytested
+## a goal, from behind the posts). Third: the in-game chase camera, behind
+## and above the moment's main player (the kicker, marker, tackler...),
+## looking the way they're going. All distances in metres, unplaytested
 ## framing guesses.
-const CAMERA_PRESETS := ["broadcast", "close", "end"]
-const PRESET_LABELS := {"broadcast": "BROADCAST", "close": "CLOSE", "end": "END-ON"}
+const CAMERA_PRESETS := ["broadcast", "close", "end", "third"]
+const PRESET_LABELS := {"broadcast": "BROADCAST", "close": "CLOSE", "end": "END-ON", "third": "THIRD PERSON"}
+## Where each type is shot from unless the player picks (HighlightPrefs.camera_for
+## reads this as its fallback). Tackles and bumps are the player's-eye view
+## (2026-11-11 brief); the rest keep their old looks.
 const DEFAULT_PRESET := {"goal": "broadcast", "behind": "broadcast", "mark": "broadcast",
-	"tackle": "close", "bump": "close", "long_kick": "broadcast", "ruck": "close"}
+	"tackle": "third", "bump": "third", "long_kick": "broadcast", "ruck": "close", "general": "broadcast"}
 const BROADCAST_OFFSET := Vector3(0.0, 15.0, 34.0)
 const CLOSE_RADIUS := 8.5
 const CLOSE_HEIGHT := 2.6
 const CLOSE_ORBIT_SPEED := 0.12   ## rad/s
 const END_BACK := 30.0
 const END_HEIGHT := 8.0
+## The end-on and third-person cameras stay within the fence: this far past
+## the boundary.
+const END_FENCE_MARGIN := 3.0
+## Third person is the match's chase camera (Tuning.CAM_DISTANCE, CAM_PITCH_DEFAULT,
+## CAM_FOCUS_HEIGHT, the look-ahead, the ball pull and the sprint FOV), minus
+## the stick: a replay has no stick, so it turns to the way the player is
+## going instead (unplaytested feel guesses below).
+## How fast it swings round behind a new heading, 1/s.
+const THIRD_HEADING_RATE := 3.0
+## Heading is where the player was going over this many frames either side;
+## under THIRD_MIN_SPEED (m/s) they're standing, so it uses the way they face.
+const THIRD_HEADING_FRAMES := 5
+const THIRD_MIN_SPEED := 1.5
+## 9:16 gets a wider vertical field of view than the match's 64 degrees, as
+## the other presets do, so the narrow frame still holds the contest.
+const THIRD_FOV_PORTRAIT := 78.0
+## After a goal or behind the camera follows the ball only this far past the
+## goal line (and never when it jumps: the ball is reset to the centre for
+## the bounce, which used to drag the camera there, and a long ball ran on
+## into the trees).
+const FOLLOW_PAST_GOAL := 3.0
+const BALL_JUMP := 8.0
 ## Portrait gets a wider vertical field of view and comes in closer, so the
 ## narrow frame still holds the contest.
 const FOV_LANDSCAPE := 40.0
@@ -46,6 +73,19 @@ var _puppets: Array[Dictionary] = []
 var _decoded := {}
 var _focus_point := Vector3.ZERO
 var _ball_point := Vector3.ZERO
+## The moment's main player (clip focus[0]), for the third-person camera: the
+## point on them to frame, which way they're heading and how fast.
+var _main_point := Vector3.ZERO
+var _main_heading := Vector3.FORWARD
+var _main_speed := 0.0
+## First frame a goal/behind clip stops following the ball, or -1; and the
+## x the followed ball never passes (a goal/behind's goal line plus
+## FOLLOW_PAST_GOAL, `_limit_dir` 1 or -1 for which end; 0 for other types).
+var _hold_frame := -1
+var _limit_x := 0.0
+var _limit_dir := 0
+## What the cameras treat as the ball (see _followed_ball).
+var _follow_ball := Vector3.ZERO
 var _cameras := {}
 
 
@@ -99,6 +139,7 @@ func load_clip(new_clip: ReplayClip) -> void:
 	if not same:
 		_build_puppets()
 	_cameras.clear()
+	_hold_frame = _find_hold_frame()
 
 
 func _build_puppets() -> void:
@@ -144,7 +185,9 @@ func _frame(index: int) -> Dictionary:
 	if not _decoded.has(index):
 		if _decoded.size() > 8:
 			_decoded.clear()
-		_decoded[index] = clip.decode(index)
+		var decoded := clip.decode(index)
+		decoded["index"] = index
+		_decoded[index] = decoded
 	return _decoded[index]
 
 
@@ -183,7 +226,9 @@ func apply(t: float) -> void:
 		for k in pos_bones.size():
 			if int(pos_bones[k]) < skeleton.get_bone_count():
 				skeleton.set_bone_pose_position(int(pos_bones[k]), pos_a[k].lerp(pos_b[k], w))
+	_follow_ball = _followed_ball(a)
 	_focus_point = _compute_focus(a, b, w)
+	_update_main(f, a, b, w)
 
 
 ## What the camera follows: the ball, except in a tackle or bump, where it's
@@ -201,7 +246,76 @@ func _compute_focus(a: Dictionary, b: Dictionary, w: float) -> Vector3:
 			n += 1
 		if n > 0:
 			return sum / float(n) + Vector3.UP * 1.0
-	return _ball_point
+	return _follow_ball
+
+
+## The ball, or for a goal or behind, where it was when the clip stopped
+## following it (see _find_hold_frame).
+func _followed_ball(a: Dictionary) -> Vector3:
+	var p := _ball_point
+	if _hold_frame >= 0 and int(a.index) >= _hold_frame:
+		p = clip.ball_position(_hold_frame - 1)
+	if _limit_dir != 0 and float(_limit_dir) * (p.x - _limit_x) > 0.0:
+		p.x = _limit_x
+	return p
+
+
+## Goals and behinds: the first frame after the score where the ball is past
+## the goal line by FOLLOW_PAST_GOAL, or has jumped (the reset to the centre).
+## Found once per clip, so scrubbing and exporting agree.
+func _find_hold_frame() -> int:
+	var type := String(clip.meta.get("type", ""))
+	_limit_dir = 0
+	if (type != "goal" and type != "behind") or _field == null:
+		return -1
+	var direction := 1 if float(clip.meta.get("attack_dir", 1.0)) >= 0.0 else -1
+	var limit := _field.goal_line_x(direction) + float(direction) * FOLLOW_PAST_GOAL
+	_limit_dir = direction
+	_limit_x = limit
+	var start := int(clip.meta.get("event_frame", 0))
+	var previous := clip.ball_position(start)
+	for i in range(start + 1, clip.frame_count()):
+		var p := clip.ball_position(i)
+		if float(direction) * (p.x - limit) > 0.0 or p.distance_to(previous) > BALL_JUMP:
+			return i
+		previous = p
+	return -1
+
+
+## The main player's point and heading for the third-person camera.
+func _update_main(f: float, a: Dictionary, b: Dictionary, w: float) -> void:
+	var focus: Array = clip.meta.get("focus", [])
+	var frame := int(round(f))
+	var last := clip.frame_count() - 1
+	var from := maxi(0, frame - THIRD_HEADING_FRAMES)
+	var to := mini(last, frame + THIRD_HEADING_FRAMES)
+	var span := maxf(float(to - from) / clip.fps(), 0.001)
+	var p0: Vector3
+	var p1: Vector3
+	var facing := Vector3.ZERO
+	if not focus.is_empty() and int(focus[0]) >= 0 and int(focus[0]) < a.bodies.size():
+		var body := int(focus[0])
+		_main_point = (a.bodies[body].pos as Vector3).lerp(b.bodies[body].pos, w)
+		p0 = clip.body_position(from, body)
+		p1 = clip.body_position(to, body)
+		facing = clip.body_facing(frame, body)
+	else:
+		# Nobody to follow (a goal with no kicker): ride the ball.
+		_main_point = _follow_ball
+		p0 = clip.ball_position(from)
+		p1 = clip.ball_position(to)
+	var v := Vector3(p1.x - p0.x, 0.0, p1.z - p0.z) / span
+	_main_speed = v.length()
+	if _main_speed >= THIRD_MIN_SPEED:
+		_main_heading = v / _main_speed
+	else:
+		facing.y = 0.0
+		_main_heading = facing.normalized() if facing.length_squared() > 0.0001 else _main_heading
+
+
+## The point the broadcast, close and end-on cameras are following.
+func focus_point() -> Vector3:
+	return _focus_point
 
 
 func event_time() -> float:
@@ -213,8 +327,7 @@ func duration() -> float:
 
 
 func default_preset() -> String:
-	return String(DEFAULT_PRESET.get(String(clip.meta.get("type", "")), "broadcast")) if clip != null \
-		else "broadcast"
+	return HighlightPrefs.camera_for(String(clip.meta.get("type", ""))) if clip != null else "broadcast"
 
 
 ## Points `camera` for this frame. `snap` jumps straight there (a new clip, a
@@ -225,6 +338,10 @@ func frame_camera(camera: Camera3D, preset: String, portrait: bool, t: float, de
 	var state: Dictionary = _cameras.get(key, {})
 	if snap or state.is_empty():
 		state = {"target": _focus_point, "pos": Vector3.INF}
+	if preset == "third":
+		_frame_third(camera, state, portrait, delta, snap)
+		_cameras[key] = state
+		return
 	var k_target := 1.0 - exp(-TARGET_SMOOTHING * delta)
 	state.target = (state.target as Vector3).lerp(_focus_point, k_target) if not snap else _focus_point
 	var target: Vector3 = state.target
@@ -236,7 +353,7 @@ func frame_camera(camera: Camera3D, preset: String, portrait: bool, t: float, de
 			var angle := t * CLOSE_ORBIT_SPEED + PI * 0.5
 			want = target + Vector3(cos(angle) * CLOSE_RADIUS * pull, CLOSE_HEIGHT, sin(angle) * CLOSE_RADIUS * pull)
 		"end":
-			want = target + Vector3(direction * END_BACK * pull, END_HEIGHT, 0.0)
+			want = _inside_fence(target + Vector3(direction * END_BACK * pull, END_HEIGHT, 0.0), END_FENCE_MARGIN)
 		_:
 			want = target + BROADCAST_OFFSET * pull
 	want.y = maxf(want.y, 1.2)
@@ -250,3 +367,54 @@ func frame_camera(camera: Camera3D, preset: String, portrait: bool, t: float, de
 	var look := target + Vector3.UP * 0.5
 	if camera.global_position.distance_squared_to(look) > 0.01:
 		camera.look_at(look)
+
+
+## The match's chase rig, replayed: the camera sits CAM_DISTANCE behind the
+## player at CAM_PITCH_DEFAULT, looking at a point on their chest led by their
+## velocity and pulled a little toward the ball while it's in the air.
+func _frame_third(camera: Camera3D, state: Dictionary, portrait: bool, delta: float, snap: bool) -> void:
+	var desired_yaw := atan2(-_main_heading.x, -_main_heading.z)
+	if snap or not state.has("yaw"):
+		state["yaw"] = desired_yaw
+		state["ball_weight"] = 0.0
+	else:
+		state["yaw"] = lerp_angle(float(state.yaw), desired_yaw, 1.0 - exp(-THIRD_HEADING_RATE * delta))
+	var lead := _main_heading * minf(_main_speed * Tuning.CAM_LOOKAHEAD_TIME, Tuning.CAM_LOOKAHEAD_MAX)
+	var point := _main_point + Vector3.UP * Tuning.CAM_FOCUS_HEIGHT + lead
+	var weight_goal := 0.0
+	if _follow_ball.y > Tuning.CAM_BALL_FOCUS_MIN_HEIGHT:
+		weight_goal = Tuning.CAM_BALL_FOCUS_MAX \
+			* clampf(_follow_ball.distance_to(_main_point) / Tuning.CAM_MAX_FRAMING_DISTANCE, 0.0, 1.0)
+	if snap:
+		state["ball_weight"] = weight_goal
+	else:
+		state["ball_weight"] = lerpf(float(state.ball_weight), weight_goal,
+			1.0 - exp(-Tuning.CAM_BALL_FOCUS_RATE * delta))
+	point = point.lerp(_follow_ball, float(state.ball_weight))
+	if snap or not state.has("focus"):
+		state["focus"] = point
+	else:
+		state["focus"] = (state.focus as Vector3).lerp(point, 1.0 - exp(-Tuning.CAM_FOLLOW_RATE * delta))
+	var focus: Vector3 = state.focus
+	var pitch := -deg_to_rad(Tuning.CAM_PITCH_DEFAULT)
+	var arm := Tuning.CAM_DISTANCE / Tuning.CAM_ZOOM_DEFAULT
+	var behind := Basis(Vector3.UP, float(state.yaw)) * Vector3(0.0, arm * sin(pitch), arm * cos(pitch))
+	var position := _inside_fence(focus + behind, END_FENCE_MARGIN)
+	position.y = maxf(position.y, BroadcastCamera.MIN_CAMERA_HEIGHT)
+	camera.global_position = position
+	camera.fov = THIRD_FOV_PORTRAIT if portrait else Tuning.CAM_FOV_BASE \
+		+ Tuning.CAM_FOV_SPRINT_GAIN * clampf(_main_speed / Tuning.SPRINT_SPEED, 0.0, 1.0)
+	if position.distance_squared_to(focus) > 0.01:
+		camera.look_at(focus)
+
+
+## `p` pulled in onto the oval (the boundary plus `margin`) if it's outside:
+## the fence, with the trees behind it.
+static func _inside_fence(p: Vector3, margin: float) -> Vector3:
+	var hx := Tuning.FIELD_HALF_LENGTH + margin
+	var hz := Tuning.FIELD_HALF_WIDTH + margin
+	var k := (p.x * p.x) / (hx * hx) + (p.z * p.z) / (hz * hz)
+	if k <= 1.0:
+		return p
+	var scale := 1.0 / sqrt(k)
+	return Vector3(p.x * scale, p.y, p.z * scale)
