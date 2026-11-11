@@ -1518,7 +1518,6 @@ func _screen_fraction_sidestep() -> float:
 	return (SUBJECT_SCREEN_FRACTION - 0.5) * 2.0 * half_width_at_distance
 
 
-
 # ── Contests: real PlayerController/Ball physics, two bodies, a short
 # scripted approach through the real gameplay resolvers, fixed camera —
 # not a free-roam sandbox. See ContestKind/CONTESTS above. ───────────────
