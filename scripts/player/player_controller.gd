@@ -4036,7 +4036,13 @@ func _resolve_hit_out() -> void:
 		# RUCK_PALM_REACH), so the tap reads as a touch.
 		if palm.is_finite():
 			ball.global_position = palm
-		ball.knock(direction * Tuning.RUCK_HIT_OUT_SPEED + Vector3.UP * Tuning.RUCK_HIT_OUT_UP_SPEED)
+		# The palm SETS the ball's velocity (Tuning calls these "a physical
+		# velocity given to the ball"). knock() takes an impulse, and this
+		# used to pass the velocity straight in, so with the ball's 0.475 kg
+		# the tap left at about 2.1x: 12.6 m/s flat, first bounce ~15 m
+		# instead of ~6 m. Same form as the fist's _punch.
+		var out := direction * Tuning.RUCK_HIT_OUT_SPEED + Vector3.UP * Tuning.RUCK_HIT_OUT_UP_SPEED
+		ball.knock((out - ball.linear_velocity) * ball.mass)
 	_ruck_collide()
 	hit_out_resolved.emit(self, connected)
 
