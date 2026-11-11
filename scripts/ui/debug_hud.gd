@@ -61,6 +61,8 @@ const CONTROL_GROUPS := [
 		["Tackle: slide / sling, bump", &"tackle"],
 		["Lunge tackle (wrap)", &"lunge_tackle"],
 		["Bump stance (+ flick)", &"bump_stance"],
+		["Fend off (with the ball)", &"fend"],
+		["Fist away (mark contest)", &"hit_out"],
 		["Smother / ruck hit-out", &"smother", &"hit_out"],
 	]],
 	["MATCH", [

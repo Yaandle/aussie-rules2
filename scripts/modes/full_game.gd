@@ -58,6 +58,8 @@ var _last_kicker := {Tuning.Team.HOME: null, Tuning.Team.AWAY: null}
 var _crosshair: KickCrosshair
 var _mark_prompt: MarkPrompt
 var _controlled_ring: ControlledPlayerRing
+## The "/ | \" under a player who calls for the ball (6V).
+var _call_cue: CallForBallCue
 
 ## The two ruckmen in the current live ruck contest (set in _release_ruck_
 ## contest). Cleared the instant a hit-out connects so the on-ballers are
@@ -135,6 +137,8 @@ func _ready() -> void:
 	_controlled_ring.active = Settings.full_game_camera_mode \
 		== Settings.FullGameCameraMode.FULL_SIDE
 	add_child(_controlled_ring)
+	_call_cue = CallForBallCue.new()
+	add_child(_call_cue)
 
 	_spawn_teams()
 	_start_match()
@@ -1580,6 +1584,8 @@ func _call_for_ball() -> void:
 	# same as the cooldown above: the shout happened either way.
 	if is_instance_valid(_controlled_ring):
 		_controlled_ring.flash()
+	if is_instance_valid(_call_cue):
+		_call_cue.show_for(caller)
 
 	if caller.global_position.distance_to(carrier.global_position) > Tuning.CALL_FOR_BALL_RANGE:
 		return

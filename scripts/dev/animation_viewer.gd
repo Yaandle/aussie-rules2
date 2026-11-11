@@ -487,6 +487,7 @@ class MarkPreviewBrain extends HumanBrain:
 	var safe_hold := false
 	var running_tap := false
 	var aggressive_tap := false
+	var fist_tap := false   ## 6Y's fist-away (mark_cue_harness's `fist` mode)
 
 	func wish_direction(_controller: PlayerController) -> Vector3:
 		return wish_dir
@@ -523,6 +524,11 @@ class MarkPreviewBrain extends HumanBrain:
 	func wants_mark_aggressive() -> bool:
 		var tap := aggressive_tap
 		aggressive_tap = false
+		return tap
+
+	func wants_fist() -> bool:
+		var tap := fist_tap
+		fist_tap = false
 		return tap
 
 	func wants_spoil() -> bool:

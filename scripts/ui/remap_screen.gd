@@ -47,6 +47,8 @@ const KEYBOARD_ACTIONS := [
 	{"action": &"switch_player", "label": "SWITCH PLAYER"},
 	{"action": &"pause", "label": "PAUSE"},
 	{"action": &"debug_reset", "label": "RESET BALL"},
+	{"action": &"fend", "label": "FEND OFF"},
+	{"action": &"kick_curve", "label": "SNAP / BANANA"},
 ]
 
 ## PAUSE isn't here: Start is this tab's reserved cancel (the pad's Esc),
@@ -72,6 +74,8 @@ const CONTROLLER_ACTIONS := [
 	{"action": &"switch_player_defence", "label": "SWITCH ON DEFENCE"},
 	{"action": &"call_for_ball", "label": "CALL FOR BALL"},
 	{"action": &"debug_reset", "label": "RESET BALL"},
+	{"action": &"fend", "label": "FEND OFF"},
+	{"action": &"kick_curve", "label": "SNAP / BANANA"},
 ]
 
 ## A trigger counts as "pressed" for capture past this pull, well clear of
@@ -92,7 +96,7 @@ const CARD_WIDTH := 680.0
 const HEADER_HEIGHT := 88.0
 const ROW_HEIGHT := 40.0
 const ROW_GAP := 8.0
-const ROWS_PER_COLUMN := 9   ## each tab's list is 18 long: two even columns
+const ROWS_PER_COLUMN := 10   ## each tab's list is 20 long: two even columns
 const COLUMN_WIDTH := 288.0
 const COLUMN_GAP := 24.0
 const HINT_HEIGHT := 32.0

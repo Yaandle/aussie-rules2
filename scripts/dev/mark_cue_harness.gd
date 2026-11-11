@@ -153,6 +153,8 @@ func _ready() -> void:
 			await _check_determinism()
 		"a_vs_y":
 			await _run_a_vs_y()
+		"fist":
+			await _run_fist()
 		_:
 			push_error("mark_cue_harness: unknown mode '%s'" % mode)
 	get_tree().quit()
@@ -770,6 +772,62 @@ func _run_a_vs_y() -> void:
 		a_caught, deliveries.size(), y_caught, deliveries.size()])
 	print("  only A: %s" % [only_a])
 	print("  only Y: %s" % [only_y])
+
+
+## 6Y's fist-away: every probe-grid delivery, RB tapped on the gated (Y)
+## cue frame (the ring a player is following) and held live for the input
+## buffer like a real press. Counts the deliveries the punch connected on
+## (the ball knocked out of its kick flight, never caught) and where the
+## ball went. Writes nothing.
+##   godot --headless --path . res://scenes/dev/mark_cue_harness.tscn --fixed-fps 60 -- fist
+func _run_fist() -> void:
+	var deliveries := probe_grid()
+	var connected := 0
+	for d in deliveries:
+		var obs := await _run(d, Tuning.Action.NONE, -1)
+		var cue := MarkCueModel.analytic_cue_frame(obs.trace, Tuning.Action.MARK_AGGRESSIVE, true)
+		var result := "no cue"
+		if cue >= 0:
+			result = await _run_fist_press(d, cue)
+		if result.begins_with("punched"):
+			connected += 1
+		print("fist %2d  from %3d run %.1f h %.1f | cue f%d | %s" % [d.id, d.from_deg, d.run_speed, d.height, cue, result])
+	print("fist: connected on %d / %d probe deliveries" % [connected, deliveries.size()])
+
+
+func _run_fist_press(d: Dictionary, press_frame: int) -> String:
+	await _settle()
+	_prestage(d)
+	for i in 4:
+		await get_tree().physics_frame
+	_stage(d)
+	var buffer := roundi(Tuning.INPUT_BUFFER_WINDOW * 60.0)
+	var leapt := false
+	var verdict := [""]
+	var on_fist := func(_p: PlayerController, connected: bool) -> void:
+		verdict[0] = "punched" if connected else "swung, missed"
+	_player.fist_resolved.connect(on_fist)
+	var out := "no leap"
+	for f in RUN_TIMEOUT_FRAMES:
+		_brain.fist_tap = f >= press_frame and f < press_frame + buffer
+		await get_tree().physics_frame
+		if _player._action == Tuning.Action.HIT_OUT:
+			leapt = true
+		if verdict[0] != "":
+			out = verdict[0]
+			if out == "punched":
+				var v := _ball.linear_velocity
+				out += "  %.1f m/s flat, %.1f up" % [Vector2(v.x, v.z).length(), v.y]
+			break
+		if _outcome != "":
+			out = "caught it (%s)" % _outcome
+			break
+		if f > press_frame + 90 and not _ball.is_airborne():
+			out = "leapt, never resolved" if leapt else "no leap"
+			break
+	_brain.fist_tap = false
+	_player.fist_resolved.disconnect(on_fist)
+	return out
 
 
 func _run_safe_hold(d: Dictionary) -> String:

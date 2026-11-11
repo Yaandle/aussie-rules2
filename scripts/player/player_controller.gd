@@ -63,6 +63,8 @@ signal run_too_far_called(carrier: PlayerController)
 ## Fired when a ruck contest's Hit-Out resolves — see _resolve_hit_out.
 ## `connected` is false on a clean miss (nothing about the ball changes).
 signal hit_out_resolved(player: PlayerController, connected: bool)
+## A fist-away's contact instant (6Y): whether the punch reached the ball.
+signal fist_resolved(player: PlayerController, connected: bool)
 
 ## Fired on the TACKLER the frame a tackle connects and holds (a broken one
 ## doesn't count) — `is_slide` true for a standing/dive-in Slide
@@ -502,6 +504,22 @@ var _handball_aim_dir := Vector3.FORWARD
 ## straight ahead off the body. Falls back to body-forward if the stick is
 ## neutral at the instant of the press (see _resolve_hit_out).
 var _hit_out_aim_dir := Vector3.ZERO
+## True while the HIT_OUT leap under way is a fist in a mark contest (6Y),
+## not a ruck tap: _resolve_hit_out punches instead and skips the ruck's
+## collision and signal.
+var _fisting := false
+
+## Fend-off (6Y): seconds left on the straight arm, and the wait before the
+## next. See _update_fend and Tuning's "Fend-off".
+var _fend_timer := 0.0
+var _fend_cooldown := 0.0
+
+## Kicking foot (6Z): which way a snap or banana bends. No player has a
+## stored foot yet (no attribute, no UI), so everyone kicks right-footed
+## until one does.
+var left_footed := false
+## The last kick's curve: &"" for a plain kick, else &"snap" / &"banana".
+var last_kick_curve: StringName = &""
 
 ## True for exactly the one KICK currently in flight through _action, set
 ## when it was fired as a hip-fire (RT with no prior LT) rather than an
@@ -578,6 +596,8 @@ func _physics_process(delta: float) -> void:
 		_frozen_facing = Vector3.ZERO
 	_spoil_cooldown = _tick_down(_spoil_cooldown, delta)
 	_bump_cooldown = _tick_down(_bump_cooldown, delta)
+	_fend_cooldown = _tick_down(_fend_cooldown, delta)
+	_fend_timer = _tick_down(_fend_timer, delta)
 	_slide_dive_cooldown = _tick_down(_slide_dive_cooldown, delta)
 	_lunge_tap_cooldown = _tick_down(_lunge_tap_cooldown, delta)
 	_smother_dive_cooldown = _tick_down(_smother_dive_cooldown, delta)
@@ -607,6 +627,7 @@ func _physics_process(delta: float) -> void:
 	_update_marking(delta)
 	_update_ruck_contest(delta)
 	_update_bump(delta)
+	_update_fend()
 	_update_tackle_hold(delta)
 	_update_slide_dive(delta)
 	_update_smother(delta)
@@ -1785,7 +1806,12 @@ func _try_tackle() -> void:
 		impact = TackleBalance.resolve(global_position, hit_velocity, body_mass,
 			target.global_position, target.velocity, target.body_mass, 0.0,
 			-target.global_transform.basis.z)
-		last_tackle = impact.merged({"slide": true, "held": float(impact.p_break) < Tuning.TACKLE_SLIDE_BREAK_P})
+		impact = target.fend_impact(self, impact)
+		# A fended Slide (6Y) can't get its arms round: judged as a strip,
+		# on the Lunge's threshold (Tuning's "Fend-off").
+		var slide_break_p := Tuning.TACKLE_LUNGE_BREAK_P if impact.get("fended", false) \
+			else Tuning.TACKLE_SLIDE_BREAK_P
+		last_tackle = impact.merged({"slide": true, "held": float(impact.p_break) < slide_break_p})
 	else:
 		last_tackle = {"slide": true, "held": false, "missed": true}
 	if last_tackle.held:
@@ -1793,6 +1819,7 @@ func _try_tackle() -> void:
 	else:
 		if not impact.is_empty():
 			target._break_tackle(self, impact)
+			_fended_off(impact)
 		# A whiffed Slide used to be the single costliest miss in the kit;
 		# the hit-stick bump rework gave that title to a whiffed bump instead
 		# — see TACKLE_SLIDE_MISS_STUN_DURATION's own updated comment. maxf,
@@ -2087,9 +2114,11 @@ func _land_lunge(target: PlayerController) -> void:
 	var impact := TackleBalance.resolve(global_position, hit_velocity, body_mass,
 		target.global_position, target.velocity, target.body_mass,
 		Tuning.TACKLE_RAGDOLL_MIN_BALANCE_LOSS, -target.global_transform.basis.z)
+	impact = target.fend_impact(self, impact)
 	last_tackle = impact.merged({"slide": false, "held": float(impact.p_break) < Tuning.TACKLE_LUNGE_BREAK_P})
 	if not last_tackle.held:
 		target._break_tackle(self, impact)
+		_fended_off(impact)
 		_lunge_tap_cooldown = Tuning.TACKLE_LUNGE_TAP_COOLDOWN
 		return
 	_lunge_connect(target, impact, true)
@@ -3208,6 +3237,11 @@ func _mark_attempt_blocked(ball: Ball = null) -> bool:
 
 
 func _update_marking(delta: float) -> void:
+	# A fist's leap (6Y) is an action, which blocks every mark attempt
+	# below, so its reach is checked here first, every frame of the swing.
+	if _fisting and _action == Tuning.Action.HIT_OUT \
+			and _action_elapsed < Tuning.action_contact_time(Tuning.Action.HIT_OUT):
+		_fist_reach_check()
 	# A held Safe mark gets one hop (_maybe_safe_mark_jump); the next hold
 	# can have another once this one has ended and the feet are down.
 	if not _mark_readying and is_on_floor():
@@ -3224,6 +3258,8 @@ func _update_marking(delta: float) -> void:
 		return
 
 	if ball.is_airborne():
+		if _try_fist(ball):
+			return
 		_try_spoil(ball)
 		_update_aerial_contest(ball, delta)
 	else:
@@ -3963,6 +3999,7 @@ func _update_ruck_contest(_delta: float) -> void:
 ## jump impulse pattern... let the existing gravity integration handle the
 ## jump arc").
 func _begin_hit_out() -> void:
+	_fisting = false
 	_pending_jump_speed = Tuning.MARK_AGGRESSIVE_JUMP_SPEED
 	_begin(Tuning.Action.HIT_OUT)
 
@@ -3976,6 +4013,10 @@ func _begin_hit_out() -> void:
 ## by the right stick if it's held right now at contact — so a ruckman taps
 ## to a runner, not just straight off the body.
 func _resolve_hit_out() -> void:
+	if _fisting:
+		_fisting = false
+		_resolve_fist()
+		return
 	var ball := _live_ball()
 	var palm := _animation.hand_world_position(&"RightHand") if _animation != null else Vector3.INF
 	var connected := false
@@ -4191,7 +4232,11 @@ func _update_charge(delta: float) -> void:
 	# nothing on every AI-controlled player every frame.
 	if _charging and _brain is HumanBrain:
 		var params := _kick_parameters(_kick_charge)
-		_kick_trajectory.update_preview(true, params.origin, params.launch_velocity)
+		var curve := _curve_kick()
+		if not curve.is_empty():
+			params = _shape_curve_launch(params, curve)
+		_kick_trajectory.update_preview(true, params.origin, params.launch_velocity,
+			curve.get("spin", Vector3.ZERO))
 	else:
 		_kick_trajectory.update_preview(false, Vector3.ZERO, Vector3.ZERO)
 
@@ -4528,6 +4573,12 @@ func _dispose() -> void:
 			# Backspin: the top of the ball travels backwards, which for a
 			# ball moving along `forward` is a positive spin about `right`.
 			spin = right * Tuning.KICK_BACKSPIN
+			# Snap / banana (6Z): flatter, softer, and sidespin for the bend.
+			var curve := _curve_kick()
+			last_kick_curve = curve.get("kind", &"")
+			if not curve.is_empty():
+				launch = _shape_curve_launch(launch, curve)
+				spin = right * Tuning.KICK_BACKSPIN * Tuning.KICK_CURVE_BACKSPIN_KEEP + curve.spin
 			launch = _apply_kick_accuracy(launch, right)
 			if _hip_fire_kick:
 				launch = _apply_spread(launch, right, Tuning.KICK_HIP_FIRE_SPREAD_DEG)
@@ -4573,3 +4624,167 @@ func _dispose() -> void:
 		InputManager.rumble(Tuning.RUMBLE_KICK)
 	ball_disposed.emit(_action)
 	_kick_charge = 0.0
+
+
+# ── Fend-off, fist, curve kicks (6Y, 6Z) ─────────────────────────────
+
+## RB while carrying (6Y): a straight arm out for Tuning.FEND_DURATION. It
+## only changes how a tackle landing in that window resolves (fend_impact);
+## the arm itself is PlayerAnimation's (set_fend_target).
+func _update_fend() -> void:
+	if not is_carrying() or _stun_timer > 0.0 or is_ragdolled():
+		_fend_timer = 0.0
+		return
+	if _fend_cooldown > 0.0 or not _brain.wants_fend():
+		return
+	_fend_timer = Tuning.FEND_DURATION
+	_fend_cooldown = Tuning.FEND_COOLDOWN
+	if _animation != null:
+		_animation.set_fend_target(_nearest_opponent_within(Tuning.FEND_TARGET_RANGE))
+
+
+func is_fending() -> bool:
+	return _fend_timer > 0.0 and is_carrying()
+
+
+func _nearest_opponent_within(radius: float) -> PlayerController:
+	return _nearest_player(radius, func(other: PlayerController) -> bool:
+		return other.team != team)
+
+
+## `impact` (TackleBalance.resolve's, tackler -> this carrier) with the fend
+## applied: inside Tuning.FEND_ARC_DEG of where this carrier faces, b is cut
+## by FEND_B_CUT and p_break follows (p_break = 1 - b). Unchanged when not
+## fending, or from behind. The caller still compares p_break with its
+## tackle type's threshold: a fend shifts the comparison, it rolls nothing.
+func fend_impact(tackler: PlayerController, impact: Dictionary) -> Dictionary:
+	if impact.is_empty() or not is_fending():
+		return impact
+	var to_tackler := tackler.global_position - global_position
+	to_tackler.y = 0.0
+	var facing := -global_transform.basis.z
+	facing.y = 0.0
+	if to_tackler.length_squared() < 0.0001 or facing.length_squared() < 0.0001:
+		return impact
+	if rad_to_deg(facing.normalized().angle_to(to_tackler.normalized())) > Tuning.FEND_ARC_DEG:
+		return impact
+	var out := impact.duplicate()
+	out.b = float(impact.b) * (1.0 - Tuning.FEND_B_CUT)
+	out.p_break = 1.0 - float(out.b)
+	out.fended = true
+	return out
+
+
+## The tackler's side of a fend that broke the tackle: shoved back along
+## the line of the hit, on top of _break_tackle's own recoil.
+func _fended_off(impact: Dictionary) -> void:
+	if not impact.get("fended", false):
+		return
+	var line: Vector3 = impact.direction
+	take_knock(-line * Tuning.FEND_PUSH_SPEED, 0.5)
+
+
+## RB in a live mark contest (6Y): the ruck tap's leap, then a punch
+## (_resolve_fist) rather than a palm. Only while a mark prompt is up for
+## this ball (live_mark_prompt), so the press is read where a mark could be
+## taken, and only from a standing start (no action running).
+func _try_fist(ball: Ball) -> bool:
+	if _action != Tuning.Action.NONE or _stun_timer > 0.0 or is_carrying() \
+			or not ball.is_kick_flight():
+		return false
+	if live_mark_prompt(ball) == Tuning.Action.NONE:
+		return false
+	if not _brain.wants_fist():
+		return false
+	_mark_readying = false
+	_running_mark_window = 0.0
+	_pending_jump_speed = Tuning.MARK_AGGRESSIVE_JUMP_SPEED
+	_begin(Tuning.Action.HIT_OUT)
+	_fisting = true
+	return true
+
+
+## The fist's reach (6Y), checked every frame of the leap up to its contact
+## instant rather than on that one frame the ruck tap uses: a punch can
+## meet the ball anywhere along the swing, and the ruck's one-frame check
+## from the top of the leap missed 24 of 27 harness deliveries (it only
+## reached balls coming in overhead). In reach of either the punching hand
+## or the chest-height hands (CatchPoint), at Tuning.FIST_REACH (the (Y)
+## mark's own reach), the ball is punched. Returns whether it was.
+func _fist_reach_check() -> bool:
+	var ball := _live_ball()
+	if not is_instance_valid(ball) or ball.is_held or not ball.is_airborne():
+		return false
+	var palm := _animation.hand_world_position(&"RightHand") if _animation != null else Vector3.INF
+	var near := ball.global_position.distance_to(_catch_point.global_position) <= Tuning.FIST_REACH
+	if palm.is_finite() and ball.global_position.distance_to(palm) <= Tuning.FIST_REACH:
+		near = true
+	if not near:
+		return false
+	_fisting = false
+	_punch(ball)
+	return true
+
+
+## At the leap's contact instant (from _resolve_hit_out): one last reach
+## check, else the punch has missed.
+func _resolve_fist() -> void:
+	if not _fist_reach_check():
+		fist_resolved.emit(self, false)
+
+
+## The punch: the ball's velocity is replaced, along the right stick if it's
+## held, else on along its own line. Ball.knock takes an impulse, so it's the
+## change of velocity times the mass. knock() ends the kick flight, so
+## nobody can mark it after.
+func _punch(ball: Ball) -> void:
+	var direction := _brain.hit_out_aim(self)
+	if direction.length_squared() < 0.0001:
+		direction = Vector3(ball.linear_velocity.x, 0.0, ball.linear_velocity.z)
+	if direction.length_squared() < 0.0001:
+		direction = -global_transform.basis.z
+	direction.y = 0.0
+	direction = direction.normalized()
+	var out := direction * Tuning.FIST_SPEED + Vector3.UP * Tuning.FIST_UP_SPEED
+	ball.knock((out - ball.linear_velocity) * ball.mass)
+	fist_resolved.emit(self, true)
+
+
+## Snap or banana (6Z), or {} for a plain kick: LB held, then the aim
+## against the run (the body's facing when standing) and the kicking foot.
+## Aimed across the body to the side away from the kicking foot by
+## KICK_SNAP_MIN_ANGLE or more is a snap, anything else a banana. The spin
+## is about vertical: +Y hooks a kick to its left (omega x v), which is a
+## right foot's inside-of-the-boot curl. Read again at the strike, so the
+## preview and the kick agree.
+func _curve_kick() -> Dictionary:
+	if not _brain.wants_kick_curve():
+		return {}
+	var aim := _yaw_direction(_kick_aim_yaw)
+	aim.y = 0.0
+	var run := _heading if _speed > Tuning.PIVOT_SPEED_THRESHOLD else -global_transform.basis.z
+	run.y = 0.0
+	if aim.length_squared() < 0.0001 or run.length_squared() < 0.0001:
+		return {}
+	aim = aim.normalized()
+	run = run.normalized()
+	var foot := -1.0 if left_footed else 1.0
+	var to_left := run.cross(aim).y   # > 0: aimed left of the run
+	var across := rad_to_deg(run.angle_to(aim)) >= Tuning.KICK_SNAP_MIN_ANGLE and to_left * foot > 0.0
+	if across:
+		return {"kind": &"snap", "spin": Vector3.UP * foot * Tuning.KICK_SNAP_SPIN,
+			"speed": Tuning.KICK_SNAP_SPEED_SCALE, "drop": Tuning.KICK_SNAP_ELEVATION_DROP}
+	return {"kind": &"banana", "spin": Vector3.UP * foot * Tuning.KICK_BANANA_SPIN,
+		"speed": Tuning.KICK_BANANA_SPEED_SCALE, "drop": Tuning.KICK_BANANA_ELEVATION_DROP}
+
+
+## A launch from _kick_parameters reshaped for `curve`: tipped flatter by
+## its drop and slowed by its speed scale.
+func _shape_curve_launch(launch: Dictionary, curve: Dictionary) -> Dictionary:
+	var v: Vector3 = launch.launch_velocity
+	var flat := Vector3(v.x, 0.0, v.z)
+	if flat.length_squared() > 0.0001:
+		var axis := flat.normalized().cross(Vector3.UP).normalized()
+		v = v.rotated(axis, -deg_to_rad(float(curve.drop)))
+	launch.launch_velocity = v * float(curve.speed)
+	return launch

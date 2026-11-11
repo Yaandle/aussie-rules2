@@ -7,6 +7,13 @@ own docs: `ANIMATION_RAGDOLL_AUDIT.md` (kick, carry, phase lock, bank,
 tackles), `MECHANICS_AUDIT.md` (ragdoll stages 2-5) and the 2026-10-30
 playtest commit (HUD, park turf, ruck, training).
 
+## Section B: fend, fist, snap/banana, call lines (2026-11-11, branch `update`)
+
+- [ ] Fend off (6Y): carrying, tap RB (J) as a tackler closes from in front: your left arm goes out straight (ball in the right hand) and a soft or glancing tackle breaks, the tackler shoved back. A hard square one (~4 m/s+) still holds; from behind a fend does nothing. `Tuning.FEND_*`.
+- [ ] Fist away (6Y): in a mark contest (prompt up), tap RB: the ruck-tap leap, and the ball is punched about 9 m/s along the right stick, or on along its line. Knee-high balls go under the leap. Does it read as a fist, not a ruck palm? `Tuning.FIST_*`.
+- [ ] Snap / banana (6Z): hold LB (L) while kicking. Aimed 45°+ across your body to the left (right-footer) is a snap: flatter, softer, hooks hard left. Anything else is a banana that bends left a few metres. The trajectory arc shows the bend; check the ball follows it. Everyone kicks right-footed for now. `Tuning.KICK_SNAP_*`, `KICK_BANANA_*`, `BALL_SIDESPIN_MAGNUS_COEFF`.
+- [ ] Call lines (6V): in single-player control, call for the ball (A): a small "/ | \" shows under your feet for about a second. Big enough?
+
 ## Section A small fixes (2026-11-11, branch `update`)
 
 - [ ] Man on the mark (6X): after a mark AND after a free kick for a tackle, the nearest opponent jogs onto the exact spot and stands facing the kicker, turning as the kicker walks back and lines up. No man on the mark for a goal-square kick-in.
