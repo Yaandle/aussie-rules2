@@ -88,6 +88,11 @@ var _prev_ball_pos_valid := false
 ## Settings.PlayerControlMode.SINGLE_PLAYER, since that's the only mode the
 ## action is routed in at all.
 var _call_for_ball_cooldown := 0.0
+## LB-tap switch on defence (6AB): how long LB has been down, whether it
+## is down, and whether the right stick flicked while it was (a bump).
+var _defence_switch_down := false
+var _defence_switch_held := 0.0
+var _defence_switch_flicked := false
 
 ## FULL_TEAM: the human's kicker, kept until their kick has played out
 ## before control moves on (_on_home_kick_disposed), and how long is left.
@@ -142,6 +147,11 @@ func _physics_process(delta: float) -> void:
 	# a call made just before a goal/ball-up shouldn't stay on cooldown for
 	# the whole stoppage as well.
 	_call_for_ball_cooldown = maxf(0.0, _call_for_ball_cooldown - delta)
+	if _defence_switch_down:
+		_defence_switch_held += delta
+		var stick := Input.get_vector(&"camera_left", &"camera_right", &"camera_down", &"camera_up", 0.0)
+		if stick.length() >= Tuning.FLICK_MIN_MAGNITUDE:
+			_defence_switch_flicked = true
 
 	if _pause_timer > 0.0:
 		_pause_timer = maxf(0.0, _pause_timer - delta)
@@ -248,6 +258,8 @@ func _apply_camera_mode(setting: Settings.FullGameCameraMode) -> void:
 ## teams stay registered as ControlMode.Scheme.SINGLE_PLAYER regardless,
 ## exactly as before this pass.
 func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action(&"switch_player_defence") and not event.is_echo():
+		_on_defence_switch_event(event.is_pressed())
 	if event.is_action_pressed(&"switch_player"):
 		if _full_team_control():
 			_switch_human_player()
@@ -1060,6 +1072,10 @@ func _award_possession_at(spot: Vector3, receiver: PlayerController, retreat := 
 	receiver.give_possession(_ball)
 	receiver.grant_protection(Tuning.MARK_HOLD_DURATION)
 	if retreat:
+		# 6X: a man on the mark for a free kick too, on its exact spot and
+		# facing the kicker. Not for the goal-square kick-in (retreat false):
+		# the kicker never walks off the line, so nobody could get onto it.
+		receiver.apply_stand_the_mark(spot)
 		receiver.begin_mark_retreat()
 	GameState.phase = GameState.Phase.PLAY
 	MatchState.clock_running = true
@@ -1222,6 +1238,11 @@ func _home_player_stats() -> Dictionary:
 
 
 func _team_name(team: Tuning.Team) -> String:
+	if not GameState.career_active:
+		# Quick play's sides (6AC). Career keeps HOME / AWAY here as before.
+		var club := Settings.quick_home_name() if team == Tuning.Team.HOME \
+			else Settings.quick_away_name()
+		return club.to_upper()
 	return "HOME" if team == Tuning.Team.HOME else "AWAY"
 
 
@@ -1459,6 +1480,30 @@ func _switch_human_player() -> void:
 	if next == previous:
 		return
 	_assign_human_to(next)
+
+
+## LB on defence (6AB). Not an `is_action_pressed` switch like D-pad
+## switch_player, because LB is also bump stance (hold + flick): it fires
+## on release, only for a short tap with no flick, and only while HOME
+## isn't carrying (a loose ball counts as defence: you want the nearest
+## player to it). FULL_TEAM only, same as switch_player.
+func _on_defence_switch_event(pressed: bool) -> void:
+	if pressed:
+		_defence_switch_down = true
+		_defence_switch_held = 0.0
+		_defence_switch_flicked = false
+		return
+	if not _defence_switch_down:
+		return
+	_defence_switch_down = false
+	if _defence_switch_flicked or _defence_switch_held > Tuning.DEFENCE_SWITCH_TAP_MAX:
+		return
+	if not _full_team_control():
+		return
+	var carrier := _ball.holder() as PlayerController
+	if carrier != null and carrier.team == Tuning.Team.HOME:
+		return
+	_switch_human_player()
 
 
 ## Move the one HumanBrain onto `next`, hand the old body a fresh AI brain,

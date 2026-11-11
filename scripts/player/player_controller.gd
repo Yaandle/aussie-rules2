@@ -210,6 +210,12 @@ var _frozen_anchor := Vector3.INF
 ## mark, at the kicker (_apply_stand_the_mark). ZERO keeps whatever heading
 ## he jogged in on. Cleared with _frozen_anchor.
 var _frozen_facing := Vector3.ZERO
+## The player he faces while holding the mark: whoever has the ball
+## (6X, playtest 2026-11-11: "the player on the mark should face the player
+## with the ball"). Tracked live, since the kicker walks back off the mark
+## and then turns to aim; _frozen_facing is only the fallback once this is
+## gone. Cleared with _frozen_anchor.
+var _frozen_face_target: Node3D = null
 
 ## Every opponent this player is currently obliging to hold position, for
 ## whatever reason — the one direct opponent standing the mark exactly
@@ -568,6 +574,7 @@ func _physics_process(delta: float) -> void:
 	_frozen_timer = _tick_down(_frozen_timer, delta)
 	if _frozen_timer <= 0.0 and _frozen_anchor.is_finite():
 		_frozen_anchor = Vector3.INF
+		_frozen_face_target = null
 		_frozen_facing = Vector3.ZERO
 	_spoil_cooldown = _tick_down(_spoil_cooldown, delta)
 	_bump_cooldown = _tick_down(_bump_cooldown, delta)
@@ -852,8 +859,17 @@ func _update_locomotion(delta: float) -> void:
 				velocity.z = _heading.z * _speed
 				return
 			global_position = Vector3(_frozen_anchor.x, global_position.y, _frozen_anchor.z)
-			if _frozen_facing != Vector3.ZERO:
-				_heading = _frozen_facing
+			var face := _frozen_facing
+			if is_instance_valid(_frozen_face_target):
+				var to_carrier := _frozen_face_target.global_position - global_position
+				to_carrier.y = 0.0
+				if to_carrier.length_squared() > 0.0001:
+					face = to_carrier.normalized()
+			if face != Vector3.ZERO:
+				_heading = face
+			# A backpedal latched when the freeze landed would pin his facing
+			# (_update_facing returns early on it) for the whole hold (6X).
+			_backpedaling = false
 		_speed = 0.0
 		velocity.x = 0.0
 		velocity.z = 0.0
@@ -1043,7 +1059,12 @@ func _update_facing(delta: float) -> void:
 	if is_ragdolled():
 		return
 	var desired := _heading
-	if _speed <= Tuning.PIVOT_SPEED_THRESHOLD and _wish_dir != Vector3.ZERO:
+	# Standing still, the body turns to the stick (a pivot)... except on the
+	# mark (6X): there _update_locomotion points _heading at the kicker, and
+	# a frozen AI's wish (where it would run if it could) used to win here,
+	# so the man on the mark faced off at whatever it wanted to chase.
+	var on_the_mark := _frozen_timer > 0.0 and _frozen_anchor.is_finite()
+	if _speed <= Tuning.PIVOT_SPEED_THRESHOLD and _wish_dir != Vector3.ZERO and not on_the_mark:
 		desired = _wish_dir
 	# A node's forward is -Z, so the yaw that points -Z along `desired`.
 	var target_yaw := atan2(-desired.x, -desired.z)
@@ -1419,11 +1440,13 @@ func is_standing_the_mark() -> bool:
 ## `hold_at` is a real point (the mark itself), the player is also slid
 ## onto it and held there; the default Vector3.INF means "hold your current
 ## ground", which is what the 10m retreat crowd gets.
-func stand_the_mark(duration: float, hold_at := Vector3.INF, facing := Vector3.ZERO) -> void:
+func stand_the_mark(duration: float, hold_at := Vector3.INF, facing := Vector3.ZERO,
+		face_target: Node3D = null) -> void:
 	_frozen_timer = maxf(_frozen_timer, duration)
 	if hold_at.is_finite():
 		_frozen_anchor = hold_at
 		_frozen_facing = facing
+		_frozen_face_target = face_target
 
 
 ## Releases early — called on every entry in _frozen_opponents the instant
@@ -1435,6 +1458,7 @@ func release_stand_the_mark() -> void:
 	_frozen_timer = 0.0
 	_frozen_anchor = Vector3.INF
 	_frozen_facing = Vector3.ZERO
+	_frozen_face_target = null
 
 
 ## Public entry point onto the same shared attach/possession/signal path
@@ -2916,21 +2940,27 @@ func _apply_knockdown_hop() -> void:
 ## immunity, but the broader "every other opponent retreats 10m" rule is a
 ## separate, bigger piece of work (see FEATURE_AUDIT.md (archived)) left for when
 ## the rest of the free-kick/set-shot apparatus gets built.
-func _apply_stand_the_mark() -> void:
+## Free kicks now get a man on the mark too (6X): FullGame's
+## _award_possession_at calls apply_stand_the_mark() with the free's spot.
+func _apply_stand_the_mark(spot := Vector3.INF) -> void:
 	var opponent := _nearest_opponent()
 	if opponent == null:
 		return
-	# The mark itself is where this player is standing right now — the catch
-	# spot, captured before _begin_mark_retreat() walks them back off it.
-	# Put the man on the mark a metre goal-side of that, on the line of the
-	# mark (line_of_the_mark), so the two capsules don't overlap as the
-	# taker starts their retreat from the same point, and he stands between
-	# the kicker and the goal the way a real one does, not straight down
-	# the ground from them when the mark is in a pocket.
-	var line := line_of_the_mark(global_position)
-	var mark_spot := global_position - line * Tuning.MARK_STAND_GOAL_SIDE_OFFSET
+	# The mark itself is where this player is standing right now (the catch
+	# spot, captured before _begin_mark_retreat() walks them back off it),
+	# or the free kick's spot when one is passed. 6X (playtest 2026-11-11):
+	# the man on the mark goes onto the EXACT spot, not "close but a little
+	# off", so MARK_STAND_GOAL_SIDE_OFFSET is now 0. He can't overlap the
+	# taker: he jogs in under move_and_slide, so the taker's capsule holds
+	# him off until the walk-back clears it, and only then does the
+	# MARK_STAND_ARRIVE_RADIUS snap put him dead on it. He faces whoever has
+	# the ball (stand_the_mark's face_target), the line of the mark only as
+	# a fallback.
+	var mark := global_position if not spot.is_finite() else spot
+	var line := line_of_the_mark(mark)
+	var mark_spot := mark - line * Tuning.MARK_STAND_GOAL_SIDE_OFFSET
 	mark_spot.y = 0.0
-	opponent.stand_the_mark(Tuning.MARK_HOLD_DURATION, mark_spot, line)
+	opponent.stand_the_mark(Tuning.MARK_HOLD_DURATION, mark_spot, line, self)
 	if opponent not in _frozen_opponents:
 		_frozen_opponents.append(opponent)
 
@@ -2947,6 +2977,13 @@ func _apply_retreat_freeze(duration: float) -> void:
 		other.stand_the_mark(duration)
 		if other not in _frozen_opponents:
 			_frozen_opponents.append(other)
+
+
+## Public entry for free kicks (6X): the nearest opponent stands the mark
+## on `spot`, the free's exact spot (the tackle, the holding-the-ball call),
+## the way a legal mark already gets one. Call after grant_protection().
+func apply_stand_the_mark(spot: Vector3) -> void:
+	_apply_stand_the_mark(spot)
 
 
 func _release_frozen_opponents() -> void:

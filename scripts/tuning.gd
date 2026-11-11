@@ -1592,6 +1592,12 @@ const BUMP_MISTIMED_SCALE := 0.35      # knockback/stun fraction applied when ti
 # the way get_look_vector() reports every frame regardless of how it got
 # there. See InputManager.flick_vector().
 const FLICK_WINDOW := 0.15             # s the sweep has to complete within
+
+# Switch on defence (6AB, playtest 2026-11-11: "LB the default change-player
+# on defence"). LB is also bump stance (hold + right-stick flick), so the
+# switch fires on a TAP: released within this long with no flick while held.
+# A held LB, or one that flicked, is a bump and never switches.
+const DEFENCE_SWITCH_TAP_MAX := 0.25   # s; unplaytested feel guess
 const FLICK_MIN_MAGNITUDE := 0.75      # deflection that counts as "the flick landed"
 const FLICK_NEUTRAL_MAGNITUDE := 0.30  # deflection below this counts as "was neutral"
 
@@ -1683,7 +1689,10 @@ const AFTER_SIREN_MAX_FLIGHT := 6.0   # s
 # hauled them across the ground. MARK_STAND_ARRIVE_RADIUS is where the jog
 # stops and the exact hold takes over. Neither is a rule number —
 # feel/readability values, same category as the retreat walk-back above.
-const MARK_STAND_GOAL_SIDE_OFFSET := 1.0   # m goal-side of the mark-taker
+# 6X (playtest 2026-11-11): he now stands on the exact spot, so the offset
+# is 0. Collision with the retreating taker, not this offset, keeps the two
+# capsules apart (see PlayerController._apply_stand_the_mark).
+const MARK_STAND_GOAL_SIDE_OFFSET := 0.0   # m goal-side of the mark; 0 = on it
 const MARK_STAND_JOG_SPEED := JOG_SPEED    # m/s onto the mark — a jog, not a drag
 const MARK_STAND_ARRIVE_RADIUS := 0.3      # m — close enough, snap and hold
 

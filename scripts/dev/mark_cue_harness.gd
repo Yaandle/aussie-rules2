@@ -151,6 +151,8 @@ func _ready() -> void:
 			await _run_probe()
 		"determinism":
 			await _check_determinism()
+		"a_vs_y":
+			await _run_a_vs_y()
 		_:
 			push_error("mark_cue_harness: unknown mode '%s'" % mode)
 	get_tree().quit()
@@ -727,6 +729,68 @@ func _run_probe() -> void:
 		var t: Dictionary = _tallies[key]
 		print("  %-26s caught %2d / %2d   mean ball-to-hands at contact %.2f m (over %d resolved presses)" % [
 			key, t.caught, t.n, t.dist / maxf(1.0, t.resolved), t.resolved])
+
+
+## 6T (playtest 2026-11-08: "the (A) mark seems non-existent; it should be
+## slightly more successful than (Y)"): every probe-grid and dataset
+## delivery, uncontested, taken twice: (A) held from SAFE_HOLD_FROM metres
+## out (the animation viewer's AUTO hold), and (Y) tapped on the gated
+## analytic cue, the ring that's live in matches. Prints both catch counts
+## and the deliveries only one of them caught. Writes nothing.
+##   godot --headless --path . res://scenes/dev/mark_cue_harness.tscn --fixed-fps 60 -- a_vs_y
+const SAFE_HOLD_FROM := 8.0
+
+func _run_a_vs_y() -> void:
+	var deliveries := probe_grid()
+	for d in latin_hypercube(DATASET_DELIVERIES, DATASET_SEED):
+		var copy := d.duplicate()
+		copy.id = deliveries.size()
+		deliveries.append(copy)
+	var a_caught := 0
+	var y_caught := 0
+	var only_a: Array[int] = []
+	var only_y: Array[int] = []
+	for d in deliveries:
+		var obs := await _run(d, Tuning.Action.NONE, -1)
+		var cue := MarkCueModel.analytic_cue_frame(obs.trace, Tuning.Action.MARK_AGGRESSIVE, true)
+		var y_ok := false
+		if cue >= 0:
+			y_ok = (await _run(d, Tuning.Action.MARK_AGGRESSIVE, cue)).outcome == "caught"
+		var a_ok := (await _run_safe_hold(d)) == "caught"
+		a_caught += int(a_ok)
+		y_caught += int(y_ok)
+		if a_ok and not y_ok:
+			only_a.append(int(d.id))
+		elif y_ok and not a_ok:
+			only_y.append(int(d.id))
+		print("a_vs_y %2d  run %.1f h %.2f lat %+.2f lead %+.2f T %.2f | A %s  Y %s" % [
+			d.id, d.run_speed, d.height, d.lateral, d.lead, d.flight_time,
+			"caught" if a_ok else "-", "caught" if y_ok else "-"])
+	print("a_vs_y: A held caught %d / %d, Y on the gated cue caught %d / %d" % [
+		a_caught, deliveries.size(), y_caught, deliveries.size()])
+	print("  only A: %s" % [only_a])
+	print("  only Y: %s" % [only_y])
+
+
+func _run_safe_hold(d: Dictionary) -> String:
+	await _settle()
+	_prestage(d)
+	for i in 4:
+		await get_tree().physics_frame
+	_stage(d)
+	var landed_frames := 0
+	for f in RUN_TIMEOUT_FRAMES:
+		await get_tree().physics_frame
+		_brain.safe_hold = _ball.global_position.distance_to(_player.catch_point_position()) < SAFE_HOLD_FROM
+		if _outcome != "":
+			break
+		if not _ball.is_airborne():
+			landed_frames += 1
+			if landed_frames > 10:
+				break
+	_brain.safe_hold = false
+	_brain.wish_dir = Vector3.ZERO
+	return _outcome if _outcome_tier == Tuning.Action.MARK_SAFE else "no_catch"
 
 
 ## Closed-loop tallies for the probe summary: per "TIER source", how many

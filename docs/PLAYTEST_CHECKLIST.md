@@ -7,6 +7,15 @@ own docs: `ANIMATION_RAGDOLL_AUDIT.md` (kick, carry, phase lock, bank,
 tackles), `MECHANICS_AUDIT.md` (ragdoll stages 2-5) and the 2026-10-30
 playtest commit (HUD, park turf, ruck, training).
 
+## Section A small fixes (2026-11-11, branch `update`)
+
+- [ ] Man on the mark (6X): after a mark AND after a free kick for a tackle, the nearest opponent jogs onto the exact spot and stands facing the kicker, turning as the kicker walks back and lines up. No man on the mark for a goal-square kick-in.
+- [ ] Settings on a pad (6AB): (A) opens HUD STYLE and REMAP CONTROLS, and (A) cycles a HUD Style option.
+- [ ] Remap tabs (6AB): LB / RB (or Tab) swaps KEYBOARD and CONTROLLER; it opens on the device you're using. On CONTROLLER, (A) then any button or trigger rebinds; Start cancels. Check a rebind survives a restart.
+- [ ] LB switch on defence (6AB): a quick LB tap without the ball switches to the player nearest it; holding LB and flicking the right stick still bumps and doesn't switch. Never switches while your side has the ball. FULL_TEAM only. `Tuning.DEFENCE_SWITCH_TAP_MAX`.
+- [ ] TEAM in FULL GAME (6AC): TEAM is gone from the main menu. FULL GAME opens a side select (your team, opposition; they can't match), then the TEAM page (A continues, B back), then match setup (B goes back to TEAM). The scoreboard and goal banner show the clubs. Career's own screens unchanged.
+- [ ] Marking cue size (6T): the X/Y/A badge and ring are about two-thirds their old size. Still readable at FULL SIDE? One dial: `MarkPrompt.CUE_SCALE`.
+
 ## The held-up wrestle and contact direction (2026-11-10, branch `update`)
 
 See `docs/ANIMATION_RAGDOLL_AUDIT.md` (last section). Numbers are Tuning's

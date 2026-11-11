@@ -89,7 +89,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed(&"ui_left") or event.is_action_pressed(&"move_left"):
 		_cycle(_keys[_index], -1)
 	elif event.is_action_pressed(&"ui_right") or event.is_action_pressed(&"move_right") \
-			or event.is_action_pressed(&"ui_accept"):
+			or event.is_action_pressed(&"ui_accept") or event.is_action_pressed(&"confirm"):
 		_cycle(_keys[_index], 1)
 	else:
 		return

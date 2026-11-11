@@ -194,7 +194,9 @@ const SUBTITLE_TEXT := "18-a-side, real clock, quarters, scoring"
 const START_TEXT := "START MATCH"
 
 const MATCH_SCENE := "res://scenes/modes/full_game.tscn"
-const MENU_SCENE := "res://scenes/ui/main_menu.tscn"
+## Back goes to the TEAM page, the step before this one since 6AC
+## (FULL GAME -> side select -> TEAM -> here -> match).
+const MENU_SCENE := "res://scenes/ui/team_list_screen.tscn"
 
 ## Selection animation, matching main_menu.gd's card row: a back-out
 ## overshoot on the scale (a plain ease never reads as a "pop", see that
@@ -1139,13 +1141,13 @@ func _hints_for_state() -> Dictionary:
 				{"keys": "← / →", "label": "Choose"},
 				{"keys": "Enter", "label": "Start match"},
 				{"keys": "↑", "label": "Back to cards"},
-				{"keys": "Esc", "label": "Back to menu"},
+				{"keys": "Esc", "label": "Back to team"},
 			],
 			InputManager.Device.GAMEPAD: [
 				{"keys": "D-Pad ↔", "label": "Choose"},
 				{"keys": "A", "label": "Start match"},
 				{"keys": "D-Pad ↑", "label": "Back to cards"},
-				{"keys": "B", "label": "Back to menu"},
+				{"keys": "B", "label": "Back to team"},
 			],
 		}
 	if _cards[_index].locked:
@@ -1154,13 +1156,13 @@ func _hints_for_state() -> Dictionary:
 				{"keys": "← / →", "label": "Choose"},
 				{"keys": "—", "label": "Not built yet"},
 				{"keys": "↓", "label": "Start match"},
-				{"keys": "Esc", "label": "Back to menu"},
+				{"keys": "Esc", "label": "Back to team"},
 			],
 			InputManager.Device.GAMEPAD: [
 				{"keys": "D-Pad ↔", "label": "Choose"},
 				{"keys": "—", "label": "Not built yet"},
 				{"keys": "D-Pad ↓", "label": "Start match"},
-				{"keys": "B", "label": "Back to menu"},
+				{"keys": "B", "label": "Back to team"},
 			],
 		}
 	return {
@@ -1168,13 +1170,13 @@ func _hints_for_state() -> Dictionary:
 			{"keys": "← / →", "label": "Choose"},
 			{"keys": "Enter", "label": "Open"},
 			{"keys": "↓", "label": "Start match"},
-			{"keys": "Esc", "label": "Back to menu"},
+			{"keys": "Esc", "label": "Back to team"},
 		],
 		InputManager.Device.GAMEPAD: [
 			{"keys": "D-Pad ↔", "label": "Choose"},
 			{"keys": "A", "label": "Open"},
 			{"keys": "D-Pad ↓", "label": "Start match"},
-			{"keys": "B", "label": "Back to menu"},
+			{"keys": "B", "label": "Back to team"},
 		],
 	}
 

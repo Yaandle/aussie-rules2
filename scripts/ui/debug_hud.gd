@@ -65,6 +65,7 @@ const CONTROL_GROUPS := [
 	]],
 	["MATCH", [
 		["Switch player", &"switch_player"],
+		["Switch on defence (tap)", &"switch_player_defence"],
 		["Command teammate", &"issue_command"],
 		["Team menu", &"team_menu"],
 		["Show opposition", &"toggle_opposition"],
