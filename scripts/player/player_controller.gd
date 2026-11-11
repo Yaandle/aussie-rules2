@@ -508,6 +508,12 @@ var _hit_out_aim_dir := Vector3.ZERO
 ## not a ruck tap: _resolve_hit_out punches instead and skips the ruck's
 ## collision and signal.
 var _fisting := false
+## The fist under way has already met the ball on an earlier frame of its
+## leap (_fist_reach_check). _fisting stays up to the contact instant so
+## _resolve_hit_out still knows the leap was a fist: clearing it on the
+## early punch let the ruck's own palm, collision and hit_out_resolved run
+## at contact, as if the mark contest were a ball-up.
+var _fist_landed := false
 
 ## Fend-off (6Y): seconds left on the straight arm, and the wait before the
 ## next. See _update_fend and Tuning's "Fend-off".
@@ -3239,7 +3245,7 @@ func _mark_attempt_blocked(ball: Ball = null) -> bool:
 func _update_marking(delta: float) -> void:
 	# A fist's leap (6Y) is an action, which blocks every mark attempt
 	# below, so its reach is checked here first, every frame of the swing.
-	if _fisting and _action == Tuning.Action.HIT_OUT \
+	if _fisting and not _fist_landed and _action == Tuning.Action.HIT_OUT \
 			and _action_elapsed < Tuning.action_contact_time(Tuning.Action.HIT_OUT):
 		_fist_reach_check()
 	# A held Safe mark gets one hop (_maybe_safe_mark_jump); the next hold
@@ -4015,7 +4021,8 @@ func _begin_hit_out() -> void:
 func _resolve_hit_out() -> void:
 	if _fisting:
 		_fisting = false
-		_resolve_fist()
+		if not _fist_landed:
+			_resolve_fist()
 		return
 	var ball := _live_ball()
 	var palm := _animation.hand_world_position(&"RightHand") if _animation != null else Vector3.INF
@@ -4707,6 +4714,7 @@ func _try_fist(ball: Ball) -> bool:
 	_pending_jump_speed = Tuning.MARK_AGGRESSIVE_JUMP_SPEED
 	_begin(Tuning.Action.HIT_OUT)
 	_fisting = true
+	_fist_landed = false
 	return true
 
 
@@ -4727,7 +4735,7 @@ func _fist_reach_check() -> bool:
 		near = true
 	if not near:
 		return false
-	_fisting = false
+	_fist_landed = true
 	_punch(ball)
 	return true
 
@@ -4761,8 +4769,10 @@ func _punch(ball: Ball) -> void:
 ## Aimed across the body to the side away from the kicking foot by
 ## KICK_SNAP_MIN_ANGLE or more is a snap, anything else a banana. The spin
 ## is about vertical: +Y hooks a kick to its left (omega x v), which is a
-## right foot's inside-of-the-boot curl. Read again at the strike, so the
-## preview and the kick agree.
+## right foot's inside-of-the-boot curl, the snap. A banana comes off the
+## outside of the boot and spins the other way, so it bends away from the
+## body: a right foot's goes left to right. Read again at the strike, so
+## the preview and the kick agree.
 func _curve_kick() -> Dictionary:
 	if not _brain.wants_kick_curve():
 		return {}
@@ -4780,7 +4790,7 @@ func _curve_kick() -> Dictionary:
 	if across:
 		return {"kind": &"snap", "spin": Vector3.UP * foot * Tuning.KICK_SNAP_SPIN,
 			"speed": Tuning.KICK_SNAP_SPEED_SCALE, "drop": Tuning.KICK_SNAP_ELEVATION_DROP}
-	return {"kind": &"banana", "spin": Vector3.UP * foot * Tuning.KICK_BANANA_SPIN,
+	return {"kind": &"banana", "spin": Vector3.UP * -foot * Tuning.KICK_BANANA_SPIN,
 		"speed": Tuning.KICK_BANANA_SPEED_SCALE, "drop": Tuning.KICK_BANANA_ELEVATION_DROP}
 
 

@@ -1646,9 +1646,13 @@ const FIST_REACH := MARK_CATCH_RADIUS * MARK_AGGRESSIVE_REACH_SCALE + MARK_ASSIS
 # footer aiming left of where they're running) by at least
 # KICK_SNAP_MIN_ANGLE is a SNAP: struck side-on, flatter and softer, with the
 # most sidespin. Anything else with LB held is a BANANA: closer to a normal
-# kick, with less bend. Either way a right foot hooks the ball right to left
-# and a left foot left to right (the inside of the boot). Most of the punt's
-# backspin goes, since the ball is struck across rather than through.
+# kick, with less bend, off the outside of the boot. The two bend opposite
+# ways: a right foot's snap hooks right to left (the inside of the boot), its
+# banana swings left to right, away from the body, which is what makes it
+# the kick from the wrong pocket. A left foot mirrors both. (Until
+# 2026-11-12 the banana spun the snap's way and bent toward the body.) Most
+# of the punt's backspin goes, since the ball is struck across rather than
+# through.
 # Unplaytested feel guesses.
 const KICK_SNAP_MIN_ANGLE := 45.0       # deg between aim and run direction
 const KICK_SNAP_SPIN := 60.0            # rad/s about vertical
@@ -2446,7 +2450,6 @@ const MARK_COACH_STAND_OFFSET := Vector3(-18.0, 0.0, 10.0)   # opposite half, cl
 ## rival's own Z=-18 anchor.
 const TACKLE_COACH_STAND_OFFSET := Vector3(0.0, 0.0, 18.0)
 
-const KICK_CHALLENGE_TARGET_DISTANCE := 40.0   # m downfield of the player when accepted
 const KICK_CHALLENGE_TARGET_RADIUS := 3.0      # m, hit tolerance
 
 # Kick-to-kick rival (polish-pass brief: "build out kick-to-kick so we can
@@ -2462,7 +2465,6 @@ const KICK_CHALLENGE_TARGET_RADIUS := 3.0      # m, hit tolerance
 const KICK_TO_KICK_RIVAL_OFFSET := Vector3(0.0, 0.0, -18.0)   # from field centre, clear of both coach zones
 const KICK_CHALLENGE_ATTEMPTS := 5
 
-const MARK_CHALLENGE_ATTEMPTS := 6
 ## The marking tutorial (MarkChallenge's steps): catches of a step's tier
 ## before it moves on. Unplaytested feel guess.
 const MARK_TUTORIAL_CATCHES_PER_STEP := 2
