@@ -11,6 +11,10 @@ extends Node3D
 ##
 ##   godot --headless --path . res://scenes/dev/contact_sweep.tscn --fixed-fps 60 --quit-after 400
 ##   ... -- --model=7thbuild    (default 6thbuild)
+##   ... -- --cases=18          (only these CASES indices)
+## The mark cases need running one at a time: a match has one ball, and
+## PlayerController._live_ball() reads the first in the "ball" group, so
+## with several in the scene every marker watches someone else's.
 ##
 ## Per case: the outcome (and b, the tackle formula's balance loss), then
 ## for A (the one coming in) and B:
@@ -27,14 +31,27 @@ extends Node3D
 ##            (the trunk is capped at PhysicsRagdoll.PARTIAL_MAX_SPIN, so
 ##            anything far past that is the hand-in or hand-back)
 ##   stam   — stamina after
+##   ball   — a carrier's ball, furthest from between their wrists (m)
+##   [...]  — mark cases: the action clips each played
+##   away   — (2026-11-10) which way the chest went at its furthest, as the
+##            angle off "straight away from the other body" (deg, 0 = pushed
+##            directly away, 90 = across, 180 = toward them)
+##   twist  — the trunk's furthest turn about the vertical off the clip
+##            (deg, + = anticlockwise from above): a hit off-centre turns it
+##   moved  — how far the player's capsule went from the hit to the end of
+##            the hit to a second later, along the hit line (A into B) / to its left (m):
+##            who gave ground, and whether a side hit moved anyone sideways
 ## SUMMARY gives the worst of each.
 
 const PlayerScene := preload("res://scenes/player/player.tscn")
 const PAIR_SPACING := 30.0
+const FIRST_ROW := 25
+const SECOND_ROW_Z := -200.0
 const RUN_IN := 75
 const WATCH := 120
 const CONTACT_GAP := 0.75
 const COLLIDE_LEAD := 0.2   ## s before the capsules meet
+const SHOULDER_GAP := 0.8   ## m between centres, side by side
 
 ## [kind, A's bearing in (deg, 0 = head-on into B's run, 180 = from behind),
 ##  A pace, B pace (0-1 gait), A stamina, B stamina]
@@ -57,7 +74,48 @@ const CASES := [
 	[&"hold", 0.0, 0.6, 0.0, 1.0, 1.0],
 	[&"glance", 90.0, 1.0, 1.0, 1.0, 1.0],
 	[&"glance", 90.0, 1.0, 1.0, 1.0, 0.2],
+	# A contested mark: both go for a kick arriving chest high where they
+	# meet (MARK_LEAD after the hit), on the AI's Safe path.
+	[&"mark", 0.0, 0.6, 0.6, 1.0, 1.0],
+	[&"mark", 45.0, 0.6, 0.6, 1.0, 1.0],
+	[&"mark", 90.0, 1.0, 0.6, 1.0, 1.0],
+	[&"mark", 90.0, 0.6, 0.0, 1.0, 1.0],
+	[&"mark", 135.0, 1.0, 0.6, 1.0, 1.0],
+	[&"mark", 180.0, 1.0, 0.6, 1.0, 1.0],
+	[&"mark", 270.0, 1.0, 1.0, 0.3, 1.0],
+	# 2026-11-10, side and rear: appended, so the rows above keep their
+	# indices (and --cases= numbers). A's left side, the rear quarters, a
+	# heavier runner, and holds off the line.
+	[&"collide", 270.0, 1.0, 1.0, 1.0, 1.0],
+	[&"collide", 225.0, 1.0, 0.6, 1.0, 1.0],
+	[&"collide", 180.0, 1.0, 0.0, 1.0, 1.0],
+	[&"glance", 0.0, 1.0, 1.0, 1.0, 1.0],
+	[&"glance", 180.0, 1.0, 0.6, 1.0, 1.0],
+	[&"glance", 270.0, 1.0, 1.0, 1.0, 1.0],
+	[&"glance", 135.0, 1.0, 1.0, 1.0, 1.0],
+	[&"hold", 270.0, 1.0, 1.0, 1.0, 1.0],
+	[&"hold", 45.0, 1.0, 1.0, 1.0, 1.0],
+	[&"hold", 135.0, 1.0, 0.6, 1.0, 1.0],
+	[&"hold", 0.0, 1.0, 0.6, 1.0, 0.2],
+	[&"hold", 0.0, 1.0, 0.6, 0.2, 1.0],
+	# [.., A kg, B kg]: weight, at the same contact.
+	[&"hold", 0.0, 1.0, 1.0, 1.0, 1.0, 95.0, 70.0],
+	[&"hold", 0.0, 1.0, 1.0, 1.0, 1.0, 70.0, 95.0],
+	[&"collide", 90.0, 1.0, 1.0, 1.0, 1.0, 95.0, 70.0],
+	# 2026-11-11, shoulder to shoulder: A runs beside B on B's right,
+	# steering in by the bearing (deg), and keeps pressing. `moved` across
+	# is along the hit line here (A into B, square to both runs).
+	[&"shoulder", 10.0, 1.0, 1.0, 1.0, 1.0],
+	[&"shoulder", 10.0, 1.0, 1.0, 1.0, 1.0, 95.0, 70.0],
+	[&"shoulder", 10.0, 1.0, 1.0, 1.0, 1.0, 70.0, 95.0],
+	[&"shoulder", 10.0, 1.0, 0.6, 1.0, 1.0],
+	[&"shoulder", 10.0, 1.0, 1.0, 0.2, 1.0],
 ]
+## A contested mark's ball: kicked from this far out along B's run, to reach
+## chest height at the meeting point this long after the hit.
+const MARK_KICK_DISTANCE := 20.0
+const MARK_LEAD := 0.3
+const MARK_HEIGHT := 1.4
 
 
 ## Runs one way at one pace. An AIBrain stand-in (not a HumanBrain) so a
@@ -72,6 +130,11 @@ class ScriptedBrain extends PlayerBrain:
 	func gait() -> float:
 		return pace
 
+	var marking := false
+
+	func wants_mark_safe() -> bool:
+		return marking
+
 
 var _pairs: Array[Dictionary] = []
 var _frame := 0
@@ -79,9 +142,13 @@ var _frame := 0
 
 func _ready() -> void:
 	var model := "6thbuild"
+	var only: Array[int] = []
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--model="):
 			model = arg.trim_prefix("--model=")
+		elif arg.begins_with("--cases="):
+			for index in arg.trim_prefix("--cases=").split(","):
+				only.append(int(index))
 	CharacterProfile.model_id = model
 	print("contact_sweep: model %s" % model)
 	add_child(_build_floor())
@@ -90,10 +157,21 @@ func _ready() -> void:
 		add_child(throwaway)
 		throwaway.queue_free()
 	for i in CASES.size():
-		_pairs.append(_spawn_pair(CASES[i], Vector3((i - CASES.size() * 0.5) * PAIR_SPACING, 0.0, 0.0)))
+		if only.is_empty() or only.has(i):
+			_pairs.append(_spawn_pair(CASES[i], _pair_base(i)))
 	# After the players' own physics (and their ragdoll steps) each tick.
 	process_physics_priority = 100
 	process_priority = 100
+
+
+## Where case `i` meets. The first FIRST_ROW cases keep the line they've
+## always had, so their rows compare with older runs; the rest go on a
+## second line. One line of all of them runs past x = 500 m, where
+## PlayerController._contain_to_field squeezes every pair into a heap.
+func _pair_base(i: int) -> Vector3:
+	if i < FIRST_ROW:
+		return Vector3((i - FIRST_ROW * 0.5) * PAIR_SPACING, 0.0, 0.0)
+	return Vector3((i - FIRST_ROW - (CASES.size() - FIRST_ROW) * 0.5) * PAIR_SPACING, 0.0, SECOND_ROW_Z)
 
 
 func _build_floor() -> StaticBody3D:
@@ -101,9 +179,9 @@ func _build_floor() -> StaticBody3D:
 	floor_body.collision_layer = 1
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(PAIR_SPACING * (CASES.size() + 2), 1.0, 300.0)
+	box.size = Vector3(PAIR_SPACING * (FIRST_ROW + 2), 1.0, 300.0 - SECOND_ROW_Z)
 	shape.shape = box
-	shape.position = Vector3(0.0, -0.5, 0.0)
+	shape.position = Vector3(0.0, -0.5, SECOND_ROW_Z * 0.5)
 	floor_body.add_child(shape)
 	return floor_body
 
@@ -139,7 +217,11 @@ func _physics_process(_delta: float) -> void:
 		for pair in _pairs:
 			_hit(pair)
 	elif _frame > RUN_IN and _frame <= RUN_IN + WATCH:
-		pass
+		# `moved` is read a second after the hit: the length of a hold.
+		if _frame == RUN_IN + 60:
+			for pair in _pairs:
+				pair.end_a = (pair[&"a"] as PlayerController).global_position
+				pair.end_b = (pair[&"b"] as PlayerController).global_position
 	elif _frame > RUN_IN + WATCH:
 		_report()
 		get_tree().quit()
@@ -169,6 +251,10 @@ func _hit(pair: Dictionary) -> void:
 	_face(b, Vector3.FORWARD, Tuning.speed_for_gait(spec[3]))
 	a.stamina = spec[4]
 	b.stamina = spec[5]
+	if spec.size() > 7:
+		a.body_mass = spec[6]
+		b.body_mass = spec[7]
+	pair.line = -from
 	match spec[0]:
 		&"collide":
 			# Nothing to resolve: both converge on the contact point over
@@ -199,11 +285,38 @@ func _hit(pair: Dictionary) -> void:
 			else:
 				a._lunge_connect(b, impact, false)
 				pair.outcome = String(a.last_tackle.get("outcome", "held"))
+		&"mark":
+			a.global_position = (pair.contact as Vector3) + from * (0.7 + Tuning.speed_for_gait(spec[2]) * COLLIDE_LEAD)
+			b.global_position = (pair.contact as Vector3) - Vector3.FORWARD * Tuning.speed_for_gait(spec[3]) * COLLIDE_LEAD
+			(a.brain() as ScriptedBrain).marking = true
+			(b.brain() as ScriptedBrain).marking = true
+			var ball := _ball_for(b)
+			var meet := (pair.contact as Vector3) + Vector3.FORWARD * Tuning.speed_for_gait(spec[3]) * MARK_LEAD
+			var at := meet + Vector3.UP * MARK_HEIGHT
+			var from_point := meet + Vector3.FORWARD * MARK_KICK_DISTANCE + Vector3.UP * 1.0
+			var v := _launch_velocity(from_point, at, MARK_LEAD + COLLIDE_LEAD)
+			ball.global_position = from_point
+			ball.launch(v.normalized(), v.length(), Vector3.ZERO, null, true)
+			pair.ball = ball
+			for tag: StringName in [&"a", &"b"]:
+				var who: StringName = tag
+				(pair[tag] as PlayerController).mark_caught.connect(func(_tier: Tuning.Action, _legal: bool) -> void:
+					pair.outcome = "%s marks" % who)
+			pair.outcome = "spilled"
+		&"shoulder":
+			var dir := Vector3.FORWARD.rotated(Vector3.UP, deg_to_rad(spec[1]))
+			a.global_position = (pair.contact as Vector3) + Vector3.RIGHT * SHOULDER_GAP
+			(a.brain() as ScriptedBrain).direction = dir
+			_face(a, dir, Tuning.speed_for_gait(spec[2]))
+			pair.line = Vector3.LEFT
+			pair.outcome = "shoulder"
 		&"glance":
 			var dir := -from
 			b.receive_bump(dir * Tuning.BUMP_KNOCKBACK_SPEED * Tuning.BUMP_MISTIMED_SCALE,
 				Tuning.BUMP_STUN_DURATION * Tuning.BUMP_MISTIMED_SCALE, a)
 			pair.outcome = "glancing bump"
+	pair.start_a = a.global_position
+	pair.start_b = b.global_position
 
 
 ## Points `player` along `dir`, moving at `speed` — the controller's own
@@ -215,6 +328,22 @@ static func _face(player: PlayerController, dir: Vector3, speed := 0.0) -> void:
 	player._heading = dir
 	player.velocity = dir * speed
 	player._speed = speed
+
+
+## Gravity-only aim, refined against the Ball's drag (as MarkCueHarness).
+static func _launch_velocity(from: Vector3, to: Vector3, t: float) -> Vector3:
+	var v := (to - from) / t + Vector3.UP * 0.5 * Tuning.GRAVITY * t
+	for i in 8:
+		var p := from
+		var w := v
+		var elapsed := 0.0
+		while elapsed < t:
+			var dt := minf(1.0 / 120.0, t - elapsed)
+			w += (-w * w.length() * Tuning.BALL_DRAG_COEFF / Tuning.BALL_MASS + Vector3.DOWN * Tuning.GRAVITY) * dt
+			p += w * dt
+			elapsed += dt
+		v += (to - p) / t
+	return v
 
 
 func _ball_for(player: PlayerController) -> Ball:
@@ -230,6 +359,10 @@ func _watch(pair: Dictionary, tag: StringName) -> void:
 	var rows: Dictionary = pair.rows
 	var key := String(tag) + "."
 	rows[key + "stamina"] = player.stamina
+	if pair.spec[0] == &"mark":
+		var state := String(player._animation.current_state())
+		if state != "locomotion" and not String(rows.get(key + "clips", "")).contains(state):
+			rows[key + "clips"] = String(rows.get(key + "clips", "")) + state + " "
 	if controller == null or controller.ragdoll() == null:
 		return
 	var ragdoll := controller.ragdoll()
@@ -241,11 +374,23 @@ func _watch(pair: Dictionary, tag: StringName) -> void:
 		rows.erase(key + "last_chest")
 		return
 	rows[key + "kind"] = "react"
+	if player.is_carrying():
+		var ball := player.carried_ball()
+		var hands := (ragdoll.segment_tip(&"LeftLowerArm") + ragdoll.segment_tip(&"RightLowerArm")) * 0.5
+		_keep_max(rows, key + "ball", ball.global_position.distance_to(hands))
 	_keep_min(rows, key + "tone", controller.reaction_tone())
 	var chest := ragdoll.body(&"Chest")
 	var animated := ragdoll.animated_transform(&"Chest")
 	var influence := ragdoll.simulator.influence
 	_keep_max(rows, key + "shift", chest.global_position.distance_to(animated.origin) * influence)
+	var shift := (chest.global_position - animated.origin) * influence
+	shift.y = 0.0
+	if shift.length() > (rows.get(key + "shift_vec", Vector3.ZERO) as Vector3).length():
+		rows[key + "shift_vec"] = shift
+	var twist := rad_to_deg(PhysicsRagdoll._rotation_vector(chest.global_basis.get_rotation_quaternion()
+		* animated.basis.get_rotation_quaternion().inverse()).y) * influence
+	if absf(twist) > absf(float(rows.get(key + "twist", 0.0))):
+		rows[key + "twist"] = twist
 	var spine_root := ragdoll.segment_root(&"Spine")
 	var skeleton := (player.get_node("Rig") as HumanoidRig).skeleton()
 	var spine_anim := (skeleton.global_transform * skeleton.get_bone_global_pose(skeleton.find_bone(&"Spine"))).origin
@@ -260,11 +405,12 @@ func _watch(pair: Dictionary, tag: StringName) -> void:
 	var drawn := a_rot.slerp(chest.global_basis.get_rotation_quaternion(), influence)
 	var dt := get_process_delta_time()
 	if rows.has(key + "last_chest"):
-		var extra := (drawn * (rows[key + "last_chest"] as Quaternion).inverse()).get_angle() \
-			- (a_rot * (rows[key + "last_anim"] as Quaternion).inverse()).get_angle()
-		# Only physics turning it faster than the clip: a clip turning faster
-		# than the trunk follows is lag, not a snap.
-		var pop := maxf(extra, 0.0) / maxf(dt, 0.0001)
+		# How fast the knock's offset from the clip changes: the turn physics
+		# adds on top of the animation (comparing the two turns' sizes read
+		# a clip turning one way and the trunk lagging the other as a snap).
+		var offset := drawn * a_rot.inverse()
+		var last_offset := (rows[key + "last_chest"] as Quaternion) * (rows[key + "last_anim"] as Quaternion).inverse()
+		var pop := offset.angle_to(last_offset) / maxf(dt, 0.0001)
 		if pop > float(rows.get(key + "pop", 0.0)):
 			rows[key + "pop"] = pop
 			rows[key + "pop_at"] = "%.2fs@%.2f" % [float(_frame - RUN_IN) / 60.0, influence]
@@ -294,6 +440,21 @@ func _report() -> void:
 				float(rows.get(key + "shift", 0.0)), float(rows.get(key + "waist", 0.0)),
 				float(rows.get(key + "spin", 0.0)), rows.get(key + "spin_bone", ""), float(rows.get(key + "pop", 0.0)),
 				rows.get(key + "pop_at", ""), float(rows.get(key + "stamina", 0.0))]
+			# Away from the other body: A is on the line's near side.
+			var line_dir: Vector3 = pair.get("line", Vector3.FORWARD)
+			var away := -line_dir if tag == &"a" else line_dir
+			var shift: Vector3 = rows.get(key + "shift_vec", Vector3.ZERO)
+			var player: PlayerController = pair[tag]
+			var moved: Vector3 = (pair.get("end_" + String(tag), player.global_position) as Vector3) - (pair.get("start_" + String(tag), player.global_position) as Vector3)
+			line += " away %3.0f twist %+3.0f moved %+.2f/%+.2f" % [
+				rad_to_deg(shift.angle_to(away)) if shift.length() > 0.005 else 0.0,
+				float(rows.get(key + "twist", 0.0)),
+				moved.dot(line_dir), moved.dot(Vector3.UP.cross(line_dir))]
+			worst.twist = snappedf(maxf(float(worst.get("twist", 0.0)), absf(float(rows.get(key + "twist", 0.0)))), 0.1)
+			if rows.has(key + "clips"):
+				line += " [%s]" % String(rows[key + "clips"]).strip_edges()
+			if rows.has(key + "ball"):
+				line += " ball %.2f" % float(rows[key + "ball"])
 			if rows.get(key + "kind", "-") == "react":
 				worst.reacts = int(worst.get("reacts", 0)) + 1
 				for stat in ["shift", "waist", "spin", "pop"]:

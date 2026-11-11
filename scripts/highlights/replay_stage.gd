@@ -54,13 +54,19 @@ func _ready() -> void:
 	environment.environment = ENVIRONMENT
 	add_child(environment)
 	var sun := DirectionalLight3D.new()
-	# kick_to_kick.tscn's Sun, as TrainingScreen uses.
+	# full_game.tscn's Sun, setting for setting, so a replay is lit like the
+	# match. A .tscn writes a Transform3D's basis row by row, but Basis()
+	# takes columns: hence transposed(). Without it the sun pointed up from
+	# under the ground and the replay was lit by ambient alone (playtest
+	# 2026-11-10: "looks too dark").
 	sun.transform = Transform3D(Basis(Vector3(0.8637, -0.3627, 0.3499), Vector3(0.0, 0.6943, 0.7197),
-		Vector3(-0.5039, -0.6216, 0.5998)), Vector3(0.0, 40.0, 0.0))
+		Vector3(-0.5039, -0.6216, 0.5998)).transposed(), Vector3(0.0, 40.0, 0.0))
 	sun.light_energy = 1.05
+	sun.light_angular_distance = 2.2
 	sun.shadow_enabled = true
 	sun.shadow_opacity = 0.72
 	sun.directional_shadow_max_distance = 120.0
+	sun.directional_shadow_blend_splits = true
 	add_child(sun)
 	_field = FIELD_SCENE.instantiate() as Field
 	_field.follow_field_style = true

@@ -69,6 +69,8 @@ var _reaction := {}
 var _pending_reaction := false
 var _react_time := 0.0
 var _react_blend := 0.0
+## A reaction being held open (sustain): its tone is capped here, -1 = not.
+var _hold_tone := -1.0
 
 ## For headless checks and the lab: what the last hit was, and how the
 ## fall ended.
@@ -189,6 +191,7 @@ func cancel() -> void:
 	if _ragdoll != null:
 		_ragdoll.park()
 	_phase = Phase.OFF
+	_hold_tone = -1.0
 	_pending_reaction = false
 	_push_left = 0.0
 	if _animation != null:
@@ -346,8 +349,8 @@ func _start_reacting() -> void:
 	# contact on the chest.
 	_ragdoll.carry_velocity = _reaction.get("velocity", _player.velocity)
 	_apply_reaction_tone(0.0)
-	_ragdoll.start_partial(PhysicsRagdoll.UPPER_BODY if bool(_reaction.get("arms", true))
-		else PhysicsRagdoll.TRUNK)
+	_set_arms_loose(bool(_reaction.get("arms", true)))
+	_ragdoll.start_partial(PhysicsRagdoll.UPPER_BODY)
 	_push = (_reaction.get("impulse", Vector3.ZERO) as Vector3) / Tuning.CONTACT_REACT_PUSH_DURATION
 	_push_left = Tuning.CONTACT_REACT_PUSH_DURATION if _push != Vector3.ZERO else 0.0
 	_react_time = 0.0
@@ -355,11 +358,21 @@ func _start_reacting() -> void:
 	_phase = Phase.REACTING
 
 
+## A carrier's arms hold the ball on full-strength motors, following the
+## carry pose on the chest (see PhysicsRagdoll.TRUNK for why they're
+## simulated at all); anyone else's hang on the floor motors.
+func _set_arms_loose(loose: bool) -> void:
+	_ragdoll.arm_motor_floor = PhysicsRagdoll.ARM_MOTOR_FLOOR if loose else 1.0
+	_ragdoll.arm_follow = PhysicsRagdoll.ARM_FOLLOW if loose else Tuning.CONTACT_REACT_FOLLOW * 2.0
+
+
 ## Tone climbs from the hit's back to full over CONTACT_REACT_RECOVER,
 ## eased, and sets both the follow and the joint motors.
 func _apply_reaction_tone(t: float) -> void:
 	var hit_tone := clampf(float(_reaction.get("tone", 1.0)), 0.0, 1.0)
 	var tone := lerpf(hit_tone, 1.0, smoothstep(0.0, Tuning.CONTACT_REACT_RECOVER, t))
+	if _hold_tone >= 0.0:
+		tone = minf(tone, _hold_tone)
 	_ragdoll.follow = Tuning.CONTACT_REACT_FOLLOW * tone
 	_ragdoll.strength = Tuning.CONTACT_REACT_MOTOR * tone
 
@@ -373,8 +386,14 @@ func _step_reacting(delta: float) -> void:
 		cancel()
 		return
 	_react_time += delta
-	_ragdoll.carry_velocity = _player.velocity
+	# Stepped after the player's move (PlayerController), so the animated
+	# pose is already where it'll be when physics steps: nothing to lead by.
+	_ragdoll.carry_velocity = Vector3.ZERO
 	_apply_reaction_tone(_react_time)
+	# The ball can change hands mid-knock (a contested mark spills off one
+	# body into the other's arms). Duck-typed, as on_ragdoll_getup is.
+	if _player.has_method(&"is_carrying"):
+		_set_arms_loose(not bool(_player.call(&"is_carrying")))
 	if _push_left > 0.0:
 		var dt := minf(delta, _push_left)
 		var bone: StringName = _reaction.get("bone", &"Chest")
@@ -386,11 +405,58 @@ func _step_reacting(delta: float) -> void:
 	_ragdoll.step(delta)
 	if _react_time < Tuning.CONTACT_REACT_TIME:
 		return
+	if _react_blend == 0.0:
+		_hand_back_lean()
 	_react_blend += delta
 	var t := clampf(_react_blend / Tuning.CONTACT_REACT_BLEND_OUT, 0.0, 1.0)
 	_ragdoll.simulator.influence = 1.0 - smoothstep(0.0, 1.0, t)
 	if t >= 1.0:
 		cancel()
+
+
+## Holds a running reaction open at no more than `tone` for as long as it's
+## called every tick (a held-up wrestle): the trunk stays on physics past
+## CONTACT_REACT_TIME. release() lets it recover and hand back as usual.
+func sustain(tone: float) -> void:
+	if _phase != Phase.REACTING:
+		return
+	_hold_tone = clampf(tone, 0.0, 1.0)
+	_react_time = minf(_react_time, Tuning.CONTACT_REACT_RECOVER)
+	_react_blend = 0.0
+	_ragdoll.simulator.influence = 1.0
+
+
+## Ends sustain(): tone climbs from where it was held, then the usual
+## hand-back.
+func release() -> void:
+	if _hold_tone < 0.0:
+		return
+	if _phase == Phase.REACTING:
+		_reaction.tone = minf(_hold_tone, reaction_tone())
+		_react_time = 0.0
+	_hold_tone = -1.0
+
+
+## A steady contact on a reacting trunk, this tick's worth (N·s, world), on
+## the chest `offset` from its centre: the force between two wrestling
+## bodies, which a one-off knock's push can't carry.
+func press(impulse: Vector3, offset: Vector3) -> void:
+	if _phase != Phase.REACTING or impulse.length_squared() < 1e-8:
+		return
+	_ragdoll.apply_impact_at(&"Chest", impulse, _ragdoll.body(&"Chest").global_position + offset)
+
+
+## The hand-back starts from the body's own lean, not upright: whatever tilt
+## the trunk still has off the animation becomes the animation's own sway
+## (PlayerAnimation.adopt_lean), which settles it from there, so physics
+## fades into a pose that's already where the body is.
+func _hand_back_lean() -> void:
+	if _animation == null:
+		return
+	var up := _ragdoll.pose_offset(&"Chest").basis.orthonormalized() * Vector3.UP
+	var basis := _player.global_basis.orthonormalized()
+	_animation.adopt_lean(Vector2(rad_to_deg(asin(clampf(up.dot(basis.x), -1.0, 1.0))),
+		rad_to_deg(asin(clampf(up.dot(-basis.z), -1.0, 1.0)))))
 
 
 ## For checks: the reaction's tone right now (1 = none lost), or -1 when

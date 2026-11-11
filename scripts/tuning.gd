@@ -1014,8 +1014,13 @@ const TACKLE_SLIDE_DIVE_MIN_DOT := 0.5      # facing . to-carrier must clear thi
 # 6thbuild skeleton goes physical (PlayerRagdoll / PhysicsRagdoll) and the
 # hit decides the fall. Slide's held-up wrap and every bump knockdown stay
 # on their clips, and so does any player on the procedural rig (no
-# 6thbuild skeleton to build bodies on). Slide is the AI's only tackle, so
-# no AI tackle ever ragdolls anyone.
+# 6thbuild skeleton to build bodies on). Slide is the AI's only tackle; since
+# 2026-11-11 its sling and stand ragdoll when either player is human (as the
+# ruck collision), so the AI can put the human down, and with
+# TACKLE_RAGDOLL_AI_V_AI AI on AI as well: the model's b and drive pick sling
+# (to ground) or stand (on their feet), and motor control plays it out.
+# Off puts AI-v-AI Slides back on the clips (cheaper: up to 36 ragdolls).
+const TACKLE_RAGDOLL_AI_V_AI := true
 #
 # Balance loss b (TackleBalance.balance_loss) is the tackle model's own
 # formula, σ(w_speed·speed + w_angle·angle + w_stamina·mass + bias), with
@@ -1280,7 +1285,10 @@ const CONTACT_REACT_TONE_DROP := 0.85
 const CONTACT_REACT_RECOVER := 0.45         # s
 const CONTACT_REACT_TIME := 0.55            # s
 const CONTACT_REACT_BLEND_OUT := 0.2        # s
-const CONTACT_REACT_PUSH_DURATION := 0.08   # s
+const CONTACT_REACT_PUSH_DURATION := 0.15   # s
+# How far off the chest's centre the push lands, toward the other body
+# (the tackle push's 0.12 m turned the trunk at 35-40 rad/s on the hit).
+const CONTACT_REACT_SIDE_OFFSET := 0.05     # m
 const CONTACT_REACT_IMPULSE_SHARE := 0.15
 const CONTACT_REACT_IMPULSE_MAX := 60.0    # N·s
 # A tackle that breaks, or one that holds the carrier up: both bodies take
@@ -1289,12 +1297,93 @@ const CONTACT_REACT_IMPULSE_MAX := 60.0    # N·s
 # is half of it, and a broken tackler bounces off with BREAK_RECOIL_SHARE
 # of the push at the carrier's share, 1 - b (PlayerController._break_tackle).
 const CONTACT_REACT_BREAK_RECOIL_SHARE := 0.5
+# A broken tackle drags the carrier's legs (TACKLE_BREAK_SPEED_KEEP), and
+# their trunk lurches on over them by its own momentum. All of it (2 m/s off
+# a sprint) pitched a loosened trunk 25° forward into the spine's bend limit,
+# which Jolt snapped on to 53° at 65 rad/s; this share of it rocks them
+# forward a step's worth. Unplaytested feel guess.
+const CONTACT_REACT_LURCH_SHARE := 0.5
 # A held-up pair used to stop dead on the frame the tackle held. They now
 # meet at their common velocity (mass-weighted, an inelastic collision) and
 # the carrier's legs brake it out at this rate, the tackler hanging on
 # behind (PlayerController._begin_tackle_hold). From a sprint that's ~2 m
 # over ~0.7 s. Unplaytested feel guess.
 const TACKLE_HOLD_BRAKE := 11.0             # m/s²
+
+# The held-up wrestle (2026-11-10). With WRESTLE_ENABLED a held-up pair
+# isn't braked out (TACKLE_HOLD_BRAKE above, still the path with it off):
+# for the length of the hold the two are one body that goes where its
+# forces send it (PlayerController._step_wrestle).
+#  - It starts at the pair's common velocity, as before: shared momentum.
+#  - Each player's legs drive at WRESTLE_DRIVE m/s² times their effort. The
+#    tackler drives along the line into the carrier; the carrier drives the
+#    way they were running (a standing one straight back at the tackler).
+#    Effort is the tackle formula's read of the contact, b for the tackler
+#    and 1 - b for the carrier, times each one's stamina tone. Force is
+#    mass × that, so the heavier, fresher player with the better of the hit
+#    walks the other back, and a side-on hit carries the pair off diagonally.
+#  - The feet bleed the pair's speed with time constant WRESTLE_SETTLE, so
+#    it settles at (net drive) × SETTLE: about 0.9 m/s when one side has
+#    all of it, nothing when they're even.
+#  - The tackler's sideways speed at contact swings them round the carrier:
+#    SPIN_SHARE of that angular rate, capped at SPIN_MAX, bled the same way.
+#  - Both trunks stay on physics for the hold (PlayerRagdoll.sustain). Each
+#    leans WRESTLE_LEAN_DEG × effort into their drive (the motors' target,
+#    PlayerAnimation.set_press) and the force between the bodies lands on
+#    both chests, TRUNK_SHARE of it; tone is 1 - WRESTLE_TONE_DROP × the
+#    other one's effort, so who's being overpowered shows in who gives.
+#  - With WRESTLE_LEGS the legs step on the locomotion blend under the
+#    hold-up clips once the pair moves faster than WRESTLE_LEGS_SPEED,
+#    instead of sliding on the clip's planted feet.
+# Whether the tackle holds is still TackleBalance's threshold; this only
+# moves the bodies by it. Where the pair ends up does change (it used to be
+# the common velocity braked out), so it's a gameplay-visible number.
+# Unplaytested feel guesses.
+const TACKLE_WRESTLE_ENABLED := true
+const TACKLE_WRESTLE_DRIVE := 6.0           # m/s² at full effort
+const TACKLE_WRESTLE_SETTLE := 0.3          # s
+const TACKLE_WRESTLE_SPIN_SHARE := 0.25
+const TACKLE_WRESTLE_SPIN_MAX := 2.5        # rad/s
+const TACKLE_WRESTLE_TRUNK_SHARE := 1.0
+const TACKLE_WRESTLE_TONE_DROP := 0.2
+const TACKLE_WRESTLE_LEAN_DEG := 14.0
+const TACKLE_WRESTLE_LEGS := true
+const TACKLE_WRESTLE_LEGS_SPEED := 0.5      # m/s
+# Efforts fade over the hold's last RELEASE seconds, so the pair is nearly
+# still when the controller takes the legs back.
+const TACKLE_WRESTLE_RELEASE := 0.25        # s
+
+# Direction from the angle of contact (2026-11-10). A knock's push used to
+# run straight along the line between the bodies, or along the hitter's
+# travel, applied at a point on that same line: nothing could turn a trunk,
+# and a glancing bump knocked its target along the bumper's run whatever
+# side it landed on. Now a contact's change of velocity is the closing
+# speed along the contact normal plus the rubbing speed across it, the
+# second capped at CONTACT_FRICTION × the first (a friction cone), and it
+# lands on the chest's surface CONTACT_REACT_CHEST_RADIUS toward the other
+# body: square on it shoves, off-centre it also turns the trunk. Glancing
+# bumps and contest hits knock their target that way too
+# (PlayerController.contact_change). Unplaytested feel guesses.
+const CONTACT_FRICTION := 0.35
+const CONTACT_REACT_CHEST_RADIUS := 0.16   # m
+# Shoulder-to-shoulder push (2026-11-11, ANIMATION_RAGDOLL_AUDIT "Phase 3
+# contact" item 2). Two players running the same way with their capsules
+# pressed together used to just slide along each other: nobody gave ground.
+# Now each drives into the other with mass × run speed × stamina tone (the
+# held-up wrestle's drive), and the pair moves sideways toward the weaker
+# side at SHOULDER_PUSH_SPEED × (stronger share - weaker share): the heavier
+# or faster one runs the other off their line while both lean in. Only
+# between runs within SHOULDER_PUSH_ALIGN of each other (head-on contacts
+# are knocks, not pushes) and both at SHOULDER_PUSH_MIN_SPEED. It changes
+# who wins a footrace for position, so it has its own switch.
+# PlayerController._shoulder_push. Unplaytested feel guesses.
+const SHOULDER_PUSH_ENABLED := true
+const SHOULDER_PUSH_MIN_SPEED := 2.5      # m/s, each
+const SHOULDER_PUSH_ALIGN := 0.5          # cos of the widest angle between the two runs (60°)
+const SHOULDER_PUSH_SPEED := 3.0          # m/s sideways at a total mismatch
+const SHOULDER_PUSH_SETTLE := 0.15        # s, time constant in and out
+const SHOULDER_PUSH_HOLD := 0.12          # s the press outlives the last touch
+const SHOULDER_PUSH_LEAN_DEG := 9.0       # trunk lean into the other, each
 # The whole-body ragdolls that keep a player standing (a held-up carrier's
 # stand, the whiffed bump's stumble, the ruck stagger) had their muscles
 # pulling toward the pose the animation had at contact, for their whole

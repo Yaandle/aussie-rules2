@@ -107,17 +107,10 @@ const GRID_STEP := 0.5
 const GRID_COLOUR := Color(0.72, 0.75, 0.79)
 const AIM_COLOUR := Color(0.85, 0.3, 0.15)
 
-const MENU_POSITION := Vector2(8.0, 8.0)
-const MENU_WIDTH := 320.0
-const MENU_PADDING := 12.0
-const MENU_ROW_GAP := 4
-## Tight on purpose: with the TACKLE rows added the menu has to fit a
-## 720-pixel-tall window above the key-hint bar.
-const MENU_SECTION_GAP := 5
-## Room left under the menu for the key-hint bar along the bottom.
-const MENU_BOTTOM_CLEARANCE := 56.0
+## The docked menu and the readout card (UIStyle's "Dev tool shell").
+const MENU_POSITION := Vector2(UIStyle.DEV_EDGE, UIStyle.DEV_EDGE)
+const MENU_WIDTH := 330.0
 const READOUT_WIDTH := 340.0
-const HARD_SHADOW := 4.0
 
 enum State { POSED, FALLING, SETTLED }
 
@@ -172,7 +165,7 @@ var _status_label: Label
 var _menu_panel: PanelContainer
 var _menu_scroll: ScrollContainer
 var _menu_root: VBoxContainer
-var _angle_value: Label
+var _first_focus: Control
 
 
 func _ready() -> void:
@@ -486,6 +479,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"pause") or event.is_action_pressed(&"character_menu"):
 		SceneWipe.change_scene("res://scenes/dev/animation_viewer.tscn")
 		return
+	if UIStyle.dev_focus_entry(get_viewport(), event, _first_focus):
+		return
 	if event is InputEventMouseMotion and (event.button_mask & MOUSE_BUTTON_MASK_RIGHT):
 		var motion := event as InputEventMouseMotion
 		_cam_yaw -= motion.relative.x * 0.3
@@ -618,103 +613,89 @@ func _set_skin_visible(on: bool) -> void:
 
 
 # ── UI ───────────────────────────────────────────────────────────────
-# Same hard-shell card language as the animation viewer / ML Experiments
-# page; helpers at the bottom are local copies, same reasoning as theirs.
+# The dev-tool shell the animation viewer and the ML page use (UIStyle's
+# "Dev tool shell"): the menu is controls and live cards, and the run's
+# readout sits in its own card on the right, always in view.
 
 func _build_ui() -> void:
 	var root := VBoxContainer.new()
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_theme_constant_override(&"separation", MENU_SECTION_GAP)
+	root.add_theme_constant_override(&"separation", UIStyle.DEV_GAP)
+	root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 	# The menu scrolls rather than running off the bottom of a short window
-	# (see _fit_menu); the run's text readout lives in its own panel on the
-	# right (_build_readout_panel) so the menu is only controls and cards.
-	_menu_panel = PanelContainer.new()
+	# (see _fit_menu).
+	_menu_panel = UIStyle.dev_panel()
 	_menu_panel.position = MENU_POSITION
 	_menu_panel.custom_minimum_size.x = MENU_WIDTH
-	_menu_panel.add_theme_stylebox_override(&"panel", _box(Color(RetroWindow.PANEL), 2, HARD_SHADOW, MENU_PADDING))
 	_menu_scroll = ScrollContainer.new()
 	_menu_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_menu_scroll.add_child(root)
 	_menu_panel.add_child(_menu_scroll)
 	_ui.add_child(_menu_panel)
 	_menu_root = root
 
-	root.add_child(UIStyle.label("PHYSICS RAGDOLL LAB", UIStyle.SIZE_TITLE,
+	root.add_child(UIStyle.label("RAGDOLL LAB", UIStyle.SIZE_TITLE,
 		UIStyle.TEXT_PRIMARY, UIStyle.WEIGHT_HEAVY, UIStyle.TRACK_TITLE))
 
 	var metrics := GridContainer.new()
 	metrics.columns = 2
-	metrics.add_theme_constant_override(&"h_separation", 8)
-	metrics.add_theme_constant_override(&"v_separation", 8)
+	metrics.add_theme_constant_override(&"h_separation", UIStyle.DEV_GAP)
+	metrics.add_theme_constant_override(&"v_separation", UIStyle.DEV_GAP)
 	root.add_child(metrics)
 	_state_label = _add_metric(metrics, "STATE")
 	_speed_label = _add_metric(metrics, "PEAK SPEED")
 	_floor_label = _add_metric(metrics, "LOWEST POINT")
 	_joint_label = _add_metric(metrics, "JOINT OVERSHOOT")
 
-	root.add_child(_section_heading("IMPACT"))
-	var impacts := HBoxContainer.new()
-	impacts.add_theme_constant_override(&"separation", 6)
-	root.add_child(impacts)
-	for entry: Array in [["LIMP", go_limp], ["PUSH", push], ["THROW", throw_ball], ["TACKLE", tackle]]:
-		var b := _button(entry[0])
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.pressed.connect(entry[1])
-		impacts.add_child(b)
+	var impact := _section(root, "Impact")
+	var impacts := UIStyle.dev_button_row([["LIMP", go_limp], ["PUSH", push], ["THROW", throw_ball], ["TACKLE", tackle]])
+	impact.add_child(impacts)
+	_first_focus = impacts.get_child(0)
 
-	root.add_child(_section_heading("TARGET"))
-	var targets := HBoxContainer.new()
-	targets.add_theme_constant_override(&"separation", 6)
-	root.add_child(targets)
-	var target_group := ButtonGroup.new()
-	for entry: Array in TARGETS:
-		var b := _button(entry[0], true)
-		b.button_group = target_group
-		b.button_pressed = entry[1] == target_bone
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var bone: StringName = entry[1]
-		b.pressed.connect(func() -> void: target_bone = bone)
-		targets.add_child(b)
+	var targets := []
+	var selected := 0
+	for i in TARGETS.size():
+		var bone: StringName = TARGETS[i][1]
+		targets.append([TARGETS[i][0], func() -> void: target_bone = bone])
+		if bone == target_bone:
+			selected = i
+	impact.add_child(UIStyle.dev_button_row(targets, ButtonGroup.new(), selected))
 
-	var angle_row := _slider_row("FROM", 0.0, 355.0, 5.0, impact_angle_deg,
-		func(v: float) -> void: impact_angle_deg = v)
-	_angle_value = angle_row.value_label
-	root.add_child(angle_row.node)
-	root.add_child(_slider_row("PUSH N·s", PUSH_MIN, PUSH_MAX, 10.0, push_impulse,
-		func(v: float) -> void: push_impulse = v).node)
-	root.add_child(_slider_row("BALL m/s", BALL_SPEED_MIN, BALL_SPEED_MAX, 1.0, ball_speed,
-		func(v: float) -> void: ball_speed = v).node)
-	root.add_child(_slider_row("MUSCLE %", 0.0, 100.0, 5.0, muscle * 100.0,
-		func(v: float) -> void: muscle = v / 100.0).node)
+	impact.add_child(UIStyle.dev_slider_row("From", 0.0, 355.0, 5.0, impact_angle_deg,
+		func(v: float) -> void: impact_angle_deg = v,
+		UIStyle.dev_bearing).node)
+	impact.add_child(_unit_row("Push", "N·s", PUSH_MIN, PUSH_MAX, 10.0, push_impulse,
+		func(v: float) -> void: push_impulse = v))
+	impact.add_child(_unit_row("Ball", "m/s", BALL_SPEED_MIN, BALL_SPEED_MAX, 1.0, ball_speed,
+		func(v: float) -> void: ball_speed = v))
+	impact.add_child(_unit_row("Muscle", "%", 0.0, 100.0, 5.0, muscle * 100.0,
+		func(v: float) -> void: muscle = v / 100.0))
 
-	root.add_child(_section_heading("TACKLE · FROM = TACKLER'S BEARING"))
-	root.add_child(_slider_row("CLOSING m/s", CLOSING_MIN, CLOSING_MAX, 0.5, closing_speed,
-		func(v: float) -> void: closing_speed = v).node)
-	root.add_child(_slider_row("RUNNING m/s", 0.0, CARRIER_SPEED_MAX, 0.5, carrier_speed,
-		func(v: float) -> void: carrier_speed = v).node)
-	root.add_child(_slider_row("CARRIER kg", MASS_MIN, MASS_MAX, 1.0, carrier_mass,
-		func(v: float) -> void: carrier_mass = v).node)
-	root.add_child(_slider_row("TACKLER kg", MASS_MIN, MASS_MAX, 1.0, tackler_mass,
-		func(v: float) -> void: tackler_mass = v).node)
+	# FROM above is the tackler's bearing too.
+	var tackle_section := _section(root, "Tackle")
+	tackle_section.add_child(_unit_row("Closing", "m/s", CLOSING_MIN, CLOSING_MAX, 0.5, closing_speed,
+		func(v: float) -> void: closing_speed = v))
+	tackle_section.add_child(_unit_row("Carrier", "m/s", 0.0, CARRIER_SPEED_MAX, 0.5, carrier_speed,
+		func(v: float) -> void: carrier_speed = v))
+	tackle_section.add_child(_unit_row("Carrier", "kg", MASS_MIN, MASS_MAX, 1.0, carrier_mass,
+		func(v: float) -> void: carrier_mass = v))
+	tackle_section.add_child(_unit_row("Tackler", "kg", MASS_MIN, MASS_MAX, 1.0, tackler_mass,
+		func(v: float) -> void: tackler_mass = v))
 
 	var view := HBoxContainer.new()
 	view.add_theme_constant_override(&"separation", 6)
 	root.add_child(view)
-	var shapes := _button("SHAPES", true)
-	shapes.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var shapes := UIStyle.dev_button("SHAPES", true)
 	shapes.toggled.connect(_set_shapes_visible)
-	view.add_child(shapes)
-	var skin := _button("SKIN", true)
+	var skin := UIStyle.dev_button("SKIN", true)
 	skin.button_pressed = true
-	skin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	skin.toggled.connect(_set_skin_visible)
-	view.add_child(skin)
-	var reset := _button("RESET")
-	reset.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var reset := UIStyle.dev_button("RESET")
 	reset.pressed.connect(reset_pose)
-	view.add_child(reset)
+	for b: Button in [shapes, skin, reset]:
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		view.add_child(b)
 
 	var hints := KeyHintBar.new()
 	hints.position = Vector2(24.0, 674.0)
@@ -722,10 +703,11 @@ func _build_ui() -> void:
 		{"keys": "Space", "label": "Push"},
 		{"keys": "K", "label": "Tackle"},
 		{"keys": "T", "label": "Throw"},
-		{"keys": "L", "label": "Go limp"},
+		{"keys": "L", "label": "Limp"},
 		{"keys": "R", "label": "Reset"},
 		{"keys": "Right-drag / Wheel", "label": "Orbit / zoom"},
-		{"keys": "Esc / C", "label": "Back to viewer"},
+		{"keys": "Tab", "label": "Focus"},
+		{"keys": "Esc / C", "label": "Back"},
 	])
 	_ui.add_child(hints)
 	_build_readout_panel()
@@ -734,11 +716,29 @@ func _build_ui() -> void:
 	_update_readouts()
 
 
-## Top-right card holding the run's text readout — the status line that
-## used to sit between the metric cards and IMPACT, one fact per line.
+## A headed group of rows in the menu.
+func _section(parent: Control, title: String) -> VBoxContainer:
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override(&"separation", UIStyle.DEV_ROW_GAP)
+	col.add_child(UIStyle.dev_heading(title))
+	parent.add_child(col)
+	return col
+
+
+## A slider row whose readout carries its unit.
+func _unit_row(caption: String, unit: String, min_value: float, max_value: float, step: float,
+		value: float, on_change: Callable) -> Control:
+	var pattern := UIStyle.dev_step_format(step) + ("%s" if unit == "%" else " %s")
+	var format := func(v: float) -> String: return pattern % [v, unit]
+	var row := UIStyle.dev_slider_row(caption, min_value, max_value, step, value, on_change, format)
+	(row.slider as HSlider).tooltip_text = "%s (%s)" % [caption, unit]
+	return row.node
+
+
+## Top-right card holding the run's readout: one fact per line, in
+## fixed-pitch columns.
 func _build_readout_panel() -> void:
-	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override(&"panel", _box(Color(RetroWindow.PANEL), 2, HARD_SHADOW, MENU_PADDING))
+	var panel := UIStyle.dev_panel()
 	panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	panel.offset_left = -READOUT_WIDTH - MENU_POSITION.x
@@ -746,25 +746,20 @@ func _build_readout_panel() -> void:
 	panel.offset_top = MENU_POSITION.y
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override(&"separation", MENU_ROW_GAP)
+	col.add_theme_constant_override(&"separation", UIStyle.DEV_ROW_GAP)
 	panel.add_child(col)
-	col.add_child(_section_heading("READOUT · ACTIVE RAGDOLL (§B4 1-5) · %s" % MODEL_ID))
-	_status_label = UIStyle.label("", UIStyle.SIZE_LABEL, UIStyle.TEXT_PRIMARY)
+	col.add_child(UIStyle.dev_heading("Readout · %s" % MODEL_ID))
+	_status_label = UIStyle.dev_readout("")
 	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_status_label.custom_minimum_size.x = READOUT_WIDTH - MENU_PADDING * 2.0
+	_status_label.custom_minimum_size.x = READOUT_WIDTH - UIStyle.DEV_PAD * 2.0
 	col.add_child(_status_label)
 	_ui.add_child(panel)
 
 
 ## Caps the menu at the space above the key-hint bar; past that it scrolls.
 func _fit_menu() -> void:
-	if _menu_scroll == null:
-		return
-	var available := get_viewport().get_visible_rect().size.y - MENU_POSITION.y - MENU_BOTTOM_CLEARANCE \
-		- MENU_PADDING * 2.0
-	var wanted := _menu_root.get_combined_minimum_size().y
-	_menu_scroll.custom_minimum_size.y = minf(wanted, maxf(available, 120.0))
-	_menu_panel.reset_size()
+	if _menu_scroll != null:
+		UIStyle.dev_fit_scroll(_menu_panel, _menu_scroll, _menu_root)
 
 
 func _update_readouts() -> void:
@@ -775,141 +770,43 @@ func _update_readouts() -> void:
 		_status_label.text = "%s didn't import or its skeleton doesn't match PhysicsRagdoll.BODIES — see the Output panel." % MODEL_ID
 		return
 	_state_label.text = State.keys()[_state]
-	_angle_value.text = "%d° %s" % [roundi(impact_angle_deg), _bearing_name(impact_angle_deg)]
 	if _state == State.POSED:
 		_speed_label.text = "—"
 		_floor_label.text = "—"
 		_joint_label.text = "—"
-		_status_label.text = "%d bodies · %.0f kg\nPosed (rest pose, kinematic)" % [
+		_status_label.text = "bodies     %d\nmass       %.0f kg\nposed      rest pose, kinematic" % [
 			_ragdoll.bodies.size(), _ragdoll.total_mass()]
 		return
 	_speed_label.text = "%.1f m/s" % _peak_speed
 	_floor_label.text = "%+.0f mm" % (_lowest * 1000.0)
 	_joint_label.text = "%.1f°" % _worst_joint.over
 	var lines: Array[String] = [
-		"Time  %.1f s" % _sim_time,
-		"Worst joint  %s (%.0f°)" % [_worst_joint.bone, _worst_joint.angle],
-		"Settle damping  %d%%" % roundi(_ragdoll.settle_blend() * 100.0),
-		"Muscle  %d%%%s" % [roundi(_ragdoll.strength * 100.0), "  · bracing" if _ragdoll.is_falling() else ""],
+		"time       %.1f s" % _sim_time,
+		"worst      %s (%.0f°)" % [_worst_joint.bone, _worst_joint.angle],
+		"settle     %d%%" % roundi(_ragdoll.settle_blend() * 100.0),
+		"muscle     %d%%%s" % [roundi(_ragdoll.strength * 100.0), "  bracing" if _ragdoll.is_falling() else ""],
 	]
 	if not _tackle.is_empty():
 		var landing := _landing()
 		lines.append_array([
 			"",
-			"TACKLE  b %.2f" % _tackle.b,
+			"TACKLE     b %.2f   p(break) %.2f" % [_tackle.b, _tackle.p_break],
 			# What a match would do with this hit; the lab plays the fall either way.
-			"p(break) %.2f · Lunge %s · Slide %s" % [_tackle.p_break,
+			"in a match Lunge %s, Slide %s" % [
 				"breaks" if float(_tackle.p_break) >= Tuning.TACKLE_LUNGE_BREAK_P else "holds",
 				"breaks" if float(_tackle.p_break) >= Tuning.TACKLE_SLIDE_BREAK_P else "holds"],
-			"Closing  %.1f m/s · %.0f° off square" % [_tackle.closing_speed, _tackle.approach_angle],
-			"Mass ratio  ×%.2f" % _tackle.mass_ratio,
-			"Push  %.0f N·s at %s" % [(_tackle.impulse as Vector3).length(), _tackle.bone],
-			"Tackler  %s" % ("down too (b %.2f)" % _tackle.tackler_b if float(_tackle.tackler_b) > 0.0 else "stays up"),
-			"Hips  %.2f m %s, %.2f m %s" % [absf(landing.left), "left" if landing.left >= 0.0 else "right",
+			"closing    %.1f m/s, %.0f° off square" % [_tackle.closing_speed, _tackle.approach_angle],
+			"mass       ×%.2f" % _tackle.mass_ratio,
+			"push       %.0f N·s at %s" % [(_tackle.impulse as Vector3).length(), _tackle.bone],
+			"tackler    %s" % ("down too (b %.2f)" % _tackle.tackler_b if float(_tackle.tackler_b) > 0.0 else "stays up"),
+			"hips       %.2f m %s, %.2f m %s" % [absf(landing.left), "left" if landing.left >= 0.0 else "right",
 				absf(landing.forward), "forward" if landing.forward >= 0.0 else "back"],
-			"Carrier  %s" % ("DOWN" if landing.down else "on feet"),
+			"carrier    %s" % ("DOWN" if landing.down else "on feet"),
 		])
 	_status_label.text = "\n".join(lines)
 
 
-func _bearing_name(deg: float) -> String:
-	const NAMES := ["FRONT", "FRONT-RIGHT", "RIGHT", "BEHIND-RIGHT",
-		"BEHIND", "BEHIND-LEFT", "LEFT", "FRONT-LEFT"]
-	return NAMES[roundi(deg / 45.0) % 8]
-
-
 func _add_metric(grid: GridContainer, caption: String) -> Label:
-	var card := _metric_card(caption)
-	card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var card := UIStyle.dev_metric_card(caption)
 	grid.add_child(card.node)
 	return card.value_label
-
-
-## Label / slider / readout row, same 3-column shape as the animation
-## viewer's tackle-model inputs.
-func _slider_row(caption: String, min_value: float, max_value: float, step: float,
-		value: float, on_change: Callable) -> Dictionary:
-	var row := GridContainer.new()
-	row.columns = 3
-	row.add_theme_constant_override(&"h_separation", 8)
-
-	var label := UIStyle.label(caption, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
-	label.custom_minimum_size.x = 64.0
-	row.add_child(label)
-
-	var slider := HSlider.new()
-	slider.min_value = min_value
-	slider.max_value = max_value
-	slider.step = step
-	slider.value = value
-	slider.focus_mode = Control.FOCUS_NONE
-	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(slider)
-
-	var value_label := UIStyle.label("%.0f" % value, UIStyle.SIZE_LABEL, UIStyle.TEXT_PRIMARY)
-	value_label.custom_minimum_size.x = 96.0
-	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	row.add_child(value_label)
-
-	slider.value_changed.connect(func(v: float) -> void:
-		value_label.text = "%.0f" % v
-		on_change.call(v))
-	return {"node": row, "value_label": value_label}
-
-
-func _box(fill: Color, border_w: int, shadow: float, margin: float) -> StyleBoxFlat:
-	var s := StyleBoxFlat.new()
-	s.bg_color = fill
-	s.border_color = RetroWindow.BORDER
-	s.set_border_width_all(border_w)
-	s.set_corner_radius_all(0)
-	s.content_margin_left = margin
-	s.content_margin_right = margin
-	s.content_margin_top = margin
-	s.content_margin_bottom = margin
-	if shadow > 0.0:
-		s.shadow_color = Color(0, 0, 0, 0.55)
-		s.shadow_size = 1
-		s.shadow_offset = Vector2(shadow, shadow)
-	return s
-
-
-func _button(text: String, toggle := false) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.toggle_mode = toggle
-	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size.y = 26.0
-	var base := Color(RetroWindow.PANEL)
-	b.add_theme_stylebox_override(&"normal", _box(base.lightened(0.08), 2, 3.0, 8.0))
-	b.add_theme_stylebox_override(&"hover", _box(base.lightened(0.18), 2, 3.0, 8.0))
-	b.add_theme_stylebox_override(&"pressed", _box(Color(UIStyle.ACCENT), 2, 0.0, 8.0))
-	b.add_theme_stylebox_override(&"hover_pressed", _box(Color(UIStyle.ACCENT), 2, 0.0, 8.0))
-	b.add_theme_stylebox_override(&"focus", StyleBoxEmpty.new())
-	b.add_theme_font_size_override(&"font_size", UIStyle.SIZE_LABEL)
-	b.add_theme_color_override(&"font_color", UIStyle.TEXT_PRIMARY)
-	b.add_theme_color_override(&"font_hover_color", UIStyle.TEXT_PRIMARY)
-	b.add_theme_color_override(&"font_pressed_color", Color.BLACK)
-	b.add_theme_color_override(&"font_hover_pressed_color", Color.BLACK)
-	return b
-
-
-func _metric_card(caption: String) -> Dictionary:
-	var box := PanelContainer.new()
-	box.add_theme_stylebox_override(&"panel", _box(Color(RetroWindow.PANEL).darkened(0.18), 2, 0.0, 6.0))
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override(&"separation", 0)
-	box.add_child(col)
-	col.add_child(UIStyle.label(caption, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED))
-	var value := UIStyle.label("—", SoftBrutalist.SIZE_HEADING, UIStyle.TEXT_PRIMARY, UIStyle.WEIGHT_BOLD)
-	col.add_child(value)
-	return {"node": box, "value_label": value}
-
-
-func _section_heading(text: String) -> Label:
-	return UIStyle.label(text.to_upper(), UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD)
-
-
-func _muted_caption(text: String) -> Label:
-	return UIStyle.label(text, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)

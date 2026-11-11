@@ -248,6 +248,31 @@ const CONTACT_HANDS_HOLD := 0.3        ## s at full brace after a contact
 const CONTACT_HANDS_RISE := 25.0       ## 1/s, exponential
 const CONTACT_HANDS_FALL := 6.0        ## 1/s
 const CONTACT_ARM_BONES: Array[StringName] = [&"LeftUpperArm", &"RightUpperArm"]
+## Hands on the other body (ArmIK, 2026-11-11): palms this far either side
+## of their chest, this far out from its centre on this player's side, and
+## only within this range of them. Unplaytested feel guesses.
+const CONTACT_HANDS_SPREAD := 0.14   ## m
+const CONTACT_HANDS_SURFACE := 0.16  ## m, as Tuning.CONTACT_REACT_CHEST_RADIUS
+const CONTACT_HANDS_RANGE := 1.3     ## m between the players
+
+## ── Wrestle ─────────────────────────────────────────────────────────
+## A held-up tackle (Tuning's "The held-up wrestle"). set_press() tips the
+## spine toward a world direction, eased at PRESS_SMOOTHING: the lean into
+## the other body that a wrestling trunk's motors pull toward (the trunk is
+## on physics; this pose is their target). And the two hold-up clips are
+## blend trees here, not bare clips: the locomotion blend space over the leg
+## bones only, faded in by drive() once the pair is moving, so the feet step
+## the way the bodies go instead of sliding on the clip's planted stance.
+## The layer is back under half before the clip ends: Blend2 reports the
+## time of whichever input is over half, and the state leaves on its clip's.
+const PRESS_SMOOTHING := 8.0
+const WRESTLE_STATES: Array[StringName] = [&"tackle_grab", &"tackle_held"]
+const WRESTLE_LEG_BONES: Array[StringName] = [&"LeftUpperLeg", &"LeftLowerLeg", &"LeftFoot",
+	&"RightUpperLeg", &"RightLowerLeg", &"RightFoot"]
+const WRESTLE_LEGS_NODE := &"legs"
+const WRESTLE_CLIP_NODE := &"clip"
+const WRESTLE_LEGS_FADE_IN := 0.15    ## s
+const WRESTLE_LEGS_FADE_OUT := Vector2(0.45, 0.25)   ## s before the clip ends: starts, done
 
 ## ── Ball carry ──────────────────────────────────────────────────────
 ## Playtest 2026-10-28: "the ball is also not in the players hands it is
@@ -372,6 +397,12 @@ var _sway_rate := Vector2.ZERO
 var _brace := 0.0
 var _brace_hold := 0.0
 var _last_velocity := Vector3.ZERO
+## See "Wrestle": the press lean now and wanted (degrees right, forward),
+## which hold-up states got a legs layer, and the running one's clock.
+var _press := Vector2.ZERO
+var _press_target := Vector2.ZERO
+var _wrestle_layers: Array[StringName] = []
+var _wrestle_clock := 0.0
 
 ## See "Ball carry". _grip is {hand bone: {"bone": index, "centre": the
 ## ball's centre in that hand's frame}}, empty without a carry clip.
@@ -462,6 +493,19 @@ func drive(blend: Vector2, delta: float, speed := -1.0) -> void:
 		var holding := controller != null and controller.is_carrying()
 		_carry_blend = lerpf(_carry_blend, 1.0 if holding else 0.0, 1.0 - exp(-CARRY_BLEND_RATE * delta))
 		_tree.set(_carry_parameter, _carry_blend)
+	# See "Wrestle": the legs step under a hold-up clip while the pair moves.
+	_wrestle_clock += delta
+	var state := current_state()
+	for layered in _wrestle_layers:
+		var amount := 0.0
+		if layered == state and Tuning.TACKLE_WRESTLE_LEGS:
+			var left := _player.get_animation(layered).length - _wrestle_clock
+			amount = minf(clampf(speed / Tuning.TACKLE_WRESTLE_LEGS_SPEED, 0.0, 1.0),
+				minf(clampf(_wrestle_clock / WRESTLE_LEGS_FADE_IN, 0.0, 1.0),
+					clampf((left - WRESTLE_LEGS_FADE_OUT.y) / (WRESTLE_LEGS_FADE_OUT.x - WRESTLE_LEGS_FADE_OUT.y), 0.0, 1.0)))
+		_tree.set("parameters/%s/%s/blend_position" % [layered, GAIT_NODE], _blend)
+		_tree.set("parameters/%s/%s/scale" % [layered, STRIDE_NODE], _stride_rate)
+		_tree.set("parameters/%s/%s/blend_amount" % [layered, WRESTLE_LEGS_NODE], amount)
 
 
 ## The locomotion playback rate right now — see "Stride matching".
@@ -574,6 +618,7 @@ func _process(delta: float) -> void:
 	if controller != null:
 		controller.sync_reaction_pose()
 	_apply_lean()
+	_apply_press(delta)
 	_apply_contact_reaction(delta)
 	_clamp_feet_to_ground()
 	_update_ball_hold()
@@ -620,6 +665,42 @@ func react_to_contact(push: Vector3, hands := false) -> void:
 		* CONTACT_SWAY_KICK_DEG
 	if hands:
 		_brace_hold = CONTACT_HANDS_HOLD
+
+
+## See "Wrestle": lean `degrees` toward `direction` (world) until told
+## otherwise; zero lets it go.
+func set_press(direction: Vector3, degrees: float) -> void:
+	var body := get_parent() as Node3D
+	direction.y = 0.0
+	if body == null or direction.length_squared() < 0.0001 or degrees <= 0.0:
+		_press_target = Vector2.ZERO
+		return
+	direction = direction.normalized()
+	_press_target = Vector2(direction.dot(body.global_basis.x.normalized()),
+		direction.dot(-body.global_basis.z.normalized())) * degrees
+
+
+func _apply_press(delta: float) -> void:
+	_press = _press.lerp(_press_target, 1.0 - exp(-PRESS_SMOOTHING * delta))
+	if ragdoll_active or _lean_bone < 0 or _rig == null or _press.length() < 0.05:
+		return
+	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
+	var body := get_parent() as Node3D
+	if skeleton == null or body == null:
+		return
+	var to_skeleton := skeleton.global_basis.orthonormalized().inverse()
+	var right := (to_skeleton * body.global_basis.x).normalized()
+	var forward := (to_skeleton * -body.global_basis.z).normalized()
+	_turn_bone(skeleton, _lean_bone, Quaternion(right, -deg_to_rad(_press.y))
+		* Quaternion(forward, deg_to_rad(_press.x)))
+
+
+## A knock handing its trunk back from physics (PlayerRagdoll): the sway
+## starts at the tilt the body really has (degrees right, forward) and
+## settles from there, rather than the animation starting upright.
+func adopt_lean(tilt: Vector2) -> void:
+	_sway = tilt.limit_length(CONTACT_SWAY_MAX_DEG)
+	_sway_rate = Vector2.ZERO
 
 
 ## Drops any contact reaction at once: a ragdoll taking over (even while
@@ -669,12 +750,58 @@ func _apply_contact_reaction(delta: float) -> void:
 		var controller := body as PlayerController
 		if controller != null and controller.is_carrying():
 			return   # the carry layer has the arms (see "Ball carry")
+		if _hands_on_other(skeleton, body, right, forward):
+			return
 		for bone_name in CONTACT_ARM_BONES:
 			var bone := skeleton.find_bone(bone_name)
 			if bone >= 0:
 				# Opposite sign to the lean's: that tips an upward bone forward,
 				# this swings a hanging one forward.
 				_turn_bone(skeleton, bone, Quaternion(right, deg_to_rad(CONTACT_HANDS_REACH_DEG * _brace)))
+
+
+## The other body a brace's hands go to (set_hands_target), if any.
+var _hands_target: Node3D = null
+
+
+## Aims the next brace's palms at `other`'s chest (Phase 2 step 4) rather
+## than just swinging the arms forward. Null goes back to the swing.
+func set_hands_target(other: Node3D) -> void:
+	_hands_target = other
+
+
+## Two-bone IK (ArmIK) of both arms onto the other body's chest, the hands
+## CONTACT_HANDS_SPREAD either side of it on this player's side, blended in
+## by the brace. Only within CONTACT_HANDS_RANGE; false when it didn't run
+## (no target, out of reach), so the plain swing does.
+func _hands_on_other(skeleton: Skeleton3D, body: Node3D, right: Vector3, _forward: Vector3) -> bool:
+	if _hands_target == null or not is_instance_valid(_hands_target):
+		return false
+	var other_rig := _hands_target.get_node_or_null(^"Rig/Skeleton3D") as Skeleton3D
+	if other_rig == null:
+		return false
+	var chest_bone := other_rig.find_bone(&"Chest")
+	if chest_bone < 0:
+		return false
+	var chest := other_rig.global_transform * other_rig.get_bone_global_pose(chest_bone).origin
+	var to_me := body.global_position - _hands_target.global_position
+	to_me.y = 0.0
+	if to_me.length() > CONTACT_HANDS_RANGE or to_me.length_squared() < 1e-4:
+		return false
+	to_me = to_me.normalized()
+	var world_right := body.global_basis.x.normalized()
+	var to_skeleton := skeleton.global_transform.affine_inverse()
+	for side in [[&"Left", -1.0], [&"Right", 1.0]]:
+		var upper := skeleton.find_bone(StringName(String(side[0]) + "UpperArm"))
+		var lower := skeleton.find_bone(StringName(String(side[0]) + "LowerArm"))
+		var hand := skeleton.find_bone(StringName(String(side[0]) + "Hand"))
+		if upper < 0 or lower < 0 or hand < 0:
+			return false
+		var target_world: Vector3 = chest + to_me * CONTACT_HANDS_SURFACE 			+ world_right * CONTACT_HANDS_SPREAD * float(side[1])
+		# The elbow down and out to its own side, as a brace holds it.
+		var pole := (right * float(side[1]) * 0.6 + Vector3.DOWN).normalized()
+		ArmIK.solve(skeleton, upper, lower, hand, to_skeleton * target_world, pole, _brace)
+	return true
 
 
 ## Turns `bone` by `turn` (a skeleton-space rotation) on top of its pose.
@@ -849,6 +976,8 @@ func play_action(action: Tuning.Action) -> void:
 		Tuning.Action.MARK_SAFE, Tuning.Action.MARK_RUNNING, Tuning.Action.MARK_AGGRESSIVE:
 			state = _select_mark_state(action, state)
 	_mark_context = {}
+	if _wrestle_layers.has(state):
+		_wrestle_clock = 0.0
 	_playback.travel(state)
 	# Lands the travel now, one physics step in. Left to the tree's own next
 	# update, the clip started ~2 frames behind the action's gameplay clock
@@ -1344,7 +1473,11 @@ func _build_state_machine() -> AnimationNodeStateMachine:
 		var state: StringName = ACTION_STATES[action]
 		var clip := AnimationNodeAnimation.new()
 		clip.animation = state
-		machine.add_node(state, clip, Vector2(560.0, 40.0 + 110.0 * row))
+		if WRESTLE_STATES.has(state) and _player.has_animation(state):
+			machine.add_node(state, _build_wrestle_state(clip), Vector2(560.0, 40.0 + 110.0 * row))
+			_wrestle_layers.append(state)
+		else:
+			machine.add_node(state, clip, Vector2(560.0, 40.0 + 110.0 * row))
 		row += 1
 
 		# Entered on demand via playback.travel(); leaves on its own the
@@ -1416,6 +1549,24 @@ func _build_state_machine() -> AnimationNodeStateMachine:
 				AnimationNodeStateMachineTransition.SWITCH_MODE_AT_END,
 				AnimationNodeStateMachineTransition.ADVANCE_MODE_AUTO))
 	return machine
+
+
+## A hold-up clip with the stepping legs over it — see "Wrestle".
+func _build_wrestle_state(clip: AnimationNodeAnimation) -> AnimationNodeBlendTree:
+	var tree := AnimationNodeBlendTree.new()
+	tree.add_node(WRESTLE_CLIP_NODE, clip, Vector2(0.0, 0.0))
+	tree.add_node(GAIT_NODE, _build_blend_space(), Vector2(0.0, 160.0))
+	tree.add_node(STRIDE_NODE, AnimationNodeTimeScale.new(), Vector2(260.0, 160.0))
+	tree.connect_node(STRIDE_NODE, 0, GAIT_NODE)
+	var layer := AnimationNodeBlend2.new()
+	layer.filter_enabled = true
+	for bone: StringName in WRESTLE_LEG_BONES:
+		layer.set_filter_path(NodePath("Skeleton3D:" + String(bone)), true)
+	tree.add_node(WRESTLE_LEGS_NODE, layer, Vector2(520.0, 0.0))
+	tree.connect_node(WRESTLE_LEGS_NODE, 0, WRESTLE_CLIP_NODE)
+	tree.connect_node(WRESTLE_LEGS_NODE, 1, STRIDE_NODE)
+	tree.connect_node(&"output", 0, WRESTLE_LEGS_NODE)
+	return tree
 
 
 ## The blend space through the stride TimeScale — see "Stride matching".

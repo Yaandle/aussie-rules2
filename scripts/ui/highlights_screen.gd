@@ -87,6 +87,8 @@ var _bar_back: Panel
 var _time_label: Label
 var _empty_card: PanelContainer
 var _overlay: Control
+var _ui_root: Control
+var _dialog: HighlightExportDialog
 
 
 func _ready() -> void:
@@ -139,10 +141,8 @@ func _preset() -> String:
 func _unhandled_input(event: InputEvent) -> void:
 	if _busy:
 		return
-	if _exporter.busy:
-		if event.is_action_pressed(&"pause") or event.is_action_pressed(&"ui_cancel") \
-				or event.is_action_pressed(&"decline"):
-			_exporter.cancel()
+	if is_instance_valid(_dialog):
+		if _dialog.handle_input(event):
 			get_viewport().set_input_as_handled()
 		return
 	if event.is_action_pressed(&"pause") or event.is_action_pressed(&"ui_cancel") \
@@ -235,21 +235,34 @@ func _leave() -> void:
 	SceneWipe.change_scene(Highlights.return_scene if Highlights.return_scene != "" else MENU_SCENE)
 
 
+## Opens the export window over a blurred page: pick the clips there, and
+## its EXPORT renders them into the highlights folder.
 func _export() -> void:
-	var kept := Highlights.kept()
-	if kept.is_empty():
-		_status_label.text = "Nothing ticked to keep. X / Space ticks a moment."
+	if is_instance_valid(_dialog):
 		return
-	_status_label.text = "Starting export..."
-	var folder := await _exporter.export_moments(kept, Highlights.match_info)
-	_status_label.text = "Exported %d moment%s to\n%s" % [kept.size(), "" if kept.size() == 1 else "s", folder]
+	_playing = false
+	_dialog = HighlightExportDialog.new(_moments)
+	_dialog.export_requested.connect(_run_export)
+	_dialog.cancel_requested.connect(_exporter.cancel)
+	_dialog.closed.connect(_refresh)
+	_ui_root.add_child(_dialog)
+
+
+func _run_export(picked: Array[Dictionary]) -> void:
+	var folder := await _exporter.export_moments(picked, Highlights.match_info)
+	var text := "Exported %d clip%s to\n%s" % [picked.size(), "" if picked.size() == 1 else "s", folder]
+	_status_label.text = text
+	if is_instance_valid(_dialog):
+		_dialog.finish(text + "\nA / Enter or B / Esc closes.")
 	# The stage was driven by the exporter: back to the selected moment.
 	_select(_index)
+	_playing = false
 	_refresh()
 
 
 func _on_export_progress(text: String, fraction: float) -> void:
-	_status_label.text = "%s  %d%%\nEsc / B cancels" % [text, int(fraction * 100.0)]
+	if is_instance_valid(_dialog):
+		_dialog.set_progress("%s  %d%%   ·   Esc / B cancels" % [text, int(fraction * 100.0)])
 
 
 # ── UI ──────────────────────────────────────────────────────────────
@@ -261,6 +274,7 @@ func _build_ui() -> void:
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(root)
+	_ui_root = root
 
 	# The replay, right of the column.
 	_view_container = SubViewportContainer.new()
@@ -347,6 +361,19 @@ func _build_ui() -> void:
 	_section(_list, "EXPORT")
 	_kept_label = StudioStyle.text("", 12, StudioStyle.INK, StudioStyle.body_font())
 	_list.add_child(_kept_label)
+	# Clickable as well as E / Y: opens the export window.
+	var export_button := Panel.new()
+	export_button.custom_minimum_size = Vector2(0.0, 38.0)
+	export_button.add_theme_stylebox_override(&"panel", StudioStyle.box(StudioStyle.LIME, StudioStyle.BORDER, StudioStyle.SHADOW))
+	export_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	export_button.gui_input.connect(func(event: InputEvent) -> void:
+		var click := event as InputEventMouseButton
+		if click != null and click.pressed and click.button_index == MOUSE_BUTTON_LEFT and not _moments.is_empty():
+			_export())
+	var export_label := StudioStyle.text("EXPORT CLIPS...   E / Y", 14, StudioStyle.INK, StudioStyle.body_font())
+	export_label.position = Vector2(12.0, 9.0)
+	export_button.add_child(export_label)
+	_list.add_child(export_button)
 	_path_label = StudioStyle.text("", 11, StudioStyle.INK_SOFT, StudioStyle.mono_font())
 	_path_label.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
 	_path_label.custom_minimum_size.x = COLUMN_WIDTH - 56.0

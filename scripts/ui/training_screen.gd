@@ -248,7 +248,10 @@ func _build_world() -> void:
 	var sun := DirectionalLight3D.new()
 	# kick_to_kick.tscn's Sun, so the two light the oval the same.
 	sun.transform = Transform3D(Basis(Vector3(0.8637, -0.3627, 0.3499), Vector3(0.0, 0.6943, 0.7197),
-		Vector3(-0.5039, -0.6216, 0.5998)), Vector3(0.0, 40.0, 0.0))
+		Vector3(-0.5039, -0.6216, 0.5998)).transposed(), Vector3(0.0, 40.0, 0.0))
+	# transposed(): a .tscn writes a basis row by row, Basis() takes
+	# columns. Without it the sun pointed up from under the ground and the
+	# drills were lit by ambient alone (ReplayStage had the same bug).
 	sun.light_energy = 1.05
 	sun.shadow_enabled = true
 	sun.shadow_opacity = 0.72

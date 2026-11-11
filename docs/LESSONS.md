@@ -6,6 +6,30 @@ mostly superseded history. The full text lives outside the repo, in
 `F:\dev\aussie-rules2-archive\2026-10-24_docs\HANDOVER.md`, and in git history
 (`git log -- docs/HANDOVER.md`). Read this file instead of digging through it.
 
+## Architecture principles
+
+Written 2026-09-20, at the end of the technical architecture study. Every
+change should fit them.
+
+- **Separation of concerns:** logic, rendering, physics and visuals stay in
+  their own layers. *In the code:* `PlayerController` simulates, a
+  `PlayerBrain` decides, `PlayerAnimation` draws, `scripts/ui` shows.
+- **Data driven:** telemetry, configs and assets; numbers live in Tuning or
+  data files, not inline. *In the code:* `scripts/tuning.gd`,
+  `data/ml/*.json`, `character_profile.cfg`.
+- **Modular and extensible:** features, mechanics and AI plug in without
+  rewiring the rest. *In the code:* `AIBrain` / `HumanBrain` / `DrillBrain`
+  behind `set_brain()`; `TackleWrap` and `PlayerRagdoll` as child helpers.
+- **Physics is authoritative for gameplay:** contests are decided by bodies,
+  mass, speed and timing, never a probability roll. *In the code:*
+  `TackleBalance` on the real contact, `PhysicsRagdoll`, `RULES_REFERENCE.md` §3.
+- **Maintainable and scalable:** clean code, short accurate docs. *In the
+  code:* a script's header carries the why; this file stays short.
+- **Rendering and animation are decoupled:** gameplay never reads the
+  animated pose; the visual layer follows the simulation. *In the code:*
+  ragdoll state is read from bodies, not `get_bone_global_pose`;
+  `PlayerAnimation` is driven by velocity and action, and nothing reads it back.
+
 ## Design decisions to keep
 
 - **Weight is emergent, not scripted.** Turn rate falls as speed rises, and
@@ -143,6 +167,19 @@ mostly superseded history. The full text lives outside the repo, in
   (`core.autocrlf=true`), and several UI scripts are CRLF in the working
   tree anyway. A script edit that expects LF finds nothing; the Edit tool
   copes with either.
+- **A partial ragdoll needs both ticks of lag taken out.** Posed bodies
+  move when the skeleton updates (after the physics step), and nodes get
+  their body's state at the start of the next tick. Step the partial after
+  `move_and_slide` and copy server state onto the nodes before the skeleton
+  draws (`PhysicsRagdoll.sync_partial_nodes`), or the simulated trunk draws
+  a tick behind the animated legs (14 cm at a sprint).
+- **While any bone simulates, the rest are kinematic and collide.** Turn
+  their collision off server-side, or animated legs shove other ragdolls
+  with infinite mass. And simulate the children of a simulated body: a
+  kinematic child is still jointed to it.
+- **Players are a moving platform's passengers by default.** CharacterBody3D
+  hands the player the velocity of any body it stands on, the ball
+  included; `platform_floor_layers` is world only (a catcher left at 41 m/s).
 - **Ramp in any servo that grabs a ragdoll limb.** At full strength on its
   first tick, TackleWrap's wrist grip cancelled the whole closing speed at
   the wrist and whipped the arms at up to 105 rad/s.
@@ -279,6 +316,10 @@ mostly superseded history. The full text lives outside the repo, in
 - **Ragdoll tackles:** `scenes/dev/tackle_sweep.tscn` runs real X, B and
   bump connects between running 6thbuild players and prints how every body
   fell. Its header holds the 2026-10-28 baseline.
+- **Knocks on the feet:** `scenes/dev/contact_sweep.tscn` (collisions,
+  broken and held-up tackles, glancing bumps, contested marks, by bearing,
+  pace and stamina; `-- --model=7thbuild`, `-- --cases=N`). Run mark cases
+  one at a time: `_live_ball()` reads the first ball in the scene.
 - Nobody in this project's history has had a live GUI session during an
   agent run. Anything about feel, framing or camera needs the user's eyes:
   say so rather than claiming it.

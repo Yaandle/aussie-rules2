@@ -7,6 +7,47 @@ own docs: `ANIMATION_RAGDOLL_AUDIT.md` (kick, carry, phase lock, bank,
 tackles), `MECHANICS_AUDIT.md` (ragdoll stages 2-5) and the 2026-10-30
 playtest commit (HUD, park turf, ruck, training).
 
+## The held-up wrestle and contact direction (2026-11-10, branch `update`)
+
+See `docs/ANIMATION_RAGDOLL_AUDIT.md` (last section). Numbers are Tuning's
+"The held-up wrestle" and "Direction from the angle of contact".
+
+- [ ] **Held-up tackle, head-on:** the pair fights for a second and the player with the better of the hit walks the other back about half a metre; it reads as a contest, not a slide.
+- [ ] **Held-up tackle from the side:** the pair goes off diagonally and the tackler swings round the carrier; neither teleports or spins on the spot.
+- [ ] **Held-up from behind:** the carrier drags the tackler on a couple of metres.
+- [ ] **Legs in the hold:** the feet step the way the pair moves instead of sliding (`TACKLE_WRESTLE_LEGS`); say if the stepping legs look wrong under the grab and held clips.
+- [ ] **Trunks in the hold:** both lean into each other and give when overpowered; the amount (`TACKLE_WRESTLE_LEAN_DEG` 14, `TRUNK_SHARE` 1) looks right.
+- [ ] **End of the hold:** both come out of it smoothly, no snap upright and no spin to face the way they were pushed.
+- [ ] **Heavy v light (Career weights):** the heavier player wins ground in a hold.
+- [ ] **Glancing bump from the side:** the carrier is knocked away from the bumper, not along the bumper's run.
+- [ ] **Contested mark, the loser:** watch for the trunk whipping round as they turn away (one sweep row snaps; not fixed).
+
+## Dev tool screens (2026-11-10, branch `update`)
+
+Before and after captures are in `docs/review/devtools/` (720 and 1080).
+
+- [ ] **Animation viewer, CONTESTS:** RESULT sits beside the contest buttons with no scrolling at 1280×720 and 1920×1080; OUTCOME, the A/B lines and the formula lines are readable while the contest plays.
+- [ ] **ML page:** every stage's cards, chart and text show in the RESULTS column beside its controls; RUN, TRAIN, APPLY and SAVE still do what they did.
+- [ ] **Ragdoll lab:** the menu fits without scrolling and the readout's columns line up.
+- [ ] **Keyboard and pad focus (new):** Tab or the d-pad lands on the first button, walks the panel in reading order and shows a rust outline; a mouse click doesn't leave focus behind, so the lab's Space / K / T / L / R still work after one.
+- [ ] **FREE MOVE:** pad or keyboard input doesn't press a panel button while you're moving the player.
+
+## Contact on the motor ragdoll (2026-11-10, branch `update`)
+
+See `docs/ANIMATION_RAGDOLL_AUDIT.md` ("Contact on the motor ragdoll").
+The animation viewer's CONTESTS tab has a CONTACT panel (B's pace, both
+staminas) and reads out what the real tackle decided.
+
+- [ ] **Running into someone:** both torsos give and come back; nobody looks frozen or rubbery. Head-on at a sprint should look like a real knock, a brush hardly anything.
+- [ ] **A tackle that breaks:** the carrier rocks forward over the grab and runs on with the ball still in their hands; the tackler is jerked after them.
+- [ ] **A held-up tackle (AI Slides, ball-ups):** both stay on their feet but visibly take it; the pair slides on a metre or two instead of stopping dead.
+- [ ] **Held-up stand, bump-miss stumble, ruck stagger:** the legs come back under the body rather than staying frozen mid-stride.
+- [ ] **Contested marks:** bodies meeting in the contest jolt each other; the catcher's hands stay on the ball.
+- [ ] **No snaps:** nothing jerks at the end of a knock (physics fades out over 0.2 s); watch the waist for any gap between shirt and shorts.
+- [ ] **Stamina:** late in a long sprint, a knock should look looser than the same knock fresh. Is that noticeable, and is it wanted?
+- [ ] **The catcher flung by the ball (fixed):** a fast kick into a pack no longer launches the player who catches it.
+- [ ] **Frame rate:** a crowded contest (several knocks at once) doesn't hitch. Each player builds their ragdoll (~1-1.5 ms) on their first knock.
+
 ## Build 7 shoulders, idle and the character screen (2026-11-09, branch `build7-polish`)
 
 See `docs/BUILD7_MODEL.md` ("Shoulders, arms and idle") and the images in
@@ -70,3 +111,8 @@ default). See `docs/BUILD7_MODEL.md`.
 - [ ] **Kits:** home, away and a custom kit each recolour every part (guernsey, collar, shorts, socks, boots).
 - [ ] **Frame rate:** a full match on Build 7 runs at least as smoothly as Build 6 on your machine.
 - [ ] **Character screens:** the preview wears 17 for now (no number is passed to a preview); say if that should change.
+- [ ] **Highlights export window:** E / Y or the EXPORT CLIPS button blurs the page and opens the picker; ticking, EXPORT, CANCEL, Esc-to-cancel mid-export and the done message all work with pad, keyboard and mouse, and the files land in `highlights/`.
+- [ ] Shoulder push (2026-11-11): run alongside an opponent and lean in — the heavier/fresher one should move the other off their line (~0.2-0.5 m/s), both trunks leaning in. `Tuning.SHOULDER_PUSH_*`; switch off with `SHOULDER_PUSH_ENABLED`.
+- [ ] Hands on the body (2026-11-11): in a held-up tackle or a front-on collision the palms should land on the other player's chest, not swing past. `ArmIK`, `PlayerAnimation.CONTACT_HANDS_*`.
+- [ ] AI ragdolls you (2026-11-11, 6T): let an AI Slide-tackle you while carrying; a winning sling should put you down on the ragdoll, a stand should hold you up on physics. AI-v-AI tackles stay on clips. Watch how often it fires.
+- [ ] AI-v-AI ragdoll tackles (2026-11-11): watch AI Slides on each other; slings should fall on the ragdoll, stands fight on their feet, holds wrestle. Check frame rate with many at once; `Tuning.TACKLE_RAGDOLL_AI_V_AI` turns it off.
