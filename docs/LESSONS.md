@@ -100,7 +100,7 @@ change should fit them.
   - spawn and free a few throwaway players first
     (`AnimationViewer._ensure_player_construction_warmed`)
   - wait a few physics frames before touching them
-  
+
   Normal match flow never hits it. Synthetic tests do.
 - **Use 6DOF joints for PhysicalBone3D under Jolt, not CONE** (CONE
   explodes). A jointed chain needs a settle and sleep assist, and the feet
