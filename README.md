@@ -18,8 +18,9 @@ tackle that lands holds or breaks on a trained tackle model. There's also a
 roster and stats. A solo **Kick-to-Kick** mode has kicking, marking and
 tackling coaches. Players use an imported Blender model with 26 clips, and
 the two ovals are generated in Blender. A scoreboard card in the corner of
-the screen and the ground's own board (seven-segment at the park, hung number tiles at the
-bush oval) show goals, behinds and total for each side. Sound is still synthesized in code.
+the screen and the ground's own board (seven-segment at the park, hung number
+tiles at the bush oval) show goals, behinds and total for each side. Sound is
+still synthesized in code.
 
 ![Screenshot](assets/textures/images/screenshot.png)
 
@@ -35,7 +36,6 @@ bush oval) show goals, behinds and total for each side. Sound is still synthesiz
 The rules as implemented are in
 [docs/RULES_REFERENCE.md](docs/RULES_REFERENCE.md). The engineering notes are
 in [docs/LESSONS.md](docs/LESSONS.md).
-
 
 ## Run
 
