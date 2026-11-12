@@ -1937,6 +1937,23 @@ const MARK_CUE_SOURCE := 1
 # a Madden-style prompt floats over the head, a camera frames the chest.
 const MARK_PROMPT_HEIGHT := 2.05       # m above player origin
 
+# Mark-timing assist (6AF, playtest 2026-11-11: "the timing for marking is
+# a bit hard"). A test feature, off by default (HUD STYLE > MARKING). As
+# the press-now instant of the mark cue comes up the whole game runs at
+# MARK_ASSIST_TIME_SCALE, from MARK_ASSIST_SLOW_LEAD game-seconds before it
+# to MARK_ASSIST_SLOW_AFTER past it (or until the (Y) leap is committed),
+# easing in and out over MARK_ASSIST_EASE real seconds. MarkPrompt draws a
+# small graph over the player: the ball's height against time, a window on
+# the curve MARK_ASSIST_WINDOW either side of the press instant, and the
+# ball as a dot that goes green inside it. The window is the Stage 3 card's
+# ~0.3 s catch window. It only shows the cue the ring already counts down
+# to; nothing about how a mark is judged changes. Unplaytested feel guesses.
+const MARK_ASSIST_TIME_SCALE := 0.4
+const MARK_ASSIST_SLOW_LEAD := 0.6     # s of game time before the press instant
+const MARK_ASSIST_SLOW_AFTER := 0.2    # s
+const MARK_ASSIST_EASE := 0.12         # s, real time
+const MARK_ASSIST_WINDOW := 0.15       # s either side of the press instant
+
 # Timing-based skill mechanic (user brief): a graded press against the
 # ball's live arrival, synced to its actual flight rather than a fixed
 # timer — see PlayerController.mark_timing_offset(). Inside IDEAL_WINDOW is

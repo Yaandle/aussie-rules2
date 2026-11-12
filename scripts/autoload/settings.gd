@@ -258,6 +258,7 @@ const HUD_OPTIONS := {
 	&"ring_style": {"label": "LINE", "options": ["SOLID", "DASHED"], "default": 0},
 	&"ring_size": {"label": "SIZE", "options": ["SMALL", "MEDIUM", "LARGE"], "default": 1},
 	&"ring_thickness": {"label": "THICKNESS", "options": ["THIN", "MEDIUM", "THICK"], "default": 1},
+	&"mark_assist": {"label": "TIMING ASSIST", "options": ["OFF", "ON"], "default": 0},
 }
 
 ## The colour each *_colour option's name stands for. GREEN is the kick

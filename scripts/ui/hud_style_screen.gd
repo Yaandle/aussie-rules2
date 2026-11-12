@@ -39,6 +39,7 @@ const SECTIONS := [
 		&"trajectory_pattern", &"trajectory_thickness"]},
 	{"title": "PLAYER RING", "keys": [&"ring", &"ring_colour", &"ring_style", &"ring_size",
 		&"ring_thickness"]},
+	{"title": "MARKING", "keys": [&"mark_assist"]},
 ]
 ## Keys shown as preset cards rather than a cycling row, with each
 ## option's one-line description.

@@ -124,6 +124,30 @@ var ball: Ball = null
 ## MarkCueModel.cue_time_to_press.
 var cue_source: int = Tuning.MARK_CUE_SOURCE
 
+## Mark-timing assist (6AF, Tuning's "Mark-timing assist"): -1 follows the
+## HUD option and only runs for a human-controlled player, 0 / 1 force it
+## off / on (dev tools).
+var assist_mode := -1
+
+## The assist's graph: panel size in px, how far above the ring it floats,
+## and the stretch of time it plots either side of the press instant.
+const ASSIST_SIZE := Vector2(124.0, 68.0)
+const ASSIST_GAP := 10.0
+const ASSIST_PAD := 8.0
+const ASSIST_SPAN_BEFORE := 1.2   ## s
+const ASSIST_SPAN_AFTER := 0.4    ## s
+const ASSIST_MIN_TOP := 3.0       ## m: the least height the y axis spans
+const ASSIST_SAMPLES := 28
+const ASSIST_PANEL := Color(0.165, 0.165, 0.165, 0.86)   ## #2a2a2a
+const ASSIST_IN_WINDOW := Color("#8BC896")
+
+## Seconds of game time to the cue's press-now instant (the number the ring
+## counts down), NAN while there's nothing to count down to.
+var _to_press := NAN
+## True while this prompt has Engine.time_scale off 1.0, so it only ever
+## puts back what it took.
+var _assist_owns_time := false
+
 var _canvas: Control
 var _tier := Tuning.Action.NONE
 var _screen_pos := Vector2.ZERO
@@ -172,6 +196,7 @@ func _process(delta: float) -> void:
 
 	var previous_tier := _tier
 	_ring_visible_this_frame = false
+	_to_press = NAN
 	var live_now := false
 	if is_instance_valid(player) and is_instance_valid(ball):
 		var camera := player.camera as Camera3D
@@ -191,6 +216,7 @@ func _process(delta: float) -> void:
 					if tier != Tuning.Action.SMOTHER_DIVE:
 						_update_ring()
 	_visible_this_frame = live_now
+	_update_assist(delta)
 
 	if not live_now or _tier != previous_tier:
 		_ring_completed = false
@@ -277,6 +303,7 @@ func _update_ring() -> void:
 	# _press_target_offset(_tier) - mark_timing_offset(), with NAN on the
 	# not-closing sentinel.
 	var to_press := MarkCueModel.cue_time_to_press(player, ball, _tier, cue_source)
+	_to_press = to_press
 	if is_nan(to_press):
 		_ring_progress = 0.0   # nothing meaningful to count down yet — ring hasn't started closing
 		return
@@ -328,6 +355,104 @@ func _draw_badge(canvas: Control) -> void:
 	var size := font.get_string_size(label, HORIZONTAL_ALIGNMENT_CENTER, -1, LABEL_SIZE)
 	canvas.draw_string(font, _screen_pos - size * 0.5 + Vector2(0.0, size.y * 0.5),
 		label, HORIZONTAL_ALIGNMENT_LEFT, -1, LABEL_SIZE, SoftBrutalist.PANEL)
+	_draw_assist(canvas)
+
+
+# ── Mark-timing assist (6AF) ─────────────────────────────────────────
+
+func _assist_on() -> bool:
+	if assist_mode >= 0:
+		return assist_mode == 1
+	return Settings.hud_on(&"mark_assist") and is_instance_valid(player) \
+		and player.brain() is HumanBrain
+
+
+## Slows the game around the press instant and lets it back up after. The
+## ease runs on real time (delta is already scaled, so it's divided back).
+func _update_assist(delta: float) -> void:
+	var want := 1.0
+	if _visible_this_frame and _ring_visible_this_frame and not is_nan(_to_press) \
+			and _assist_on() \
+			and _to_press <= Tuning.MARK_ASSIST_SLOW_LEAD \
+			and _to_press >= -Tuning.MARK_ASSIST_SLOW_AFTER \
+			and player.committed_mark_tier() != Tuning.Action.MARK_AGGRESSIVE:
+		want = Tuning.MARK_ASSIST_TIME_SCALE
+	if not _assist_owns_time and want >= 1.0:
+		return
+	_assist_owns_time = true
+	var real_delta := delta / maxf(Engine.time_scale, 0.01)
+	var rate := (1.0 - Tuning.MARK_ASSIST_TIME_SCALE) / Tuning.MARK_ASSIST_EASE
+	Engine.time_scale = move_toward(Engine.time_scale, want, rate * real_delta)
+	if want >= 1.0 and Engine.time_scale >= 0.999:
+		_release_time()
+
+
+func _release_time() -> void:
+	if _assist_owns_time:
+		Engine.time_scale = 1.0
+		_assist_owns_time = false
+
+
+## A pause, or the match ending mid slow-down, mustn't leave the menus
+## running at 0.4x.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PAUSED or what == NOTIFICATION_EXIT_TREE:
+		_release_time()
+
+
+## The graph: time along x (the press instant ASSIST_SPAN_BEFORE in from the
+## left), the ball's height up y. The curve is the ball's flight from where
+## it is now under gravity alone; the window sits on the curve at the press
+## instant, and the dot is the ball, now.
+func _draw_assist(canvas: Control) -> void:
+	if not _visible_this_frame or not _ring_visible_this_frame or is_nan(_to_press) \
+			or not _assist_on() or not is_instance_valid(ball):
+		return
+	var top_left := _screen_pos + Vector2(-ASSIST_SIZE.x * 0.5,
+		-(RING_CLOSE_START_RADIUS + ASSIST_GAP + ASSIST_SIZE.y))
+	top_left.y = maxf(top_left.y, 8.0)
+	var panel := Rect2(top_left, ASSIST_SIZE)
+	canvas.draw_rect(panel, ASSIST_PANEL)
+	var plot := panel.grow(-ASSIST_PAD)
+	var axis := Color(SoftBrutalist.PANEL, 0.55)
+	canvas.draw_line(plot.position, Vector2(plot.position.x, plot.end.y), axis, 1.0)
+	canvas.draw_line(Vector2(plot.position.x, plot.end.y), plot.end, axis, 1.0)
+
+	var span := ASSIST_SPAN_BEFORE + ASSIST_SPAN_AFTER
+	var heights := PackedFloat32Array()
+	var top := ASSIST_MIN_TOP
+	for i in ASSIST_SAMPLES + 1:
+		# t: seconds from the press instant; ahead: seconds from now.
+		var t := -ASSIST_SPAN_BEFORE + span * float(i) / ASSIST_SAMPLES
+		heights.append(_assist_height(t + _to_press))
+		top = maxf(top, heights[i])
+	var curve := PackedVector2Array()
+	for i in ASSIST_SAMPLES + 1:
+		curve.append(Vector2(plot.position.x + plot.size.x * float(i) / ASSIST_SAMPLES,
+			plot.end.y - plot.size.y * heights[i] / top))
+	canvas.draw_polyline(curve, Color(SoftBrutalist.PANEL, 0.8), 1.5, true)
+
+	var per_second := plot.size.x / span
+	var press_x := plot.position.x + ASSIST_SPAN_BEFORE * per_second
+	var press_y := plot.end.y - plot.size.y * _assist_height(_to_press) / top
+	var in_window := absf(_to_press) <= Tuning.MARK_ASSIST_WINDOW
+	var window_colour := ASSIST_IN_WINDOW if in_window else _badge_colour(_tier)
+	var window := Rect2(press_x - Tuning.MARK_ASSIST_WINDOW * per_second, press_y - 9.0,
+		2.0 * Tuning.MARK_ASSIST_WINDOW * per_second, 18.0).intersection(plot.grow(2.0))
+	canvas.draw_rect(window, Color(window_colour, 0.25))
+	canvas.draw_rect(window, window_colour, false, 2.0)
+
+	var ball_x := clampf(press_x - _to_press * per_second, plot.position.x, plot.end.x)
+	var ball_y := plot.end.y - plot.size.y * _assist_height(0.0) / top
+	canvas.draw_circle(Vector2(ball_x, ball_y), 3.5,
+		ASSIST_IN_WINDOW if in_window else SoftBrutalist.PANEL)
+
+
+## The ball's height `ahead` seconds from now (negative: back along the
+## same arc), gravity only.
+func _assist_height(ahead: float) -> float:
+	return maxf(0.0, ball.global_position.y + ball.linear_velocity.y * ahead
+		- 0.5 * Tuning.GRAVITY * ahead * ahead)
 
 
 func _flash_colour() -> Color:
