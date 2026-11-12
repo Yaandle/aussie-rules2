@@ -7,6 +7,14 @@ own docs: `ANIMATION_RAGDOLL_AUDIT.md` (kick, carry, phase lock, bank,
 tackles), `MECHANICS_AUDIT.md` (ragdoll stages 2-5) and the 2026-10-30
 playtest commit (HUD, park turf, ruck, training).
 
+## Marking block: jump attribute and contested marks (2026-11-12, branch `update`)
+
+- [ ] Jump (6AD): CHARACTER screen, JUMPING row now moves (0.70x-1.50x). At 1.50 the (Y) leap goes about 1.25 m off the ground, at 0.70 about 0.6 m (it was 0.82 m for everyone). Does the top end read as a big leap, not a float? The (Y) ring timing should feel unchanged. `Tuning.CHARACTER_JUMP_*`.
+- [ ] Jump in Career: JUMPING is a fifth trainable row on the Career character screen. Does the card still fit with five rows? An old Career save should load with JUMPING at the default. OVERALL ratings shift a little (five attributes averaged, not four).
+- [ ] Contested marks (6AE): go up against an opponent for the same ball. The one with better timing, front position, higher hands (height + jump) or more body should take it, the same way every time. Stand beside a heavier or higher-leaping opponent and hold (A): they should take it off you. Does losing one read as being out-marked, not as a dropped input? `MarkContest`, `Tuning.MARK_CONTEST_*`.
+- [ ] Contested marks where nobody takes it: if the better-rated player's own hands never reach the ball, it goes through the pack and nobody marks. How often does that happen, and does it look right (a spoiled contest) or wrong (a ball you had)?
+- [ ] AI in packs: do AI players still mark often enough around other players (they hold (A) under every ball, so they are in most contests)?
+
 ## Section B: fend, fist, snap/banana, call lines (2026-11-11, branch `update`)
 
 - [ ] Fend off (6Y): carrying, tap RB (J) as a tackler closes from in front: your left arm goes out straight (ball in the right hand) and a soft or glancing tackle breaks, the tackler shoved back. A hard square one (~4 m/s+) still holds; from behind a fend does nothing. `Tuning.FEND_*`.

@@ -55,6 +55,7 @@ const ATTRIBUTE_ROWS := [
 	{"key": "kick_power", "icon": &"kick", "name": "KICKING POWER", "format": "%.2fx"},
 	{"key": "kick_accuracy", "icon": &"accuracy", "name": "KICKING ACCURACY", "format": "%.0f%%"},
 	{"key": "agility", "icon": &"agility", "name": "AGILITY", "format": "%.2fx"},
+	{"key": "jump", "icon": &"jump", "name": "JUMPING", "format": "%.2fx"},
 ]
 
 const CAREER_ROWS := [

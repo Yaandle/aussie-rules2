@@ -2216,9 +2216,38 @@ const CHARACTER_AGILITY_MAX := 1.5
 const CHARACTER_AGILITY_STEP := 0.05
 const CHARACTER_AGILITY_DEFAULT := 1.0
 
+# Jump (6AD, playtest 2026-11-11: "a high jump stat jumps far higher") is a
+# unitless multiplier on how HIGH a player leaves the ground: the (Y) mark's
+# leap, the (A) mark's hop, the ruck tap and the fist. Height goes with
+# takeoff speed squared, so Tuning.jump_speed scales the speed by the root:
+# the (Y) leap's 0.82 m is 0.57 m at 0.7 and 1.22 m at 1.5. The leap's
+# timing (ACTION_CONTACT) doesn't move, so the Stage 3 mark cue stays right
+# for every jump value; what changes is how high the hands are when it
+# resolves, which is MarkContest's height input. Unplaytested feel guesses.
+const CHARACTER_JUMP_MIN := 0.7
+const CHARACTER_JUMP_MAX := 1.5
+const CHARACTER_JUMP_STEP := 0.05
+const CHARACTER_JUMP_DEFAULT := 1.0
+
+# Contested marks (6AE, MarkContest: the tackle formula's twin). A player
+# counts as in the contest while they're attempting a mark with the hands
+# within MARK_CONTEST_REACH of the ball; wider than any tier's own catch
+# reach (about 1.0-1.2 m), so a rival about to get there is weighed too.
+# MARK_CONTEST_HANDS_LOW / HIGH bracket the height input: the hands of the
+# shortest player standing, to the tallest at the top of a full-jump leap.
+# The body input is mass x run at the ball against MARK_CONTEST_BODY_REF_
+# MASS at a sprint; a player standing under it still counts as moving at
+# MARK_CONTEST_BODY_MIN_SPEED, so mass matters in a standing pack.
+# Unplaytested feel guesses.
+const MARK_CONTEST_REACH := 1.5            # m, hands to ball
+const MARK_CONTEST_HANDS_LOW := 1.2        # m above the ground
+const MARK_CONTEST_HANDS_HIGH := 2.9       # m
+const MARK_CONTEST_BODY_REF_MASS := 100.0  # kg
+const MARK_CONTEST_BODY_MIN_SPEED := 2.0   # m/s
+
 # ── Career ───────────────────────────────────────────────────────────
 ## A Career player's trainable attributes (speed, kick power, kick
-## accuracy, agility) are stored as levels, one per square of the stat bar,
+## accuracy, agility, jump) are stored as levels, one per square of the stat bar,
 ## not as free floats: the upgrade system hands out whole squares (see
 ## docs/CAREER_AUDIT.md), so a value between two squares has nowhere to
 ## come from. Level 0 is the CHARACTER_*_MIN above, this many is the MAX,
@@ -2599,6 +2628,13 @@ static func backpedal_turnout_duration(agility_scale: float) -> float:
 ## given agility_scale. clampf keeps agility 1.0 at exactly 1.0x.
 static func agility_turn_rate_mult(agility_scale: float) -> float:
 	return clampf(agility_scale, AGILITY_TURN_RATE_MIN_MULT, AGILITY_TURN_RATE_MAX_MULT)
+
+
+## A takeoff speed for a player of the given jump_scale (PlayerController.
+## jump_scale, 1.0 == baseline). The root, so jump height scales with the
+## stat itself (h = v^2 / 2g).
+static func jump_speed(base_speed: float, jump_scale: float) -> float:
+	return base_speed * sqrt(clampf(jump_scale, CHARACTER_JUMP_MIN, CHARACTER_JUMP_MAX))
 
 
 static func action_duration(action: Action) -> float:

@@ -33,6 +33,9 @@ var kick_accuracy := Tuning.CHARACTER_KICK_ACCURACY_DEFAULT
 ## while DEFAULT is 1.0, but keeps the getter shape consistent with speed.
 var agility := Tuning.CHARACTER_AGILITY_DEFAULT
 
+## Unitless, 1.0 == baseline tuning: how high the player jumps (6AD).
+var jump := Tuning.CHARACTER_JUMP_DEFAULT
+
 ## true  -> the profile applies to every HOME player in Full Game.
 ## false -> only the pregame start-position player (Settings.home_human_slot);
 ##          the rest of HOME (and all of AWAY) stay on baseline tuning.
@@ -74,6 +77,10 @@ func agility_scale() -> float:
 	return agility / Tuning.CHARACTER_AGILITY_DEFAULT
 
 
+func jump_scale() -> float:
+	return jump / Tuning.CHARACTER_JUMP_DEFAULT
+
+
 ## Called by character_screen.gd when the draft is committed (PLAY or
 ## backing out). Best-effort — a failed write shouldn't break the menu.
 func save() -> void:
@@ -83,6 +90,7 @@ func save() -> void:
 	config.set_value(SECTION, "kick_power", kick_power)
 	config.set_value(SECTION, "kick_accuracy", kick_accuracy)
 	config.set_value(SECTION, "agility", agility)
+	config.set_value(SECTION, "jump", jump)
 	config.set_value(SECTION, "apply_all", apply_all)
 	config.set_value(SECTION, "model_id", model_id)
 	config.set_value(SECTION, "skin_color", skin_color)
@@ -111,6 +119,8 @@ func _load() -> void:
 		Tuning.CHARACTER_KICK_ACCURACY_MIN, Tuning.CHARACTER_KICK_ACCURACY_MAX)
 	agility = clampf(config.get_value(SECTION, "agility", agility),
 		Tuning.CHARACTER_AGILITY_MIN, Tuning.CHARACTER_AGILITY_MAX)
+	jump = clampf(config.get_value(SECTION, "jump", jump),
+		Tuning.CHARACTER_JUMP_MIN, Tuning.CHARACTER_JUMP_MAX)
 	apply_all = bool(config.get_value(SECTION, "apply_all", apply_all))
 	var loaded_model: String = config.get_value(SECTION, "model_id", model_id)
 	# A stale save naming a model that no longer exists (removed asset,

@@ -51,7 +51,11 @@ change should fit them.
   mark cue is only a cue (`docs/ML_AI_AUDIT.md` §9). `TackleBalance`
   evaluates the tackle model's formula on the real contact: a threshold
   decides hold or break, and the same value sets ragdoll strength. It's
-  never rolled.
+  never rolled. `MarkContest` is its twin for contested marks: every player
+  going for the ball gets a rating from timing, position, hand height and
+  body, and only the highest rated player's hands close
+  (`_wins_mark_contest`). Its weights are hand-set, not trained.
+  `scenes/dev/mark_contest_check.tscn` is the regression check.
 - **Kits resolve in one place.** `TeamKit` gives HOME the CHARACTER
   screen's kit and AWAY a preset picked to contrast with it. Imported
   models are recoloured by Blender material name (`Shirt`/`Jersey`, `Short`,

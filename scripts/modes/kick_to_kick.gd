@@ -115,6 +115,7 @@ func _ready() -> void:
 
 	_player.speed_scale = CharacterProfile.speed_scale()
 	_player.agility_scale = CharacterProfile.agility_scale()
+	_player.jump_scale = CharacterProfile.jump_scale()
 	_player.kick_power_scale = CharacterProfile.kick_power
 	_player.kick_accuracy = CharacterProfile.kick_accuracy
 	(_player.get_node("Rig") as Node3D).scale = Vector3.ONE * CharacterProfile.height_scale()

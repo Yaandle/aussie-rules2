@@ -76,12 +76,14 @@ const ATTRIBUTE_RANGES := {
 	"kick_power": [Tuning.CHARACTER_KICK_POWER_MIN, Tuning.CHARACTER_KICK_POWER_MAX],
 	"kick_accuracy": [Tuning.CHARACTER_KICK_ACCURACY_MIN, Tuning.CHARACTER_KICK_ACCURACY_MAX],
 	"agility": [Tuning.CHARACTER_AGILITY_MIN, Tuning.CHARACTER_AGILITY_MAX],
+	"jump": [Tuning.CHARACTER_JUMP_MIN, Tuning.CHARACTER_JUMP_MAX],
 }
 const ATTRIBUTE_DEFAULTS := {
 	"speed": Tuning.CHARACTER_SPEED_DEFAULT,
 	"kick_power": Tuning.CHARACTER_KICK_POWER_DEFAULT,
 	"kick_accuracy": Tuning.CHARACTER_KICK_ACCURACY_DEFAULT,
 	"agility": Tuning.CHARACTER_AGILITY_DEFAULT,
+	"jump": Tuning.CHARACTER_JUMP_DEFAULT,
 }
 
 var player_name := ""

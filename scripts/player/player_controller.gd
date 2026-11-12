@@ -125,6 +125,11 @@ var kick_power_scale := 1.0
 ## anything other than 1.0, on whichever player(s) it's applied to.
 var agility_scale := 1.0
 
+## Unitless jump multiplier (1.0 == tuned baseline): how high the mark
+## leap, the Safe hop, the ruck tap and the fist leave the ground
+## (Tuning.jump_speed). Set from CharacterProfile / the roster entry.
+var jump_scale := 1.0
+
 ## 0..1, where 1.0 is pinpoint and 0.0 is KICK_ACCURACY_MAX_SPREAD_DEG of
 ## random aim error — see _dispose()'s KICK branch, the only place this
 ## is actually rolled.
@@ -400,6 +405,12 @@ var _tackle_wrap: TackleWrap = null
 ## TackleBalance.resolve's read of it (empty when it never landed) plus
 ## "slide", "held" and, for a whiff, "missed".
 var last_tackle := {}
+
+## The last contested mark this player's hands reached the ball in, for
+## headless checks and the maths display: MarkContest's inputs and rating
+## for this player, the best rating in the contest, how many were in it,
+## whether this player won it, and who did.
+var last_mark_contest := {}
 
 ## Seconds this player personally has held the ball since their own last
 ## gather/mark. Distinct from MatchState.possession_seconds(), which
@@ -3333,12 +3344,14 @@ func _update_aerial_contest(ball: Ball, delta: float) -> void:
 				InputManager.rumble(Tuning.RUMBLE_MARK_PRESS)
 			_mark_readying = true
 			var mult := _timing_reach_mult(offset, Tuning.MARK_SAFE_IDEAL_WINDOW, Tuning.MARK_SAFE_OK_WINDOW)
-			if mult > 0.0 and _ball_in_catch_reach(ball, Tuning.MARK_SAFE_REACH_SCALE * mult):
+			if mult > 0.0 and _ball_in_catch_reach(ball, Tuning.MARK_SAFE_REACH_SCALE * mult) \
+					and _wins_mark_contest(ball, Tuning.Action.MARK_SAFE):
 				_complete_mark(ball, Tuning.Action.MARK_SAFE)
 				return
 		else:
 			_mark_readying = true
-			if _ball_in_catch_reach(ball, Tuning.MARK_SAFE_REACH_SCALE):
+			if _ball_in_catch_reach(ball, Tuning.MARK_SAFE_REACH_SCALE) \
+					and _wins_mark_contest(ball, Tuning.Action.MARK_SAFE):
 				_complete_mark(ball, Tuning.Action.MARK_SAFE)
 				return
 		_maybe_safe_mark_jump(ball)
@@ -3390,7 +3403,8 @@ func _attempt_running_mark(ball: Ball, delta: float) -> void:
 		_running_mark_window = Tuning.MARK_RUNNING_CATCH_WINDOW
 	var mult := _timing_reach_mult(mark_timing_offset(ball, Tuning.Action.MARK_RUNNING),
 		Tuning.MARK_RUNNING_IDEAL_WINDOW, Tuning.MARK_RUNNING_OK_WINDOW)
-	if mult > 0.0 and _ball_in_catch_reach(ball, Tuning.MARK_RUNNING_REACH_SCALE * mult):
+	if mult > 0.0 and _ball_in_catch_reach(ball, Tuning.MARK_RUNNING_REACH_SCALE * mult) \
+			and _wins_mark_contest(ball, Tuning.Action.MARK_RUNNING):
 		_running_mark_window = 0.0
 		_complete_mark(ball, Tuning.Action.MARK_RUNNING)
 		return
@@ -3421,7 +3435,8 @@ func _maybe_safe_mark_jump(ball: Ball) -> void:
 		return
 	const STEP := 1.0 / 60.0
 	var reach := Tuning.MARK_CATCH_RADIUS * Tuning.MARK_SAFE_REACH_SCALE + Tuning.MARK_ASSIST_RADIUS_BONUS
-	var rise := Tuning.MARK_SAFE_JUMP_SPEED / Tuning.GRAVITY
+	var jump_speed := Tuning.jump_speed(Tuning.MARK_SAFE_JUMP_SPEED, jump_scale)
+	var rise := jump_speed / Tuning.GRAVITY
 	var rel := ball.global_position - _catch_point.global_position
 	var rel_velocity := ball.linear_velocity - Vector3(velocity.x, 0.0, velocity.z)
 	var pass_rel := rel
@@ -3442,11 +3457,11 @@ func _maybe_safe_mark_jump(ball: Ball) -> void:
 		return   # at or under the hands, or a chest mark: no hop
 	if pass_time > rise:
 		return   # not yet: hop so the top of it meets the ball
-	var lift := Tuning.MARK_SAFE_JUMP_SPEED * pass_time - 0.5 * Tuning.GRAVITY * pass_time * pass_time
+	var lift := jump_speed * pass_time - 0.5 * Tuning.GRAVITY * pass_time * pass_time
 	if Vector3(pass_rel.x, pass_rel.y - lift, pass_rel.z).length() > reach:
 		return
 	_mark_safe_jumped = true
-	_pending_jump_speed = Tuning.MARK_SAFE_JUMP_SPEED
+	_pending_jump_speed = jump_speed
 
 
 ## A — Ground Pickup once the ball is loose rather than in flight (design
@@ -3647,7 +3662,7 @@ func _goal_aim_direction() -> Vector3:
 func _begin_aggressive_mark() -> void:
 	if _brain is HumanBrain:
 		InputManager.rumble(Tuning.RUMBLE_MARK_PRESS)
-	_pending_jump_speed = Tuning.MARK_AGGRESSIVE_JUMP_SPEED
+	_pending_jump_speed = Tuning.jump_speed(Tuning.MARK_AGGRESSIVE_JUMP_SPEED, jump_scale)
 	# Cosmetic, like _complete_mark's: lets the animation layer pick the
 	# contested off-balance landing. The leap is already committed.
 	_animation.note_mark_ball(_live_ball())
@@ -3681,7 +3696,8 @@ func _resolve_aggressive_mark(last_chance: bool) -> bool:
 	if is_instance_valid(ball) and not ball.is_held:
 		mult = _timing_reach_mult(mark_timing_offset(ball, Tuning.Action.MARK_AGGRESSIVE),
 			Tuning.MARK_AGGRESSIVE_IDEAL_WINDOW, Tuning.MARK_AGGRESSIVE_OK_WINDOW)
-	if mult > 0.0 and _ball_in_catch_reach(ball, Tuning.MARK_AGGRESSIVE_REACH_SCALE * mult):
+	if mult > 0.0 and _ball_in_catch_reach(ball, Tuning.MARK_AGGRESSIVE_REACH_SCALE * mult) \
+			and _wins_mark_contest(ball, Tuning.Action.MARK_AGGRESSIVE):
 		_finish_mark_catch(ball, Tuning.Action.MARK_AGGRESSIVE)
 		return true
 	if not last_chance:
@@ -3690,6 +3706,100 @@ func _resolve_aggressive_mark(last_chance: bool) -> bool:
 		InputManager.rumble(Tuning.RUMBLE_MARK_MISS)
 	mark_missed.emit(Tuning.Action.MARK_AGGRESSIVE)
 	return true
+
+
+# ── Contested marks (6AE) ────────────────────────────────────────────
+
+## The mark tier this player is attempting right now, for a rival's
+## contest read: A held, X's hands-out window, or Y's leap up to the end
+## of its catch window. NONE when they aren't going for it.
+func _contesting_tier() -> Tuning.Action:
+	if _stun_timer > 0.0 or is_ragdolled() or is_carrying():
+		return Tuning.Action.NONE
+	if _action == Tuning.Action.MARK_AGGRESSIVE:
+		var last := Tuning.action_contact_time(Tuning.Action.MARK_AGGRESSIVE) \
+			+ Tuning.MARK_AGGRESSIVE_CATCH_WINDOW
+		return Tuning.Action.MARK_AGGRESSIVE if _action_elapsed <= last else Tuning.Action.NONE
+	if _running_mark_window > 0.0:
+		return Tuning.Action.MARK_RUNNING
+	if _mark_readying:
+		return Tuning.Action.MARK_SAFE
+	return Tuning.Action.NONE
+
+
+## MarkContest's read of this player going for `ball` on `tier`: the four
+## inputs plus "rating". Read from the bodies as they are this frame.
+func _mark_contest_read(ball: Ball, tier: Tuning.Action) -> Dictionary:
+	var ideal := Tuning.MARK_SAFE_IDEAL_WINDOW
+	var ok := Tuning.MARK_SAFE_OK_WINDOW
+	match tier:
+		Tuning.Action.MARK_RUNNING:
+			ideal = Tuning.MARK_RUNNING_IDEAL_WINDOW
+			ok = Tuning.MARK_RUNNING_OK_WINDOW
+		Tuning.Action.MARK_AGGRESSIVE:
+			ideal = Tuning.MARK_AGGRESSIVE_IDEAL_WINDOW
+			ok = Tuning.MARK_AGGRESSIVE_OK_WINDOW
+	var hands := _catch_point.global_position
+	var to_ball := ball.global_position - hands
+	var flat := Vector3(to_ball.x, 0.0, to_ball.z)
+	var closing := 0.0
+	if flat.length_squared() > 0.0001:
+		closing = Vector3(velocity.x, 0.0, velocity.z).dot(flat.normalized())
+	# CatchPoint sits at a fixed 1.4 m on the body; the Rig's scale is the
+	# player's stature, so a taller player's hands are that much higher.
+	var rig := get_node_or_null("Rig") as Node3D
+	var stature := rig.scale.y if rig != null else 1.0
+	var hands_height := hands.y + _catch_point.position.y * (stature - 1.0)
+	var read := MarkContest.inputs(mark_timing_offset(ball, tier), ideal, ok,
+		to_ball.length(), hands_height, body_mass, closing)
+	read["rating"] = MarkContest.rating(read)
+	return read
+
+
+## This player's P(mark) on `ball` if they're in the contest for it
+## (attempting a mark, hands within Tuning.MARK_CONTEST_REACH), else -1.
+func mark_contest_rating(ball: Ball) -> float:
+	var tier := _contesting_tier()
+	if tier == Tuning.Action.NONE:
+		return -1.0
+	if ball.global_position.distance_to(_catch_point.global_position) > Tuning.MARK_CONTEST_REACH:
+		return -1.0
+	return float(_mark_contest_read(ball, tier).rating)
+
+
+## Asked on the frame this player's hands would close on the ball: is
+## theirs the highest rating of everyone in the contest (MarkContest)?
+## Alone, always yes. Out-rated, the hands don't close this frame; the
+## better player takes it on their own frame by their own reach, and if
+## they never get there the ball goes through the pack. A dead heat goes
+## to the lower instance id, so it's the same every run. Never rolled.
+func _wins_mark_contest(ball: Ball, tier: Tuning.Action) -> bool:
+	var read := _mark_contest_read(ball, tier)
+	var best := float(read.rating)
+	var winner: PlayerController = self
+	var contestants := 1
+	# Two sets of hands each within reach of one ball: the bodies can't be
+	# further apart than this.
+	var near_sq := pow(2.0 * Tuning.MARK_CONTEST_REACH + 1.0, 2.0)
+	for other: PlayerController in PlayerRegistry.all():
+		if other == self or not is_instance_valid(other):
+			continue
+		if other.global_position.distance_squared_to(global_position) > near_sq:
+			continue
+		var theirs := other.mark_contest_rating(ball)
+		if theirs < 0.0:
+			continue
+		contestants += 1
+		if theirs > best or (is_equal_approx(theirs, best)
+				and other.get_instance_id() < winner.get_instance_id()):
+			best = theirs
+			winner = other
+	read["best"] = best
+	read["contestants"] = contestants
+	read["won"] = winner == self
+	read["winner"] = winner
+	last_mark_contest = read
+	return winner == self
 
 
 ## MARK_ASSIST_RADIUS_BONUS is added after the per-tier scale, not before —
@@ -4006,7 +4116,7 @@ func _update_ruck_contest(_delta: float) -> void:
 ## jump arc").
 func _begin_hit_out() -> void:
 	_fisting = false
-	_pending_jump_speed = Tuning.MARK_AGGRESSIVE_JUMP_SPEED
+	_pending_jump_speed = Tuning.jump_speed(Tuning.MARK_AGGRESSIVE_JUMP_SPEED, jump_scale)
 	_begin(Tuning.Action.HIT_OUT)
 
 
@@ -4711,7 +4821,7 @@ func _try_fist(ball: Ball) -> bool:
 		return false
 	_mark_readying = false
 	_running_mark_window = 0.0
-	_pending_jump_speed = Tuning.MARK_AGGRESSIVE_JUMP_SPEED
+	_pending_jump_speed = Tuning.jump_speed(Tuning.MARK_AGGRESSIVE_JUMP_SPEED, jump_scale)
 	_begin(Tuning.Action.HIT_OUT)
 	_fisting = true
 	_fist_landed = false

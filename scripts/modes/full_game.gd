@@ -412,7 +412,8 @@ func _apply_character_profile(start_idx: int) -> void:
 		if not CharacterProfile.apply_all and i != start_idx:
 			continue
 		_apply_stats(_home_players[i], CharacterProfile.speed, CharacterProfile.agility,
-			CharacterProfile.kick_power, CharacterProfile.kick_accuracy, CharacterProfile.height)
+			CharacterProfile.kick_power, CharacterProfile.kick_accuracy, CharacterProfile.height,
+			CharacterProfile.jump)
 
 
 ## Career matches: every player plays to their own roster entry's
@@ -434,7 +435,8 @@ func _apply_career_rosters() -> void:
 				float(entry.get("agility", Tuning.CHARACTER_AGILITY_DEFAULT)),
 				float(entry.get("kick_power", Tuning.CHARACTER_KICK_POWER_DEFAULT)),
 				float(entry.get("kick_accuracy", Tuning.CHARACTER_KICK_ACCURACY_DEFAULT)),
-				float(entry.get("height", Tuning.CHARACTER_HEIGHT_DEFAULT)))
+				float(entry.get("height", Tuning.CHARACTER_HEIGHT_DEFAULT)),
+				float(entry.get("jump", Tuning.CHARACTER_JUMP_DEFAULT)))
 			# Weight was flavour only until tackles weighed the two players
 			# (TackleBalance's mass ratio, the ragdoll's segment masses).
 			players[i].body_mass = float(entry.get("weight", Tuning.PLAYER_DEFAULT_MASS_KG))
@@ -443,9 +445,10 @@ func _apply_career_rosters() -> void:
 ## Raw stats (the same units CharacterProfile/CareerProfile/roster entries
 ## store) onto one player, as the scales PlayerController reads.
 func _apply_stats(p: PlayerController, speed: float, agility: float, kick_power: float,
-		kick_accuracy: float, height: float) -> void:
+		kick_accuracy: float, height: float, jump := Tuning.CHARACTER_JUMP_DEFAULT) -> void:
 	p.speed_scale = speed / Tuning.CHARACTER_SPEED_DEFAULT
 	p.agility_scale = agility / Tuning.CHARACTER_AGILITY_DEFAULT
+	p.jump_scale = jump / Tuning.CHARACTER_JUMP_DEFAULT
 	p.kick_power_scale = kick_power
 	p.kick_accuracy = kick_accuracy
 	(p.get_node("Rig") as Node3D).scale = Vector3.ONE * (height / Tuning.CHARACTER_HEIGHT_DEFAULT)
