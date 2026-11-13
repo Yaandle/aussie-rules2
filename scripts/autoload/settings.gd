@@ -213,6 +213,26 @@ var master_volume := 1.0:
 ## the mouse-kick swap.
 var keybind_overrides: Dictionary = {}
 
+## Quick-play sides (6AC, playtest 2026-11-11: FULL GAME gets a side
+## select, your team and the opposition). Club names from
+## quick_team_names(); "" means "not picked yet", which reads as the first
+## two names. Display only: they name the scoreboard and the TEAM page's
+## squad, and nothing about how a side plays changes with the club.
+var quick_home_team := ""
+var quick_away_team := ""
+const QUICK_TEAM_COUNT := 12
+
+## Controller remaps (6AB: the Remap screen's CONTROLLER tab), the gamepad
+## twin of keybind_overrides: action name -> pad input code, only for
+## actions a player has changed. Code 0-20 is a JoyButton index; 100 + n is
+## trigger axis n pulled (JOY_AXIS_TRIGGER_LEFT/RIGHT). One int, not an
+## event, so it saves as plainly as the keyboard dict does. Unlike the
+## keyboard tab there's no "last one wins" clearing: on a pad one button
+## doing different things in different situations (A marks, calls, confirms)
+## is the design, so a shared button is allowed.
+var joybind_overrides: Dictionary = {}
+const JOY_AXIS_CODE_BASE := 100
+
 
 ## HUD options (playtest 2026-10-30: "add HUD options to Settings"). One
 ## table rather than a var per option, because the HUD Style screen
@@ -294,6 +314,8 @@ func _ready() -> void:
 	_apply_mouse_kick_binding()
 	for action in keybind_overrides.keys():
 		_apply_keybind_to_inputmap(StringName(action), int(keybind_overrides[action]))
+	for action in joybind_overrides.keys():
+		_apply_joybind_to_inputmap(StringName(action), int(joybind_overrides[action]))
 
 
 func _load() -> void:
@@ -324,6 +346,9 @@ func _load() -> void:
 	# InputMap" as two separate steps, same split every apply_keybind()
 	# caller already goes through).
 	keybind_overrides = config.get_value(SECTION, "keybind_overrides", {}) as Dictionary
+	joybind_overrides = config.get_value(SECTION, "joybind_overrides", {}) as Dictionary
+	quick_home_team = config.get_value(SECTION, "quick_home_team", "") as String
+	quick_away_team = config.get_value(SECTION, "quick_away_team", "") as String
 	if config.has_section(HUD_SECTION):
 		for key: StringName in HUD_OPTIONS:
 			if config.has_section_key(HUD_SECTION, key):
@@ -346,6 +371,9 @@ func save() -> void:
 	config.set_value(SECTION, "master_volume", master_volume)
 	config.set_value(SECTION, "field_style", field_style)
 	config.set_value(SECTION, "keybind_overrides", keybind_overrides)
+	config.set_value(SECTION, "joybind_overrides", joybind_overrides)
+	config.set_value(SECTION, "quick_home_team", quick_home_team)
+	config.set_value(SECTION, "quick_away_team", quick_away_team)
 	for key: StringName in HUD_OPTIONS:
 		config.set_value(HUD_SECTION, key, hud_index(key))
 	config.save(SAVE_PATH)
@@ -420,3 +448,71 @@ func _erase_keyboard_event(action: StringName) -> void:
 	for event in InputMap.action_get_events(action):
 		if event is InputEventKey:
 			InputMap.action_erase_event(action, event)
+
+
+# ── Controller remaps (RemapScreen's CONTROLLER tab, 6AB) ────────────
+
+func apply_joybind(action: StringName, code: int) -> void:
+	joybind_overrides[action] = code
+	_apply_joybind_to_inputmap(action, code)
+
+
+## The pad code (see joybind_overrides) of the first gamepad button or
+## trigger on `action`, or -1 if it has none. Stick directions (axes 0-3)
+## aren't reported: they're movement/camera, which the remap screen leaves
+## alone.
+func joypad_code(action: StringName) -> int:
+	if not InputMap.has_action(action):
+		return -1
+	for event in InputMap.action_get_events(action):
+		if event is InputEventJoypadButton:
+			return int((event as InputEventJoypadButton).button_index)
+		if event is InputEventJoypadMotion:
+			var axis := int((event as InputEventJoypadMotion).axis)
+			if axis == JOY_AXIS_TRIGGER_LEFT or axis == JOY_AXIS_TRIGGER_RIGHT:
+				return JOY_AXIS_CODE_BASE + axis
+	return -1
+
+
+## Replaces every gamepad button and trigger event on `action` with the
+## one `code` names. Stick-axis events stay (none of the remappable actions
+## has one, but a future one shouldn't lose its stick to a button rebind).
+func _apply_joybind_to_inputmap(action: StringName, code: int) -> void:
+	if not InputMap.has_action(action):
+		return
+	for event in InputMap.action_get_events(action):
+		if event is InputEventJoypadButton:
+			InputMap.action_erase_event(action, event)
+		elif event is InputEventJoypadMotion:
+			var axis := int((event as InputEventJoypadMotion).axis)
+			if axis == JOY_AXIS_TRIGGER_LEFT or axis == JOY_AXIS_TRIGGER_RIGHT:
+				InputMap.action_erase_event(action, event)
+	if code >= JOY_AXIS_CODE_BASE:
+		var motion := InputEventJoypadMotion.new()
+		motion.axis = (code - JOY_AXIS_CODE_BASE) as JoyAxis
+		motion.axis_value = 1.0
+		InputMap.action_add_event(action, motion)
+	else:
+		var button := InputEventJoypadButton.new()
+		button.button_index = code as JoyButton
+		InputMap.action_add_event(action, button)
+
+
+# ── Quick-play sides (SideSelectScreen, 6AC) ─────────────────────────
+
+## The clubs quick play picks from: RosterGenerator's "{Suburb} {Mascot}"
+## names on a fixed salt, so the list is the same every visit.
+static func quick_team_names() -> Array[String]:
+	return RosterGenerator.generate_team_names(QUICK_TEAM_COUNT, 0)
+
+
+func quick_home_name() -> String:
+	var names := quick_team_names()
+	return quick_home_team if quick_home_team in names else names[0]
+
+
+func quick_away_name() -> String:
+	var names := quick_team_names()
+	if quick_away_team in names and quick_away_team != quick_home_name():
+		return quick_away_team
+	return names[1] if names[0] == quick_home_name() else names[0]

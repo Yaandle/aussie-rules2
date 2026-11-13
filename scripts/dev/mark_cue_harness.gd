@@ -151,6 +151,10 @@ func _ready() -> void:
 			await _run_probe()
 		"determinism":
 			await _check_determinism()
+		"a_vs_y":
+			await _run_a_vs_y()
+		"fist":
+			await _run_fist()
 		_:
 			push_error("mark_cue_harness: unknown mode '%s'" % mode)
 	get_tree().quit()
@@ -727,6 +731,124 @@ func _run_probe() -> void:
 		var t: Dictionary = _tallies[key]
 		print("  %-26s caught %2d / %2d   mean ball-to-hands at contact %.2f m (over %d resolved presses)" % [
 			key, t.caught, t.n, t.dist / maxf(1.0, t.resolved), t.resolved])
+
+
+## 6T (playtest 2026-11-08: "the (A) mark seems non-existent; it should be
+## slightly more successful than (Y)"): every probe-grid and dataset
+## delivery, uncontested, taken twice: (A) held from SAFE_HOLD_FROM metres
+## out (the animation viewer's AUTO hold), and (Y) tapped on the gated
+## analytic cue, the ring that's live in matches. Prints both catch counts
+## and the deliveries only one of them caught. Writes nothing.
+##   godot --headless --path . res://scenes/dev/mark_cue_harness.tscn --fixed-fps 60 -- a_vs_y
+const SAFE_HOLD_FROM := 8.0
+
+func _run_a_vs_y() -> void:
+	var deliveries := probe_grid()
+	for d in latin_hypercube(DATASET_DELIVERIES, DATASET_SEED):
+		var copy := d.duplicate()
+		copy.id = deliveries.size()
+		deliveries.append(copy)
+	var a_caught := 0
+	var y_caught := 0
+	var only_a: Array[int] = []
+	var only_y: Array[int] = []
+	for d in deliveries:
+		var obs := await _run(d, Tuning.Action.NONE, -1)
+		var cue := MarkCueModel.analytic_cue_frame(obs.trace, Tuning.Action.MARK_AGGRESSIVE, true)
+		var y_ok := false
+		if cue >= 0:
+			y_ok = (await _run(d, Tuning.Action.MARK_AGGRESSIVE, cue)).outcome == "caught"
+		var a_ok := (await _run_safe_hold(d)) == "caught"
+		a_caught += int(a_ok)
+		y_caught += int(y_ok)
+		if a_ok and not y_ok:
+			only_a.append(int(d.id))
+		elif y_ok and not a_ok:
+			only_y.append(int(d.id))
+		print("a_vs_y %2d  run %.1f h %.2f lat %+.2f lead %+.2f T %.2f | A %s  Y %s" % [
+			d.id, d.run_speed, d.height, d.lateral, d.lead, d.flight_time,
+			"caught" if a_ok else "-", "caught" if y_ok else "-"])
+	print("a_vs_y: A held caught %d / %d, Y on the gated cue caught %d / %d" % [
+		a_caught, deliveries.size(), y_caught, deliveries.size()])
+	print("  only A: %s" % [only_a])
+	print("  only Y: %s" % [only_y])
+
+
+## 6Y's fist-away: every probe-grid delivery, RB tapped on the gated (Y)
+## cue frame (the ring a player is following) and held live for the input
+## buffer like a real press. Counts the deliveries the punch connected on
+## (the ball knocked out of its kick flight, never caught) and where the
+## ball went. Writes nothing.
+##   godot --headless --path . res://scenes/dev/mark_cue_harness.tscn --fixed-fps 60 -- fist
+func _run_fist() -> void:
+	var deliveries := probe_grid()
+	var connected := 0
+	for d in deliveries:
+		var obs := await _run(d, Tuning.Action.NONE, -1)
+		var cue := MarkCueModel.analytic_cue_frame(obs.trace, Tuning.Action.MARK_AGGRESSIVE, true)
+		var result := "no cue"
+		if cue >= 0:
+			result = await _run_fist_press(d, cue)
+		if result.begins_with("punched"):
+			connected += 1
+		print("fist %2d  from %3d run %.1f h %.1f | cue f%d | %s" % [d.id, d.from_deg, d.run_speed, d.height, cue, result])
+	print("fist: connected on %d / %d probe deliveries" % [connected, deliveries.size()])
+
+
+func _run_fist_press(d: Dictionary, press_frame: int) -> String:
+	await _settle()
+	_prestage(d)
+	for i in 4:
+		await get_tree().physics_frame
+	_stage(d)
+	var buffer := roundi(Tuning.INPUT_BUFFER_WINDOW * 60.0)
+	var leapt := false
+	var verdict := [""]
+	var on_fist := func(_p: PlayerController, connected: bool) -> void:
+		verdict[0] = "punched" if connected else "swung, missed"
+	_player.fist_resolved.connect(on_fist)
+	var out := "no leap"
+	for f in RUN_TIMEOUT_FRAMES:
+		_brain.fist_tap = f >= press_frame and f < press_frame + buffer
+		await get_tree().physics_frame
+		if _player._action == Tuning.Action.HIT_OUT:
+			leapt = true
+		if verdict[0] != "":
+			out = verdict[0]
+			if out == "punched":
+				var v := _ball.linear_velocity
+				out += "  %.1f m/s flat, %.1f up" % [Vector2(v.x, v.z).length(), v.y]
+			break
+		if _outcome != "":
+			out = "caught it (%s)" % _outcome
+			break
+		if f > press_frame + 90 and not _ball.is_airborne():
+			out = "leapt, never resolved" if leapt else "no leap"
+			break
+	_brain.fist_tap = false
+	_player.fist_resolved.disconnect(on_fist)
+	return out
+
+
+func _run_safe_hold(d: Dictionary) -> String:
+	await _settle()
+	_prestage(d)
+	for i in 4:
+		await get_tree().physics_frame
+	_stage(d)
+	var landed_frames := 0
+	for f in RUN_TIMEOUT_FRAMES:
+		await get_tree().physics_frame
+		_brain.safe_hold = _ball.global_position.distance_to(_player.catch_point_position()) < SAFE_HOLD_FROM
+		if _outcome != "":
+			break
+		if not _ball.is_airborne():
+			landed_frames += 1
+			if landed_frames > 10:
+				break
+	_brain.safe_hold = false
+	_brain.wish_dir = Vector3.ZERO
+	return _outcome if _outcome_tier == Tuning.Action.MARK_SAFE else "no_catch"
 
 
 ## Closed-loop tallies for the probe summary: per "TIER source", how many

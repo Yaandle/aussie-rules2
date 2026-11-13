@@ -110,6 +110,20 @@ func wants_hit_out() -> bool:
 	return InputManager.consume_buffered_press(&"hit_out")
 
 
+func wants_fend() -> bool:
+	return InputManager.consume_buffered_press(&"fend")
+
+
+## The ruck tap's own press (RB): a fist is "the ruck tap, in a marking
+## contest", so it reads the same binding rather than a second one.
+func wants_fist() -> bool:
+	return InputManager.consume_buffered_press(&"hit_out")
+
+
+func wants_kick_curve() -> bool:
+	return Input.is_action_pressed(&"kick_curve")
+
+
 func wants_bump_stance() -> bool:
 	return Input.is_action_pressed(&"bump_stance")
 

@@ -61,7 +61,7 @@ class Entry:
 
 var _entries: Array[Entry] = [
 	Entry.new("FULL GAME", "18-a-side, real clock, quarters, scoring",
-		"res://scenes/ui/full_game_pregame_screen.tscn", true, "menuscreen_field"),
+		"res://scenes/ui/side_select_screen.tscn", true, "menuscreen_field"),
 	Entry.new("SCENARIO", "Practice a set situation", "", false, "menuscreen_board"),
 	Entry.new("GOAL KICKING", "Shots on goal from the arc", "", false,
 		"menuscreen_ball"),
@@ -88,11 +88,11 @@ const VERSION_SETTING := "application/config/version"
 const VERSION_FALLBACK := "dev"
 
 ## Utility row below the mode cards — navigable via ↓/↑ (or d-pad),
-## left/right to cycle, Enter/A to enter. Character and Team shortcuts
-## (C / T) still jump there directly.
+## left/right to cycle, Enter/A to enter. The Character shortcut (C) still
+## jumps there directly. TEAM left this row in 6AC (playtest 2026-11-11):
+## it's now a step of FULL GAME (side select -> TEAM -> match setup).
 const UTIL_ENTRIES := [
 	{"label": "CHARACTER", "scene": "res://scenes/ui/character_screen.tscn"},
-	{"label": "TEAM", "scene": "res://scenes/ui/team_list_screen.tscn"},
 ]
 const UTIL_ROW_HEIGHT := 28.0
 const UTIL_SEPARATION := 48
@@ -224,9 +224,6 @@ func _unhandled_input(event: InputEvent) -> void:
 	# Direct shortcuts still work regardless of row.
 	if event.is_action_pressed(&"character_menu"):
 		SceneWipe.change_scene("res://scenes/ui/character_screen.tscn")
-		return
-	elif event.is_action_pressed(&"team_menu"):
-		SceneWipe.change_scene("res://scenes/ui/team_list_screen.tscn")
 		return
 
 	if _row == 2:
@@ -860,11 +857,11 @@ func _refresh() -> void:
 				InputManager.Device.KEYBOARD: [
 					{"keys": "← / →", "label": "Choose"},
 					{"keys": "Enter", "label": "Select"},
-					{"keys": "↓", "label": "Character / Team"},
+					{"keys": "↓", "label": "Character"},
 				],
 				InputManager.Device.GAMEPAD: [
 					{"keys": "D-Pad ↔", "label": "Choose"},
 					{"keys": "A", "label": "Select"},
-					{"keys": "D-Pad ↓", "label": "Character / Team"},
+					{"keys": "D-Pad ↓", "label": "Character"},
 				],
 			})

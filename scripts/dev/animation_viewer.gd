@@ -487,6 +487,7 @@ class MarkPreviewBrain extends HumanBrain:
 	var safe_hold := false
 	var running_tap := false
 	var aggressive_tap := false
+	var fist_tap := false   ## 6Y's fist-away (mark_cue_harness's `fist` mode)
 
 	func wish_direction(_controller: PlayerController) -> Vector3:
 		return wish_dir
@@ -523,6 +524,11 @@ class MarkPreviewBrain extends HumanBrain:
 	func wants_mark_aggressive() -> bool:
 		var tap := aggressive_tap
 		aggressive_tap = false
+		return tap
+
+	func wants_fist() -> bool:
+		var tap := fist_tap
+		fist_tap = false
 		return tap
 
 	func wants_spoil() -> bool:
@@ -1510,7 +1516,6 @@ func _screen_fraction_sidestep() -> float:
 	var half_width_at_distance := CAMERA_DISTANCE * tan(deg_to_rad(_camera.fov) * 0.5) * _camera.get_viewport().get_visible_rect().size.aspect()
 	# fraction 0.5 => sidestep 0 (centred); 1.0 => full half-width right.
 	return (SUBJECT_SCREEN_FRACTION - 0.5) * 2.0 * half_width_at_distance
-
 
 
 # ── Contests: real PlayerController/Ball physics, two bodies, a short

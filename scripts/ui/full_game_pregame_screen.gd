@@ -194,7 +194,9 @@ const SUBTITLE_TEXT := "18-a-side, real clock, quarters, scoring"
 const START_TEXT := "START MATCH"
 
 const MATCH_SCENE := "res://scenes/modes/full_game.tscn"
-const MENU_SCENE := "res://scenes/ui/main_menu.tscn"
+## Back goes to the TEAM page, the step before this one since 6AC
+## (FULL GAME -> side select -> TEAM -> here -> match).
+const MENU_SCENE := "res://scenes/ui/team_list_screen.tscn"
 
 ## Selection animation, matching main_menu.gd's card row: a back-out
 ## overshoot on the scale (a plain ease never reads as a "pop", see that
@@ -589,7 +591,6 @@ func _build() -> void:
 	_build_footer(bands)
 
 
-
 func _build_header(parent: Control) -> void:
 	var column := VBoxContainer.new()
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -950,7 +951,6 @@ func _build_card_row(parent: Control) -> void:
 		row.add_child(_cards[i].frame)
 
 
-
 func _build_card(card: Card, index: int) -> void:
 	var frame := Control.new()
 	frame.custom_minimum_size = Vector2(CARD_WIDTH, CARD_HEIGHT)
@@ -1113,8 +1113,6 @@ func _build_footer(parent: Control) -> void:
 	row.add_child(_hints)
 
 
-
-
 ## The legend reflects the mode the cursor is actually in — an open card,
 ## a locked card, a functional card, or the START MATCH stop all offer
 ## genuinely different things, and one combined run-on legend would be
@@ -1139,13 +1137,13 @@ func _hints_for_state() -> Dictionary:
 				{"keys": "← / →", "label": "Choose"},
 				{"keys": "Enter", "label": "Start match"},
 				{"keys": "↑", "label": "Back to cards"},
-				{"keys": "Esc", "label": "Back to menu"},
+				{"keys": "Esc", "label": "Back to team"},
 			],
 			InputManager.Device.GAMEPAD: [
 				{"keys": "D-Pad ↔", "label": "Choose"},
 				{"keys": "A", "label": "Start match"},
 				{"keys": "D-Pad ↑", "label": "Back to cards"},
-				{"keys": "B", "label": "Back to menu"},
+				{"keys": "B", "label": "Back to team"},
 			],
 		}
 	if _cards[_index].locked:
@@ -1154,13 +1152,13 @@ func _hints_for_state() -> Dictionary:
 				{"keys": "← / →", "label": "Choose"},
 				{"keys": "—", "label": "Not built yet"},
 				{"keys": "↓", "label": "Start match"},
-				{"keys": "Esc", "label": "Back to menu"},
+				{"keys": "Esc", "label": "Back to team"},
 			],
 			InputManager.Device.GAMEPAD: [
 				{"keys": "D-Pad ↔", "label": "Choose"},
 				{"keys": "—", "label": "Not built yet"},
 				{"keys": "D-Pad ↓", "label": "Start match"},
-				{"keys": "B", "label": "Back to menu"},
+				{"keys": "B", "label": "Back to team"},
 			],
 		}
 	return {
@@ -1168,13 +1166,13 @@ func _hints_for_state() -> Dictionary:
 			{"keys": "← / →", "label": "Choose"},
 			{"keys": "Enter", "label": "Open"},
 			{"keys": "↓", "label": "Start match"},
-			{"keys": "Esc", "label": "Back to menu"},
+			{"keys": "Esc", "label": "Back to team"},
 		],
 		InputManager.Device.GAMEPAD: [
 			{"keys": "D-Pad ↔", "label": "Choose"},
 			{"keys": "A", "label": "Open"},
 			{"keys": "D-Pad ↓", "label": "Start match"},
-			{"keys": "B", "label": "Back to menu"},
+			{"keys": "B", "label": "Back to team"},
 		],
 	}
 

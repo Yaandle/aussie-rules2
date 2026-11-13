@@ -7,6 +7,23 @@ own docs: `ANIMATION_RAGDOLL_AUDIT.md` (kick, carry, phase lock, bank,
 tackles), `MECHANICS_AUDIT.md` (ragdoll stages 2-5) and the 2026-10-30
 playtest commit (HUD, park turf, ruck, training).
 
+## Section B: fend, fist, snap/banana, call lines (2026-11-11, branch `update`)
+
+- [ ] Fend off (6Y): carrying, tap RB (J) as a tackler closes from in front: your left arm goes out straight (ball in the right hand) and a soft or glancing tackle breaks, the tackler shoved back. A hard square one (~4 m/s+) still holds; from behind a fend does nothing. `Tuning.FEND_*`.
+- [ ] Fist away (6Y): in a mark contest (prompt up), tap RB: the ruck-tap leap, and the ball is punched about 9 m/s along the right stick, or on along its line. Knee-high balls go under the leap. Does it read as a fist, not a ruck palm? `Tuning.FIST_*`.
+- [ ] Snap / banana (6Z): hold LB (L) while kicking. Aimed 45°+ across your body to the left (right-footer) is a snap: flatter, softer, hooks hard left. Anything else is a banana that bends left a few metres. The trajectory arc shows the bend; check the ball follows it. Everyone kicks right-footed for now. `Tuning.KICK_SNAP_*`, `KICK_BANANA_*`, `BALL_SIDESPIN_MAGNUS_COEFF`.
+- [ ] Ruck tap distance (2026-11-11): the tap now leaves at its tuned 6 m/s and first lands ~6 m away; it used to fly ~15 m (a knock() bug doubled it). If it now feels too short, raise `Tuning.RUCK_HIT_OUT_SPEED` (about 12.6 gives back the old tap).
+- [ ] Call lines (6V): in single-player control, call for the ball (A): a small "/ | \" shows under your feet for about a second. Big enough?
+
+## Section A small fixes (2026-11-11, branch `update`)
+
+- [ ] Man on the mark (6X): after a mark AND after a free kick for a tackle, the nearest opponent jogs onto the exact spot and stands facing the kicker, turning as the kicker walks back and lines up. No man on the mark for a goal-square kick-in.
+- [ ] Settings on a pad (6AB): (A) opens HUD STYLE and REMAP CONTROLS, and (A) cycles a HUD Style option.
+- [ ] Remap tabs (6AB): LB / RB (or Tab) swaps KEYBOARD and CONTROLLER; it opens on the device you're using. On CONTROLLER, (A) then any button or trigger rebinds; Start cancels. Check a rebind survives a restart.
+- [ ] LB switch on defence (6AB): a quick LB tap without the ball switches to the player nearest it; holding LB and flicking the right stick still bumps and doesn't switch. Never switches while your side has the ball. FULL_TEAM only. `Tuning.DEFENCE_SWITCH_TAP_MAX`.
+- [ ] TEAM in FULL GAME (6AC): TEAM is gone from the main menu. FULL GAME opens a side select (your team, opposition; they can't match), then the TEAM page (A continues, B back), then match setup (B goes back to TEAM). The scoreboard and goal banner show the clubs. Career's own screens unchanged.
+- [ ] Marking cue size (6T): the X/Y/A badge and ring are about two-thirds their old size. Still readable at FULL SIDE? One dial: `MarkPrompt.CUE_SCALE`.
+
 ## The held-up wrestle and contact direction (2026-11-10, branch `update`)
 
 See `docs/ANIMATION_RAGDOLL_AUDIT.md` (last section). Numbers are Tuning's
@@ -116,3 +133,19 @@ default). See `docs/BUILD7_MODEL.md`.
 - [ ] Hands on the body (2026-11-11): in a held-up tackle or a front-on collision the palms should land on the other player's chest, not swing past. `ArmIK`, `PlayerAnimation.CONTACT_HANDS_*`.
 - [ ] AI ragdolls you (2026-11-11, 6T): let an AI Slide-tackle you while carrying; a winning sling should put you down on the ragdoll, a stand should hold you up on physics. AI-v-AI tackles stay on clips. Watch how often it fires.
 - [ ] AI-v-AI ragdoll tackles (2026-11-11): watch AI Slides on each other; slings should fall on the ragdoll, stands fight on their feet, holds wrestle. Check frame rate with many at once; `Tuning.TACKLE_RAGDOLL_AI_V_AI` turns it off.
+
+## Highlights v2 (2026-11-11)
+
+Needs a real match (or the generator) and the Highlights screen. See `docs/HIGHLIGHTS.md`.
+
+- [ ] **Type toggles:** keys 1-8 (or a click) switch goals, behinds, marks, tackles, bumps, long kicks, rucks and general play. An off type disappears from the list and is never exported; on ticks its best few. The counts look right and the choices are still there after a restart.
+- [ ] **Tackles reach an export:** play a half, tick TACKLES, export: `NN_tackle_16x9.avi` clips exist, filmed from behind the tackler. Goals and marks no longer crowd them out of the list.
+- [ ] **Third-person camera framing:** behind and above the kicker / marker / tackler, looking the way they run, like the match's chase camera. Check it holds on a turn, when the player stops, and when the ball is in the air. `ReplayStage.THIRD_*`.
+- [ ] **Third-person in 9:16:** the narrow frame still holds the tackle (`THIRD_FOV_PORTRAIT`).
+- [ ] **Camera pick:** in the export window left / right on a type row changes that type's default, on a moment row changes that moment's camera; both stick.
+- [ ] **Format row:** 16:9 only renders roughly half the frames of both shapes (the count line says how many), and no `_9x16` files appear.
+- [ ] **General play:** switch it on; clips of a 3+ disposal chain or a bouncing run read as a passage of play, not a random cut. Say if the lead-in is too long or short (`GENERAL_*`).
+- [ ] **Goal camera after the score:** the broadcast camera stops following the ball a few metres past the posts and holds, instead of chasing it into the trees or swinging to the centre.
+- [ ] **End-on camera:** stays inside the boundary fence on a goal at the far end.
+- [ ] **Cancelled export:** cancel part-way; the clip being rendered is in moments.json with `"complete": false` and a smaller `frames`.
+- [ ] **Generator** (`scenes/dev/highlight_generator.tscn`, windowed, `--fixed-fps 60`): a run exports goal / mark / tackle clips from mixed cameras into `highlights/generated/`; the footage reads as AI play, and moments.json says `"footage": "generated"`, `"mode": "ai_vs_ai"`.

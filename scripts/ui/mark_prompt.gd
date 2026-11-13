@@ -56,8 +56,12 @@ extends CanvasLayer
 ##   MARK_STAND_MIN_DISTANCE off the boot (live_mark_prompt()). The SMOTHER
 ##   badge that used to show there is gone (playtest: not wanted).
 
-const BADGE_RADIUS := 18.0
-const LABEL_SIZE := 19
+## 6T (playtest 2026-11-08, "the X/Y/A marking cue is too large"): every
+## size below is scaled by CUE_SCALE, about two-thirds of the old cue. One
+## dial so the next "smaller / bigger" note is a one-number change.
+const CUE_SCALE := 0.65
+const BADGE_RADIUS := 18.0 * CUE_SCALE
+const LABEL_SIZE := 13   ## 19 * CUE_SCALE, rounded (a font size is an int)
 
 ## Fixed ring radius (no longer animated in/out — see this file's own
 ## header) and how many seconds of live offset the sweep's full lap spans.
@@ -65,7 +69,7 @@ const LABEL_SIZE := 19
 ## same precedent as KickTrajectory's own local RING_PULSE_*/DOT_SCALE_*
 ## constants (that file's cosmetic dials aren't in Tuning either, even
 ## though the kick itself is heavily Tuning-defined).
-const RING_RADIUS := BADGE_RADIUS + 9.0
+const RING_RADIUS := BADGE_RADIUS + 9.0 * CUE_SCALE
 ## Widened from 1.0 (user report: "improve the quality of the timing cue
 ## more, start it earlier and have a longer animation") — at 1.0s the sweep
 ## only had about a second to read and react to before the press-now
@@ -75,16 +79,16 @@ const RING_RADIUS := BADGE_RADIUS + 9.0
 ## finish its lap at the same honest instant (mark_timing_offset() is
 ## unchanged — only how much runway the sweep gets to visualise it grew).
 const RING_LEAD_TIME := 1.8        ## s of live offset mapped across the closing ring
-const RING_THICKNESS := 5.0
+const RING_THICKNESS := 5.0 * CUE_SCALE
 const RING_SEGMENTS := 48
 ## Where the closing ring starts, at the beginning of the RING_LEAD_TIME
 ## countdown. It shrinks to RING_RADIUS, landing on the target ring at
 ## press-now.
-const RING_CLOSE_START_RADIUS := RING_RADIUS + 58.0
+const RING_CLOSE_START_RADIUS := RING_RADIUS + 58.0 * CUE_SCALE
 const TARGET_RING_THICKNESS := 2.0
 const TARGET_RING_ALPHA := 0.55
 ## Ink outline drawn under the closing ring so it reads over turf.
-const RING_OUTLINE_EXTRA := 3.0
+const RING_OUTLINE_EXTRA := 3.0 * CUE_SCALE
 
 ## Brief post-resolution flash so the result reads as clearly as the
 ## countdown did — connects directly to the player's own mark_caught/
@@ -96,13 +100,13 @@ const RING_OUTLINE_EXTRA := 3.0
 ## gather_cooldown — which is exactly what makes live_mark_prompt() stop
 ## recommending anything the instant the outcome lands).
 const FLASH_DURATION := 0.30
-const FLASH_RING_GROW := 10.0      ## px the ring briefly pops outward by on a hit
+const FLASH_RING_GROW := 10.0 * CUE_SCALE      ## px the ring briefly pops outward by on a hit
 
 ## The completion pop — distinct from FLASH_RING_GROW above (that one is
 ## the catch/miss *outcome*; this one is "the sweep just finished", before
 ## the outcome is even known).
 const CUE_DURATION := 0.18
-const CUE_RING_GROW := 6.0
+const CUE_RING_GROW := 6.0 * CUE_SCALE
 
 var player: PlayerController = null:
 	set(value):

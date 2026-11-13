@@ -746,6 +746,11 @@ func _apply_contact_reaction(delta: float) -> void:
 	if _lean_bone >= 0:
 		_turn_bone(skeleton, _lean_bone, Quaternion(right, -deg_to_rad(_sway.y))
 			* Quaternion(forward, deg_to_rad(_sway.x)))
+	var fending := body is PlayerController and (body as PlayerController).is_fending()
+	_fend = lerpf(_fend, 1.0 if fending else 0.0,
+		1.0 - exp(-(CONTACT_HANDS_RISE if fending else CONTACT_HANDS_FALL) * delta))
+	if _fend > 0.01:
+		_fend_arm(skeleton, body, right)
 	if _brace > 0.01:
 		var controller := body as PlayerController
 		if controller != null and controller.is_carrying():
@@ -762,6 +767,41 @@ func _apply_contact_reaction(delta: float) -> void:
 
 ## The other body a brace's hands go to (set_hands_target), if any.
 var _hands_target: Node3D = null
+
+## Fend-off (6Y): the left arm's blend (0-1) and who it's aimed at. The
+## ball stays in the right hand (_hands_hold), the left goes out straight.
+var _fend := 0.0
+var _fend_target: Node3D = null
+const FEND_REACH := 0.75   ## m ahead of the shoulder when there's nobody to push
+
+
+func set_fend_target(other: Node3D) -> void:
+	_fend_target = other
+
+
+## The fend's straight left arm (ArmIK): onto the nearest opponent's chest
+## when one is close, else out ahead of the shoulder at FEND_REACH, which is
+## past the arm's length, so it locks straight.
+func _fend_arm(skeleton: Skeleton3D, body: Node3D, right: Vector3) -> void:
+	var upper := skeleton.find_bone(&"LeftUpperArm")
+	var lower := skeleton.find_bone(&"LeftLowerArm")
+	var hand := skeleton.find_bone(&"LeftHand")
+	if upper < 0 or lower < 0 or hand < 0:
+		return
+	var shoulder := skeleton.global_transform * skeleton.get_bone_global_pose(upper).origin
+	var ahead := -body.global_basis.z
+	ahead.y = 0.0
+	var target_world := shoulder + ahead.normalized() * FEND_REACH
+	if _fend_target != null and is_instance_valid(_fend_target):
+		var other_rig := _fend_target.get_node_or_null(^"Rig/Skeleton3D") as Skeleton3D
+		var chest_bone := other_rig.find_bone(&"Chest") if other_rig != null else -1
+		if chest_bone >= 0:
+			var chest := other_rig.global_transform * other_rig.get_bone_global_pose(chest_bone).origin
+			if chest.distance_to(shoulder) < FEND_REACH * 2.0:
+				target_world = chest + (shoulder - chest).normalized() * CONTACT_HANDS_SURFACE
+	var pole := (-right * 0.6 + Vector3.DOWN).normalized()
+	ArmIK.solve(skeleton, upper, lower, hand,
+		skeleton.global_transform.affine_inverse() * target_world, pole, _fend)
 
 
 ## Aims the next brace's palms at `other`'s chest (Phase 2 step 4) rather
@@ -945,6 +985,8 @@ func _hands_hold(skeleton: Skeleton3D, to_body: Transform3D, state: StringName) 
 	var from_left := to_body * (skeleton.get_bone_global_pose(int(left.bone)) * (left.centre as Vector3))
 	var from_right := to_body * (skeleton.get_bone_global_pose(int(right.bone)) * (right.centre as Vector3))
 	var keeper: StringName = ONE_HAND_STATES.get(state, &"")
+	if _fend > 0.01:
+		keeper = &"RightHand"   # the left is out fending (6Y)
 	var one := from_left
 	if keeper == &"RightHand" or (keeper == &"" \
 			and from_right.distance_squared_to(_last_hold) < from_left.distance_squared_to(_last_hold)):

@@ -18,7 +18,10 @@ extends Node3D
 ## Instead it steps the same gravity + quadratic-drag model Ball.
 ## _integrate_forces uses by hand (semi-implicit Euler), skipping only
 ## Magnus (spin curl): close enough for a UI readout, and the spin isn't
-## even decided yet at this point since the ball hasn't been struck.
+## even decided yet at this point since the ball hasn't been struck. The
+## one exception is a snap or banana's sidespin (6Z), which is known while
+## LB is held and bends the flight by metres: update_preview's `spin` adds
+## that term (Tuning.BALL_SIDESPIN_MAGNUS_COEFF) so the arc shows the curl.
 ##
 ## The HUD options (Settings.HUD_OPTIONS, playtest 2026-10-30) style it
 ## live: `trajectory` switches it off, `trajectory_colour` picks the colour,
@@ -156,7 +159,8 @@ func _apply_style() -> void:
 ## `origin`/`launch_velocity` are world-space, matching what
 ## PlayerController._kick_parameters() returns. Hides everything when
 ## `active` is false — cheap to call unconditionally every frame.
-func update_preview(active: bool, origin: Vector3, launch_velocity: Vector3) -> void:
+func update_preview(active: bool, origin: Vector3, launch_velocity: Vector3,
+		spin := Vector3.ZERO) -> void:
 	active = active and Settings.hud_on(&"trajectory")
 	visible = active
 	if not active:
@@ -166,7 +170,7 @@ func update_preview(active: bool, origin: Vector3, launch_velocity: Vector3) -> 
 	# no separate _process needed just to keep a hidden node ticking.
 	_time += get_process_delta_time()
 
-	var points := _simulate(origin, launch_velocity)
+	var points := _simulate(origin, launch_velocity, spin)
 	var shown := _downsample(points, MAX_DOTS)
 	var multimesh := _dots.multimesh
 	if _fill > 0.0:
@@ -238,7 +242,8 @@ func _place_dashes(multimesh: MultiMesh, shown: Array[Vector3]) -> void:
 ## out. MAX_SIM_SECONDS is only a safety valve (real kicks land in ~3s at
 ## the highest charge/kick_power_scale combination); it should never
 ## actually bind.
-func _simulate(origin: Vector3, launch_velocity: Vector3) -> Array[Vector3]:
+func _simulate(origin: Vector3, launch_velocity: Vector3, spin := Vector3.ZERO) -> Array[Vector3]:
+	var side := Vector3(0.0, spin.y, 0.0)
 	var points: Array[Vector3] = []
 	var pos := origin
 	var vel := launch_velocity
@@ -247,6 +252,10 @@ func _simulate(origin: Vector3, launch_velocity: Vector3) -> Array[Vector3]:
 		var speed := vel.length()
 		if speed > 0.05:
 			vel += (-vel * speed * Tuning.BALL_DRAG_COEFF / Tuning.BALL_MASS) * SIM_STEP_TIME
+			vel += side.cross(vel) * (Tuning.BALL_SIDESPIN_MAGNUS_COEFF / Tuning.BALL_MASS) * SIM_STEP_TIME
+		# The spin bleeds off as the real ball's does (Ball's angular_damp),
+		# or the arc overstates the bend by about half on a long kick.
+		side *= maxf(0.0, 1.0 - Tuning.BALL_ANGULAR_DAMP * SIM_STEP_TIME)
 		vel.y -= Tuning.GRAVITY * SIM_STEP_TIME
 		pos += vel * SIM_STEP_TIME
 		points.append(pos)

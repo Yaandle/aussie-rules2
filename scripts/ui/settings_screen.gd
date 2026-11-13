@@ -302,7 +302,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		_move(-1)
 	elif event.is_action_pressed(&"move_back") or event.is_action_pressed(&"ui_down"):
 		_move(1)
-	elif event.is_action_pressed(&"ui_accept") and _index >= _rows.size():
+	# `confirm` as well as ui_accept (6AB): ui_accept alone never fired for
+	# a pad's (A) here, so a controller couldn't open HUD STYLE or REMAP
+	# CONTROLS. pause_screen.gd already reads both.
+	elif (event.is_action_pressed(&"ui_accept") or event.is_action_pressed(&"confirm")) \
+			and _index >= _rows.size():
 		_activate()
 	elif event.is_action_pressed(&"ui_left") and _index < _rows.size():
 		_rows[_index].cycle(-1)

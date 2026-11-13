@@ -296,6 +296,14 @@ const BALL_DRAG_COEFF := 0.00294
 # Magnus force from spin, F = MAGNUS * (omega x v). Small, but it is what
 # makes a torpedo hold a line and a badly struck ball fade off it.
 const BALL_MAGNUS_COEFF := 0.00022
+# Sidespin (6Z, snap and banana kicks): the vertical part of the spin gets
+# its own, larger coefficient, and only while the ball is in a kick's
+# flight (Ball.is_kick_flight). BALL_MAGNUS_COEFF above was set for the
+# punt's end-over-end backspin, where a big lift would float every kick;
+# at that size a sidespun kick bent a few tens of centimetres, nothing like
+# a real snap. 0.001 at 50 rad/s and 22 m/s is about 2.3 m/s^2 sideways:
+# a 30-40 m banana bends a few metres. Unplaytested feel guess.
+const BALL_SIDESPIN_MAGNUS_COEFF := 0.0010
 
 const BALL_SLEEP_SPEED := 0.12         # m/s below which a resting ball is allowed to sleep
 
@@ -1592,6 +1600,64 @@ const BUMP_MISTIMED_SCALE := 0.35      # knockback/stun fraction applied when ti
 # the way get_look_vector() reports every frame regardless of how it got
 # there. See InputManager.flick_vector().
 const FLICK_WINDOW := 0.15             # s the sweep has to complete within
+
+# Switch on defence (6AB, playtest 2026-11-11: "LB the default change-player
+# on defence"). LB is also bump stance (hold + right-stick flick), so the
+# switch fires on a TAP: released within this long with no flick while held.
+# A held LB, or one that flicked, is a bump and never switches.
+const DEFENCE_SWITCH_TAP_MAX := 0.25   # s; unplaytested feel guess
+
+# Fend-off, "don't argue" (6Y, playtest 2026-11-11: "RB in play with the
+# ball is a palm"). RB while carrying puts a straight arm out for
+# FEND_DURATION. A tackle that lands in that window from inside FEND_ARC_DEG
+# of the carrier's facing has its balance loss b cut by FEND_B_CUT, so its
+# p_break (1 - b) rises and more tackles break. Still the tackle model's
+# comparison against TACKLE_*_BREAK_P, never a roll (RULES_REFERENCE §3).
+# A fended Slide is judged on TACKLE_LUNGE_BREAK_P, not its own 0.95: the
+# straight arm keeps the wrap from closing, so it's only as good as a
+# strip. Without that a fend could never break a Slide (the AI's only
+# tackle): measured, b cut by 0.45 still left every Slide in a 28-hit grid
+# held. With it, a fend breaks a soft or glancing front-on tackle and a
+# hard square one (about 4 m/s closing or more) still holds.
+# A fended tackler who breaks is also shoved back FEND_PUSH_SPEED. From
+# behind (outside the arc) a fend does nothing: you can't fend what you
+# can't reach. All unplaytested feel guesses.
+const FEND_DURATION := 0.45
+const FEND_COOLDOWN := 1.2
+const FEND_ARC_DEG := 100.0
+const FEND_B_CUT := 0.35
+const FEND_PUSH_SPEED := 2.0
+const FEND_TARGET_RANGE := 2.2        # m: the arm goes to an opponent this close
+
+# Fist the ball away (6Y: "RB in a mark contest you might not win is a
+# fist-away, like the ruck tap"). The ruck tap's own leap (HIT_OUT, with its
+# drift under the ball) and reach, then a punch: harder and flatter than the
+# ruck palm, so it clears the contest. Unplaytested feel guesses.
+const FIST_SPEED := 9.0               # m/s, horizontal
+const FIST_UP_SPEED := 2.0            # m/s
+# How close the ball has to come to the punching hand or the chest-height
+# hands, any frame of the leap: the (Y) mark's own reach, so a fist meets
+# what a contested mark could have.
+const FIST_REACH := MARK_CATCH_RADIUS * MARK_AGGRESSIVE_REACH_SCALE + MARK_ASSIST_RADIUS_BONUS
+
+# Snap and banana kicks (6Z, playtest 2026-11-11: "hold LB while kicking;
+# the kick is chosen by the player's direction and kicking foot"). A kick
+# aimed across the body to the side away from the kicking foot (a right
+# footer aiming left of where they're running) by at least
+# KICK_SNAP_MIN_ANGLE is a SNAP: struck side-on, flatter and softer, with the
+# most sidespin. Anything else with LB held is a BANANA: closer to a normal
+# kick, with less bend. Either way a right foot hooks the ball right to left
+# and a left foot left to right (the inside of the boot). Most of the punt's
+# backspin goes, since the ball is struck across rather than through.
+# Unplaytested feel guesses.
+const KICK_SNAP_MIN_ANGLE := 45.0       # deg between aim and run direction
+const KICK_SNAP_SPIN := 60.0            # rad/s about vertical
+const KICK_SNAP_SPEED_SCALE := 0.85
+const KICK_SNAP_ELEVATION_DROP := 8.0   # deg flatter
+const KICK_BANANA_SPIN := 45.0
+const KICK_BANANA_SPEED_SCALE := 0.92
+const KICK_BANANA_ELEVATION_DROP := 3.0
+const KICK_CURVE_BACKSPIN_KEEP := 0.3
 const FLICK_MIN_MAGNITUDE := 0.75      # deflection that counts as "the flick landed"
 const FLICK_NEUTRAL_MAGNITUDE := 0.30  # deflection below this counts as "was neutral"
 
@@ -1683,7 +1749,10 @@ const AFTER_SIREN_MAX_FLIGHT := 6.0   # s
 # hauled them across the ground. MARK_STAND_ARRIVE_RADIUS is where the jog
 # stops and the exact hold takes over. Neither is a rule number —
 # feel/readability values, same category as the retreat walk-back above.
-const MARK_STAND_GOAL_SIDE_OFFSET := 1.0   # m goal-side of the mark-taker
+# 6X (playtest 2026-11-11): he now stands on the exact spot, so the offset
+# is 0. Collision with the retreating taker, not this offset, keeps the two
+# capsules apart (see PlayerController._apply_stand_the_mark).
+const MARK_STAND_GOAL_SIDE_OFFSET := 0.0   # m goal-side of the mark; 0 = on it
 const MARK_STAND_JOG_SPEED := JOG_SPEED    # m/s onto the mark — a jog, not a drag
 const MARK_STAND_ARRIVE_RADIUS := 0.3      # m — close enough, snap and hold
 

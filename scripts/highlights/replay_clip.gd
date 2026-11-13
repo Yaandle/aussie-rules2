@@ -99,6 +99,48 @@ static func get_quat(buf: StreamPeerBuffer) -> Quaternion:
 	return q.normalized() if q.length_squared() > 0.0001 else Quaternion.IDENTITY
 
 
+## Cheap reads straight from a frame's bytes, for code that wants one body's
+## position or the ball every frame of a clip (the third-person camera, the
+## goal camera's hold) without decoding all ~40 skeletons.
+const HEADER_BYTES := 9            ## clock f32 + quarter, 4 score bytes
+const BALL_BYTES := 20             ## position 3×f32 + rotation 4×i16
+
+var _body_offsets := PackedInt32Array()
+
+
+func _offset_of(body: int) -> int:
+	if _body_offsets.is_empty():
+		var at := HEADER_BYTES + BALL_BYTES
+		for entry: Dictionary in meta.bodies:
+			_body_offsets.append(at)
+			at += 12 + 8 + int(entry.bones) * 8 + (entry.pos_bones as Array).size() * 12
+	return _body_offsets[body]
+
+
+func ball_position(index: int) -> Vector3:
+	var buf := frames[clampi(index, 0, frames.size() - 1)]
+	return Vector3(buf.decode_float(HEADER_BYTES), buf.decode_float(HEADER_BYTES + 4),
+		buf.decode_float(HEADER_BYTES + 8))
+
+
+func body_position(index: int, body: int) -> Vector3:
+	var buf := frames[clampi(index, 0, frames.size() - 1)]
+	var at := _offset_of(body)
+	return Vector3(buf.decode_float(at), buf.decode_float(at + 4), buf.decode_float(at + 8))
+
+
+## Which way body `body` faces in frame `index` (its -Z, the way HumanoidRig
+## looks), as a world vector.
+func body_facing(index: int, body: int) -> Vector3:
+	var buf := frames[clampi(index, 0, frames.size() - 1)]
+	var at := _offset_of(body) + 12
+	var q := Quaternion(buf.decode_s16(at) / QUAT_SCALE, buf.decode_s16(at + 2) / QUAT_SCALE,
+		buf.decode_s16(at + 4) / QUAT_SCALE, buf.decode_s16(at + 6) / QUAT_SCALE)
+	if q.length_squared() < 0.0001:
+		return Vector3.FORWARD
+	return q.normalized() * Vector3.FORWARD
+
+
 ## Decodes frame `index` into plain arrays:
 ## {clock, quarter, goals:[hg,hb,ag,ab], ball_pos, ball_rot,
 ##  bodies:[{pos, rot, bones: Array[Quaternion], bone_pos: Array[Vector3]}]}

@@ -215,7 +215,13 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		# a shanked wobbler is unaffected and a clean torpedo holds its line.
 		var omega := state.angular_velocity
 		if omega.length_squared() > 0.01:
-			state.apply_central_force(omega.cross(v) * Tuning.BALL_MAGNUS_COEFF)
+			# Sidespin (the vertical part) curls a kick on its own, larger
+			# coefficient, only in a kick's flight (Tuning's
+			# BALL_SIDESPIN_MAGNUS_COEFF, 6Z): a bounce's tumble shouldn't
+			# start a rolling ball swerving.
+			var side := Vector3(0.0, omega.y, 0.0) if is_kick_flight() else Vector3.ZERO
+			state.apply_central_force((omega - side).cross(v) * Tuning.BALL_MAGNUS_COEFF
+				+ side.cross(v) * Tuning.BALL_SIDESPIN_MAGNUS_COEFF)
 
 	_apply_catch_gravity(state)
 

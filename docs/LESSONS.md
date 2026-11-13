@@ -320,6 +320,26 @@ change should fit them.
   broken and held-up tackles, glancing bumps, contested marks, by bearing,
   pace and stamina; `-- --model=7thbuild`, `-- --cases=N`). Run mark cases
   one at a time: `_live_ball()` reads the first ball in the scene.
+- **Highlights replays assume evenly spaced frames.** The recorder takes one
+  frame per rendered frame at ~30 Hz and a clip plays back at 30 fps, so a
+  variable-rate run plays back sped up and slowed down. Anything that records
+  unattended (`scenes/dev/highlight_generator.tscn`) runs windowed with
+  `--fixed-fps 60`. `scenes/dev/highlight_check.tscn` checks an export.
+- **A score's kick is the last kick nobody has gathered, whoever took it.**
+  The recorder used the scoring team's last kick, so a goal that came after
+  a turnover, a mark or a ball carried over the line named an earlier kick
+  and its distance (60 m for a 6 m scrap). Where the kicker is on the other
+  side (a defender kicking through his own goal) the row has
+  `facts.own_goal`. The 2026-11-10 rows 05, 10 and 11 look like that: an Away
+  player's kick-in or carry heading for the end Away defends (read from the
+  replay's ball track, not yet reproduced).
+- **FULL_TEAM control hands a HumanBrain to whoever HOME gains the ball.** A
+  scratch all-AI match has to set `Settings.player_control_mode` to
+  SINGLE_PLAYER in memory first, or its HOME players stand frozen as "human".
+- **A replay camera has to be deterministic per frame.** Scrubbing, looping
+  and the exporter all jump about, so anything a camera "remembers" (where a
+  goal clip stops following the ball) is found once per clip from the
+  recorded frames, not as state carried frame to frame.
 - Nobody in this project's history has had a live GUI session during an
   agent run. Anything about feel, framing or camera needs the user's eyes:
   say so rather than claiming it.

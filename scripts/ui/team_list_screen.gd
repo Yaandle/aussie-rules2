@@ -3,8 +3,10 @@ extends CanvasLayer
 
 ## Team List screen: a top-down whiteboard preview of a team's starting
 ## layout (FormationWhiteboard, driven by TeamFormation's fixed 18
-## slots). Reached from the main menu via the "team_menu" action (T),
-## same as character_menu (C) reaches CharacterScreen — see main_menu.gd.
+## slots). Since 6AC (playtest 2026-11-11) it's a step of FULL GAME, not a
+## main-menu item: FULL GAME -> SideSelectScreen -> here -> the pregame
+## screen. Back goes to the side select, accept continues to match setup.
+## Career's own team menu is a different screen and isn't touched.
 ##
 ## Deliberately its own visual identity again — a chunky neomorphism x
 ## brutalist retro-'90s treatment (thick near-black borders, hard offset
@@ -58,7 +60,7 @@ extends CanvasLayer
 ## Tuning defaults elsewhere — the exact rule FullGame._apply_character_
 ## profile() applies at kickoff. Names and numbers are display-only:
 ## quick play has no named roster, so they come from RosterGenerator
-## seeded off SQUAD_SEED (stable between visits, never persisted).
+## seeded off the chosen club (stable between visits, never persisted).
 ##
 ## ── Layout ──────────────────────────────────────────────────────────
 ## One centred content column, not a full-width spread. The board is a
@@ -127,8 +129,9 @@ const TACTICS_ROW_GAP := 6.0
 const TACTICS_CARD_HEIGHT := TACTICS_ROW_HEIGHT * 3.0 + TACTICS_ROW_GAP * 2.0 \
 	+ CARD_PAD * 2.0
 
-## Seed for the display-only squad names/numbers — see the header.
-const SQUAD_SEED := "HOME"
+## The display-only squad names/numbers are seeded off the club picked on
+## the side select since 6AC (Settings.quick_home_name()), so each club has
+## its own stable squad.
 const SQUAD_ROW_HEIGHT := 30.0
 ## Pixels per up/down press while the cursor is in the squad sheet.
 const SQUAD_SCROLL_STEP := SQUAD_ROW_HEIGHT * 3.0
@@ -232,6 +235,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"pause") or event.is_action_pressed(&"team_menu") \
 			or event.is_action_pressed(&"decline"):
 		_exit_to_menu()
+	elif event.is_action_pressed(&"ui_accept") or event.is_action_pressed(&"confirm"):
+		_continue_to_pregame()
 	elif event.is_action_pressed(&"move_forward") or event.is_action_pressed(&"ui_up"):
 		if _in_squad:
 			_scroll_squad(-1)
@@ -262,7 +267,15 @@ func _exit_to_menu() -> void:
 		return
 	_busy = true
 	Settings.save()
-	SceneWipe.change_scene("res://scenes/ui/main_menu.tscn")
+	SceneWipe.change_scene("res://scenes/ui/side_select_screen.tscn")
+
+
+func _continue_to_pregame() -> void:
+	if _busy:
+		return
+	_busy = true
+	Settings.save()
+	SceneWipe.change_scene("res://scenes/ui/full_game_pregame_screen.tscn")
 
 
 ## Clamped, not wrapping like it used to: down off the last row now goes
@@ -404,7 +417,7 @@ func _build_header(parent: Control) -> void:
 	underline_style.bg_color = RETRO_ACCENT
 	underline.add_theme_stylebox_override(&"panel", underline_style)
 	column.add_child(underline)
-	column.add_child(SoftBrutalist.label("HOME  ·  STARTING FORMATION & SQUAD",
+	column.add_child(SoftBrutalist.label("%s  ·  STARTING FORMATION & SQUAD" % Settings.quick_home_name().to_upper(),
 		SoftBrutalist.SIZE_LABEL, SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_REGULAR,
 		SoftBrutalist.TRACK_LABEL))
 
@@ -695,7 +708,7 @@ func _rule(colour: Color, thickness: float) -> Control:
 ## order (which already runs back line → followers, left → right), with
 ## the stats a quick-play match will really use — see the header.
 func _squad_entries() -> Array[Dictionary]:
-	var generated := RosterGenerator.generate_team(SQUAD_SEED)
+	var generated := RosterGenerator.generate_team(Settings.quick_home_name())
 	var start_idx := clampi(Settings.home_human_slot, 0, generated.size() - 1)
 	var entries: Array[Dictionary] = []
 	for slot_index in TeamFormation.SLOTS.size():
@@ -775,11 +788,11 @@ func _refresh_hints() -> void:
 		_hints.set_hint_sets({
 			InputManager.Device.KEYBOARD: [
 				{"keys": "↑ / ↓", "label": "Scroll"},
-				{"keys": "T / Esc", "label": "Back to menu"},
+				{"keys": "Esc", "label": "Back"},
 			],
 			InputManager.Device.GAMEPAD: [
 				{"keys": "D-Pad ↕", "label": "Scroll"},
-				{"keys": "B", "label": "Back to menu"},
+				{"keys": "B", "label": "Back"},
 			],
 		})
 		return
@@ -789,7 +802,8 @@ func _refresh_hints() -> void:
 			{"keys": "← / →", "label": "Change"},
 			{"keys": "↓", "label": "Squad list"},
 			{"keys": "O", "label": "Opposition"},
-			{"keys": "T / Esc", "label": "Back to menu"},
+			{"keys": "Enter", "label": "Continue"},
+			{"keys": "Esc", "label": "Back"},
 		],
 		# toggle_opposition's gamepad binding used to be joypad button 12
 		# (JOY_BUTTON_DPAD_DOWN), shadowed by ui_down's own engine-default
@@ -802,6 +816,7 @@ func _refresh_hints() -> void:
 			{"keys": "D-Pad ↔", "label": "Change"},
 			{"keys": "D-Pad ↓", "label": "Squad list"},
 			{"keys": "LB", "label": "Opposition"},
-			{"keys": "B", "label": "Back to menu"},
+			{"keys": "A", "label": "Continue"},
+			{"keys": "B", "label": "Back"},
 		],
 	})

@@ -24,6 +24,13 @@ extends Node
 ## weight. A moment waits until its play-out has been recorded, then its
 ## window is copied out of the ring into a ReplayClip and handed to the
 ## Highlights autoload.
+##
+## Every disposal, mark, tackle, bump, score and siren is also logged with
+## its time (`_events`), and a moment's clip carries those that fall inside it
+## as `events` ({frame, kind, player}), so the video side can cut and add
+## sound on exact frames. A goal or behind records the kick that actually
+## scored it (`_flight`: the last kick nobody has gathered since), not the
+## scoring team's last kick, which was often an earlier one (2026-11-10).
 
 signal moment_detected(moment: Dictionary)
 
@@ -49,6 +56,8 @@ var _capture_due := false
 var _ball_heights: Array[float] = []
 
 var _pending: Array[Dictionary] = []
+## Rolling log of what happened and when: {t, kind, player (index or -1)}.
+var _events: Array[Dictionary] = []
 var _evaluating: Array[Dictionary] = []
 var _next_id := 1
 
@@ -58,6 +67,17 @@ var _last_kick := {}           ## team -> kick dict
 var _set_shot_player: PlayerController = null
 var _chain_team: Tuning.Team = Tuning.Team.NONE
 var _chain_count := 0
+## The last kick anyone took that nobody has gathered since: the kick a score
+## is credited to. A handball, bounce or gather puts it out.
+var _flight := {}
+## The passage of play the chain above is part of (general play).
+var _chain_bounces := 0
+var _chain_start_t := 0.0
+var _chain_start_x := 0.0
+var _chain_last_t := 0.0
+var _chain_last_x := 0.0
+var _chain_last_player: PlayerController = null
+var _siren_latched := false
 var _team_names := {}
 
 
@@ -244,7 +264,8 @@ func _commit_frame() -> void:
 
 
 ## Frames recorded between `from` and `to` (recorder time), oldest first.
-func _window(from: float, to: float) -> Array[PackedByteArray]:
+## `times`, if given, gets each frame's recorder time.
+func _window(from: float, to: float, times: PackedFloat64Array = PackedFloat64Array()) -> Array[PackedByteArray]:
 	var out: Array[PackedByteArray] = []
 	var size := _ring.size()
 	var oldest := (_ring_head - _ring_count + size) % size
@@ -253,7 +274,20 @@ func _window(from: float, to: float) -> Array[PackedByteArray]:
 		var t := _ring_times[i]
 		if t >= from and t <= to:
 			out.append(_ring[i])
+			times.append(t)
 	return out
+
+
+## Index of the frame (in a window whose times are `times`) nearest `t`.
+static func _nearest_frame(times: PackedFloat64Array, t: float) -> int:
+	var best := 0
+	var best_d := INF
+	for i in times.size():
+		var d := absf(times[i] - t)
+		if d < best_d:
+			best_d = d
+			best = i
+	return best
 
 
 func _update_pending() -> void:
@@ -268,28 +302,41 @@ func _update_pending() -> void:
 ## (cut short) when the match ends before a play-out has run.
 func _finish(moment: Dictionary) -> void:
 	var t_event: float = moment._t_event
-	var frames := _window(t_event - float(moment.lead), t_event + float(moment.out))
+	var times := PackedFloat64Array()
+	var frames := _window(t_event - float(moment.lead), t_event + float(moment.out), times)
 	if frames.is_empty():
 		return
 	var clip := ReplayClip.new()
 	clip.meta = _meta.duplicate(true)
 	clip.frames = frames
 	# Which frame is the moment itself, for the camera and the scrub bar.
-	var first_t := t_event - float(moment.lead)
-	clip.meta["event_frame"] = clampi(int(round((t_event - maxf(first_t, _oldest_time())) * HighlightTable.RECORD_FPS)),
-		0, frames.size() - 1)
+	var event_frame := _nearest_frame(times, t_event)
+	clip.meta["event_frame"] = event_frame
 	clip.meta["focus"] = moment.focus
 	clip.meta["type"] = moment.type
 	clip.meta["attack_dir"] = moment.attack_dir
+	# What happened, on which clip frame.
+	var events: Array = []
+	var slack := 0.5 / HighlightTable.RECORD_FPS
+	for ev in _events:
+		var te: float = ev.t
+		if te < times[0] - slack or te > times[times.size() - 1] + slack:
+			continue
+		var who := int(ev.player)
+		events.append({"frame": _nearest_frame(times, te), "kind": ev.kind,
+			"player": String(_meta.bodies[who].name) if who >= 0 else ""})
+	moment["events"] = events
+	clip.meta["events"] = events
+	if moment.has("_t_kick"):
+		# A scoring kick from before the clip began is pinned to its first
+		# frame; the lead-in is stretched to reach it, so that's rare.
+		moment["kick_frame"] = _nearest_frame(times, float(moment._t_kick))
+		clip.meta["kick_frame"] = moment.kick_frame
+		moment.erase("_t_kick")
 	moment.clip = clip
 	moment.duration_s = clip.duration()
 	moment.erase("_t_event")
 	moment_detected.emit(moment)
-
-
-func _oldest_time() -> float:
-	var size := _ring.size()
-	return _ring_times[(_ring_head - _ring_count + size) % size] if _ring_count > 0 else _t
 
 
 ## The match is over (or the scene is going): cut every waiting moment
@@ -298,6 +345,7 @@ func flush() -> void:
 	for moment in _evaluating:
 		_score_evaluation(moment)
 	_evaluating.clear()
+	_end_chain()
 	if _capture_due:
 		_commit_frame()
 		_capture_due = false
@@ -316,6 +364,7 @@ func _exit_tree() -> void:
 func _connect_events() -> void:
 	if _field != null:
 		_field.scored.connect(_on_scored)
+	MatchState.clock_changed.connect(_on_clock)
 	for player in _players:
 		player.ball_disposed.connect(_on_disposed.bind(player))
 		player.ball_gathered.connect(_on_gathered.bind(player))
@@ -326,39 +375,123 @@ func _connect_events() -> void:
 		player.holding_the_ball_called.connect(_on_holding_the_ball.bind(player))
 
 
+## Adds to the rolling log; what a moment's clip lists as `events`.
+func _log(kind: String, player: PlayerController = null) -> void:
+	_events.append({"t": _t, "kind": kind, "player": _players.find(player) if player != null else -1})
+	while not _events.is_empty() and _t - float(_events[0].t) > HighlightTable.BUFFER_SECONDS:
+		_events.pop_front()
+
+
+func _on_clock(seconds: float) -> void:
+	if seconds <= 0.0 and not _siren_latched:
+		_siren_latched = true
+		_log("siren")
+	elif seconds > 0.0:
+		_siren_latched = false
+
+
 func _on_disposed(action: Tuning.Action, player: PlayerController) -> void:
-	if action != Tuning.Action.KICK and action != Tuning.Action.HANDBALL:
-		return
-	if player.team == _chain_team:
-		_chain_count += 1
-	else:
-		_chain_team = player.team
-		_chain_count = 1
+	var kind := ""
+	match action:
+		Tuning.Action.KICK:
+			kind = "kick"
+		Tuning.Action.HANDBALL:
+			kind = "handball"
+		Tuning.Action.BOUNCE:
+			kind = "bounce"
+		_:
+			return
+	_log(kind, player)
+	_note_passage(action, player)
 	if action != Tuning.Action.KICK:
+		_flight = {}
 		return
 	_end_kick()
 	var kick := {
-		"player": player, "team": player.team, "from": player.global_position, "t": _t,
+		"player": player, "team": player.team, "t": _t,
+		# Where the ball left the boot, not where the player stood.
+		"from": _ball.global_position if is_instance_valid(_ball) else player.global_position,
 		"set_shot": player == _set_shot_player or player.is_protected(),
 		"scored": false,
 	}
 	_set_shot_player = null
 	_active_kick = kick
 	_last_kick[player.team] = kick
+	_flight = kick
 
 
 func _on_gathered(_ball_ref: Ball, player: PlayerController) -> void:
 	if _active_kick.get("player") != player or _t - float(_active_kick.get("t", 0.0)) > 0.3:
 		_end_kick()
+		_flight = {}
 	if _set_shot_player != null and _set_shot_player != player:
 		_set_shot_player = null
 	if _chain_team != Tuning.Team.NONE and player.team != _chain_team:
-		_chain_team = Tuning.Team.NONE
-		_chain_count = 0
+		_end_chain()
 	for ev in _evaluating:
 		if ev.type == "ruck" and int(ev.team) == int(player.team) \
 				and _t - float(ev._t_event) <= HighlightTable.RUCK_ADVANTAGE_WINDOW:
 			ev.facts["to_advantage"] = true
+
+
+# ── General play ────────────────────────────────────────────────────
+
+## Notes a disposal in the passage this team is on, starting a new one when
+## the ball changes sides or has been dead too long.
+func _note_passage(action: Tuning.Action, player: PlayerController) -> void:
+	if player.team != _chain_team or _t - _chain_last_t > HighlightTable.GENERAL_MAX_GAP:
+		_end_chain()
+		_chain_team = player.team
+		_chain_start_t = _t
+		_chain_start_x = player.global_position.x
+	if action == Tuning.Action.BOUNCE:
+		_chain_bounces += 1
+	else:
+		_chain_count += 1
+	_chain_last_t = _t
+	_chain_last_x = player.global_position.x
+	_chain_last_player = player
+
+
+## Closes the passage: if it was long enough it becomes a general-play
+## moment (never for one that ended in a score, which has its own moment:
+## _on_scored resets the chain without calling this).
+func _end_chain() -> void:
+	if _chain_team == Tuning.Team.NONE:
+		return
+	var team := _chain_team
+	var disposals := _chain_count
+	var bounces := _chain_bounces
+	var last := _chain_last_player
+	var t_start := _chain_start_t
+	var t_last := _chain_last_t
+	var direction := 1.0 if team == Tuning.Team.HOME else -1.0
+	var metres := maxf(0.0, direction * (_chain_last_x - _chain_start_x))
+	_reset_chain()
+	if last == null or (disposals < HighlightTable.GENERAL_MIN_DISPOSALS and bounces < HighlightTable.GENERAL_MIN_BOUNCES):
+		return
+	var score := HighlightTable.GENERAL_PER_BOUNCE * bounces + HighlightTable.GENERAL_PER_METRE * metres
+	if disposals >= HighlightTable.GENERAL_MIN_DISPOSALS:
+		score += HighlightTable.GENERAL_PER_DISPOSAL * (disposals - HighlightTable.GENERAL_MIN_DISPOSALS + 1)
+	score = minf(score, HighlightTable.GENERAL_CAP)
+	var moment := _new_moment("general", t_last, score, [last], ["carrier"], {
+		"player": _name_of(last), "team": team_name(team),
+		"disposals": disposals, "bounces": bounces, "metres": metres,
+	})
+	if moment.is_empty():
+		return
+	moment.lead = clampf(t_last - t_start + HighlightTable.GENERAL_RUNUP, float(moment.lead),
+		HighlightTable.GENERAL_MAX_LEAD)
+	moment.focus = [_players.find(last)]
+	moment.attack_dir = direction
+	_queue(moment)
+
+
+func _reset_chain() -> void:
+	_chain_team = Tuning.Team.NONE
+	_chain_count = 0
+	_chain_bounces = 0
+	_chain_last_player = null
 
 
 ## The kick in the air has come down (gathered, landed or scored): if it
@@ -389,16 +522,24 @@ func _end_kick() -> void:
 func _on_scored(team: Tuning.Team, is_goal: bool) -> void:
 	if not is_instance_valid(_ball):
 		return
-	var kick: Dictionary = _last_kick.get(team, {})
+	# The kick that scored: the last one nobody gathered, whoever took it.
+	# (The scoring team's last kick was often an earlier one: the ball had
+	# been gathered, handballed, carried or turned over since.)
+	var kick: Dictionary = _flight
+	_flight = {}
 	var kicker: PlayerController = kick.get("player") if not kick.is_empty() else null
 	if not kick.is_empty():
 		kick.scored = true
 	_active_kick = {}
 	var direction := 1 if team == Tuning.Team.HOME else -1
+	# Metres the ball travelled over the ground from the boot to the line.
 	var dist := 0.0
-	if kicker != null and _field != null:
+	if kicker != null:
 		var from: Vector3 = kick.from
-		dist = Vector2(_field.goal_line_x(direction) - from.x, from.z).length()
+		var to := _ball.global_position
+		dist = Vector2(to.x - from.x, to.z - from.z).length()
+	# A defender's kick through his own goal counts for the other side.
+	var own_goal := kicker != null and kicker.team != team
 	# FullGame's _on_scored ran first (it connected in _ready), so the
 	# score already counts this one.
 	var other := Tuning.Team.AWAY if team == Tuning.Team.HOME else Tuning.Team.HOME
@@ -407,18 +548,23 @@ func _on_scored(team: Tuning.Team, is_goal: bool) -> void:
 	var other_pts := MatchState.points(other)
 	var own_before := own_after - value
 	var facts := {
-		"player": _name_of(kicker) if kicker != null else "A rushed behind",
+		"player": _name_of(kicker) if kicker != null else ("The ball" if is_goal else "A rushed behind"),
 		"distance": dist,
-		"on_the_run": kicker != null and not bool(kick.get("set_shot", false)),
+		"on_the_run": kicker != null and not own_goal and not bool(kick.get("set_shot", false)),
 		"after_siren": MatchState.seconds_remaining <= 0.0,
 		"go_ahead": own_before < other_pts and own_after >= other_pts,
 		"chain": _chain_count if _chain_team == team else 0,
 		"margin_after": absi(own_after - other_pts),
 	}
+	if own_goal:
+		facts["own_goal"] = true
+	if kicker == null:
+		facts["no_kick"] = true
 	var type := "goal" if is_goal else "behind"
 	var score := 0.0
 	if is_goal:
-		score += HighlightTable.GOAL_PER_METRE * maxf(0.0, dist - HighlightTable.GOAL_DISTANCE_FREE)
+		if not own_goal:
+			score += HighlightTable.GOAL_PER_METRE * maxf(0.0, dist - HighlightTable.GOAL_DISTANCE_FREE)
 		if facts.on_the_run:
 			score += HighlightTable.GOAL_ON_THE_RUN
 		if facts.after_siren:
@@ -431,6 +577,9 @@ func _on_scored(team: Tuning.Team, is_goal: bool) -> void:
 			HighlightTable.CHAIN_PER_DISPOSAL * maxi(0, int(facts.chain) - HighlightTable.CHAIN_FREE))
 	var players: Array = [kicker] if kicker != null else []
 	var moment := _new_moment(type, _t, score, players, ["kicker"], facts)
+	# The passage that ended in the score has its goal clip already.
+	_reset_chain()
+	_log(type, kicker)
 	if moment.is_empty():
 		return
 	var points_before := {team: own_before, other: other_pts}
@@ -440,6 +589,13 @@ func _on_scored(team: Tuning.Team, is_goal: bool) -> void:
 	if kicker != null:
 		moment.lead = clampf(_t - float(kick.t) + HighlightTable.GOAL_KICK_RUNUP,
 			float(moment.lead), HighlightTable.GOAL_MAX_LEAD)
+		moment["_t_kick"] = float(kick.t)
+		moment["kicker"] = _name_of(kicker)
+		moment["kick_distance"] = snappedf(dist, 0.1)
+	else:
+		moment["kicker"] = null
+		moment["kick_distance"] = null
+		moment["kick_frame"] = null
 	moment.focus = [_players.find(kicker)] if kicker != null else []
 	moment.attack_dir = float(direction)
 	_queue(moment)
@@ -448,8 +604,10 @@ func _on_scored(team: Tuning.Team, is_goal: bool) -> void:
 func _on_marked(tier: Tuning.Action, legal_mark: bool, player: PlayerController) -> void:
 	if not legal_mark:
 		return
+	_log("mark", player)
 	_set_shot_player = player
 	_end_kick()
+	_flight = {}
 	var opponent := _nearest_opponent(player)
 	var contested := opponent != null \
 		and opponent.global_position.distance_to(player.global_position) <= HighlightTable.MARK_CONTEST_RADIUS
@@ -486,6 +644,7 @@ func _on_marked(tier: Tuning.Action, legal_mark: bool, player: PlayerController)
 
 
 func _on_tackle(is_slide: bool, tackler: PlayerController) -> void:
+	_log("tackle", tackler)
 	var tackled := _nearest_opponent(tackler)
 	_evaluating.append({
 		"type": "tackle", "_t_event": _t, "tackler": tackler, "tackled": tackled,
@@ -501,6 +660,7 @@ func _on_holding_the_ball(_tackler: PlayerController, tackled: PlayerController)
 
 
 func _on_bump(bumper: PlayerController, carrier: PlayerController, clean: bool) -> void:
+	_log("bump", bumper)
 	_evaluating.append({
 		"type": "bump", "_t_event": _t, "tackler": bumper, "tackled": carrier,
 		"speed": bumper.velocity.length(), "facts": {"clean": clean},
@@ -520,6 +680,8 @@ func _on_hit_out(player: PlayerController, connected: bool) -> void:
 ## kick, a gather off a hit-out) are watched for a short window, then the
 ## moment is scored.
 func _update_evaluations() -> void:
+	if _chain_team != Tuning.Team.NONE and _t - _chain_last_t > HighlightTable.GENERAL_MAX_GAP:
+		_end_chain()
 	for i in range(_evaluating.size() - 1, -1, -1):
 		var ev := _evaluating[i]
 		var tackled: PlayerController = ev.tackled
