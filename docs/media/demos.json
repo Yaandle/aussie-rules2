@@ -1,0 +1,101 @@
+{
+  "recorded": "2026-11-13",
+  "recorder": "scenes/dev/demo_recorder.tscn (scripts/dev/demo_recorder.gd); tools/make_demo_gifs.py",
+  "notes": "Real gameplay code on real players; the recorder presses buttons and moves the camera. Staging is listed in the recorder's header. GIFs carry a control caption bottom-left; the MP4s are clean (no captions, no audio, H.264 yuv420p, no B-frames, first frame at t = 0, frame n at n/30 s). The only HUD in any frame is the mark badge and timing ring in the marking demo.",
+  "demos": [
+    {
+      "name": "marking",
+      "gif": "docs/media/marking.gif",
+      "mp4": "docs/media/video/marking.mp4",
+      "seconds": 9.6,
+      "fps": {"gif": 20, "mp4": 30},
+      "size": {"gif": [640, 360], "mp4": [1600, 900]},
+      "ground": "bush oval (Field 2, Settings.FieldStyle.OVAL_1), centre circle, match sun",
+      "what_it_shows": "Three takes with the mark badge and timing ring over the marker. 0.0 s Safe mark on the chest (caught at 1.37 s). 3.0 s Running mark: the marker runs onto the ball at 5.5 m/s and taps. 6.0 s Contested mark: an opponent at the marker's shoulder holds the Safe mark, the marker leaps (Aggressive) and MarkContest gives it to the marker (caught at 7.37 s).",
+      "takes": [
+        {"t": 0.0, "caption": "SAFE MARK · hold A"},
+        {"t": 3.0, "caption": "RUNNING MARK · tap X"},
+        {"t": 6.0, "caption": "CONTESTED MARK · tap Y to leap"}
+      ],
+      "controls": "Safe: hold A (G). Running: tap X (Q). Aggressive: tap Y (H).",
+      "readme_section": "Feature demos > Marking",
+      "check": "The run logged a mark for takes 1 and 3. It logged nothing for the Running take, so check by eye that the ball is taken in take 2."
+    },
+    {
+      "name": "tackling",
+      "gif": "docs/media/tackling.gif",
+      "mp4": "docs/media/video/tackling.mp4",
+      "seconds": 11.0,
+      "fps": {"gif": 20, "mp4": 30},
+      "size": {"gif": [640, 360], "mp4": [1600, 900]},
+      "ground": "bush oval (Field 2), centre circle, match sun",
+      "what_it_shows": "Three takes, the carrier running at 4 m/s in the first two. 0.0 s Wrap (tap X): lands at 0.84 s, b 0.98, held; the carrier goes down on the active ragdoll and the tackler keeps their feet (outcome 'fall', not the both-go-down wrap). 3.6 s Sling (hold B): lands at 4.5 s, b 0.98, held; the carrier is slung to the ground on the ragdoll, the tackler stays up. 7.2 s Fend-off: the carrier taps RB at 8.57 s as a tackler steps in from 60 degrees off their line; the tackle's b is cut from 0.28 to 0.18, p(break) 0.82 is past the fended threshold 0.5, the tackle breaks and the carrier runs on with the ball. Without the fend that tackle would have held (p(break) 0.72 against the sling's 0.95).",
+      "takes": [
+        {"t": 0.0, "caption": "WRAP TACKLE · tap X"},
+        {"t": 3.6, "caption": "SLING TACKLE · hold B"},
+        {"t": 7.2, "caption": "FEND OFF · tap RB with the ball"}
+      ],
+      "controls": "Wrap: tap X (Q). Sling: hold B (E). Fend off: tap RB (J) while carrying.",
+      "readme_section": "Feature demos > Tackling"
+    },
+    {
+      "name": "ruck",
+      "gif": "docs/media/ruck.gif",
+      "mp4": "docs/media/video/ruck.mp4",
+      "seconds": 9.2,
+      "fps": {"gif": 20, "mp4": 30},
+      "size": {"gif": [640, 360], "mp4": [1600, 900]},
+      "ground": "park (Field 1, Settings.FieldStyle.CLASSIC), centre circle, match sun",
+      "what_it_shows": "Two ball-ups in the centre circle with the ground's field umpire throwing the ball up. 0.0 s: the HOME ruckman presses RB early, the press is held to the toss's peak and connects at 2.24 s, tapping toward a HOME runner who gathers it at 3.47 s and runs on; the AWAY ruckman presses late and misses. 5.6 s: the other way round, AWAY connects at 7.83 s and HOME misses.",
+      "takes": [
+        {"t": 0.0, "caption": "CENTRE BOUNCE · RB to hit out, right stick to aim"},
+        {"t": 5.6, "caption": "A PALM, NOT A CATCH · early press, tapped at the peak"}
+      ],
+      "controls": "Hit-out: RB (J). Aim the tap: right stick (arrow keys).",
+      "readme_section": "Feature demos > Ruck"
+    },
+    {
+      "name": "kicking",
+      "gif": "docs/media/kicking.gif",
+      "mp4": "docs/media/video/kicking.mp4",
+      "seconds": 14.4,
+      "fps": {"gif": 20, "mp4": 30},
+      "size": {"gif": [640, 360], "mp4": [1600, 900]},
+      "ground": "park (Field 1), centre circle then 36 m out from the +X goal, match sun",
+      "what_it_shows": "0.0 s Stance: the kicker jogs in and holds the stance, the predicted flight drawn to its landing ring, power raised from 0.55 to 0.8. 2.9 s Drop punt, side-on and close: ball drop, straight leg, pointed foot, then the ball climbing away. 5.4 s Set shot: a 22 m kick is marked (Safe, legal) at 6.77 s, 36 m from goal; the kicker walks back, lines up (Y) at 7.67 s, runs in and kicks; the ball crosses the goal line between the big posts (z -0.02 m, posts at ±3.2 m) at 13.57 s.",
+      "takes": [
+        {"t": 0.0, "caption": "KICK · hold LT to aim and set the power"},
+        {"t": 2.9, "caption": "DROP PUNT · RT to kick"},
+        {"t": 5.4, "caption": "SET SHOT · mark inside 55 m"},
+        {"t": 7.67, "caption": "SET SHOT · Y to line up, RT to run in and kick"}
+      ],
+      "controls": "Stance: hold LT (right mouse / K). Kick: RT (left mouse / F). Line up a set shot: Y (X key).",
+      "readme_section": "Feature demos > Kicking",
+      "check": "The set shot crossed the line 0.8 m off the ground, so it may have bounced through; check by eye before calling it a goal on the full."
+    }
+  ],
+  "changed_facts": [
+    {"was": "Demos recorded in the animation viewer's dark studio", "now": "Recorded on the game's own grounds (bush oval and park) under the match sun, clean frame", "source": "scripts/dev/demo_recorder.gd _dress_ground"},
+    {"was": "Demo GIFs 720x405 at about 15 fps; kicking 3.4 s", "now": "GIFs 640x360 at 20 fps, 9.2-14.4 s; MP4s 1600x900 at 30 fps", "source": "tools/make_demo_gifs.py"},
+    {"was": "Tackling demo: wrap, sling, hit stick", "now": "Tackling demo: wrap, sling, fend-off (the hit stick is still in the game and the README table, just not in the demo)", "source": "scripts/dev/demo_recorder.gd _stage_tackling"},
+    {"was": "No fend-off", "now": "Fend off: RB (J) while carrying, a straight arm for 0.45 s; a tackle landing in it from inside 100 degrees of the carrier's facing has b cut by 35%; a fended sling is judged on 0.5 instead of 0.95; a broken tackler is shoved back at 2 m/s; evaluated, never rolled", "source": "scripts/tuning.gd FEND_DURATION, FEND_ARC_DEG, FEND_B_CUT, FEND_PUSH_SPEED; player_controller.gd fend_impact, _try_tackle"},
+    {"was": "No fist", "now": "Fist: RB (J) in a mark contest, the ruck tap's leap then a punch at 9 m/s (2 m/s up)", "source": "scripts/tuning.gd FIST_SPEED, FIST_UP_SPEED; player_controller.gd _try_fist"},
+    {"was": "A contested mark was whoever's hands got there (timing sets reach)", "now": "Contested marks: every player going for the ball is rated on timing, position, hand height and body; only the highest-rated player's hands close; hand-set weights, evaluated not rolled", "source": "scripts/mechanics/mark_contest.gd; player_controller.gd _wins_mark_contest; scripts/tuning.gd MARK_CONTEST_*"},
+    {"was": "No timing assist", "now": "Optional mark-timing assist, off by default (Settings > HUD STYLE > MARKING): game slows to 0.4x from 0.6 s before the press instant, with a height-against-time graph over the player; doesn't change how a mark is judged", "source": "scripts/tuning.gd MARK_ASSIST_*; scripts/autoload/settings.gd mark_assist; commit 12c6761"},
+    {"was": "Only a human's tackle or bump starts a ragdoll; AI tackles play clips", "now": "The AI's sling tackle goes on the ragdoll too, against a human or another AI player", "source": "scripts/tuning.gd TACKLE_RAGDOLL_AI_V_AI; player_controller.gd _slide_connect"},
+    {"was": "The hit-out 'knocks' the ball (no speed given)", "now": "The hit-out sets the ball's velocity off the palm: 6 m/s flat plus 1.5 m/s of lift, first landing about 6 m away", "source": "scripts/tuning.gd RUCK_HIT_OUT_SPEED, RUCK_HIT_OUT_UP_SPEED; player_controller.gd _resolve_hit_out; commit 4603a54"},
+    {"was": "No snap or banana kick", "now": "Hold LB (L) while kicking: aimed 45 degrees or more across the body is a snap, otherwise a banana that bends the other way", "source": "scripts/tuning.gd KICK_SNAP_*, KICK_BANANA_*; project.godot kick_curve"},
+    {"was": "Switch player: D-pad left only", "now": "D-pad left, or a tap of LB on defence", "source": "project.godot switch_player_defence; scripts/tuning.gd DEFENCE_SWITCH_TAP_MAX"},
+    {"was": "MSAA 2x", "now": "MSAA 4x", "source": "project.godot anti_aliasing/quality/msaa_3d=2 (Godot's enum: 2 is 4x)"},
+    {"was": "OvalEnvironment batches ~500 copies into ~14 MultiMeshes", "now": "~1,000-1,300 copies into ~30 MultiMeshes", "source": "scripts/field/oval_environment.gd header; docs/LESSONS.md"}
+  ],
+  "unchanged_and_checked": [
+    "Three marks: Safe hold A, Running tap X, Aggressive tap Y; reach 1.2 / 1.0 / 1.1 m; Running window 0.25 s; Safe plant 0.3 s; legal mark after 15 m; 7.5 m walk back (scripts/tuning.gd MARK_*_REACH_SCALE, MARK_RUNNING_CATCH_WINDOW, MARK_SAFE_PLANT_TIME, MARK_STAND_MIN_DISTANCE, MARK_RETREAT_DISTANCE)",
+    "Timing ring timed from the ball's real flight (PlayerController.mark_timing_offset; MARK_CUE_SOURCE = 1, GATED)",
+    "Drop punt 13-24 m/s with backspin; hip-fire 20 degrees of scatter; set shot inside 55 m (KICK_MIN_SPEED, KICK_MAX_SPEED, KICK_HIP_FIRE_SPREAD_DEG, GOAL_SET_SHOT_MAX_DISTANCE)",
+    "Two ruckmen, 2 s window, a palm not a catch (RUCK_CONTEST_WINDOW; _resolve_hit_out)",
+    "Tackle thresholds wrap 0.5, sling 0.95; prior opportunity 0.5 s; lunge reach 2.2 m; bump within 5 m of the ball (TACKLE_LUNGE_BREAK_P, TACKLE_SLIDE_BREAK_P, PRIOR_OPPORTUNITY_GRACE, TACKLE_LUNGE_REACH, CONTEST_BUMP_BALL_RADIUS)",
+    "The officiating signal snippet (holding_the_ball_called / field_ball_up_called) still matches player_controller.gd",
+    "18-a-side (TEAM_SIZE); v1.4.0 (project.godot config/version); 26 clips and 18 bones (docs/BUILD7_MODEL.md); MLP 5-8-8-1 and 464 attempts (docs/ML_AI_AUDIT.md); tackle weights JSON (data/ml/tackle_weights.json)"
+  ]
+}

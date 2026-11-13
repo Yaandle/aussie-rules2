@@ -13,7 +13,9 @@ Kicking, handballing, bouncing, marking, tackling, spoiling, smothering,
 bumping and ruck contests are all physically resolved. Umpiring covers
 holding the ball, running too far, off-the-ball free kicks and 50 m
 penalties. Tackles and bumps hand the players to an **active ragdoll**, and a
-tackle that lands holds or breaks on a trained tackle model. There's also a
+tackle that lands holds or breaks on a trained tackle model. A carrier can
+fend a tackler off, and a contested mark goes to the player with the best
+timing, position, hand height and body. There's also a
 **Career** mode: create a player and play a season with a ladder, fixture,
 roster and stats. A solo **Kick-to-Kick** mode has kicking, marking and
 tackling coaches. Players use an imported Blender model with 26 clips, and
@@ -72,10 +74,13 @@ Use your own Godot path and project path. No build step is needed.
 
 ## Feature demos
 
-Each demo was recorded in the [animation viewer](#dev-tools)'s studio by
-`scenes/dev/demo_recorder.tscn`. It runs the real gameplay code on real
-players, not canned poses. The recorder only presses the buttons and moves
-the camera.
+Each demo was recorded by `scenes/dev/demo_recorder.tscn` on the game's own
+grounds (marking and tackling on the bush oval, the ruck and the kick on the
+park) under the match's sun. It runs the real gameplay code on real players,
+not canned poses. The recorder only presses the buttons and moves the
+camera; its header lists the staging. Clean 1600×900, 30 fps copies for
+video are in `docs/media/video/`, and `docs/media/demos.json` describes each
+one.
 
 ### Marking
 
@@ -89,6 +94,7 @@ There are three ways to take a mark. Each trades reach against commitment.
 | **Running** | `Q` (tap) | X (tap) | Takes it in stride without breaking your run. The hands stay out for a quarter of a second after the tap. Tighter reach. |
 | **Aggressive** | `H` (tap) | Y (tap) | Commits you to a leap the instant you press. It catches at the top of the jump, 0.4 s later. |
 | Spoil | `P` (tap) | LT (tap) | Punches the ball off its line instead of catching it. |
+| Fist | `J` (tap) | RB (tap) | In a mark contest: the ruck tap's leap, then a punch that sends the ball away at 9 m/s, toward the right stick if it's held. |
 
 - **One prompt.** A badge over your player's head shows the mark that fits
   right now, chosen from your speed and where the ball is. Once you press,
@@ -109,6 +115,18 @@ There are three ways to take a mark. Each trades reach against commitment.
   press in the contested window gets less, and a press outside it gets none.
   The catch then checks the ball's real position against that reach. The
   ball collides with bodies, so a leap at the wrong moment can knock it away.
+- **Contested marks.** When more than one player goes for the same ball,
+  `MarkContest` rates each of them on four reads of the real contest: timing
+  (the same press offset as above), position (hands to ball), height (how
+  high the hands are, so stature, the leap and the Jump attribute all count)
+  and body (mass times the run at the ball). Only the highest-rated
+  player's hands close. It's evaluated, never rolled: the same contest goes
+  the same way every time. The weights are hand-set, not trained.
+- **Timing assist (optional, off by default).** Settings → HUD STYLE →
+  MARKING → TIMING ASSIST slows the game to 0.4× from 0.6 s before the press
+  instant and draws the ball's height against time over your player, with
+  the press window marked. It shows the cue; it doesn't change how a mark is
+  judged.
 - **Legal mark.** A kick that has travelled 15 m and is caught is a mark.
   You're protected, and you walk back 7.5 m off the mark before a set shot.
 
@@ -121,6 +139,7 @@ There are three ways to take a mark. Each trades reach against commitment.
 | **Wrap (Lunge)** | `Q` (tap) | X (tap) | The commitment tackle. At arm's length it always lands; from further out it dashes at a carrier within 2.2 m. If it holds and the tackler drives through (side-on, from behind, or heavier), the tackler wraps their arms round the waist and both go down. An even head-on hit knocks the carrier over on their own. A heavier carrier running into it keeps their feet and is held up. |
 | **Sling (Slide)** | `E` (hold) | B (hold) | Steps in, or dives at a carrier just out of reach. A soft hit holds them up with both players standing. A hard hit slings them to the ground while the tackler stays up. Head-on with neither winning, both stay on their feet, wrapped up and held. |
 | **Bump (off the ball)** | `E` (tap) | B (tap) | With nobody's ball to tackle and the ball loose or in the air within 5 m: alongside an opponent it's a shoulder nudge off their line; closing on one head-on it's a hip-and-shoulder that knocks them back, or down on the ragdoll if they run onto it. Legal, so never a free kick. |
+| **Fend off** | `J` (tap, carrying) | RB (tap, carrying) | The "don't argue": a straight arm for 0.45 s. A tackle that lands in that time from inside 100° of where you're facing has its balance loss `b` cut by 35%, so more tackles break, and a tackler who is broken is shoved back. A soft or glancing tackle breaks; a hard square one still holds; from behind it does nothing. |
 | **Hit stick (Bump)** | `L` + arrow tap | LB + right-stick flick | Dashes in the flick's direction, with a little homing. A clean hit on a carrier running onto it spills the ball, throws the carrier and sends the bumper diving after them. A whiff sends the bumper stumbling. |
 
 How a tackle is decided:
@@ -134,8 +153,8 @@ How a tackle is decided:
    trained on the ML page (LR, then GA) and stored in
    `data/ml/tackle_weights.json`. The carrier's share is `p(break) = 1 − b`.
    The tackle breaks if that's past a fixed threshold (wrap 0.5, sling
-   0.95). It's evaluated, never rolled: the same hit gives the same result
-   every time.
+   0.95; a fended sling is judged on the wrap's 0.5). It's evaluated, never
+   rolled: the same hit gives the same result every time.
 3. **Who wins the collision?** The pair's common velocity along the hit
    line, weighted by mass, says whether the tackler drives the carrier
    back, neither moves the other, or the carrier runs on into the tackle.
@@ -150,8 +169,8 @@ How a tackle is decided:
    bumping a player without the ball is a free kick to them. Hitting a player
    protected by a mark or free kick gives away a 50 m penalty.
 
-Only a human's tackle or bump starts a ragdoll. AI tackles still play
-animation clips.
+The AI's only tackle is the sling. Since 2026-11-11 it goes on the ragdoll
+too, against a human or another AI player (`Tuning.TACKLE_RAGDOLL_AI_V_AI`).
 
 ### Ruck
 
@@ -172,9 +191,11 @@ animation clips.
 - **Your timing.** Pressing RB with the ball in range jumps at once. An
   early press, during the umpire's throw-up, is held until the ball slows
   near its peak, so you never leap under a ball that's still rising.
-- **A palm, not a catch.** The hit-out knocks the ball toward the right
-  stick if you're holding it. Otherwise it goes toward the left stick, and
-  failing that, straight ahead. That lets a ruckman tap to a runner.
+- **A palm, not a catch.** The hit-out sends the ball off the palm at 6 m/s
+  (plus 1.5 m/s of lift), toward the right stick if you're holding it.
+  Otherwise it goes toward the left stick, and failing that, straight
+  ahead. It first lands about 6 m away, which lets a ruckman tap to a
+  runner.
 
 ### Kicking
 
@@ -188,6 +209,7 @@ animation clips.
 | Line up a set shot after a mark | `X` | Y |
 | Handball, toward the move direction | `Q` | X |
 | Bounce, at least every 30 m of running | `Space` | B |
+| Snap or banana: hold while kicking | `L` | LB |
 | Smother an opponent's kick | `J` | RB |
 
 - **Stance, then strike.** Holding the stance charges the kick and draws
@@ -202,6 +224,9 @@ animation clips.
   ball is a `RigidBody3D` with a prolate-spheroid hull, so bounces are
   erratic. In flight, `v²` air drag gives the lazy-up, steep-down arc, and
   Magnus force lets spin curve the flight.
+- **Snap and banana.** With LB held, a kick aimed 45° or more across the
+  body is a snap: flatter, softer, hooking hard off the inside of the boot.
+  Any other kick with LB held is a banana, which bends the other way.
 - **Set shot.** After a mark within 55 m of goal, lining up the shot walks
   the kicker back to pace out a run-up. The kick button then starts a short
   walk-to-jog run-up, and the kick happens at the end of it.
@@ -233,7 +258,8 @@ flowchart LR
 
 The AI thinks every physics tick, with human-like reaction delays. Two
 trained models feed gameplay. `TackleBalance` (LR/GA weights) decides
-whether a tackle holds. `MarkCueModel` times the marking ring.
+whether a tackle holds. `MarkCueModel` times the marking ring. `MarkContest`
+is the tackle formula's twin for contested marks, with hand-set weights.
 
 ### 2. Player and ball physics
 
@@ -262,7 +288,7 @@ func _physics_process(delta: float) -> void:
 	if is_ragdolled():
 		_ragdoll.step(delta)            #    a ragdoll or wrap steps in the same tick
 	_update_charge(delta)               #    action updates: kick charge, marking,
-	_update_marking(delta)              #    ruck, bump, tackle hold, dives...
+	_update_marking(delta)              #    ruck, bump, fend, tackle hold, dives...
 	_update_action(delta)
 	_update_locomotion(delta)           # 2. Move: gravity and locomotion
 	move_and_slide()
@@ -311,11 +337,11 @@ Godot 4.6, Forward+.
 | Lights | Sun with shadows, 120 m shadow distance in matches |
 | Meshes and materials | Players, turf, fences and umpires. Kit colours are applied by Blender material name. |
 | Environment | `broadcast_environment`: sky, ACES tonemapping, glow, fog |
-| MultiMesh | `OvalEnvironment` batches ~500 linked tree and prop copies into ~14 MultiMeshes |
+| MultiMesh | `OvalEnvironment` batches ~1,000-1,300 linked tree and prop copies into ~30 MultiMeshes |
 
 The passes run in this order: shadow maps, depth pre-pass, opaque
 (materials, lights, shadows), procedural sky, transparent, post (ACES, glow,
-fog), UI canvas layers, frame buffer (MSAA 2×). How much visual complexity
+fog), UI canvas layers, frame buffer (MSAA 4×). How much visual complexity
 this can comfortably support hasn't been measured yet. That's the planned
 graphics and performance test.
 
@@ -406,16 +432,17 @@ share a `CoachChallenge` base.
 ### Physics is authoritative for gameplay
 
 An outcome comes from the bodies, the ball and timing. The ML model is
-evaluated on the real contact, not rolled. This is a lunge landing, from
-`player_controller.gd`:
+evaluated on the real contact, not rolled. This is a lunge landing
+(`_land_lunge` in `player_controller.gd`):
 
 ```gdscript
 var impact := TackleBalance.resolve(global_position, hit_velocity, body_mass,
 	target.global_position, target.velocity, target.body_mass, ...)
+impact = target.fend_impact(self, impact)   # a fend cuts b; it rolls nothing
 last_tackle = impact.merged({"slide": false,
 	"held": float(impact.p_break) < Tuning.TACKLE_LUNGE_BREAK_P})
 if not last_tackle.held:
-	target._break_tackle()
+	target._break_tackle(self, impact)
 	return
 _lunge_connect(target, impact, true)   # ragdoll at strength 1 - b
 ```
@@ -512,9 +539,11 @@ Most buttons do different things depending on whether you have the ball.
 | Hit stick / bump (hold, then flick) | `L` + arrow tap | LB + right-stick flick |
 | Mark: Safe (hold) · Running (tap) · Aggressive (tap, leaps) | `G` · `Q` · `H` | A · X · Y |
 | Spoil (not carrying, near a contest) | `P` | LT (tap) |
+| Snap / banana (hold while kicking) | `L` | LB |
+| Fend off (carrying) · fist (mark contest) | `J` | RB |
 | Smother (opponent kicking) · hit-out (ruck contest) | `J` | RB |
 | Call for the ball (Single Player control) | `V` | A |
-| Switch player (Full Team control) | `Tab` | D-pad left |
+| Switch player (Full Team control) | `Tab` | D-pad left, or tap LB on defence |
 | Toggle Single Player / Team Command scheme | `M` | D-pad right |
 | Issue a move-here order (Team Command) | `B` | Share / Create |
 | Pause | `Esc` | Start |
@@ -541,7 +570,8 @@ scripts/
                          PhysicsRagdoll / PlayerRagdoll / TackleWrap,
                          KickTrajectory, TeamKit
   mechanics/             PlayerBrain / HumanBrain / AIBrain / CommandBrain,
-                         TackleBalance, MarkCueModel, coaches + challenges
+                         TackleBalance, MarkContest, MarkCueModel, coaches +
+                         challenges
   modes/                 full_game.gd (match state machine), kick_to_kick.gd
   ball/                  Ball (RigidBody3D: spheroid hull, drag, Magnus)
   camera/                BroadcastCamera (chase, full side, dialogue two-shot)
@@ -577,7 +607,8 @@ None of these are on the main menu. Open the scene in the editor and press
 | Scene | What it's for |
 |---|---|
 | `scenes/dev/animation_viewer.tscn` | Every clip and blend point, contests between two real players (tackles, bumps, smother, mark deliveries) and the ML page (tackle LR/GA, MLP marking cue). The SEQUENCES buttons have done nothing since 2026-10-08. |
-| `scenes/dev/demo_recorder.tscn` | Records the demo GIFs above (`-- demo=marking`, `tackling`, `ruck` or `kicking`); `tools/make_demo_gifs.py` builds them. Its header has the commands. |
+| `scenes/dev/demo_recorder.tscn` | Records the demos above on a real ground (`-- demo=marking`, `tackling`, `ruck` or `kicking`, and `field=bush` or `park`); `tools/make_demo_gifs.py` builds the GIFs and the MP4s. Its header has the commands. |
+| `scenes/dev/mark_contest_check.tscn` | Headless regression check for contested marks |
 | `scenes/dev/physics_ragdoll_lab.tscn` | One ragdoll you can push, throw at or tackle |
 | `scenes/dev/tackle_sweep.tscn` | Headless regression check for ragdoll tackles |
 | `scenes/dev/mark_cue_harness.tscn` | Records marking attempts for the ML datasets |

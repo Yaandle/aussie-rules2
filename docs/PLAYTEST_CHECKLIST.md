@@ -7,6 +7,16 @@ own docs: `ANIMATION_RAGDOLL_AUDIT.md` (kick, carry, phase lock, bank,
 tackles), `MECHANICS_AUDIT.md` (ragdoll stages 2-5) and the 2026-10-30
 playtest commit (HUD, park turf, ruck, training).
 
+## README demos re-recorded on a real ground (2026-11-13, branch `update`)
+
+- [ ] Watch the four `docs/media/video/*.mp4` (and the README GIFs). Do they look like the game: lighting, turf, framing close enough, camera smooth? Nobody has watched them in motion; only stills were checked.
+- [ ] Marking demo, take 2 (Running mark at 3.0 s): the run logged no mark for it. Is the ball taken in stride, or does it go past?
+- [ ] Tackling demo, take 1: the wrap (tap X) put the carrier down alone with the tackler on their feet (outcome "fall"), not the both-go-down wrap. Fine for a "wrap tackle" caption?
+- [ ] Tackling demo, take 3 (fend-off at 7.2 s): does the straight arm read, and does the broken tackle look like a fend rather than a miss? The tackle staged is a soft side-on step-in (b 0.28), the kind a fend breaks.
+- [ ] Ruck demo: the runner gathering the tap at about 3.5 s. Does it read as a tap to a runner? Is the park scoreboard in shot showing anything odd?
+- [ ] Kicking demo: the set shot crossed the goal line 0.8 m up. Did it go through on the full or bounce through? Are the goals big enough in frame?
+- [ ] GIF size: 3.9-9.4 MB each at 640 px, 20 fps, 64 colours a frame. Skin tones band a little. Acceptable on the README page?
+
 ## Marking block: jump attribute and contested marks (2026-11-12, branch `update`)
 
 - [ ] Jump (6AD): CHARACTER screen, JUMPING row now moves (0.70x-1.50x). At 1.50 the (Y) leap goes about 1.25 m off the ground, at 0.70 about 0.6 m (it was 0.82 m for everyone). Does the top end read as a big leap, not a float? The (Y) ring timing should feel unchanged. `Tuning.CHARACTER_JUMP_*`.
