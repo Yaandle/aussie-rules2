@@ -369,9 +369,10 @@ func _think_loose_ball(controller: PlayerController, pos: Vector3, team: Tuning.
 	# it's the difference between a receiver who's already standing under
 	# a long kick when it arrives and one who's still three strides away.
 	# Grounded (non-airborne) loose balls have no arc to anticipate, so
-	# those still chase the live position.
-	var chase_point := ball.predicted_landing_position() if ball.is_airborne() \
-		else ball.global_position
+	# those still chase the live position. In the air, the spot is where the
+	# ball comes down through the hands' height, not where it would land.
+	var chase_point := ball.predicted_landing_position(controller.catch_point_position().y - pos.y) \
+		if ball.is_airborne() else ball.global_position
 	if _is_closest_teammate_to(controller, team, chase_point):
 		_decision_committed = true
 		# Audit point 5: still go, but don't sprint-commit into a race an

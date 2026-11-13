@@ -33,7 +33,8 @@ const EXPERIMENT_CAMERA_SIDESTEP := 0.0
 const OUTER_MARGIN := 18
 const COLUMN_GAP := 18
 const MENU_WIDTH := 312.0
-const HARD_SHADOW := 4.0
+## The results column between the menu and the sim window.
+const RESULTS_WIDTH := 330.0
 
 # --- sim window / cube ------------------------------------------------------
 const CUBE_SIZE := 2.0          # metres; player stands at the floor centre
@@ -74,12 +75,15 @@ var _experiment_sf_label: Label
 var _chart
 var _lr_sliders: Dictionary = {}   ## MODEL page's slider set — Stage 2's APPLY TO MODEL writes into this
 var _ga_last_result: Dictionary = {}
+var _results_stack: VBoxContainer   ## RESULTS column, one page per stage
+var _lr_results: VBoxContainer
+var _first_focus: Control
 var _mlp_training := false   ## MLP stage TRAIN in progress (it spans frames)
 
 var _sim_camera: Camera3D
 var _sim_yaw := 0.7
 var _sim_pitch := 0.35
-var _sim_dist := 5.2
+var _sim_dist := 6.4
 
 
 func _init(viewer: AnimationViewer) -> void:
@@ -88,6 +92,11 @@ func _init(viewer: AnimationViewer) -> void:
 
 func is_open() -> bool:
 	return _experiment_open
+
+
+## Where Tab / the d-pad lands first on this page (UIStyle.dev_focus_entry).
+func first_focus() -> Control:
+	return _first_focus
 
 
 ## The MODEL page's current dialled-in weights (w1/w2/w3/bias), as a
@@ -142,18 +151,53 @@ func build(ui_root: Control) -> void:
 	columns.add_theme_constant_override(&"separation", COLUMN_GAP)
 	margin.add_child(columns)
 
+	# Built first: each stage page puts its results in here as it builds.
+	var results_panel := _build_results_panel()
 	columns.add_child(_build_menu())
+	columns.add_child(results_panel)
 	columns.add_child(_build_sim_window())
 
 	_ensure_experiment_cube_built()
 	_update_sim_camera()
 
 
+## The RESULTS column: one page per stage, shown with that stage's
+## controls. Everything a stage's buttons produce (cards, chart, text)
+## lands here, beside the controls, instead of under them in the menu's
+## scroll.
+func _build_results_panel() -> Control:
+	var panel := UIStyle.dev_panel()
+	panel.custom_minimum_size.x = RESULTS_WIDTH
+	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override(&"separation", UIStyle.DEV_GAP)
+	panel.add_child(col)
+	col.add_child(UIStyle.label("RESULTS", SoftBrutalist.SIZE_HEADING, UIStyle.TEXT_PRIMARY,
+		UIStyle.WEIGHT_HEAVY, UIStyle.TRACK_TITLE))
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_child(scroll)
+	_results_stack = VBoxContainer.new()
+	_results_stack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(_results_stack)
+	return panel
+
+
+## A stage's page in the RESULTS column. Stages call this once each, in
+## STAGES order: the bookmarks show page i with stage i.
+func _results_page() -> VBoxContainer:
+	var page := VBoxContainer.new()
+	page.add_theme_constant_override(&"separation", 6)
+	page.visible = _results_stack.get_child_count() == 0
+	_results_stack.add_child(page)
+	return page
+
+
 func _build_menu() -> Control:
-	var panel := PanelContainer.new()
+	var panel := UIStyle.dev_panel()
 	panel.custom_minimum_size.x = MENU_WIDTH
 	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	panel.add_theme_stylebox_override(&"panel", _box(Color(RetroWindow.PANEL), 2, HARD_SHADOW, 12))
 
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override(&"separation", 8)
@@ -164,11 +208,13 @@ func _build_menu() -> Control:
 	header.add_theme_constant_override(&"separation", 10)
 	col.add_child(header)
 
-	var back := _button("← BACK")
+	var back := UIStyle.dev_button("BACK")
+	back.tooltip_text = "Back to the animation viewer"
 	back.pressed.connect(func() -> void: set_open(false))
 	header.add_child(back)
+	_first_focus = back
 
-	var title := UIStyle.label("ML EXPERIMENTS", UIStyle.SIZE_TITLE, UIStyle.TEXT_PRIMARY, UIStyle.WEIGHT_HEAVY)
+	var title := UIStyle.label("ML PAGE", UIStyle.SIZE_TITLE, UIStyle.TEXT_PRIMARY, UIStyle.WEIGHT_HEAVY, UIStyle.TRACK_TITLE)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	header.add_child(title)
@@ -199,7 +245,7 @@ func _build_menu() -> Control:
 
 	var stage_group := ButtonGroup.new()
 	for i in STAGES.size():
-		var bm := _button(STAGE_SHORT_NAMES[i], true)
+		var bm := UIStyle.dev_button(STAGE_SHORT_NAMES[i], true)
 		bm.button_group = stage_group
 		bm.button_pressed = (i == 0)
 		bm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -208,6 +254,7 @@ func _build_menu() -> Control:
 		bm.pressed.connect(func() -> void:
 			for j in stage_pages.size():
 				stage_pages[j].visible = (j == idx)
+				(_results_stack.get_child(j) as Control).visible = (j == idx)
 		)
 		bookmarks.add_child(bm)
 
@@ -227,17 +274,20 @@ func _build_lr_stage() -> Control:
 	# page actually use that space.
 	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
 
-	# Pinned live metrics
+	var out := _results_page()
+	_lr_results = out
+
+	# Live metrics
 	var metrics := HBoxContainer.new()
 	metrics.add_theme_constant_override(&"separation", 8)
-	stage.add_child(metrics)
+	out.add_child(metrics)
 
-	var pb_card := _metric_card("P(BREAK)")
+	var pb_card := UIStyle.dev_metric_card("P(BREAK)")
 	_experiment_model_label = pb_card.value_label
 	pb_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	metrics.add_child(pb_card.node)
 
-	var ts_card := _metric_card("SUCCESS")
+	var ts_card := UIStyle.dev_metric_card("SUCCESS")
 	_experiment_success_label = ts_card.value_label
 	ts_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	metrics.add_child(ts_card.node)
@@ -248,13 +298,13 @@ func _build_lr_stage() -> Control:
 	stage.add_child(tabs)
 
 	var group := ButtonGroup.new()
-	var model_tab := _button("MODEL", true)
+	var model_tab := UIStyle.dev_button("MODEL", true)
 	model_tab.button_group = group
 	model_tab.button_pressed = true
 	model_tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tabs.add_child(model_tab)
 
-	var sweep_tab := _button("SWEEP", true)
+	var sweep_tab := UIStyle.dev_button("SWEEP", true)
 	sweep_tab.button_group = group
 	sweep_tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tabs.add_child(sweep_tab)
@@ -316,11 +366,12 @@ func _build_ga_stage() -> Control:
 	page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(page)
 
-	page.add_child(_muted_caption("Genome: w_speed, w_angle, w_weight (bias fixed). Scored against a fixed 5-point scenario ladder, not one input. APPLY TO MODEL, then the MODEL page's SAVE TO MATCHES, to use a result in matches."))
+	var out := _results_page()
+	page.add_child(UIStyle.dev_caption("Genome: w_speed, w_angle, w_weight (bias fixed). Scored against a fixed 5-point scenario ladder, not one input. APPLY, then the MODEL page's SAVE TO MATCHES, to use a result in matches.", true))
 
-	page.add_child(_section_heading("Parameters"))
-	var pop_box := _spinbox_row(page, "Population", 10, 200, 10, 40)
-	var gen_box := _spinbox_row(page, "Generations", 10, 300, 10, 40)
+	page.add_child(UIStyle.dev_heading("Parameters"))
+	var pop_box := _spinbox_row(page, "Pop.", 10, 200, 10, 40)
+	var gen_box := _spinbox_row(page, "Gens", 10, 300, 10, 40)
 	var mutation_rate := _slider_row(page, "Mut. rate", 0.0, 1.0, 0.01, 0.15)
 	var mutation_strength := _slider_row(page, "Mut. size", 0.0, 0.5, 0.01, 0.12)
 	var elite_box := _spinbox_row(page, "Elites", 0, 10, 1, 2)
@@ -332,49 +383,44 @@ func _build_ga_stage() -> Control:
 	seed.select(0)
 	page.add_child(seed)
 
-	var run := _button("RUN GA")
+	var run := UIStyle.dev_button("RUN")
 	page.add_child(run)
-
-	var status := _muted_caption("")
-	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	page.add_child(status)
-
-	var chart = GAFitnessChartScript.new()
-	page.add_child(chart)
-
-	page.add_child(_section_heading("Best genome"))
-	var genome_label := UIStyle.label("—", UIStyle.SIZE_LABEL, UIStyle.TEXT_PRIMARY)
-	page.add_child(genome_label)
-
-	var metrics_row := HBoxContainer.new()
-	metrics_row.add_theme_constant_override(&"separation", 8)
-	page.add_child(metrics_row)
-	var score_card := _metric_card("FITNESS")
-	score_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	metrics_row.add_child(score_card.node)
-	var success_card := _metric_card("SUCCESS")
-	success_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	metrics_row.add_child(success_card.node)
-
-	var ladder_label := UIStyle.label("—", UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
-	ladder_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	page.add_child(ladder_label)
 
 	var action_row := HBoxContainer.new()
 	action_row.add_theme_constant_override(&"separation", 8)
 	page.add_child(action_row)
-	var apply_button := _button("APPLY TO MODEL")
+	var apply_button := UIStyle.dev_button("APPLY")
+	apply_button.tooltip_text = "Copy the best genome to the MODEL page's weights"
 	apply_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	apply_button.disabled = true
 	action_row.add_child(apply_button)
-	var verify_button := _button("VERIFY (1000)")
+	var verify_button := UIStyle.dev_button("VERIFY")
+	verify_button.tooltip_text = "1000 stochastic trials of the best genome"
 	verify_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	verify_button.disabled = true
 	action_row.add_child(verify_button)
 
-	var verify_label := _muted_caption("")
-	verify_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	page.add_child(verify_label)
+	var metrics_row := HBoxContainer.new()
+	metrics_row.add_theme_constant_override(&"separation", 8)
+	out.add_child(metrics_row)
+	var score_card := UIStyle.dev_metric_card("FITNESS")
+	metrics_row.add_child(score_card.node)
+	var success_card := UIStyle.dev_metric_card("SUCCESS")
+	metrics_row.add_child(success_card.node)
+
+	out.add_child(UIStyle.dev_heading("Best genome"))
+	var genome_label := UIStyle.dev_readout("—")
+	out.add_child(genome_label)
+
+	var chart = GAFitnessChartScript.new()
+	out.add_child(chart)
+
+	var status := UIStyle.dev_caption("Press RUN.", true)
+	out.add_child(status)
+	var ladder_label := UIStyle.dev_caption("", true)
+	out.add_child(ladder_label)
+	var verify_label := UIStyle.dev_caption("", true)
+	out.add_child(verify_label)
 
 	run.pressed.connect(func() -> void:
 		status.text = "Running..."
@@ -392,7 +438,7 @@ func _build_ga_stage() -> Control:
 		var best: Dictionary = result.best_genome
 		var f: Dictionary = result.best_fitness
 
-		genome_label.text = "w_speed=%.2f   w_angle=%.2f   w_weight=%.2f" % [best.w_speed, best.w_angle, best.w_stamina]
+		genome_label.text = "w_speed  %5.2f\nw_angle  %5.2f\nw_weight %5.2f" % [best.w_speed, best.w_angle, best.w_stamina]
 		score_card.value_label.text = "%.3f" % f.score
 		success_card.value_label.text = "%.1f%%" % (f.mean_success * 100.0)
 
@@ -473,11 +519,12 @@ func _build_mlp_stage() -> Control:
 	page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(page)
 
-	page.add_child(_wrapped_caption("Marking-cue timing. Output: seconds to the best press, the catching press whose contact frame finds the ball nearest the hands. It decides WHEN to press, never whether a mark succeeds. Inputs: ball height, ball distance, player speed, analytic time to arrival, approach cos (APPROACH FROM)."))
+	var out := _results_page()
+	page.add_child(UIStyle.dev_caption("Marking-cue timing. Output: seconds to the best press, the catching press whose contact frame finds the ball nearest the hands. It decides WHEN to press, never whether a mark succeeds. Inputs: ball height, ball distance, player speed, analytic time to arrival, approach cos (APPROACH FROM).", true))
 
 	var trainer := MarkCueTrainer.new()
 	var have_data := trainer.load_data()
-	var data_label := _wrapped_caption("")
+	var data_label := UIStyle.dev_caption("", true)
 	page.add_child(data_label)
 	if have_data:
 		var labelled := trainer.catchable_ids(Tuning.Action.MARK_AGGRESSIVE).size()
@@ -487,14 +534,14 @@ func _build_mlp_stage() -> Control:
 	else:
 		data_label.text = "No dataset under %s. Run scenes/dev/mark_cue_harness.tscn -- dataset first." % MarkCueTrainer.DATA_DIR
 
-	page.add_child(_section_heading("Parameters"))
+	page.add_child(UIStyle.dev_heading("Parameters"))
 	var tier_pick := OptionButton.new()
 	tier_pick.add_item("AGGRESSIVE (leap)", Tuning.Action.MARK_AGGRESSIVE)
 	tier_pick.add_item("RUNNING (tap)", Tuning.Action.MARK_RUNNING)
 	page.add_child(tier_pick)
 	var defaults := MarkCueTrainer.default_params()
 	var epochs_box := _spinbox_row(page, "Epochs", 10, 400, 10, int(defaults.epochs))
-	var lr_slider := _slider_row(page, "Learn rate", 0.001, 0.05, 0.001, float(defaults.learning_rate))
+	var lr_slider := _slider_row(page, "Rate", 0.001, 0.05, 0.001, float(defaults.learning_rate))
 	var batch_box := _spinbox_row(page, "Batch", 8, 128, 8, int(defaults.batch_size))
 	var near_slider := _slider_row(page, "Near wt", 0.0, 8.0, 0.5, float(defaults.near_weight))
 	var seed_pick := OptionButton.new()
@@ -505,54 +552,54 @@ func _build_mlp_stage() -> Control:
 	var action_row := HBoxContainer.new()
 	action_row.add_theme_constant_override(&"separation", 8)
 	page.add_child(action_row)
-	var train_button := _button("TRAIN")
+	var train_button := UIStyle.dev_button("TRAIN")
 	train_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	train_button.disabled = not have_data
 	action_row.add_child(train_button)
-	var selftest_button := _button("SELF-TEST")
+	var selftest_button := UIStyle.dev_button("SELF-TEST")
 	selftest_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	action_row.add_child(selftest_button)
-
-	var status := _wrapped_caption("")
-	page.add_child(status)
-	var chart = MLPLossChartScript.new()
-	page.add_child(chart)
-	page.add_child(_legend_item("train loss", UIStyle.ACCENT))
-	page.add_child(_legend_item("validation loss (bar = kept epoch)", UIStyle.TEXT_MUTED))
-
-	page.add_child(_section_heading("Held-out cue vs analytic"))
-	var cards := HBoxContainer.new()
-	cards.add_theme_constant_override(&"separation", 8)
-	page.add_child(cards)
-	var mlp_card := _metric_card("MLP CUE ERR")
-	mlp_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	cards.add_child(mlp_card.node)
-	var ana_card := _metric_card("ANALYTIC")
-	ana_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	cards.add_child(ana_card.node)
-	var results := _wrapped_caption("")
-	page.add_child(results)
-
-	page.add_child(_section_heading("Probe grid (whole input space)"))
-	var probe_label := _wrapped_caption("")
-	page.add_child(probe_label)
-	var closed_loop := _wrapped_caption("")
-	page.add_child(closed_loop)
 
 	var apply_row := HBoxContainer.new()
 	apply_row.add_theme_constant_override(&"separation", 8)
 	page.add_child(apply_row)
-	var apply_button := _button("APPLY TO PREVIEW")
+	var apply_button := UIStyle.dev_button("APPLY")
+	apply_button.tooltip_text = "Use this run as MARK DELIVERY's CUE MLP for the session"
 	apply_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	apply_button.disabled = true
 	apply_row.add_child(apply_button)
-	var save_button := _button("SAVE WEIGHTS")
+	var save_button := UIStyle.dev_button("SAVE")
+	save_button.tooltip_text = "Write this run to the weights file"
 	save_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	save_button.disabled = true
 	apply_row.add_child(save_button)
-	page.add_child(_wrapped_caption("Real matches use Tuning.MARK_CUE_SOURCE = %d (%s). AI tier choice: Tuning.AI_MARK_USE_CUE_MODEL = %s. Neither changes without the user's say-so." % [
+	page.add_child(UIStyle.dev_caption("Real matches use Tuning.MARK_CUE_SOURCE = %d (%s). AI tier choice: Tuning.AI_MARK_USE_CUE_MODEL = %s. Neither changes without the user's say-so." % [
 		Tuning.MARK_CUE_SOURCE, ["shipped ring", "gated ring", "MLP + gate"][Tuning.MARK_CUE_SOURCE],
-		Tuning.AI_MARK_USE_CUE_MODEL]))
+		Tuning.AI_MARK_USE_CUE_MODEL], true))
+
+	var cards := HBoxContainer.new()
+	cards.add_theme_constant_override(&"separation", 8)
+	out.add_child(cards)
+	var mlp_card := UIStyle.dev_metric_card("MLP CUE ERR")
+	cards.add_child(mlp_card.node)
+	var ana_card := UIStyle.dev_metric_card("ANALYTIC")
+	cards.add_child(ana_card.node)
+	var status := UIStyle.dev_caption("Press TRAIN.", true)
+	out.add_child(status)
+	var chart = MLPLossChartScript.new()
+	out.add_child(chart)
+	out.add_child(_legend_item("train loss", UIStyle.ACCENT))
+	out.add_child(_legend_item("validation loss (bar = kept epoch)", UIStyle.TEXT_CAPTION))
+
+	out.add_child(UIStyle.dev_heading("Held-out cue vs analytic"))
+	var results := UIStyle.dev_caption("", true)
+	out.add_child(results)
+
+	out.add_child(UIStyle.dev_heading("Probe grid (whole input space)"))
+	var probe_label := UIStyle.dev_caption("", true)
+	out.add_child(probe_label)
+	var closed_loop := UIStyle.dev_caption("", true)
+	out.add_child(closed_loop)
 
 	var show_closed_loop := func(tier: Tuning.Action) -> void:
 		var summary := MarkCueTrainer.closed_loop_summary()
@@ -647,12 +694,6 @@ func _build_mlp_stage() -> Control:
 	return stage
 
 
-func _wrapped_caption(text: String) -> Label:
-	var label := _muted_caption(text)
-	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	return label
-
-
 ## Stub page for a not-yet-built stage (MLP / Deep Q-learning) —
 ## scaffolding only, per the brief ("add in the rest of the ML stages
 ## infrastructure and setup"): a reachable bookmark and a description of
@@ -662,12 +703,12 @@ func _build_placeholder_stage(stage_name: String, fixes: String, body: String) -
 	stage.add_theme_constant_override(&"separation", 8)
 	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL   # see _build_lr_stage()'s comment
 
-	stage.add_child(_muted_caption("QUEUED"))
-	stage.add_child(_section_heading(stage_name))
-	stage.add_child(_muted_caption("Fixes: " + fixes))
+	_results_page().add_child(UIStyle.dev_caption("Nothing to show: this stage isn't built."))
+	stage.add_child(UIStyle.dev_caption("QUEUED"))
+	stage.add_child(UIStyle.dev_heading(stage_name))
+	stage.add_child(UIStyle.dev_caption("Fixes: " + fixes))
 
-	var body_label := UIStyle.label(body, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
-	body_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var body_label := UIStyle.dev_caption(body, true)
 	stage.add_child(body_label)
 
 	return stage
@@ -679,18 +720,18 @@ func _build_model_page(page: VBoxContainer) -> Dictionary:
 	# the tackler ÷ carrier weight ratio now (1.0 = even), the slot matches
 	# feed it from (TackleBalance). The weights start at whatever matches
 	# currently use — SAVE TO MATCHES below writes them back.
-	page.add_child(_muted_caption("P(break) = σ(w₁·Δspeed + w₂·angle + w₃·weight + b)\nSuccess = 1 − P(break)"))
+	page.add_child(UIStyle.dev_caption("P(break) = σ(w₁·Δspeed + w₂·angle + w₃·weight + b)\nSuccess = 1 − P(break)"))
 
-	_experiment_z_label = _muted_caption("")
-	page.add_child(_experiment_z_label)
+	_experiment_z_label = UIStyle.dev_readout("")
+	_lr_results.add_child(_experiment_z_label)
 
-	page.add_child(_section_heading("Inputs"))
+	page.add_child(UIStyle.dev_heading("Inputs"))
 	var dspeed := _slider_row(page, "Δspeed", -2.0, 4.0, 0.1, 0.7)
 	var angle := _slider_row(page, "Angle", -2.0, 2.0, 0.1, 0.7)
 	var stamina := _slider_row(page, "Weight ratio", 0.0, 2.0, 0.1, 1.0)
 
 	var live: Dictionary = TackleBalance.weights()
-	page.add_child(_section_heading("Weights"))
+	page.add_child(UIStyle.dev_heading("Weights"))
 	var w1 := _slider_row(page, "w₁ speed", 0.0, 12.0, 0.5, live.w_speed)
 	var w2 := _slider_row(page, "w₂ angle", 0.0, 8.0, 0.2, live.w_angle)
 	var w3 := _slider_row(page, "w₃ weight", 0.0, 6.0, 0.2, live.w_stamina)
@@ -702,12 +743,11 @@ func _build_model_page(page: VBoxContainer) -> Dictionary:
 	var save_row := HBoxContainer.new()
 	save_row.add_theme_constant_override(&"separation", 8)
 	page.add_child(save_row)
-	var save_button := _button("SAVE TO MATCHES")
+	var save_button := UIStyle.dev_button("SAVE TO MATCHES")
 	save_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	save_row.add_child(save_button)
-	var save_status := _muted_caption("Matches use these weights for a tackle's balance loss (the ragdoll's fall). %s" %
-		TackleBalance.WEIGHTS_PATH)
-	save_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var save_status := UIStyle.dev_caption("Matches use these weights for a tackle's balance loss (the ragdoll's fall). %s" %
+		TackleBalance.WEIGHTS_PATH, true)
 	page.add_child(save_status)
 	save_button.pressed.connect(func() -> void:
 		var err := TackleBalance.save_weights(w1.value, w2.value, w3.value, bias.value, "ML page, MODEL sliders")
@@ -735,7 +775,7 @@ func _build_model_page(page: VBoxContainer) -> Dictionary:
 
 
 func _build_sweep_page(page: VBoxContainer, s: Dictionary) -> void:
-	page.add_child(_section_heading("Experiment 01 · sweep weight"))
+	page.add_child(UIStyle.dev_heading("Experiment 01 · sweep weight"))
 
 	var weight_pick := OptionButton.new()
 	weight_pick.add_item("Sweep w₂ (angle)")
@@ -777,10 +817,10 @@ func _build_sweep_page(page: VBoxContainer, s: Dictionary) -> void:
 	weight_pick.item_selected.connect(func(_i: int) -> void: run_sweep.call())
 	seed.item_selected.connect(func(_i: int) -> void: run_sweep.call())
 
-	var run := _button("RUN")
+	var run := UIStyle.dev_button("RUN")
 	run.pressed.connect(run_sweep)
 	
-	var ten := _button("10 SEEDS")
+	var ten := UIStyle.dev_button("10 SEEDS")
 	ten.pressed.connect(func() -> void:
 		var m = TackleModelScript.new()
 		m.w_speed = s.w1.value
@@ -816,46 +856,45 @@ func _build_sweep_page(page: VBoxContainer, s: Dictionary) -> void:
 
 	
 
-	var legend := HBoxContainer.new()
-	legend.add_theme_constant_override(&"separation", 14)
-	page.add_child(legend)
-	legend.add_child(_legend_item("Simulated", UIStyle.ACCENT))
-	legend.add_child(_legend_item("Illustrative", UIStyle.TEXT_MUTED))
+	var out := _lr_results
+	out.add_child(UIStyle.dev_heading("Sweep"))
+	var summary := HBoxContainer.new()
+	summary.add_theme_constant_override(&"separation", 8)
+	out.add_child(summary)
+
+	var s2_card := UIStyle.dev_metric_card("0.2 → 0.8")
+	_experiment_s2_label = s2_card.value_label
+	summary.add_child(s2_card.node)
+
+	var sf_card := UIStyle.dev_metric_card("0.0 → 0.8")
+	_experiment_sf_label = sf_card.value_label
+	summary.add_child(sf_card.node)
 
 	_chart = TackleChartScript.new()
 	if _chart.custom_minimum_size.y < 120.0:
 		_chart.custom_minimum_size.y = 120.0
-	page.add_child(_chart)
+	out.add_child(_chart)
 
-	_experiment_results = UIStyle.label("RESULTS\n—", UIStyle.SIZE_LABEL, UIStyle.TEXT_PRIMARY)
-	page.add_child(_experiment_results)
+	var legend := HBoxContainer.new()
+	legend.add_theme_constant_override(&"separation", 14)
+	out.add_child(legend)
+	legend.add_child(_legend_item("Simulated", UIStyle.ACCENT))
+	legend.add_child(_legend_item("Illustrative", UIStyle.TEXT_CAPTION))
 
-	var summary := HBoxContainer.new()
-	summary.add_theme_constant_override(&"separation", 8)
-	page.add_child(summary)
+	_experiment_results = UIStyle.dev_readout("—")
+	_experiment_results.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	out.add_child(_experiment_results)
 
-	var s2_card := _metric_card("0.2 → 0.8")
-	_experiment_s2_label = s2_card.value_label
-	s2_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	summary.add_child(s2_card.node)
-
-	var sf_card := _metric_card("0.0 → 0.8")
-	_experiment_sf_label = sf_card.value_label
-	sf_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	summary.add_child(sf_card.node)
-
-	_experiment_status = _muted_caption("")
-	_experiment_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	page.add_child(_experiment_status)
+	_experiment_status = UIStyle.dev_caption("", true)
+	out.add_child(_experiment_status)
 
 	run_sweep.call()  # last, so every label exists
 
 
 func _build_sim_window() -> Control:
-	var panel := PanelContainer.new()
+	var panel := UIStyle.dev_panel(8.0)
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	panel.add_theme_stylebox_override(&"panel", _box(Color(RetroWindow.PANEL), 2, HARD_SHADOW, 8))
 
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override(&"separation", 6)
@@ -863,10 +902,10 @@ func _build_sim_window() -> Control:
 
 	var bar := HBoxContainer.new()
 	col.add_child(bar)
-	var title := UIStyle.label("SIM · X Y Z FIELD", UIStyle.SIZE_LABEL, UIStyle.TEXT_PRIMARY, UIStyle.WEIGHT_BOLD)
+	var title := UIStyle.dev_heading("Sim")
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bar.add_child(title)
-	bar.add_child(_muted_caption("DRAG: ORBIT · WHEEL: ZOOM"))
+	bar.add_child(UIStyle.dev_caption("DRAG: ORBIT · WHEEL: ZOOM"))
 
 	# The SubViewport shares the main World3D (own_world_3d stays false), so the
 	# player already in the scene shows up here, seen by a separate camera.
@@ -1094,10 +1133,10 @@ func _run_tackle_experiment(inputs: Dictionary, weights: Dictionary, attempts: i
 
 	var rows: Array = TackleExperimentScript.sweep(model, sweep_key, SWEEP_VALUES, inputs, attempts, _experiment_seed)
 
-	var text := "RESULTS · sweep %s\n" % sweep_name
+	var text := "sweep %s\n" % sweep_name
 	var plot_points: Array[Vector2] = []
 	for row in rows:
-		text += "%s %.1f  %.1f%%  [%d/%d]\n" % [sweep_name, row.value, row.rate, row.successes, row.attempts]
+		text += "%.1f  %5.1f%%  %5d/%d\n" % [row.value, row.rate, row.successes, row.attempts]
 		plot_points.append(Vector2(row.value, row.rate))
 	_experiment_results.text = text
 
@@ -1125,71 +1164,10 @@ func _slope_between(rows: Array, from_w: float, to_w: float) -> float:
 
 
 # =============================================================================
-# STYLE HELPERS
+# ROW HELPERS
 # =============================================================================
-
-## Flat fill, hard border, square corners, optional hard offset shadow.
-func _box(fill: Color, border_w: int, shadow: float, margin: float) -> StyleBoxFlat:
-	var s := StyleBoxFlat.new()
-	s.bg_color = fill
-	s.border_color = RetroWindow.BORDER
-	s.set_border_width_all(border_w)
-	s.set_corner_radius_all(0)
-	s.content_margin_left = margin
-	s.content_margin_right = margin
-	s.content_margin_top = margin
-	s.content_margin_bottom = margin
-	if shadow > 0.0:
-		s.shadow_color = Color(0, 0, 0, 0.55)
-		s.shadow_size = 1
-		s.shadow_offset = Vector2(shadow, shadow)
-	return s
-
-
-func _button(text: String, toggle := false) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.toggle_mode = toggle
-	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size.y = 30.0
-
-	var base := Color(RetroWindow.PANEL)
-	b.add_theme_stylebox_override(&"normal", _box(base.lightened(0.08), 2, 3.0, 8.0))
-	b.add_theme_stylebox_override(&"hover", _box(base.lightened(0.18), 2, 3.0, 8.0))
-	b.add_theme_stylebox_override(&"pressed", _box(Color(UIStyle.ACCENT), 2, 0.0, 8.0))
-	b.add_theme_stylebox_override(&"hover_pressed", _box(Color(UIStyle.ACCENT), 2, 0.0, 8.0))
-	b.add_theme_stylebox_override(&"focus", StyleBoxEmpty.new())
-	b.add_theme_font_size_override(&"font_size", UIStyle.SIZE_LABEL)
-	b.add_theme_color_override(&"font_color", UIStyle.TEXT_PRIMARY)
-	b.add_theme_color_override(&"font_hover_color", UIStyle.TEXT_PRIMARY)
-	b.add_theme_color_override(&"font_pressed_color", Color.BLACK)
-	b.add_theme_color_override(&"font_hover_pressed_color", Color.BLACK)
-	return b
-
-
-func _metric_card(caption: String) -> Dictionary:
-	var box := PanelContainer.new()
-	# Sunken look: darker fill, thin border, no shadow.
-	box.add_theme_stylebox_override(&"panel", _box(Color(RetroWindow.PANEL).darkened(0.18), 2, 0.0, 8.0))
-
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override(&"separation", 0)
-	box.add_child(col)
-
-	col.add_child(UIStyle.label(caption, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED))
-	var value := UIStyle.label("—", UIStyle.SIZE_TITLE, UIStyle.TEXT_PRIMARY, UIStyle.WEIGHT_BOLD)
-	col.add_child(value)
-
-	return {"node": box, "value_label": value}
-
-
-func _section_heading(text: String) -> Label:
-	return UIStyle.label(text.to_upper(), UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD)
-
-
-func _muted_caption(text: String) -> Label:
-	return UIStyle.label(text, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
-
+# Buttons, cards, headings, captions and the slider row itself are UIStyle's
+# dev_* builders, shared with the animation viewer and the ragdoll lab.
 
 func _legend_item(text: String, color: Color) -> HBoxContainer:
 	var row := HBoxContainer.new()
@@ -1198,49 +1176,25 @@ func _legend_item(text: String, color: Color) -> HBoxContainer:
 	swatch.custom_minimum_size = Vector2(10.0, 10.0)
 	swatch.color = color
 	row.add_child(swatch)
-	row.add_child(UIStyle.label(text, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED))
+	row.add_child(UIStyle.dev_caption(text))
 	return row
 
 
 func _slider_row(parent: Control, label_text: String, min_v: float, max_v: float, step: float, default: float) -> HSlider:
-	var row := GridContainer.new()
-	row.columns = 3
-	row.add_theme_constant_override(&"h_separation", 8)
-	parent.add_child(row)
-
-	var label := UIStyle.label(label_text, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
-	label.custom_minimum_size.x = 70.0
-	row.add_child(label)
-
-	var slider := HSlider.new()
-	slider.min_value = min_v
-	slider.max_value = max_v
-	slider.step = step
-	slider.value = default
-	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(slider)
-
-	var out := UIStyle.label("%.2f" % default, UIStyle.SIZE_LABEL, UIStyle.TEXT_PRIMARY)
-	out.custom_minimum_size.x = 40.0
-	out.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	row.add_child(out)
-
-	slider.value_changed.connect(func(v: float) -> void:
-		out.text = "%.2f" % v
-	)
-
-	return slider
+	var row := UIStyle.dev_slider_row(label_text, min_v, max_v, step, default)
+	parent.add_child(row.node)
+	return row.slider
 
 
+## Caption / spin box. The box shows its own value, so no readout column.
 func _spinbox_row(parent: Control, label_text: String, min_v: int, max_v: int, step: int, default: int) -> SpinBox:
-	var row := GridContainer.new()
-	row.columns = 3
-	row.add_theme_constant_override(&"h_separation", 8)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override(&"separation", 8)
 	parent.add_child(row)
 
-	var label := UIStyle.label(label_text, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
-	label.custom_minimum_size.x = 70.0
+	var label := UIStyle.dev_caption(label_text.to_upper())
+	label.custom_minimum_size.x = UIStyle.DEV_LABEL_WIDTH
+	label.clip_text = true
 	row.add_child(label)
 
 	var box := SpinBox.new()
@@ -1251,14 +1205,4 @@ func _spinbox_row(parent: Control, label_text: String, min_v: int, max_v: int, s
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(box)
-
-	var out := UIStyle.label("%d" % default, UIStyle.SIZE_LABEL, UIStyle.TEXT_PRIMARY)
-	out.custom_minimum_size.x = 40.0
-	out.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	row.add_child(out)
-
-	box.value_changed.connect(func(v: float) -> void:
-		out.text = "%d" % int(v)
-	)
-
 	return box

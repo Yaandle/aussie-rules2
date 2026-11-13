@@ -1,0 +1,10 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/dev/contact_sweep.gd" id="1_contact"]
+
+; Dev-only headless sweep (not on any menu): contacts that keep players on
+; their feet, on the motor ragdoll's upper-body reaction. See the script
+; header for how to run and read it.
+
+[node name="ContactSweep" type="Node3D"]
+script = ExtResource("1_contact")

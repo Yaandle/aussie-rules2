@@ -138,11 +138,11 @@ const ACTIONS := [
 	["KICK", Tuning.Action.KICK],
 	["HANDBALL", Tuning.Action.HANDBALL],
 	["BOUNCE", Tuning.Action.BOUNCE],
-	["MARK — SAFE", Tuning.Action.MARK_SAFE],
-	["MARK — RUNNING", Tuning.Action.MARK_RUNNING],
-	["MARK — AGGRESSIVE", Tuning.Action.MARK_AGGRESSIVE],
-	["MARK — SAFE MISS", Tuning.Action.MARK_SAFE_MISS],
-	["MARK — RUNNING MISS", Tuning.Action.MARK_RUNNING_MISS],
+	["MARK SAFE", Tuning.Action.MARK_SAFE],
+	["MARK RUNNING", Tuning.Action.MARK_RUNNING],
+	["MARK AGGRESSIVE", Tuning.Action.MARK_AGGRESSIVE],
+	["SAFE MISS", Tuning.Action.MARK_SAFE_MISS],
+	["RUNNING MISS", Tuning.Action.MARK_RUNNING_MISS],
 	["HIT-OUT", Tuning.Action.HIT_OUT],
 ]
 
@@ -156,12 +156,13 @@ const UNIMPLEMENTED := ["SPOIL"]
 ## simulation" the brief asked for.
 enum ContestKind { TACKLE_SLIDE, TACKLE_LUNGE, BUMP_CLEAN, BUMP_MISS, SMOTHER }
 
+## [button, kind, tooltip]
 const CONTESTS := [
-	["TACKLE — SLIDE", ContestKind.TACKLE_SLIDE],
-	["TACKLE — LUNGE", ContestKind.TACKLE_LUNGE],
-	["BUMP — CLEAN HIT", ContestKind.BUMP_CLEAN],
-	["BUMP — MISS", ContestKind.BUMP_MISS],
-	["SMOTHER", ContestKind.SMOTHER],
+	["SLIDE", ContestKind.TACKLE_SLIDE, "Tackle, Slide (hold E / B)"],
+	["LUNGE", ContestKind.TACKLE_LUNGE, "Tackle, Lunge (tap Q / X)"],
+	["SMOTHER", ContestKind.SMOTHER, "Smother a kicker in their stance"],
+	["BUMP", ContestKind.BUMP_CLEAN, "Bump, clean hit"],
+	["BUMP MISS", ContestKind.BUMP_MISS, "Bump that whiffs past a bystander"],
 ]
 
 ## Scripted solo/prop sequences — no opposing player, but not a single
@@ -170,9 +171,9 @@ const CONTESTS := [
 enum SequenceKind { BOUNCE_RUN, MARK_RETREAT, UMPIRE_BALLUP }
 
 const SEQUENCES := [
-	["BOUNCE — ON THE RUN", SequenceKind.BOUNCE_RUN],
-	["MARK — RETREAT OFF MARK", SequenceKind.MARK_RETREAT],
-	["UMPIRE — BALL-UP", SequenceKind.UMPIRE_BALLUP],
+	["BOUNCE", SequenceKind.BOUNCE_RUN, "Bounce on the run"],
+	["RETREAT", SequenceKind.MARK_RETREAT, "Walk back off a legal mark"],
+	["BALL-UP", SequenceKind.UMPIRE_BALLUP, "The field umpire's ball-up"],
 ]
 
 ## MARK DELIVERY — which tier B goes for. AUTO follows PlayerController.
@@ -180,10 +181,10 @@ const SEQUENCES := [
 enum MarkPreviewTier { AUTO, SAFE, RUNNING, AGGRESSIVE }
 
 const MARK_PREVIEW_TIERS := [
-	["MARK — AUTO (PROMPT)", MarkPreviewTier.AUTO],
-	["MARK — SAFE", MarkPreviewTier.SAFE],
-	["MARK — RUNNING", MarkPreviewTier.RUNNING],
-	["MARK — AGGRESSIVE", MarkPreviewTier.AGGRESSIVE],
+	["AUTO", MarkPreviewTier.AUTO, "Whichever tier the live mark prompt shows"],
+	["SAFE", MarkPreviewTier.SAFE, "Safe mark (hold)"],
+	["RUN", MarkPreviewTier.RUNNING, "Running mark (tap on arrival)"],
+	["LEAP", MarkPreviewTier.AGGRESSIVE, "Aggressive mark (the leap)"],
 ]
 
 ## The delivery: launched this far out on the FROM bearing from where B will
@@ -307,17 +308,11 @@ const JUMP_HEIGHT := 0.45
 const JUMP_RISE_TIME := 0.28
 const JUMP_FALL_TIME := 0.32
 
-## ── Dev menu design (visual only) ───────────────────────────────────
-## Left-docked control panel, same hard-shell/card language as
-## MLExperimentViewer (ml_experiment_viewer.gd): square corners, opaque
-## parchment fill, hard offset shadow, pinned metric cards up top and the
-## three preview groups as tabbed pages rather than three parallel columns.
-const MENU_POSITION := Vector2(8.0, 8.0)
-const MENU_WIDTH := 320.0
-const MENU_PADDING := 12.0
-const MENU_ROW_GAP := 2
-const MENU_SECTION_GAP := 8
-const HARD_SHADOW := 4.0
+## The docked control panel (UIStyle's "Dev tool shell"). 560 wide is what
+## the five-button control row needs; the contest camera's sidestep above
+## already frames for a panel over the left half of a 1280-wide window.
+const MENU_POSITION := Vector2(UIStyle.DEV_EDGE, UIStyle.DEV_EDGE)
+const MENU_WIDTH := 560.0
 
 
 ## Camera moves between the single-subject framing and the wider contest one
@@ -332,16 +327,9 @@ const PHYSICS_RAGDOLL_LAB_SCENE := "res://scenes/dev/physics_ragdoll_lab.tscn"
 const PlayerScene := preload("res://scenes/player/player.tscn")
 const BallScene := preload("res://scenes/ball/ball.tscn")
 const MLExperimentViewerScript := preload("res://scripts/dev/ml_experiment_viewer.gd")
-const TackleModelScript := preload("res://scripts/dev/tackle_model.gd")
-
-## Tackle model integration: baseline stamina value (not tracked in viewer; use constant).
-const CONTEST_STAMINA_BASELINE := 1.0
 
 @onready var _camera: Camera3D = $Camera3D
 @onready var _ui: Control = $Overlay/UI
-
-## Seeded RNG for tackle model roll_break() in contest simulation.
-var _contest_rng := RandomNumberGenerator.new()
 
 var _subject: Node3D
 var _rig: HumanoidRig
@@ -382,8 +370,6 @@ var _contest_run_dir := Vector3.BACK
 ## so changing either and pressing a contest button re-stages from there.
 var _approach_angle_deg := APPROACH_ANGLE_DEFAULT
 var _approach_speed := APPROACH_SPEED_DEFAULT
-var _approach_angle_value: Label
-var _approach_speed_value: Label
 ## Ground arrow showing where A will come from for the last-pressed (or
 ## first) scenario; redrawn whenever either slider moves.
 var _approach_aim: MeshInstance3D
@@ -397,24 +383,20 @@ var _sequence_stage := ContestStage.NONE
 var _sequence_timer := 0.0
 var _sequence_triggered := false
 
-## Tackle model prediction result (for debug display in _step_contest).
-var _contest_tackle_prediction := ""
-var _tackle_model_manual := false
-var _tackle_model_rolled := false
-var _tackle_model_manual_inputs := {
-	"dspeed": 0.7,
-	"angle": 0.7,
-	"stamina": 0.7,
-}
-var _tackle_model_dspeed_slider: HSlider
-var _tackle_model_angle_slider: HSlider
-var _tackle_model_stamina_slider: HSlider
-var _tackle_model_dspeed_value: Label
-var _tackle_model_angle_value: Label
-var _tackle_model_stamina_value: Label
-var _tackle_model_z_label: Label
-var _tackle_model_p_label: Label
-var _tackle_model_panel: VBoxContainer
+## CONTACT (CONTESTS tab, 2026-11-10): B's pace for the tackles and both
+## players' stamina (Tuning's "Stamina"), read at the next contest press;
+## the readout is what the real resolver decided (A's last_tackle) and how
+## each body took it. Replaced the sandbox tackle model's AUTO/MANUAL
+## inputs and P(break) roll: live tackles never roll (TackleBalance), so the
+## roll here was a different game from the one being watched.
+var _b_speed := 0.0
+var _stamina_a := 1.0
+var _stamina_b := 1.0
+var _contact_result: Label
+var _contact_detail: Label
+## What each body did over the contest so far (the deepest it got): a
+## knock is over in ~0.75 s, long before anyone reads the panel.
+var _contact_seen := {}
 
 ## Free move — solo real PlayerController under real input, roaming the
 ## bigger grid above. Built lazily on the first FREE MOVE press, same
@@ -440,14 +422,17 @@ var _mark_prompt: MarkPrompt
 var _mark_contact_last := NAN   ## latest per-tick sample, see _sample_mark_contact
 var _mark_contact_dist := NAN   ## the contact frame's, frozen when the leap resolves
 var _mark_hooks_connected := false
-var _mark_value_labels := {}
 
 var _free_player: PlayerController
 var _free_brain: PlayerBrain
 var _free_player_built := false
 var _free_move_active := false
 var _free_move_floor: MeshInstance3D
-var _free_move_hints: KeyHintBar
+var _hints: KeyHintBar
+var _menu_panel: PanelContainer
+var _pages: VBoxContainer
+## Where Tab / the d-pad lands first (UIStyle.dev_focus_entry).
+var _first_focus: Control
 var _free_move_button: Button
 var _player_construction_warmed := false
 
@@ -502,6 +487,7 @@ class MarkPreviewBrain extends HumanBrain:
 	var safe_hold := false
 	var running_tap := false
 	var aggressive_tap := false
+	var fist_tap := false   ## 6Y's fist-away (mark_cue_harness's `fist` mode)
 
 	func wish_direction(_controller: PlayerController) -> Vector3:
 		return wish_dir
@@ -538,6 +524,11 @@ class MarkPreviewBrain extends HumanBrain:
 	func wants_mark_aggressive() -> bool:
 		var tap := aggressive_tap
 		aggressive_tap = false
+		return tap
+
+	func wants_fist() -> bool:
+		var tap := fist_tap
+		fist_tap = false
 		return tap
 
 	func wants_spoil() -> bool:
@@ -674,7 +665,9 @@ func _show_free_move() -> void:
 		_free_move_floor.visible = true
 	_studio_floor.visible = false
 	_preview_columns.visible = false
-	_free_move_hints.visible = true
+	_set_hints(true)
+	get_viewport().gui_release_focus()
+	_fit_menu.call_deferred()
 	_free_move_active = true
 	_move_camera_to(STAND_ON + Vector3(-CAMERA_SIDESTEP, CAMERA_HEIGHT, CAMERA_DISTANCE))
 
@@ -727,6 +720,9 @@ func _process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"pause") or event.is_action_pressed(&"character_menu"):
 		SceneWipe.change_scene("res://scenes/ui/main_menu.tscn")
+	elif not _free_move_active:
+		UIStyle.dev_focus_entry(get_viewport(), event,
+			_experiment_ui.first_focus() if _experiment_ui.is_open() else _first_focus)
 
 
 # ── Subject: rig + the same AnimationPlayer/AnimationTree/PlayerAnimation
@@ -786,25 +782,25 @@ func _update_model_label() -> void:
 
 
 # ── UI ───────────────────────────────────────────────────────────────
-# Same hard-shell card language as MLExperimentViewer (ml_experiment_viewer.
-# gd): square corners, opaque parchment fill, hard offset shadow, pinned
-# metric cards, tabbed pages. See that file's own STYLE HELPERS section —
-# _box/_button/_metric_card/_section_heading/_muted_caption below are the
-# same shapes, kept local since the two build off separate roots (Node3D
-# vs RefCounted) with no shared base to hang them on.
+# One docked panel in the dev-tool shell (UIStyle's "Dev tool shell":
+# parchment, hard shadow, square buttons, sunken metric cards), shared with
+# the ML page and the Physics Ragdoll Lab. Title, live cards, the control
+# row and the tabs stay put; only the page under the tabs scrolls, and
+# _fit_menu keeps that above the key-hint bar. CONTESTS is two columns so
+# RESULT sits beside the buttons that produce it instead of under them.
 
 func _build_ui() -> void:
 	var root := VBoxContainer.new()
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_theme_constant_override(&"separation", MENU_SECTION_GAP)
+	root.add_theme_constant_override(&"separation", UIStyle.DEV_GAP)
 
-	var panel := PanelContainer.new()
+	var panel := UIStyle.dev_panel()
 	panel.position = MENU_POSITION
 	panel.custom_minimum_size.x = MENU_WIDTH
-	var panel_box := _box(Color(RetroWindow.PANEL), 2, HARD_SHADOW, MENU_PADDING)
-	panel.add_theme_stylebox_override(&"panel", panel_box)
+	var panel_box := panel.get_theme_stylebox(&"panel")
 	panel.add_child(root)
 	_ui.add_child(panel)
+	_menu_panel = panel
 	_root_layout = root
 	# When the experiment view hides the layout, drop the empty frame too.
 	root.visibility_changed.connect(func() -> void:
@@ -814,55 +810,31 @@ func _build_ui() -> void:
 	root.add_child(UIStyle.label("ANIMATION VIEWER", UIStyle.SIZE_TITLE,
 		UIStyle.TEXT_PRIMARY, UIStyle.WEIGHT_HEAVY, UIStyle.TRACK_TITLE))
 
-	# Pinned live metrics — same sunken metric-card pair as the ML
-	# Experiments page's P(BREAK)/SUCCESS row.
+	# Pinned live metrics. MODEL proves HumanoidRig's import swap took
+	# (see humanoid_rig.gd's header); REBUILD re-runs it end to end.
 	var metrics := HBoxContainer.new()
 	metrics.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	metrics.add_theme_constant_override(&"separation", 8)
+	metrics.add_theme_constant_override(&"separation", UIStyle.DEV_GAP)
 	root.add_child(metrics)
-
-	var state_card := _metric_card("STATE")
+	var state_card := UIStyle.dev_metric_card("STATE")
 	_state_label = state_card.value_label
-	_state_label.text = "—"
-	state_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# Twice the others' share: the longest state name is
+	# MARK_AGGRESSIVE_OFFBALANCE_R, a blend is always "0.00, 0.00".
+	state_card.node.size_flags_stretch_ratio = 2.0
 	metrics.add_child(state_card.node)
-
-	var blend_card := _metric_card("BLEND")
+	var blend_card := UIStyle.dev_metric_card("BLEND")
 	_blend_label = blend_card.value_label
 	_blend_label.text = "0.00, 0.00"
-	blend_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	metrics.add_child(blend_card.node)
-
-	# 4B's "development menu" half in miniature: proves HumanoidRig's import
-	# swap (see humanoid_rig.gd's own header) actually took effect, without
-	# having to read code or attach a debugger. REBUILD already re-runs
-	# _build_subject() -> HumanoidRig._ready() -> _build(), so it's already
-	# a full end-to-end exercise of the swap path once a real res://assets/
-	# characters/player.glb exists — this just surfaces which path won.
-	var model_card := _metric_card("MODEL")
+	var model_card := UIStyle.dev_metric_card("MODEL")
 	_model_label = model_card.value_label
-	model_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	metrics.add_child(model_card.node)
 	_update_model_label()
 
-	# A:/B: contest readout, pinned right under the metric cards instead
-	# of at the bottom of the CONTESTS tab's own scrolling page (past
-	# every contest-type button, the tackle-model panel, and every
-	# sequence button) — previously needed scrolling all the way down to
-	# see while a contest was actually running. _step_contest() updates
-	# this regardless of which tab is visible, so it's always current.
-	_contest_status_label = _muted_caption("")
-	_contest_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	root.add_child(_contest_status_label)
-
 	_experiment_ui = MLExperimentViewerScript.new(self)
-
 	root.add_child(_build_control_group())
 
-	# Tabs: LOCOMOTION / ACTIONS / CONTESTS swap page visibility inside a
-	# scrolling pane — the same single-active-tab pattern the ML
-	# Experiments page uses for its MODEL / SWEEP pages, in place of the
-	# three always-visible columns this panel used before.
+	# Tabs swap which page shows in the scrolling pane.
 	var tabs := HBoxContainer.new()
 	tabs.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	tabs.add_theme_constant_override(&"separation", 6)
@@ -870,8 +842,6 @@ func _build_ui() -> void:
 
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.custom_minimum_size.y = 420.0
 	root.add_child(scroll)
 	_preview_columns = scroll
 
@@ -879,267 +849,233 @@ func _build_ui() -> void:
 	pages.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pages.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(pages)
+	_pages = pages
 
-	var locomotion_page := _build_locomotion_group()
-	var action_page := _build_action_group()
-	var contest_page := _build_contest_group()
-	action_page.visible = false
-	contest_page.visible = false
-	pages.add_child(locomotion_page)
-	pages.add_child(action_page)
-	pages.add_child(contest_page)
-
+	var tab_pages: Array[Control] = [
+		_build_locomotion_group(), _build_action_group(), _build_contest_group()]
 	var tab_group := ButtonGroup.new()
-	var loc_tab := _button("LOCOMOTION", true)
-	loc_tab.button_group = tab_group
-	loc_tab.button_pressed = true
-	loc_tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tabs.add_child(loc_tab)
+	var tab_names := ["LOCOMOTION", "ACTIONS", "CONTESTS"]
+	for i in tab_pages.size():
+		tab_pages[i].visible = i == 0
+		pages.add_child(tab_pages[i])
+		var tab := UIStyle.dev_button(tab_names[i], true)
+		tab.button_group = tab_group
+		tab.button_pressed = i == 0
+		tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tab.pressed.connect(func() -> void:
+			for j in tab_pages.size():
+				tab_pages[j].visible = j == i
+			_fit_menu.call_deferred())
+		tabs.add_child(tab)
+		if i == 0:
+			_first_focus = tab
 
-	var action_tab := _button("ACTIONS", true)
-	action_tab.button_group = tab_group
-	action_tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tabs.add_child(action_tab)
-
-	var contest_tab := _button("CONTESTS", true)
-	contest_tab.button_group = tab_group
-	contest_tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tabs.add_child(contest_tab)
-
-	loc_tab.pressed.connect(func() -> void:
-		locomotion_page.visible = true
-		action_page.visible = false
-		contest_page.visible = false)
-	action_tab.pressed.connect(func() -> void:
-		locomotion_page.visible = false
-		action_page.visible = true
-		contest_page.visible = false)
-	contest_tab.pressed.connect(func() -> void:
-		locomotion_page.visible = false
-		action_page.visible = false
-		contest_page.visible = true)
-
-	var hints := KeyHintBar.new()
-	hints.position = Vector2(24.0, 674.0)
-	hints.set_hints([
-		{"keys": "Esc / C", "label": "Back to menu"},
-	])
-	_ui.add_child(hints)
-
-	_free_move_hints = KeyHintBar.new()
-	_free_move_hints.position = Vector2(MENU_POSITION.x, 118.0)
-	_free_move_hints.visible = false
-	_free_move_hints.set_hints([
-		{"keys": "WASD", "label": "Move"},
-		{"keys": "Kick / Handball / Bounce", "label": "Action inputs"},
-	])
-	_ui.add_child(_free_move_hints)
+	# One hint bar under the panel; FREE MOVE swaps its contents.
+	_hints = KeyHintBar.new()
+	_hints.position = Vector2(24.0, 674.0)
+	_ui.add_child(_hints)
+	_set_hints(false)
 
 	_experiment_ui.build(_ui)
+	get_viewport().size_changed.connect(_fit_menu)
+	_fit_menu.call_deferred()
 
 
+## Fits the scrolling page to the window (UIStyle.dev_fit_scroll).
+func _fit_menu() -> void:
+	if _menu_panel != null and _pages != null:
+		UIStyle.dev_fit_scroll(_menu_panel, _preview_columns, _pages)
+
+
+func _set_hints(free_move: bool) -> void:
+	var hints := [{"keys": "Tab / D-pad", "label": "Focus"}, {"keys": "Esc / C", "label": "Back to menu"}]
+	if free_move:
+		hints = [{"keys": "WASD", "label": "Move"},
+			{"keys": "Kick / Handball / Bounce", "label": "Action inputs"},
+			{"keys": "Esc / C", "label": "Back to menu"}]
+	_hints.set_hints(hints)
+
+
+## FREE MOVE, the ML page, the ragdoll lab, and reset / rebuild.
 func _build_control_group() -> HBoxContainer:
 	var group := HBoxContainer.new()
 	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	group.add_theme_constant_override(&"separation", 6)
 
-	var title := _section_heading("CONTROL")
-	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	group.add_child(title)
-
-	var toggle := _button("FREE MOVE", true)
+	var toggle := UIStyle.dev_button("FREE MOVE", true)
+	toggle.tooltip_text = "Swap the preview rig for a real player under your input"
 	toggle.toggled.connect(_on_free_move_toggled)
-	group.add_child(toggle)
 	_free_move_button = toggle
 
-	var experiment_button := _button("EXPERIMENTS", true)
+	var experiment_button := UIStyle.dev_button("ML PAGE", true)
+	experiment_button.tooltip_text = "Open the ML experiments page"
 	experiment_button.toggled.connect(_experiment_ui.on_toggled)
-	group.add_child(experiment_button)
 
-	_add_misc_buttons(group)
-	return group
-
-
-## Reset / rebuild live in the control row now (was its own MISC column).
-func _add_misc_buttons(group: HBoxContainer) -> void:
-	var reset_button := _button("RESET")
-	reset_button.tooltip_text = "Reset contest"
-	reset_button.pressed.connect(func() -> void:
-		_reset_contest_state()
-		_show_single_subject())
-	group.add_child(reset_button)
-
-	var rebuild_button := _button("REBUILD")
-	rebuild_button.tooltip_text = "Rebuild subject"
-	rebuild_button.pressed.connect(func() -> void:
-		# Rebuild the single-subject rig in-place.
-		if _subject != null:
-			_subject.queue_free()
-			_build_subject())
-	group.add_child(rebuild_button)
-
-	# Physics Ragdoll Lab (docs/MECHANICS_AUDIT.md §B4) — its own scene, not
-	# a page of this one: it needs a real floor and a skeleton it can take
-	# over with physics, neither of which belongs to this preview rig. Its
-	# Esc returns here.
-	var ragdoll_button := _button("RAGDOLL")
+	# Physics Ragdoll Lab (docs/MECHANICS_AUDIT.md §B4): its own scene, not
+	# a page of this one. It needs a real floor and a skeleton it can take
+	# over with physics. Its Esc returns here.
+	var ragdoll_button := UIStyle.dev_button("RAGDOLL LAB")
 	ragdoll_button.tooltip_text = "Open the Physics Ragdoll Lab"
 	ragdoll_button.pressed.connect(func() -> void:
 		SceneWipe.change_scene(PHYSICS_RAGDOLL_LAB_SCENE))
-	group.add_child(ragdoll_button)
+
+	var reset_button := UIStyle.dev_button("RESET")
+	reset_button.tooltip_text = "Reset the contest and show the single figure"
+	reset_button.pressed.connect(func() -> void:
+		_reset_contest_state()
+		_show_single_subject())
+
+	var rebuild_button := UIStyle.dev_button("REBUILD")
+	rebuild_button.tooltip_text = "Rebuild the single figure's rig"
+	rebuild_button.pressed.connect(func() -> void:
+		if _subject != null:
+			_subject.queue_free()
+			_build_subject())
+
+	for b: Button in [toggle, experiment_button, ragdoll_button, reset_button, rebuild_button]:
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		group.add_child(b)
+	return group
 
 
-func _build_locomotion_group() -> VBoxContainer:
-	var group := VBoxContainer.new()
-	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	group.add_theme_constant_override(&"separation", MENU_ROW_GAP)
+## A grid of equal-width buttons, `columns` across.
+func _button_grid(columns: int) -> GridContainer:
+	var grid := GridContainer.new()
+	grid.columns = columns
+	grid.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	grid.add_theme_constant_override(&"h_separation", 6)
+	grid.add_theme_constant_override(&"v_separation", 6)
+	return grid
 
+
+func _column() -> VBoxContainer:
+	var col := VBoxContainer.new()
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override(&"separation", UIStyle.DEV_ROW_GAP)
+	return col
+
+
+func _build_locomotion_group() -> Control:
+	var grid := _button_grid(2)
 	var toggle_group := ButtonGroup.new()
 	for entry: Array in LOCOMOTION:
-		var label: String = entry[0]
 		var blend: Vector2 = entry[1]
-		var button := _button(label, true)
+		var button := UIStyle.dev_button(entry[0], true)
 		button.button_group = toggle_group
 		button.button_pressed = blend == Vector2.ZERO
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.pressed.connect(func() -> void:
 			_show_single_subject()
 			_current_blend = blend)
-		group.add_child(button)
-	return group
+		grid.add_child(button)
+	return grid
 
 
-func _build_action_group() -> VBoxContainer:
-	var group := VBoxContainer.new()
-	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	group.add_theme_constant_override(&"separation", MENU_ROW_GAP)
-
+func _build_action_group() -> Control:
+	var group := _column()
+	var actions := _button_grid(3)
+	group.add_child(actions)
 	for entry: Array in ACTIONS:
-		var label: String = entry[0]
 		var action: Tuning.Action = entry[1]
-		var button := _button(label)
+		var button := UIStyle.dev_button(entry[0])
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.pressed.connect(func() -> void:
 			_show_single_subject()
 			_player_animation.play_action(action))
-		group.add_child(button)
+		actions.add_child(button)
 
 	# Every situational variant MarkVariants built for this rig, on its own
 	# (in a match PlayerAnimation picks one from the catch's context — MARK
 	# DELIVERY under CONTESTS shows that). Disabled for a rig with none.
-	group.add_child(_make_spacer(MENU_SECTION_GAP - MENU_ROW_GAP))
-	group.add_child(_section_heading("Mark variants"))
+	group.add_child(_make_spacer(UIStyle.DEV_ROW_GAP))
+	group.add_child(UIStyle.dev_heading("Mark variants"))
+	var variants := _button_grid(3)
+	group.add_child(variants)
 	for variant in MarkVariants.variant_names():
 		var state := StringName(variant)
-		var button := _button(variant.replace("mark_", "").replace("_", " ").to_upper())
+		var button := UIStyle.dev_button(variant.replace("mark_", "").replace("aggressive", "leap").replace("_", " ").to_upper())
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.clip_text = true
+		button.tooltip_text = variant
 		button.disabled = not _player_animation.has_state(state)
 		button.pressed.connect(func() -> void:
 			_show_single_subject()
 			_player_animation.play_state(state))
-		group.add_child(button)
+		variants.add_child(button)
 	return group
 
 
-func _build_contest_group() -> VBoxContainer:
-	var group := VBoxContainer.new()
+## Left: what to run and how the two come together. Right: what the real
+## resolver made of it (RESULT), then MARK DELIVERY, which reports there too.
+func _build_contest_group() -> Control:
+	var group := HBoxContainer.new()
 	group.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	group.add_theme_constant_override(&"separation", MENU_ROW_GAP)
+	group.add_theme_constant_override(&"separation", 16)
+	var left := _column()
+	var right := _column()
+	group.add_child(left)
+	group.add_child(right)
 
+	left.add_child(UIStyle.dev_heading("Contest"))
+	var contests := _button_grid(3)
+	left.add_child(contests)
 	for entry: Array in CONTESTS:
-		var label: String = entry[0]
 		var kind: ContestKind = entry[1]
-		var button := _button(label)
+		var button := UIStyle.dev_button(entry[0])
+		button.tooltip_text = entry[2]
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.pressed.connect(func() -> void: _launch_contest(kind))
-		group.add_child(button)
+		contests.add_child(button)
 
-	group.add_child(_make_spacer(MENU_SECTION_GAP - MENU_ROW_GAP))
-	group.add_child(_build_approach_panel())
+	left.add_child(_make_spacer(UIStyle.DEV_ROW_GAP))
+	left.add_child(_build_approach_panel())
 
-	group.add_child(_make_spacer(MENU_SECTION_GAP - MENU_ROW_GAP))
-	group.add_child(_build_mark_delivery_panel())
-
-	group.add_child(_make_spacer(MENU_SECTION_GAP - MENU_ROW_GAP))
-	_tackle_model_panel = _build_tackle_model_panel()
-	group.add_child(_tackle_model_panel)
-
-	group.add_child(_make_spacer(MENU_SECTION_GAP - MENU_ROW_GAP))
-	group.add_child(_section_heading("Sequences"))
-
+	left.add_child(_make_spacer(UIStyle.DEV_ROW_GAP))
+	left.add_child(UIStyle.dev_heading("Sequences"))
+	var sequences := _button_grid(3)
+	left.add_child(sequences)
 	for entry: Array in SEQUENCES:
-		var label: String = entry[0]
 		var kind: SequenceKind = entry[1]
-		var button := _button(label)
+		var button := UIStyle.dev_button(entry[0])
+		button.tooltip_text = entry[2]
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.pressed.connect(func() -> void: _launch_sequence(kind))
-		group.add_child(button)
+		sequences.add_child(button)
 
-	# _contest_status_label itself now lives under the metric cards in
-	# _build_ui(), not here — see that function's comment.
+	right.add_child(_build_result_panel())
+	right.add_child(_make_spacer(UIStyle.DEV_ROW_GAP))
+	right.add_child(_build_mark_delivery_panel())
 	return group
 
 
-## APPROACH FROM / APPROACH SPEED — where A comes in from and how fast, for
-## every CONTESTS button. Same FROM slider range/step as the Physics Ragdoll
-## Lab's. Both only take effect on the next contest press.
+## SETUP — where A comes in from and how fast (every CONTESTS button), B's
+## pace for the tackles and both players' stamina (Tuning's "Stamina"). Same
+## FROM range and step as the Physics Ragdoll Lab's. All of it is read at
+## the next contest press.
 func _build_approach_panel() -> VBoxContainer:
-	var panel := VBoxContainer.new()
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_theme_constant_override(&"separation", 6)
-	panel.add_child(_section_heading("Approach"))
-
-	var angle_row := _make_slider_row("FROM", 0.0, 355.0, 5.0, _approach_angle_deg,
-		func(v: float) -> void: _approach_angle_deg = v)
-	_approach_angle_value = angle_row.value_label
-	panel.add_child(angle_row.node)
-	var speed_row := _make_slider_row("m/s", APPROACH_SPEED_MIN, APPROACH_SPEED_MAX, 0.1,
-		_approach_speed, func(v: float) -> void: _approach_speed = v)
-	_approach_speed_value = speed_row.value_label
-	panel.add_child(speed_row.node)
-
-	_update_approach_readouts()
+	var panel := _column()
+	panel.add_child(UIStyle.dev_heading("Setup"))
+	var set_from := func(v: float) -> void:
+		_approach_angle_deg = v
+		_draw_approach_aim()
+	var set_a_speed := func(v: float) -> void:
+		_approach_speed = v
+		_draw_approach_aim()
+	var set_b_speed := func(v: float) -> void:
+		_b_speed = v
+		_draw_approach_aim()
+	panel.add_child(UIStyle.dev_slider_row("From", 0.0, 355.0, 5.0, _approach_angle_deg,
+		set_from, UIStyle.dev_bearing).node)
+	panel.add_child(UIStyle.dev_slider_row("A m/s", APPROACH_SPEED_MIN, APPROACH_SPEED_MAX, 0.1,
+		_approach_speed, set_a_speed).node)
+	panel.add_child(UIStyle.dev_slider_row("B m/s", 0.0, APPROACH_SPEED_MAX, 0.1, _b_speed,
+		set_b_speed).node)
+	panel.add_child(UIStyle.dev_slider_row("A stamina", 0.0, 1.0, 0.05, _stamina_a,
+		func(v: float) -> void: _stamina_a = v).node)
+	panel.add_child(UIStyle.dev_slider_row("B stamina", 0.0, 1.0, 0.05, _stamina_b,
+		func(v: float) -> void: _stamina_b = v).node)
 	return panel
-
-
-## Same 3-column shape as _make_tackle_model_input_row, but owning its own
-## value rather than writing into _tackle_model_manual_inputs.
-func _make_slider_row(label_text: String, min_value: float, max_value: float, step: float,
-		value: float, on_change: Callable) -> Dictionary:
-	var row := GridContainer.new()
-	row.columns = 3
-	row.add_theme_constant_override(&"h_separation", 8)
-
-	var label := UIStyle.label(label_text.to_upper(), UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
-	label.custom_minimum_size.x = 56.0
-	row.add_child(label)
-
-	var slider := HSlider.new()
-	slider.min_value = min_value
-	slider.max_value = max_value
-	slider.step = step
-	slider.value = value
-	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(slider)
-
-	var value_label := UIStyle.label("", UIStyle.SIZE_LABEL, UIStyle.TEXT_PRIMARY)
-	value_label.custom_minimum_size.x = 36.0
-	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	row.add_child(value_label)
-
-	slider.value_changed.connect(func(v: float) -> void:
-		on_change.call(v)
-		_update_approach_readouts()
-		_draw_approach_aim())
-	return {"node": row, "value_label": value_label}
-
-
-func _update_approach_readouts() -> void:
-	if _approach_angle_value == null:
-		return
-	_approach_angle_value.text = "%d° %s" % [roundi(_approach_angle_deg), _bearing_name(_approach_angle_deg)]
-	_approach_speed_value.text = "%.1f" % _approach_speed
 
 
 ## MARK DELIVERY controls — see the class doc. FROM uses APPROACH FROM's
@@ -1147,31 +1083,35 @@ func _update_approach_readouts() -> void:
 ## from behind), RUN is B's own speed along its facing, HEIGHT is where the
 ## ball is aimed to arrive above B's feet, VIEW orbits the camera.
 func _build_mark_delivery_panel() -> VBoxContainer:
-	var panel := VBoxContainer.new()
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_theme_constant_override(&"separation", MENU_ROW_GAP)
-	panel.add_child(_section_heading("Mark delivery"))
+	var panel := _column()
+	panel.add_child(UIStyle.dev_heading("Mark delivery"))
+	var tiers := []
 	for entry: Array in MARK_PREVIEW_TIERS:
 		var tier: MarkPreviewTier = entry[1]
-		var button := _button(entry[0])
-		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.pressed.connect(func() -> void: _launch_mark_preview(tier))
-		panel.add_child(button)
+		tiers.append([entry[0], func() -> void: _launch_mark_preview(tier)])
+	var tier_row := UIStyle.dev_button_row(tiers)
+	for i in MARK_PREVIEW_TIERS.size():
+		(tier_row.get_child(i) as Button).tooltip_text = MARK_PREVIEW_TIERS[i][2]
+	panel.add_child(tier_row)
 
-	var rows := [
-		["FROM", 0.0, 355.0, 5.0, _mark_from_deg, "from"],
-		["RUN", 0.0, APPROACH_SPEED_MAX, 0.1, _mark_run_speed, "run"],
-		["HEIGHT", MARK_HEIGHT_MIN, MARK_HEIGHT_MAX, 0.05, _mark_height, "height"],
-		["VIEW", 0.0, 355.0, 5.0, _mark_view_deg, "view"],
-	]
-	for r: Array in rows:
-		var key: String = r[5]
-		var row := _make_slider_row(r[0], r[1], r[2], r[3], r[4],
-			func(v: float) -> void: _set_mark_param(key, v))
-		_mark_value_labels[key] = row.value_label
-		panel.add_child(row.node)
-	var contested := _button("CONTESTED", true)
-	contested.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.add_child(UIStyle.dev_slider_row("From", 0.0, 355.0, 5.0, _mark_from_deg,
+		func(v: float) -> void: _mark_from_deg = v,
+		UIStyle.dev_bearing).node)
+	panel.add_child(UIStyle.dev_slider_row("Run m/s", 0.0, APPROACH_SPEED_MAX, 0.1, _mark_run_speed,
+		func(v: float) -> void: _mark_run_speed = v).node)
+	panel.add_child(UIStyle.dev_slider_row("Height m", MARK_HEIGHT_MIN, MARK_HEIGHT_MAX, 0.05, _mark_height,
+		func(v: float) -> void: _mark_height = v).node)
+	var set_view := func(v: float) -> void:
+		_mark_view_deg = v
+		# Live: re-orbit a delivery that's running or just finished.
+		if _contest_built and _contest_b.visible and _contest_b.brain() == _mark_brain:
+			_update_mark_camera()
+	var degrees := func(v: float) -> String: return "%d°" % roundi(v)
+	panel.add_child(UIStyle.dev_slider_row("View", 0.0, 355.0, 5.0, _mark_view_deg,
+		set_view, degrees).node)
+
+	var contested := UIStyle.dev_button("CONTESTED", true)
+	contested.tooltip_text = "Stand an opponent at B's shoulder"
 	contested.toggled.connect(func(on: bool) -> void: _mark_contested = on)
 	panel.add_child(contested)
 
@@ -1179,44 +1119,17 @@ func _build_mark_delivery_panel() -> VBoxContainer:
 	# MarkCueModel.CueSource. MLP needs trained weights (the ML page, or
 	# res://data/ml/mark_cue/weights_mark_aggressive.json); without them it
 	# reads exactly like GATED.
-	var cue_row := HBoxContainer.new()
-	cue_row.add_theme_constant_override(&"separation", 4)
-	var cue_group := ButtonGroup.new()
+	var cues := []
 	for source in MARK_CUE_NAMES.size():
-		var b := _button("CUE " + MARK_CUE_NAMES[source], true)
-		b.button_group = cue_group
-		b.button_pressed = source == _mark_cue_source
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.pressed.connect(func() -> void: _mark_cue_source = source as MarkCueModel.CueSource)
-		cue_row.add_child(b)
+		cues.append([MARK_CUE_NAMES[source],
+			func() -> void: _mark_cue_source = source as MarkCueModel.CueSource])
+	var cue_row := UIStyle.dev_button_row(cues, ButtonGroup.new(), _mark_cue_source)
+	var cue_label := UIStyle.dev_caption("CUE")
+	cue_label.custom_minimum_size.x = UIStyle.DEV_LABEL_WIDTH - 20.0
+	cue_row.add_child(cue_label)
+	cue_row.move_child(cue_label, 0)
 	panel.add_child(cue_row)
-	_update_mark_readouts()
 	return panel
-
-
-func _set_mark_param(key: String, v: float) -> void:
-	match key:
-		"from":
-			_mark_from_deg = v
-		"run":
-			_mark_run_speed = v
-		"height":
-			_mark_height = v
-		"view":
-			_mark_view_deg = v
-			# Live: re-orbit a delivery that's running or just finished.
-			if _contest_built and _contest_b.visible and _contest_b.brain() == _mark_brain:
-				_update_mark_camera()
-	_update_mark_readouts()
-
-
-func _update_mark_readouts() -> void:
-	if _mark_value_labels.is_empty():
-		return
-	(_mark_value_labels.from as Label).text = "%d° %s" % [roundi(_mark_from_deg), _bearing_name(_mark_from_deg)]
-	(_mark_value_labels.run as Label).text = "%.1f" % _mark_run_speed
-	(_mark_value_labels.height as Label).text = "%.2f" % _mark_height
-	(_mark_value_labels.view as Label).text = "%d°" % roundi(_mark_view_deg)
 
 
 ## Stages one delivery: B placed so it reaches the catch spot (the contest
@@ -1250,6 +1163,8 @@ func _launch_mark_preview(tier: MarkPreviewTier) -> void:
 	_mark_result = ""
 	_mark_contact_last = NAN
 	_mark_contact_dist = NAN
+	_contact_result.text = "…"
+	_contact_detail.text = ""
 	# The real MarkPrompt over B, on the CUE picked here — the ring a human
 	# would be shown, sweeping on the same countdown the scripted press uses.
 	if _mark_prompt == null:
@@ -1343,7 +1258,7 @@ func _step_mark_preview(delta: float) -> void:
 	var b := _contest_b
 	var tier := _mark_tier
 	if tier == MarkPreviewTier.AUTO:
-		match b.live_mark_prompt(ball):
+		match b.prompt_mark_tier(ball):
 			Tuning.Action.MARK_SAFE:
 				tier = MarkPreviewTier.SAFE
 			Tuning.Action.MARK_RUNNING:
@@ -1375,6 +1290,7 @@ func _step_mark_preview(delta: float) -> void:
 	if _mark_result != "" or _mark_timer > MARK_PREVIEW_TIMEOUT or ball.is_settled():
 		if _mark_result == "":
 			_mark_result = "no attempt — the ball was never in reach"
+			_contact_result.text = "NO ATTEMPT"
 			_contest_status_label.text = "MARK DELIVERY   " + _mark_result
 		_mark_active = false
 		_mark_brain.safe_hold = false
@@ -1401,6 +1317,7 @@ func _on_mark_preview_caught(tier: Tuning.Action, legal_mark: bool) -> void:
 	if not _mark_active:
 		return
 	_mark_result = "caught %s%s" % [Tuning.Action.keys()[tier], " (legal mark)" if legal_mark else ""]
+	_contact_result.text = "CAUGHT"
 	if tier == Tuning.Action.MARK_AGGRESSIVE:
 		_mark_contact_dist = _mark_contact_last
 	_mark_brain.wish_dir = Vector3.ZERO
@@ -1411,6 +1328,7 @@ func _on_mark_preview_missed(tier: Tuning.Action) -> void:
 	if not _mark_active:
 		return
 	_mark_result = "missed %s" % Tuning.Action.keys()[tier]
+	_contact_result.text = "MISSED"
 	if tier == Tuning.Action.MARK_AGGRESSIVE:
 		_mark_contact_dist = _mark_contact_last
 		_finish_mark_readout.call_deferred(tier)   # the leap's own pick, made at the press
@@ -1428,287 +1346,78 @@ func _finish_mark_readout(tier: Tuning.Action) -> void:
 	_contest_status_label.text = "MARK DELIVERY   " + _mark_result
 
 
-## Copy of PhysicsRagdollLab._bearing_name — same eight compass names for
-## the same bearing convention.
-func _bearing_name(deg: float) -> String:
-	const NAMES := ["FRONT", "FRONT-RIGHT", "RIGHT", "BEHIND-RIGHT",
-		"BEHIND", "BEHIND-LEFT", "LEFT", "FRONT-LEFT"]
-	return NAMES[roundi(deg / 45.0) % 8]
-
-
-func _build_tackle_model_panel() -> VBoxContainer:
-	var panel := VBoxContainer.new()
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_theme_constant_override(&"separation", 6)
-	panel.add_child(_section_heading("Model inputs"))
-
-	var mode_row := HBoxContainer.new()
-	mode_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	mode_row.add_theme_constant_override(&"separation", 6)
-	var toggle_group := ButtonGroup.new()
-	var auto_button := _button("AUTO", true)
-	auto_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	auto_button.button_group = toggle_group
-	auto_button.button_pressed = true
-	auto_button.pressed.connect(func() -> void:
-		_tackle_model_manual = false
-		_update_tackle_model_panel_state())
-	var manual_button := _button("MANUAL", true)
-	manual_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	manual_button.button_group = toggle_group
-	manual_button.pressed.connect(func() -> void:
-		_tackle_model_manual = true
-		_update_tackle_model_panel_state())
-	mode_row.add_child(auto_button)
-	mode_row.add_child(manual_button)
-	panel.add_child(mode_row)
-
-	var dspeed_row := _make_tackle_model_input_row("Δ speed", -2.0, 4.0, "dspeed")
-	panel.add_child(dspeed_row)
-	var angle_row := _make_tackle_model_input_row("angle", -2.0, 2.0, "angle")
-	panel.add_child(angle_row)
-	var stamina_row := _make_tackle_model_input_row("stamina", 0.0, 2.0, "stamina")
-	panel.add_child(stamina_row)
-
-	var action_row := HBoxContainer.new()
-	action_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	action_row.add_theme_constant_override(&"separation", 6)
-	var baseline_button := _button("BASELINE")
-	baseline_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	baseline_button.pressed.connect(func() -> void:
-		_tackle_model_manual = true
-		manual_button.set_pressed_no_signal(true)
-		_tackle_model_manual_inputs = {"dspeed": 0.7, "angle": 0.7, "stamina": 0.7}
-		_update_tackle_model_panel_state())
-	var randomise_button := _button("RANDOMISE")
-	randomise_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	randomise_button.pressed.connect(func() -> void:
-		_tackle_model_manual = true
-		manual_button.set_pressed_no_signal(true)
-		_tackle_model_manual_inputs = {
-			"dspeed": randf_range(-2.0, 4.0),
-			"angle": randf_range(-2.0, 2.0),
-			"stamina": randf_range(0.0, 2.0),
-		}
-		_update_tackle_model_panel_state())
-	action_row.add_child(baseline_button)
-	action_row.add_child(randomise_button)
-	panel.add_child(action_row)
-
-	var readouts := HBoxContainer.new()
-	readouts.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	readouts.add_theme_constant_override(&"separation", 8)
-	panel.add_child(readouts)
-
-	var z_card := _metric_card("Z")
-	_tackle_model_z_label = z_card.value_label
-	z_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	readouts.add_child(z_card.node)
-
-	var p_card := _metric_card("P(BREAK)")
-	_tackle_model_p_label = p_card.value_label
-	p_card.node.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	readouts.add_child(p_card.node)
-
-	_update_tackle_model_panel_state()
+## RESULT: what the last contest or mark delivery came to. The card is the
+## outcome, the line under it the live actions (or the mark's story), and
+## the block under that the tackle as resolved (see _update_contact_readout).
+## Replaced the sandbox tackle model's inputs and P(break) roll on
+## 2026-11-10: live tackles never roll (TackleBalance).
+func _build_result_panel() -> VBoxContainer:
+	var panel := _column()
+	panel.add_child(UIStyle.dev_heading("Result"))
+	var card := UIStyle.dev_metric_card("OUTCOME")
+	_contact_result = card.value_label
+	panel.add_child(card.node)
+	_contest_status_label = UIStyle.dev_caption("Press a contest.", true)
+	# Room for a mark's three-line story, so the columns don't jump.
+	_contest_status_label.custom_minimum_size.y = 56.0
+	panel.add_child(_contest_status_label)
+	_contact_detail = UIStyle.dev_readout("")
+	_contact_detail.clip_text = true
+	_contact_detail.custom_minimum_size.y = 70.0
+	panel.add_child(_contact_detail)
 	return panel
 
 
-## Label / slider / readout row, same 3-column GridContainer shape as
-## MLExperimentViewer._slider_row.
-func _make_tackle_model_input_row(label_text: String, min_value: float, max_value: float, key: String) -> GridContainer:
-	var row := GridContainer.new()
-	row.columns = 3
-	row.add_theme_constant_override(&"h_separation", 8)
-
-	var label := UIStyle.label(label_text.to_upper(), UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
-	label.custom_minimum_size.x = 56.0
-	row.add_child(label)
-
-	var slider := HSlider.new()
-	slider.min_value = min_value
-	slider.max_value = max_value
-	slider.step = 0.01
-	slider.value = _tackle_model_manual_inputs[key]
-	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(slider)
-
-	var value_label := UIStyle.label("%.2f" % _tackle_model_manual_inputs[key], UIStyle.SIZE_LABEL, UIStyle.TEXT_PRIMARY)
-	value_label.custom_minimum_size.x = 36.0
-	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	row.add_child(value_label)
-
-	slider.value_changed.connect(func(value: float) -> void:
-		_tackle_model_manual_inputs[key] = value
-		_update_tackle_model_panel_state())
-
-	if key == "dspeed":
-		_tackle_model_dspeed_slider = slider
-		_tackle_model_dspeed_value = value_label
-	elif key == "angle":
-		_tackle_model_angle_slider = slider
-		_tackle_model_angle_value = value_label
+## The readout: the tackle as resolved (TackleBalance on the real contact)
+## and each body's state — FALL (whole ragdoll), REACT tone (upper body on
+## physics, 1 = nothing lost), or nothing physical.
+func _update_contact_readout() -> void:
+	if _contact_result == null or _contest_a == null:
+		return
+	var t: Dictionary = _contest_a.last_tackle
+	if _contest_kind != ContestKind.TACKLE_SLIDE and _contest_kind != ContestKind.TACKLE_LUNGE:
+		_contact_result.text = "—"
+	elif t.is_empty():
+		_contact_result.text = "…"
+	elif t.get("missed", false):
+		_contact_result.text = "MISSED"
+	elif not t.get("held", false):
+		_contact_result.text = "BROKE"
 	else:
-		_tackle_model_stamina_slider = slider
-		_tackle_model_stamina_value = value_label
+		_contact_result.text = String(t.get("outcome", "held")).to_upper()
+	# Fixed-pitch columns: each body and its stamina, then the formula's inputs.
+	var lines: Array[String] = [
+		"A  %-10s  stam %.2f" % [_body_state(&"a", _contest_a), _contest_a.stamina],
+		"B  %-10s  stam %.2f" % [_body_state(&"b", _contest_b), _contest_b.stamina]]
+	if t.has("b"):
+		lines.append("b %.2f  p(break) %.2f  drive %+.1f" % [float(t.b),
+			float(t.get("p_break", NAN)), float(t.get("drive", NAN))])
+		lines.append("closing %.1f m/s at %.0f°" % [
+			float(t.get("closing_speed", NAN)), float(t.get("approach_angle", NAN))])
+	_contact_detail.text = "\n".join(lines)
 
-	return row
+
+## FALL (whole ragdoll), react and the lowest tone the knock left (upper
+## body on physics, 1 = nothing lost), or "-": the deepest seen this
+## contest.
+func _body_state(tag: StringName, player: PlayerController) -> String:
+	var r := player.ragdoll_controller()
+	if player.is_ragdolled():
+		_contact_seen[tag] = -1.0
+	elif r != null and r.phase() == PlayerRagdoll.Phase.REACTING and float(_contact_seen.get(tag, 2.0)) >= 0.0:
+		_contact_seen[tag] = minf(float(_contact_seen.get(tag, 2.0)), r.reaction_tone())
+	var seen := float(_contact_seen.get(tag, 2.0))
+	return "FALL" if seen < 0.0 else ("react %.2f" % seen if seen <= 1.0 else "-")
 
 
 # ── Menu building blocks ─────────────────────────────────────────────
-# Ported from MLExperimentViewer's own STYLE HELPERS section so this panel
-# and the Experiments overlay read as the same shell.
+# Buttons, cards, headings and slider rows are UIStyle's dev_* builders.
 
 func _make_spacer(height: float) -> Control:
 	var spacer := Control.new()
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	spacer.custom_minimum_size.y = height
 	return spacer
-
-
-## Flat fill, hard border, square corners, optional hard offset shadow.
-func _box(fill: Color, border_w: int, shadow: float, margin: float) -> StyleBoxFlat:
-	var s := StyleBoxFlat.new()
-	s.bg_color = fill
-	s.border_color = RetroWindow.BORDER
-	s.set_border_width_all(border_w)
-	s.set_corner_radius_all(0)
-	s.content_margin_left = margin
-	s.content_margin_right = margin
-	s.content_margin_top = margin
-	s.content_margin_bottom = margin
-	if shadow > 0.0:
-		s.shadow_color = Color(0, 0, 0, 0.55)
-		s.shadow_size = 1
-		s.shadow_offset = Vector2(shadow, shadow)
-	return s
-
-
-func _button(text: String, toggle := false) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.toggle_mode = toggle
-	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size.y = 30.0
-
-	var base := Color(RetroWindow.PANEL)
-	b.add_theme_stylebox_override(&"normal", _box(base.lightened(0.08), 2, 3.0, 8.0))
-	b.add_theme_stylebox_override(&"hover", _box(base.lightened(0.18), 2, 3.0, 8.0))
-	b.add_theme_stylebox_override(&"pressed", _box(Color(UIStyle.ACCENT), 2, 0.0, 8.0))
-	b.add_theme_stylebox_override(&"hover_pressed", _box(Color(UIStyle.ACCENT), 2, 0.0, 8.0))
-	b.add_theme_stylebox_override(&"focus", StyleBoxEmpty.new())
-	b.add_theme_font_size_override(&"font_size", UIStyle.SIZE_LABEL)
-	b.add_theme_color_override(&"font_color", UIStyle.TEXT_PRIMARY)
-	b.add_theme_color_override(&"font_hover_color", UIStyle.TEXT_PRIMARY)
-	b.add_theme_color_override(&"font_pressed_color", Color.BLACK)
-	b.add_theme_color_override(&"font_hover_pressed_color", Color.BLACK)
-	return b
-
-
-func _metric_card(caption: String) -> Dictionary:
-	var box := PanelContainer.new()
-	# Sunken look: darker fill, thin border, no shadow.
-	box.add_theme_stylebox_override(&"panel", _box(Color(RetroWindow.PANEL).darkened(0.18), 2, 0.0, 8.0))
-
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override(&"separation", 0)
-	box.add_child(col)
-
-	col.add_child(UIStyle.label(caption, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED))
-	var value := UIStyle.label("—", UIStyle.SIZE_TITLE, UIStyle.TEXT_PRIMARY, UIStyle.WEIGHT_BOLD)
-	# Trim, don't grow: a long state name (MARK_AGGRESSIVE_OFFBALANCE_R) used
-	# to widen the card and push the whole menu panel across the subject.
-	value.clip_text = true
-	value.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	col.add_child(value)
-
-	return {"node": box, "value_label": value}
-
-
-func _section_heading(text: String) -> Label:
-	return UIStyle.label(text.to_upper(), UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED, UIStyle.WEIGHT_BOLD)
-
-
-func _muted_caption(text: String) -> Label:
-	return UIStyle.label(text, UIStyle.SIZE_LABEL, UIStyle.TEXT_MUTED)
-
-
-func _update_tackle_model_panel_state() -> void:
-	if _tackle_model_dspeed_slider == null:
-		return
-
-	var inputs := _tackle_model_inputs_for_current_state()
-	_tackle_model_dspeed_slider.editable = _tackle_model_manual
-	_tackle_model_angle_slider.editable = _tackle_model_manual
-	_tackle_model_stamina_slider.editable = _tackle_model_manual
-	_tackle_model_dspeed_slider.value = inputs["dspeed"]
-	_tackle_model_angle_slider.value = inputs["angle"]
-	_tackle_model_stamina_slider.value = inputs["stamina"]
-	_tackle_model_dspeed_value.text = "%.2f" % inputs["dspeed"]
-	_tackle_model_angle_value.text = "%.2f" % inputs["angle"]
-	_tackle_model_stamina_value.text = "%.2f" % inputs["stamina"]
-	_tackle_model_z_label.text = "%.2f" % _tackle_model_z_for_inputs(inputs)
-	_tackle_model_p_label.text = "%.2f%%" % (_tackle_model_p_for_inputs(inputs) * 100.0)
-
-
-func _tackle_model_inputs_for_current_state() -> Dictionary:
-	if _tackle_model_manual:
-		return _tackle_model_manual_inputs.duplicate()
-	if _contest_a == null or _contest_b == null:
-		return {"dspeed": 0.0, "angle": 0.0, "stamina": CONTEST_STAMINA_BASELINE}
-	var vel_a := Vector3(_contest_a.velocity.x, 0.0, _contest_a.velocity.z)
-	var vel_b := Vector3(_contest_b.velocity.x, 0.0, _contest_b.velocity.z)
-	var pos_a := _contest_a.global_position
-	var pos_b := _contest_b.global_position
-	var approach_dir := pos_b - pos_a
-	if approach_dir.length_squared() < 0.0001:
-		return {"dspeed": 0.0, "angle": 0.0, "stamina": CONTEST_STAMINA_BASELINE}
-	approach_dir = approach_dir.normalized()
-	var dspeed := -(vel_b - vel_a).dot(approach_dir)
-	var a_forward := Vector3(sin(_contest_a.rotation.y), 0.0, cos(_contest_a.rotation.y))
-	var angle_cos := a_forward.dot(approach_dir)
-	var raw_angle := acos(clampf(angle_cos, -1.0, 1.0))
-	var angle := 2.0 * (1.0 - raw_angle / PI)
-	return {"dspeed": dspeed, "angle": angle, "stamina": CONTEST_STAMINA_BASELINE}
-
-
-## `model` is whatever the ML Experiments page's MODEL tab currently has
-## dialled in (get_active_model()) — including a Stage 2 GA result after
-## APPLY TO MODEL — not a fresh default-weight instance. Previously these
-## three functions each built their own `TackleModelScript.new()` and
-## silently ignored that page entirely, so nothing dialled in there, by
-## hand or by the GA, ever reached this simulation.
-func _tackle_model_z_for_inputs(inputs: Dictionary) -> float:
-	# Explicitly typed: _experiment_ui itself has no static type (shared
-	# instance var used for many other things in this file), so without
-	# this `model` would resolve as Variant and every `:=` below would
-	# fail to infer a type at parse time.
-	var model: TackleModel = _experiment_ui.get_active_model()
-	var nd := model.normalise(inputs["dspeed"], model.NORM_MIN["dspeed"], model.NORM_MAX["dspeed"])
-	var na := model.normalise(inputs["angle"], model.NORM_MIN["angle"], model.NORM_MAX["angle"])
-	var ns := model.normalise(inputs["stamina"], model.NORM_MIN["stamina"], model.NORM_MAX["stamina"])
-	return model.w_speed * nd + model.w_angle * na + model.w_stamina * ns + model.bias
-
-
-func _tackle_model_p_for_inputs(inputs: Dictionary) -> float:
-	var model: TackleModel = _experiment_ui.get_active_model()
-	return model.p_break(inputs["dspeed"], inputs["angle"], inputs["stamina"])
-
-
-func _compute_tackle_model_prediction() -> void:
-	var inputs := _tackle_model_inputs_for_current_state()
-	var model: TackleModel = _experiment_ui.get_active_model()
-	var broke := model.roll_break(_contest_rng, inputs["dspeed"], inputs["angle"], inputs["stamina"])
-	var p_break := model.p_break(inputs["dspeed"], inputs["angle"], inputs["stamina"])
-	var z := _tackle_model_z_for_inputs(inputs)
-	var result_text := "BREAK" if broke else "TACKLE"
-	var log_line := "raw: dspeed=%.2f angle=%.2f stamina=%.2f | z=%.2f | P(break)=%.2f%% | roll=%s → %s" % [
-		inputs["dspeed"], inputs["angle"], inputs["stamina"], z, p_break * 100.0, broke, result_text
-	]
-	print("CONTEST TACKLE MODEL: " + log_line)
-	_contest_tackle_prediction = "%s %.1f%%" % [result_text, p_break * 100.0]
-	_update_tackle_model_panel_state()
 
 
 ## Swaps which subject is visible/live — the bare single-figure rig for
@@ -1740,7 +1449,8 @@ func _show_single_subject() -> void:
 	_free_move_active = false
 	_studio_floor.visible = true
 	_preview_columns.visible = true
-	_free_move_hints.visible = false
+	_set_hints(false)
+	_fit_menu.call_deferred()
 	if _free_move_button != null:
 		_free_move_button.set_pressed_no_signal(false)
 
@@ -1762,7 +1472,8 @@ func _show_contest() -> void:
 	if _free_move_button != null:
 		_free_move_button.set_pressed_no_signal(false)
 	_preview_columns.visible = true
-	_free_move_hints.visible = false
+	_set_hints(false)
+	_fit_menu.call_deferred()
 	_move_camera_to(STAND_ON \
 		+ Vector3(-CONTEST_CAMERA_SIDESTEP, CONTEST_CAMERA_HEIGHT, CONTEST_CAMERA_DISTANCE),
 		CONTEST_CAMERA_PITCH_DEG)
@@ -1805,7 +1516,6 @@ func _screen_fraction_sidestep() -> float:
 	var half_width_at_distance := CAMERA_DISTANCE * tan(deg_to_rad(_camera.fov) * 0.5) * _camera.get_viewport().get_visible_rect().size.aspect()
 	# fraction 0.5 => sidestep 0 (centred); 1.0 => full half-width right.
 	return (SUBJECT_SCREEN_FRACTION - 0.5) * 2.0 * half_width_at_distance
-
 
 
 # ── Contests: real PlayerController/Ball physics, two bodies, a short
@@ -1983,9 +1693,6 @@ func _launch_contest(kind: ContestKind) -> void:
 	_show_contest()
 	_reset_contest_state()
 
-	# Initialize tackle model RNG with a fixed seed for reproducibility.
-	_contest_rng.seed = 42
-
 	# Every scenario stages the same way — see CONTEST_TARGET_POS. A spawns
 	# on APPROACH FROM's bearing already moving at APPROACH SPEED (not from
 	# a standstill), so the speed it meets B at is the speed asked for, not
@@ -2006,12 +1713,17 @@ func _launch_contest(kind: ContestKind) -> void:
 		# rather than the two clips playing side by side. Nothing here
 		# arranges that — it comes from the real _try_tackle path this
 		# vignette already runs through.
-		ContestKind.TACKLE_SLIDE:
+		ContestKind.TACKLE_SLIDE, ContestKind.TACKLE_LUNGE:
 			_contest_b.give_possession(_contest_ball)
-			_brain_a.tackle_wanted = true
-		ContestKind.TACKLE_LUNGE:
-			_contest_b.give_possession(_contest_ball)
-			_brain_a.lunge_wanted = true
+			if kind == ContestKind.TACKLE_SLIDE:
+				_brain_a.tackle_wanted = true
+			else:
+				_brain_a.lunge_wanted = true
+			# B runs on along their facing at CONTACT's pace.
+			_contest_b.velocity = Vector3.FORWARD * _b_speed
+			_contest_b._speed = _b_speed
+			_brain_b.wish_dir = Vector3.FORWARD if _b_speed > 0.05 else Vector3.ZERO
+			_brain_b.gait_value = _gait_for_speed(_b_speed)
 		ContestKind.BUMP_CLEAN:
 			# B runs on along their own facing — see BUMP_CLEAN_CARRIER_GAIT.
 			# Whether that counts as clean timing is the real resolver's call:
@@ -2032,7 +1744,10 @@ func _launch_contest(kind: ContestKind) -> void:
 	_contest_stage = ContestStage.APPROACH
 	_contest_timer = 0.0
 	_contest_bump_triggered = false
-	_tackle_model_rolled = false
+	_contest_a.last_tackle = {}
+	_contact_seen.clear()
+	_contest_a.stamina = _stamina_a
+	_contest_b.stamina = _stamina_b
 
 
 ## Teleports a contest body and points it along `facing` (ground plane),
@@ -2059,10 +1774,13 @@ func _approach_source_dir() -> Vector3:
 ## Where A and B meet if neither changes course: B's staging spot, except
 ## for BUMP — CLEAN, where B walks forward for the run-in's duration first.
 func _approach_meet_point(kind: ContestKind) -> Vector3:
-	if kind != ContestKind.BUMP_CLEAN:
-		return CONTEST_TARGET_POS
+	var b_speed := 0.0
+	if kind == ContestKind.BUMP_CLEAN:
+		b_speed = Tuning.speed_for_gait(BUMP_CLEAN_CARRIER_GAIT)
+	elif kind == ContestKind.TACKLE_SLIDE or kind == ContestKind.TACKLE_LUNGE:
+		b_speed = _b_speed
 	var run_in_time := float(CONTEST_RUN_IN[kind]) / _approach_speed
-	return CONTEST_TARGET_POS 		+ Vector3.FORWARD * Tuning.speed_for_gait(BUMP_CLEAN_CARRIER_GAIT) * run_in_time
+	return CONTEST_TARGET_POS + Vector3.FORWARD * b_speed * run_in_time
 
 
 ## Where A spawns for `kind`: CONTEST_RUN_IN out from the meet point along
@@ -2204,14 +1922,7 @@ func _step_contest(delta: float) -> void:
 		if resolved or _contest_timer > CONTEST_TIMEOUT:
 			_contest_stage = ContestStage.HOLD
 
-		if _contest_kind == ContestKind.TACKLE_SLIDE or _contest_kind == ContestKind.TACKLE_LUNGE:
-			if not _tackle_model_rolled:
-				_compute_tackle_model_prediction()
-				_tackle_model_rolled = true
-		else:
-			_contest_tackle_prediction = ""
-
-	_contest_status_label.text = "A: %s   B: %s   %s" % [
+	_update_contact_readout()
+	_contest_status_label.text = "A: %s   B: %s" % [
 		Tuning.Action.keys()[_contest_a._action], Tuning.Action.keys()[_contest_b._action],
-		_contest_tackle_prediction,
 	]

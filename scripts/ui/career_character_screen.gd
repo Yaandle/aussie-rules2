@@ -26,7 +26,7 @@ extends Node
 ##
 ## The player stands in the middle of the right third of the screen on
 ## Field 2, the bush oval (CharacterBackdrop.subject_screen_x and
-## dress_field_2, set on this scene's backdrop instance).
+## dress_field = 2, set on this scene's backdrop instance).
 ##
 ## CONFIRM writes the draft to CareerProfile and calls its start_career()
 ## (start levels, an 18-player roster with this character spliced into

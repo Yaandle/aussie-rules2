@@ -7,6 +7,8 @@
 script = ExtResource("1_screen")
 
 [node name="CharacterBackdrop" parent="." unique_id=1776994938 instance=ExtResource("2_backdrop")]
+subject_screen_x = 0.764
+dress_field = 1
 
 [node name="Overlay" type="CanvasLayer" parent="." unique_id=997666690]
 

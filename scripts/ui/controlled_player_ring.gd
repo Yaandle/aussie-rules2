@@ -25,7 +25,19 @@ extends Node3D
 ## out at a glance from the FULL_SIDE rig's own elevation/distance.
 const RADIUS := 1.1          ## m, outer edge
 const THICKNESS := 0.22      ## m, outer minus inner radius
-const SEGMENTS := 40
+const SEGMENTS := 48
+## The HUD options (Settings.HUD_OPTIONS) style the ring live: `ring` is
+## OFF / FULL-SIDE ONLY (the old behaviour: `active`, which FullGame sets
+## for FULL_SIDE) / ALWAYS, and `ring_colour`, `ring_style` (solid or
+## dashed), `ring_size` and `ring_thickness` rebuild the mesh. MEDIUM is
+## RADIUS / THICKNESS above, so the defaults look unchanged. A call-for-ball
+## flash still shows with the ring OFF: it's the call's only feedback.
+const SIZE_RADII := [0.8, RADIUS, 1.45]
+const THICKNESS_WIDTHS := [0.12, THICKNESS, 0.34]
+## A dashed ring is SEGMENTS cut into runs: this many segments drawn, then
+## DASH_GAP skipped.
+const DASH_ON := 3
+const DASH_GAP := 1
 const LIFT := 0.03           ## m off the turf, clear of z-fighting the grass
 
 ## Blue rather than the kick-aim overlay's green accent (user report: "a
@@ -67,6 +79,29 @@ func _ready() -> void:
 	material.albedo_color = _colour
 	_mesh.material_override = material
 	add_child(_mesh)
+	_material = material
+	Settings.hud_changed.connect(func(_key: StringName) -> void: _apply_style())
+	_apply_style()
+
+
+var _material: StandardMaterial3D
+
+
+func _apply_style() -> void:
+	_colour = Settings.hud_colour(&"ring_colour")
+	_material.albedo_color = _colour
+	_mesh.mesh = _build_ring_mesh()
+
+
+## Whether the ring shows right now, before any call flash: per the `ring`
+## HUD option, FULL-SIDE ONLY deferring to `active`.
+func _shown() -> bool:
+	match Settings.hud_index(&"ring"):
+		0:
+			return false
+		2:
+			return true
+	return active
 
 
 ## Placeholder call_for_ball feedback (see this file's header and _flash_
@@ -80,7 +115,7 @@ func flash() -> void:
 func _process(delta: float) -> void:
 	_flash_timer = maxf(0.0, _flash_timer - delta)
 	var flashing := _flash_timer > 0.0
-	if not (active or flashing) or not is_instance_valid(player):
+	if not (_shown() or flashing) or not is_instance_valid(player):
 		_mesh.visible = false
 		return
 	global_position = player.global_position + Vector3.UP * LIFT
@@ -96,14 +131,18 @@ func _process(delta: float) -> void:
 ## CULL_DISABLED above rather than a second ring of back-facing triangles,
 ## since the ring is always meant to read the same from above or below.
 func _build_ring_mesh() -> ArrayMesh:
-	var inner := RADIUS - THICKNESS
+	var radius: float = SIZE_RADII[Settings.hud_index(&"ring_size")]
+	var inner: float = radius - THICKNESS_WIDTHS[Settings.hud_index(&"ring_thickness")]
+	var dashed := Settings.hud_choice(&"ring_style") == "DASHED"
 	var verts := PackedVector3Array()
 	var indices := PackedInt32Array()
 	for i in SEGMENTS:
 		var a := TAU * float(i) / float(SEGMENTS)
-		verts.append(Vector3(cos(a) * RADIUS, 0.0, sin(a) * RADIUS))
+		verts.append(Vector3(cos(a) * radius, 0.0, sin(a) * radius))
 		verts.append(Vector3(cos(a) * inner, 0.0, sin(a) * inner))
 	for i in SEGMENTS:
+		if dashed and i % (DASH_ON + DASH_GAP) >= DASH_ON:
+			continue
 		var o0 := i * 2
 		var i0 := i * 2 + 1
 		var o1 := ((i + 1) % SEGMENTS) * 2

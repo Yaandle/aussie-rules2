@@ -215,7 +215,13 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		# a shanked wobbler is unaffected and a clean torpedo holds its line.
 		var omega := state.angular_velocity
 		if omega.length_squared() > 0.01:
-			state.apply_central_force(omega.cross(v) * Tuning.BALL_MAGNUS_COEFF)
+			# Sidespin (the vertical part) curls a kick on its own, larger
+			# coefficient, only in a kick's flight (Tuning's
+			# BALL_SIDESPIN_MAGNUS_COEFF, 6Z): a bounce's tumble shouldn't
+			# start a rolling ball swerving.
+			var side := Vector3(0.0, omega.y, 0.0) if is_kick_flight() else Vector3.ZERO
+			state.apply_central_force((omega - side).cross(v) * Tuning.BALL_MAGNUS_COEFF
+				+ side.cross(v) * Tuning.BALL_SIDESPIN_MAGNUS_COEFF)
 
 	_apply_catch_gravity(state)
 
@@ -361,9 +367,24 @@ func is_airborne() -> bool:
 ## position if the ball is already on/below the ground or has no more
 ## downward closing (grazing along near-zero height), where the quadratic
 ## has no meaningful positive root.
-func predicted_landing_position() -> Vector3:
+##
+## `height` > 0 asks instead where it comes down through that height (still
+## returned on the ground, under that point): a receiver wants to be where
+## the ball reaches their hands, not where it would bounce, which on a 45°
+## drop is a body length further on (playtest 2026-10-30, the AI's mark
+## rate). A ball that won't come down through `height` again (already below
+## it, or never that high) falls back to the ground landing.
+func predicted_landing_position(height := 0.0) -> Vector3:
 	var y0 := global_position.y
 	var vy := linear_velocity.y
+	if height > 0.0:
+		# Later root of y0 + vy*t - 0.5*g*t^2 = height: the way down.
+		var through := vy * vy + 2.0 * Tuning.GRAVITY * (y0 - height)
+		if through > 0.0 and vy + sqrt(through) > 0.0:
+			var t_down := (vy + sqrt(through)) / Tuning.GRAVITY
+			var crossing := global_position + Vector3(linear_velocity.x, 0.0, linear_velocity.z) * t_down
+			crossing.y = 0.0
+			return crossing
 	if y0 <= 0.0:
 		return global_position
 	var discriminant := vy * vy + 2.0 * Tuning.GRAVITY * y0

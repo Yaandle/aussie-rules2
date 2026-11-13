@@ -15,9 +15,10 @@ extends Node3D
 ## for gravity/floor-snap/collision resolution at all, so this now just
 ## builds the rig and poses it once.
 ##
-## The dark navy-over-green look is entirely
+## The plain-field look is entirely
 ## `materials/character_studio_environment.tres` plus the dimmed Sun in
-## the .tscn — nothing here touches the turf shader or its material,
+## the .tscn (a dressed Field 1 swaps in the match's sky and sun instead;
+## see dress_field) — nothing here touches the turf shader or its material,
 ## which are shared with the match scenes and would drag a gameplay
 ## regression along behind a UI change if they were poked at.
 
@@ -55,6 +56,10 @@ const CAMERA_HEIGHT := 1.0
 ## Customise mode framing — closer in, same level eye line, so the camera
 ## reads as "stepping in" rather than cutting to a different shot.
 const ZOOM_CAMERA_DISTANCE := 2.6
+## Up to frame the whole body, head to boots (the APPEARANCE rows include
+## the boots), at that distance: at 1.0 the top of a tall player's head was
+## out of frame. Still level, so it's the same angle stepped in.
+const ZOOM_CAMERA_HEIGHT := 1.2
 const ZOOM_DURATION := 0.45
 
 ## How far left of the player the camera sits. The stat column owns the
@@ -87,25 +92,56 @@ var _kit_socks := Color(0.0, 0.0, 0.0, 0.0)
 ## clear of its card. Set on the scene instance, before _ready().
 @export var subject_screen_x := -1.0
 
-## Dress the ground as Field 2, the bush oval (Settings.FieldStyle.OVAL_1's
-## environment), instead of the plain generated field — Career's Create/
-## Edit screen (playtest: "show the player standing on field 2"). Done here
-## rather than through Field.follow_field_style, which follows the
-## player's FIELD setting.
-@export var dress_field_2 := false
+## Dress the ground as one of the real fields instead of the plain
+## generated one: 1 is Field 1, the park (the CHARACTER screen, playtest
+## 2026-11-09: "update the area the player is standing so it is on field 1
+## and not the procedural generated field ... with the white fog/gradient.
+## same camera angle just replace the background"); 2 is Field 2, the bush
+## oval (Career's Create/Edit screens: "show the player standing on field
+## 2"). Done here rather than through Field.follow_field_style, which
+## follows the player's FIELD setting. Set on the scene instance.
+@export_enum("Generated", "Field 1 park", "Field 2 bush") var dress_field := 0
 const FIELD_2_FOG_BEGIN := 90.0    # m — just past the far boundary fence
 const FIELD_2_FOG_END := 320.0     # m
+
+## Field 1 is lit and fogged as a match is (broadcast_environment.tres and
+## full_game.tscn's sun strength): the studio box's white fog, 6 m to 48 m,
+## swallowed the park whole, which is the gradient the playtest asked to
+## lose. The ground light casts shadows there so the park's trees and the
+## fence sit on the grass; the subject's own key light is unchanged.
+const MATCH_ENVIRONMENT := preload("res://materials/broadcast_environment.tres")
+const FIELD_1_SUN_ENERGY := 1.05
+## The subject sits under the match sky's brighter ambient on Field 1, so
+## its key comes down a little to keep the same modelling as on the studio
+## box (an unplaytested look guess).
+const FIELD_1_KEY_ENERGY := 0.55
+
+## The preview stands in the model's own idle clip (Build 7's: arms hanging
+## at the sides, a slow breath; tools/blender/author_7thbuild_idle.py),
+## looping. Without it the rig sat in its rest pose, an A-pose with the
+## arms held out, which read as a T-pose waiting to be rigged (playtest
+## 2026-11-09). A bare AnimationPlayer on the rig, not PlayerAnimation:
+## there's no locomotion, ball or ground contact to drive here.
+const IDLE_CLIP := &"idle"
 
 
 func _ready() -> void:
 	var field := FIELD_SCENE.instantiate()
-	if dress_field_2:
+	if dress_field != 0:
 		field.build_fence = false
 		field.build_trees = false
 	add_child(field)
-	if dress_field_2:
+	if dress_field != 0:
 		(field.get_node("Ground/Turf") as MeshInstance3D).visible = false
-		field.add_child((load(Field.OVAL1_SCENE_PATH) as PackedScene).instantiate())
+		var path := Field.PARK_SCENE_PATH if dress_field == 1 else Field.OVAL1_SCENE_PATH
+		field.add_child((load(path) as PackedScene).instantiate())
+	if dress_field == 1:
+		($WorldEnvironment as WorldEnvironment).environment = MATCH_ENVIRONMENT
+		var sun := $Sun as DirectionalLight3D
+		sun.light_energy = FIELD_1_SUN_ENERGY
+		sun.shadow_enabled = true
+		($Key as DirectionalLight3D).light_energy = FIELD_1_KEY_ENERGY
+	elif dress_field == 2:
 		# The studio box fogs out completely by 48 m, and the bush oval's
 		# fence and gum ring start ~80 m away: push the fog past them on a
 		# copy, so the shared environment resource is left alone.
@@ -122,8 +158,8 @@ func _ready() -> void:
 	_camera.position = _camera_target(CAMERA_DISTANCE)
 
 
-func _camera_target(distance: float) -> Vector3:
-	return STAND_ON + Vector3(-_sidestep(distance), CAMERA_HEIGHT, distance)
+func _camera_target(distance: float, height := CAMERA_HEIGHT) -> Vector3:
+	return STAND_ON + Vector3(-_sidestep(distance), height, distance)
 
 
 ## How far left of the player the camera stands so they appear at
@@ -185,15 +221,15 @@ func set_kit_colors(skin: Color, jersey: Color, shorts: Color, boot: Color,
 ## is already level with no pitch (see the header note), so moving it
 ## straight along its own forward axis keeps the ground plane unskewed.
 func zoom_in() -> void:
-	_tween_camera_to(ZOOM_CAMERA_DISTANCE)
+	_tween_camera_to(ZOOM_CAMERA_DISTANCE, ZOOM_CAMERA_HEIGHT)
 
 
 func zoom_out() -> void:
-	_tween_camera_to(CAMERA_DISTANCE)
+	_tween_camera_to(CAMERA_DISTANCE, CAMERA_HEIGHT)
 
 
-func _tween_camera_to(distance: float) -> void:
-	var target := _camera_target(distance)
+func _tween_camera_to(distance: float, height: float) -> void:
+	var target := _camera_target(distance, height)
 	var tween := create_tween()
 	tween.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
 	tween.tween_property(_camera, "position", target, ZOOM_DURATION)
@@ -219,3 +255,24 @@ func _build_rig(model_id: String, scale := Vector3.ONE) -> void:
 	# meshes/skeleton there are to move.
 	for mesh in rig.find_children("*", "MeshInstance3D", true, false):
 		(mesh as MeshInstance3D).layers = SUBJECT_LAYER
+	_play_idle(rig)
+
+
+## Loops the rig's idle (see IDLE_CLIP): the imported model's own clip, or
+## the procedural rig's generated one. Track paths are relative to the rig
+## root on both (HumanoidRig retargets imported tracks to its skeleton).
+func _play_idle(rig: HumanoidRig) -> void:
+	var idle: Animation = rig.imported_animations().get(String(IDLE_CLIP))
+	if idle == null:
+		var generated := HumanoidAnimations.build_library(HumanoidRig.HIP_HEIGHT)
+		if not generated.has_animation(IDLE_CLIP):
+			return
+		idle = generated.get_animation(IDLE_CLIP)
+	var library := AnimationLibrary.new()
+	library.add_animation(IDLE_CLIP, idle)
+	var player := AnimationPlayer.new()
+	player.name = "PreviewIdle"
+	rig.add_child(player)
+	player.root_node = player.get_path_to(rig)
+	player.add_animation_library(&"", library)
+	player.play(IDLE_CLIP)

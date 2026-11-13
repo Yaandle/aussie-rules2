@@ -20,7 +20,10 @@ extends RefCounted
 ## Two instances are trained, one per tier whose press is a timing
 ## decision. MARK_AGGRESSIVE: the leap commits ACTION_CONTACT ahead of
 ## contact, so its cue is a forward prediction. MARK_RUNNING: a tap that
-## resolves on the frame it's read. Safe is a held button that catches on
+## resolved on the frame it was read when this was trained; since
+## 2026-10-30 it opens a short catch window (Tuning.MARK_RUNNING_CATCH_
+## WINDOW) and its analytic cue leads the ball by MARK_RUNNING_CUE_LEAD, so
+## the trained Running model's labels are stale. Safe is a held button that catches on
 ## reach entry anywhere inside a 0.55 s window, so there is no press
 ## instant for a model to improve on.
 ##
@@ -142,6 +145,8 @@ static func time_to_arrival(offset: float) -> float:
 static func press_target(for_tier: Tuning.Action) -> float:
 	if for_tier == Tuning.Action.MARK_AGGRESSIVE:
 		return -Tuning.action_contact_time(for_tier)
+	if for_tier == Tuning.Action.MARK_RUNNING:
+		return -Tuning.MARK_RUNNING_CUE_LEAD
 	return 0.0
 
 

@@ -1,0 +1,10 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/dev/anim_audit.gd" id="1_audit"]
+
+; Dev-only (not on any menu): headless animation audit — foot slip, pops,
+; arm swing and torso counter-rotation on real players, and every clip's
+; peaks and seams. See the script header.
+
+[node name="AnimAudit" type="Node3D"]
+script = ExtResource("1_audit")

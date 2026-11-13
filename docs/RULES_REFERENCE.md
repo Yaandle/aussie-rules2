@@ -251,10 +251,14 @@ icon/ring itself).
 stand-the-mark) now pushes its taker back before they can go at goal:
 `PlayerController._begin_mark_retreat()` drives them
 `Tuning.MARK_RETREAT_DISTANCE` (7.5 m, raised from 5 so the kick clears
-the player on the mark) along their own defensive direction
-at `MARK_RETREAT_SPEED`, and the kick is blocked until it finishes. Facing
-is deliberately untouched, so they walk back still looking downfield the
-way a real kicker does. Handball and simply running are untouched —
+the player on the mark) along the line of the mark — from the centre of
+the goal they attack, through the mark (`line_of_the_mark()`) — at
+`MARK_RETREAT_SPEED`, and the kick is blocked until it finishes. They walk
+back facing that goal, the way a real kicker does. The player on the mark
+stands on the same line, `MARK_STAND_GOAL_SIDE_OFFSET` goal-side of the
+mark, facing the kicker. Until 2026-10-30 the walk-back went straight
+down the ground (the X axis), which in a pocket took the kicker off the
+line and left the man on the mark beside them. Handball and simply running are untouched —
 "play on" stays available; it is the set shot that has to wait. A
 scrambled catch in general play isn't a mark and gets none of this.
 Measured at the old 5 m: 4.99 m over 1.47s, kick refusing to charge

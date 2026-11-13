@@ -1,6 +1,8 @@
 extends Node3D
 
-## Solo free-roam practice (reached via the character screen's PLAY row):
+## Solo free-roam practice (reached from the main menu's KICK TO KICK card,
+## through the Training screen; until 2026-10-30 the character screen's PLAY
+## row):
 ## one player, one ball, the full field, no AI, no clock, no scoring —
 ## just movement and disposal with an unlimited ball reset. Functionally
 ## the milestone-1 sandbox (scripts/main.gd) with two differences: it's
@@ -9,7 +11,15 @@ extends Node3D
 ## was left on (CharacterProfile) to the player it spawns.
 ##
 ## Also where the training coaches live (design brief): walk up to a coach,
-## X to talk, confirm to start a challenge. All three planned coaches are
+## X to talk, confirm to start a challenge. Since 2026-10-30 all three are
+## step-by-step tutorials on the same card (playtest: "only the tackling
+## coach is properly built ... give the others a similar tutorial
+## structure"): KickTutorial, MarkChallenge's steps and TackleTutorial. And
+## free roam is just you and the ball again: the AI sparring partner that
+## used to stand here and run off with every kick ("a random player
+## currently just spawns in and takes the ball — remove that") is only
+## spawned for the drill that needs a body — the tackling dummy, and the
+## kicking drill's leading teammate — and freed when it ends. All three planned coaches are
 ## here — kicking (kick at a downfield target), marking (catch the coach's
 ## deliveries) and tackling (run down and tackle the rival before it gets
 ## rid of the ball) — sharing one CoachKind-parameterised prompt/dialogue/
@@ -22,7 +32,6 @@ const BALL_RESET_AHEAD := 3.0
 
 const PLAYER_SCENE := preload("res://scenes/player/player.tscn")
 const COACH_SCENE := preload("res://scenes/mechanics/coach_npc.tscn")
-const KICK_CHALLENGE_SCENE := preload("res://scenes/mechanics/kick_challenge.tscn")
 const MARK_CHALLENGE_SCENE := preload("res://scenes/mechanics/mark_challenge.tscn")
 const TACKLE_TUTORIAL_SCENE := preload("res://scenes/mechanics/tackle_tutorial.tscn")
 const TACKLE_BAG_SCENE := preload("res://scenes/props/tackle_bag.tscn")
@@ -65,7 +74,12 @@ const PROMPT_TEXT := "X  Talk to coach"
 var _kicking_coach: CoachNPC
 var _marking_coach: CoachNPC
 var _tackling_coach: CoachNPC
-var _challenge: KickChallenge
+var _kick_tutorial: KickTutorial
+## The kicking drill's leading teammate, while it runs.
+var _leader: PlayerController
+## Bots to free once they're back on their feet (a tackle that ends a drill
+## can leave the dummy mid-ragdoll).
+var _bots_to_free: Array[PlayerController] = []
 var _mark_challenge: MarkChallenge
 var _tackle_tutorial: TackleTutorial
 var _coach_state := CoachState.NONE
@@ -126,8 +140,6 @@ func _ready() -> void:
 
 	_player.ball_disposed.connect(_on_ball_disposed)
 
-	_spawn_rival()
-
 	_ball.reset_at(_field.centre())
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 
@@ -146,15 +158,16 @@ func _unhandled_input(event: InputEvent) -> void:
 		_reset_ball()
 		return
 
-	# The tackling tutorial's step card owns input while it's up: play is
-	# frozen behind it, confirm starts the rep, decline skips the step.
+	# A tutorial's step card owns input while it's up: play is frozen
+	# behind it, confirm starts the rep, decline skips the step.
 	if is_instance_valid(_tutorial_card) and _tutorial_card.visible:
+		var tutorial = _active_tutorial()
 		if event.is_action_pressed(&"confirm"):
 			_dismiss_tutorial_card()
-			_tackle_tutorial.begin_rep()
+			tutorial.begin_rep()
 		elif event.is_action_pressed(&"decline"):
 			_dismiss_tutorial_card()
-			_tackle_tutorial.skip_step()
+			tutorial.skip_step()
 		return
 
 	match _coach_state:
@@ -174,6 +187,16 @@ func _unhandled_input(event: InputEvent) -> void:
 ## uses; the one difference here is the mouse capture this scene sets in
 ## _ready(), which has to be released while the (keyboard/gamepad-only)
 ## pause menu is up and re-captured on resume.
+## The running coach's tutorial; every one has begin_rep()/skip_step().
+func _active_tutorial() -> Node:
+	match _active_coach:
+		CoachKind.MARKING:
+			return _mark_challenge
+		CoachKind.TACKLING:
+			return _tackle_tutorial
+	return _kick_tutorial
+
+
 func _open_pause_menu() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	var pause_screen := PAUSE_SCREEN_SCENE.instantiate()
@@ -219,10 +242,17 @@ func _physics_process(_delta: float) -> void:
 			or _rival.is_ragdolled()
 		_rival.set_physics_process(rival_active)
 
+	for bot in _bots_to_free.duplicate():
+		if not is_instance_valid(bot):
+			_bots_to_free.erase(bot)
+		elif not bot.is_ragdolled():
+			_bots_to_free.erase(bot)
+			bot.queue_free()
+
 
 func _reset_ball() -> void:
-	if is_instance_valid(_challenge):
-		_challenge.force_miss()
+	if is_instance_valid(_kick_tutorial):
+		_kick_tutorial.force_miss()
 	if is_instance_valid(_mark_challenge):
 		_mark_challenge.force_miss()
 	if is_instance_valid(_tackle_tutorial):
@@ -230,35 +260,35 @@ func _reset_ball() -> void:
 	_player.drop_ball()
 	if is_instance_valid(_rival):
 		_rival.drop_ball()
+	if is_instance_valid(_leader):
+		_leader.drop_ball()
 	var ahead := -_player.global_transform.basis.z * BALL_RESET_AHEAD
 	_ball.reset_at(_player.global_position + ahead + Vector3.UP * 0.3)
 
 
-## A live sparring partner (design brief: "build out kick-to-kick so we can
-## use this for testing"), not just the coaches' scripted deliveries —
-## reuses AIBrain wholesale (see Tuning's own comment) rather than a bespoke
-## behaviour, positioned clear of both coach zones so it never interferes
-## with a drill while free-roaming (it's frozen outright during one anyway
-## — see _physics_process).
-func _spawn_rival() -> void:
-	var rival := PLAYER_SCENE.instantiate() as PlayerController
-	rival.team = Tuning.Team.AWAY
-	# Set before add_child(), same reasoning full_game.gd's own spawn code
-	# documents: HumanoidRig._ready() reads away_kit on its first build, and
-	# the physics server latches the spawn transform at add_child() time.
-	(rival.get_node("Rig") as HumanoidRig).away_kit = true
-	var stand := _field.centre() + Tuning.KICK_TO_KICK_RIVAL_OFFSET
-	rival.position = stand
-	add_child(rival)
-	AudioManager.register_player(rival)
+## A drill's bot: a real player, the same scene and setup full_game.gd's
+## spawn uses (team and kit set before add_child(), since HumanoidRig reads
+## away_kit on its first build and the physics server latches the spawn
+## transform at add_child() time), on an idle brain until the drill gives
+## it one. The tackling dummy (AWAY) and the kicking drill's leader (HOME).
+func _spawn_bot(team: Tuning.Team, offset: Vector3) -> PlayerController:
+	var bot := PLAYER_SCENE.instantiate() as PlayerController
+	bot.team = team
+	(bot.get_node("Rig") as HumanoidRig).away_kit = team == Tuning.Team.AWAY
+	var stand := _field.centre() + offset
+	stand.y = 0.0
+	bot.position = stand
+	add_child(bot)
+	AudioManager.register_player(bot)
+	bot.set_brain(PlayerBrain.new())
+	return bot
 
-	var brain := AIBrain.new()
-	brain.ball = _ball
-	brain.home_position = stand
-	brain.attack_direction = 1.0
-	rival.set_brain(brain)
 
-	_rival = rival
+func _free_bot(bot: PlayerController) -> void:
+	if is_instance_valid(bot):
+		bot.drop_ball()
+		bot.set_brain(PlayerBrain.new())
+		_bots_to_free.append(bot)
 
 
 func _check_coach_in_range(kind: CoachKind) -> bool:
@@ -274,24 +304,26 @@ func _check_coach_in_range(kind: CoachKind) -> bool:
 func _on_ball_disposed(action: Tuning.Action) -> void:
 	if action == Tuning.Action.KICK:
 		_camera.punch(Tuning.CAM_PUNCH_KICK)
-	if is_instance_valid(_challenge):
-		_challenge.notify_disposed(action)
+	if is_instance_valid(_kick_tutorial):
+		_kick_tutorial.notify_disposed(action)
 
 
 # ── Training coach ───────────────────────────────────────────────────
 
 func _setup_coach() -> void:
 	_kicking_coach = _spawn_coach(Tuning.COACH_STAND_OFFSET, CoachKind.KICKING)
-	_challenge = KICK_CHALLENGE_SCENE.instantiate()
-	add_child(_challenge)
-	_challenge.challenge_ended.connect(_on_kick_challenge_ended)
-	_challenge.hint_changed.connect(_set_hint_text)
+	_kick_tutorial = KickTutorial.new()
+	add_child(_kick_tutorial)
+	_kick_tutorial.challenge_ended.connect(_on_kick_challenge_ended)
+	_kick_tutorial.hint_changed.connect(_set_hint_text)
+	_kick_tutorial.step_changed.connect(_show_tutorial_card)
 
 	_marking_coach = _spawn_coach(Tuning.MARK_COACH_STAND_OFFSET, CoachKind.MARKING)
 	_mark_challenge = MARK_CHALLENGE_SCENE.instantiate()
 	add_child(_mark_challenge)
 	_mark_challenge.challenge_ended.connect(_on_mark_challenge_ended)
 	_mark_challenge.hint_changed.connect(_set_hint_text)
+	_mark_challenge.step_changed.connect(_show_tutorial_card)
 
 	_tackling_coach = _spawn_coach(Tuning.TACKLE_COACH_STAND_OFFSET, CoachKind.TACKLING)
 	_tackle_tutorial = TACKLE_TUTORIAL_SCENE.instantiate()
@@ -406,29 +438,28 @@ func _accept_challenge() -> void:
 		CoachKind.MARKING:
 			_mark_challenge.begin(_ball, _player, _coach_node(CoachKind.MARKING).global_position)
 		CoachKind.TACKLING:
+			if not is_instance_valid(_rival):
+				_rival = _spawn_bot(Tuning.Team.AWAY, Tuning.KICK_TO_KICK_RIVAL_OFFSET)
 			_tackle_tutorial.begin(_ball, _player, _rival)
 		_:
-			_challenge.begin(_ball, _pick_target_position())
+			if not is_instance_valid(_leader):
+				_leader = _spawn_bot(Tuning.Team.HOME, Tuning.COACH_STAND_OFFSET + Vector3(0.0, 0.0, 6.0))
+			_kick_tutorial.begin(_ball, _player, _leader)
 
 
-func _pick_target_position() -> Vector3:
-	var forward := -_player.global_transform.basis.z
-	var candidate := _player.global_position + forward * Tuning.KICK_CHALLENGE_TARGET_DISTANCE
-	candidate.y = 0.0
-	if _field.is_inside_oval(candidate, 5.0):
-		return candidate
-	return _field.centre()
-
-
-func _on_kick_challenge_ended(hits: int, attempts_total: int) -> void:
+func _on_kick_challenge_ended(hits: int, steps_total: int) -> void:
 	_coach_state = CoachState.NONE
-	_set_hint_text("Practice done — %d/%d on target. Walk back to the coach to go again."
-		% [hits, attempts_total])
+	_dismiss_tutorial_card()
+	_free_bot(_leader)
+	_leader = null
+	_set_hint_text("Kicking tutorial done — %d/%d steps. Walk back to the coach to run it again."
+		% [hits, steps_total])
 
 
 func _on_mark_challenge_ended(hits: int, attempts_total: int) -> void:
 	_coach_state = CoachState.NONE
-	_set_hint_text("Practice done — %d/%d marked. Walk back to the coach to go again."
+	_dismiss_tutorial_card()
+	_set_hint_text("Marking tutorial done — %d/%d marked. Walk back to the coach to run it again."
 		% [hits, attempts_total])
 
 
@@ -436,6 +467,8 @@ func _on_tackle_tutorial_ended(cleared: int, steps_total: int) -> void:
 	_coach_state = CoachState.NONE
 	_dismiss_tutorial_card()
 	InputManager.gameplay_input_enabled = true
+	_free_bot(_rival)
+	_rival = null
 	_set_hint_text("Tackling tutorial done — %d/%d steps. Walk back to the coach to run it again."
 		% [cleared, steps_total])
 

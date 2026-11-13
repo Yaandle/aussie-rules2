@@ -194,7 +194,9 @@ const SUBTITLE_TEXT := "18-a-side, real clock, quarters, scoring"
 const START_TEXT := "START MATCH"
 
 const MATCH_SCENE := "res://scenes/modes/full_game.tscn"
-const MENU_SCENE := "res://scenes/ui/main_menu.tscn"
+## Back goes to the TEAM page, the step before this one since 6AC
+## (FULL GAME -> side select -> TEAM -> here -> match).
+const MENU_SCENE := "res://scenes/ui/team_list_screen.tscn"
 
 ## Selection animation, matching main_menu.gd's card row: a back-out
 ## overshoot on the scale (a plain ease never reads as a "pop", see that
@@ -321,10 +323,14 @@ func _ready() -> void:
 			_set_defensive_pressure)),
 		Card.new(SettingsScreen.Row.new("YOUR POSITION",
 			_your_position_options(), Settings.home_human_slot, _set_your_position)),
+		# FIELD was the inert VENUE card (playtest 2026-10-30: "add a field-
+		# select option to the full-game pregame screen"). Same setting and
+		# names as Settings' FIELD row; it applies on the match load.
+		Card.new(SettingsScreen.Row.new("FIELD",
+			["FIELD 1 · PARK", "FIELD 2 · BUSH"], Settings.field_style, _set_field_style)),
 		# Inert placeholders from here down — see this file's header.
 		Card.new(SettingsScreen.Row.new("DIFFICULTY", ["NORMAL"]), true),
 		Card.new(SettingsScreen.Row.new("QUARTER LENGTH", ["20 MIN"]), true),
-		Card.new(SettingsScreen.Row.new("VENUE", ["HOME GROUND"]), true),
 		Card.new(SettingsScreen.Row.new("WEATHER", ["CLEAR"]), true),
 	]
 
@@ -544,6 +550,11 @@ func _set_ball_movement(index: int) -> void:
 	Settings.save()
 
 
+func _set_field_style(index: int) -> void:
+	Settings.field_style = index as Settings.FieldStyle
+	Settings.save()
+
+
 func _set_defensive_pressure(index: int) -> void:
 	Settings.home_defensive_pressure = index as Settings.DefensivePressure
 	Settings.save()
@@ -578,7 +589,6 @@ func _build() -> void:
 	_build_card_row(bands)
 	_build_start_band(bands)
 	_build_footer(bands)
-
 
 
 func _build_header(parent: Control) -> void:
@@ -941,7 +951,6 @@ func _build_card_row(parent: Control) -> void:
 		row.add_child(_cards[i].frame)
 
 
-
 func _build_card(card: Card, index: int) -> void:
 	var frame := Control.new()
 	frame.custom_minimum_size = Vector2(CARD_WIDTH, CARD_HEIGHT)
@@ -1104,8 +1113,6 @@ func _build_footer(parent: Control) -> void:
 	row.add_child(_hints)
 
 
-
-
 ## The legend reflects the mode the cursor is actually in — an open card,
 ## a locked card, a functional card, or the START MATCH stop all offer
 ## genuinely different things, and one combined run-on legend would be
@@ -1130,13 +1137,13 @@ func _hints_for_state() -> Dictionary:
 				{"keys": "← / →", "label": "Choose"},
 				{"keys": "Enter", "label": "Start match"},
 				{"keys": "↑", "label": "Back to cards"},
-				{"keys": "Esc", "label": "Back to menu"},
+				{"keys": "Esc", "label": "Back to team"},
 			],
 			InputManager.Device.GAMEPAD: [
 				{"keys": "D-Pad ↔", "label": "Choose"},
 				{"keys": "A", "label": "Start match"},
 				{"keys": "D-Pad ↑", "label": "Back to cards"},
-				{"keys": "B", "label": "Back to menu"},
+				{"keys": "B", "label": "Back to team"},
 			],
 		}
 	if _cards[_index].locked:
@@ -1145,13 +1152,13 @@ func _hints_for_state() -> Dictionary:
 				{"keys": "← / →", "label": "Choose"},
 				{"keys": "—", "label": "Not built yet"},
 				{"keys": "↓", "label": "Start match"},
-				{"keys": "Esc", "label": "Back to menu"},
+				{"keys": "Esc", "label": "Back to team"},
 			],
 			InputManager.Device.GAMEPAD: [
 				{"keys": "D-Pad ↔", "label": "Choose"},
 				{"keys": "—", "label": "Not built yet"},
 				{"keys": "D-Pad ↓", "label": "Start match"},
-				{"keys": "B", "label": "Back to menu"},
+				{"keys": "B", "label": "Back to team"},
 			],
 		}
 	return {
@@ -1159,13 +1166,13 @@ func _hints_for_state() -> Dictionary:
 			{"keys": "← / →", "label": "Choose"},
 			{"keys": "Enter", "label": "Open"},
 			{"keys": "↓", "label": "Start match"},
-			{"keys": "Esc", "label": "Back to menu"},
+			{"keys": "Esc", "label": "Back to team"},
 		],
 		InputManager.Device.GAMEPAD: [
 			{"keys": "D-Pad ↔", "label": "Choose"},
 			{"keys": "A", "label": "Open"},
 			{"keys": "D-Pad ↓", "label": "Start match"},
-			{"keys": "B", "label": "Back to menu"},
+			{"keys": "B", "label": "Back to team"},
 		],
 	}
 

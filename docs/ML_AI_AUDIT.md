@@ -554,14 +554,14 @@ All of these go through one function, `MarkCueModel.cue_time_to_press()` /
   - It takes the ball in stride (Running) at pace when a straight-line
     closest approach is inside 0.75 × Running's reach.
   - Otherwise it holds Safe.
-  
+
   The tier choice is a rule; there is no learned catchability.
-  
+
   Headless check, AI marker with a passive opponent at its shoulder, 12
   deliveries:
   - flag off: Safe 11/12 caught
   - flag on: Aggressive 7 caught, 5 missed
-  
+
   So leaping on every contest is worse than Safe against a passive
   opponent. The model was trained on straight-line runs, and an AI arrives
   at odd angles. Leave it off until it has a catchability gate and has
@@ -613,6 +613,57 @@ Open:
 
 - A learned catchability model, before any AI tier choice.
 - Playtest notes on how the gated ring feels.
+
+### Since (2026-10-30)
+
+The playtest retune of marks changed what §9 was trained against, so its
+results above are history, not a current measurement:
+
+- A Running tap now opens a 0.25 s catch window (it was the tap's frame),
+  and its analytic ring leads the ball by 0.15 s. The trained Running
+  model's labels assume the old same-frame resolution.
+- Safe reach went 0.9 -> 1.19 m with a hop for a ball over the hands, and
+  Running reach 0.8 -> 1.0 m. Aggressive is unchanged, so the gated cue
+  and the Aggressive MLP still apply.
+- The AI chases where the ball comes down through hand height, not where
+  it lands, and can't mark the umpire's throw-up. In a 4-minute all-AI
+  match that took legal marks from 2 off 20 kicks to 25 off 78 over three
+  seeds.
+
+Retrain or re-probe before using the Running model for anything.
+
+### Status check (2026-11-10)
+
+Re-run: `tackle_selftest`, `tackle_ga_selftest` and `mark_cue_selftest` all
+pass. Stage 1/2 are live as described: `TackleBalance` evaluates
+`data/ml/tackle_weights.json` (the GA's weights, third input the mass
+ratio) on every real tackle, as a threshold, and since 2026-11-10 the same
+formula sets how hard every on-the-feet knock is (tone = 1 - 0.85 b;
+`ANIMATION_RAGDOLL_AUDIT.md` "Contact on the motor ragdoll"). Stage 3: the
+cue is GATED in matches, the MLP dev-only, the AI flag off, and the Running
+model stale since the 2026-10-30 retune. Section 3's "stamina has no
+equivalent in live gameplay" no longer holds: `PlayerController.stamina`
+exists, but only as body tone. Making it the model's input again is a
+gameplay call, not done. The animation viewer's CONTESTS no longer rolls
+the sandbox model (section 8); it reads out what the live tackle decided.
+
+## 10. Stage 4 (DQL): queued — AI difficulty and movement
+
+Not started. The user's plan (2026-10-30) is to make it the home for:
+
+- **AI difficulty levels.** Today difficulty is two hand-set dials on the
+  opposition in Career (`CareerProfile.ai_press`, `ai_reaction_scale`) plus
+  the squad's attributes. A learned policy could be trained, or stopped,
+  at several strengths and the levels picked from those.
+- **Better teammate and opposition movement.** Off-the-ball running
+  (`AIBrain._think_support`, `_think_defend`, the loose-ball chase) is
+  rule-based: home positions, a pull toward the ball, spacing pushes.
+  Leading into space, pushing up and dropping back as a unit are the
+  obvious targets for a value-learning agent.
+
+The same hard rule applies as everywhere else here: a learned policy
+decides what a player tries, never whether a contest succeeds
+(`RULES_REFERENCE.md` §3).
 
 ## Scope note
 

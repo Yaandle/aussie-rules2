@@ -296,6 +296,14 @@ const BALL_DRAG_COEFF := 0.00294
 # Magnus force from spin, F = MAGNUS * (omega x v). Small, but it is what
 # makes a torpedo hold a line and a badly struck ball fade off it.
 const BALL_MAGNUS_COEFF := 0.00022
+# Sidespin (6Z, snap and banana kicks): the vertical part of the spin gets
+# its own, larger coefficient, and only while the ball is in a kick's
+# flight (Ball.is_kick_flight). BALL_MAGNUS_COEFF above was set for the
+# punt's end-over-end backspin, where a big lift would float every kick;
+# at that size a sidespun kick bent a few tens of centimetres, nothing like
+# a real snap. 0.001 at 50 rad/s and 22 m/s is about 2.3 m/s^2 sideways:
+# a 30-40 m banana bends a few metres. Unplaytested feel guess.
+const BALL_SIDESPIN_MAGNUS_COEFF := 0.0010
 
 const BALL_SLEEP_SPEED := 0.12         # m/s below which a resting ball is allowed to sleep
 
@@ -445,6 +453,24 @@ const KICK_AIM_ASSIST_RANGE := 60.0
 # many power-fraction-per-pixel, same idea as CAM_MOUSE_SENSITIVITY but in
 # 0..1 units instead of degrees since there's no angle involved here.
 const KICK_MOUSE_REACH_SENSITIVITY := 0.0035
+# Full-side kick aim on a gamepad (playtest 2026-10-30: "a better feel for
+# the kicking aim ... take inspiration from FIFA (works well) and Madden's
+# up/down"). The 3rd-person camera sits behind the kicker, Madden's view up
+# the ground, where turning the line with the stick's left/right and pushing
+# the reach out with up/down reads naturally, so it's unchanged. The
+# full-side camera is FIFA's broadcast view, side-on, where the same turn
+# rate fought the picture: the field runs left-right on screen and "aim at
+# that player" meant steering a line round to them. There the right stick
+# points: the kick goes the way the stick points on screen (turning to it at
+# KICK_SIDE_AIM_TURN_RATE, so a flick doesn't snap it), and how far it's
+# pushed is the reach, from KICK_SIDE_AIM_MIN_REACH just past the deadzone
+# to full. Let go and the line stays where it was, so RT can be pressed
+# with the stick back at rest. Stance starts at KICK_SIDE_AIM_START_REACH.
+# Keyboard and mouse are unchanged in both cameras. Unplaytested feel guesses.
+const KICK_SIDE_AIM_DEADZONE := 0.3
+const KICK_SIDE_AIM_TURN_RATE := 14.0          # per s, as a blend fraction
+const KICK_SIDE_AIM_MIN_REACH := 0.15
+const KICK_SIDE_AIM_START_REACH := 0.5
 
 # Action timing, keyed by Action. CONTACT is when the ball actually
 # leaves — partway through the swing, not at either end of it. Read them
@@ -911,6 +937,44 @@ const TACKLE_LUNGE_TAP_COOLDOWN := 0.4    # s
 const TACKLE_LUNGE_REACH := 2.2              # m, unplaytested feel guess
 const TACKLE_LUNGE_SPEED := 7.0              # m/s, unplaytested feel guess
 const TACKLE_LUNGE_DASH_DURATION := 0.25     # s, unplaytested feel guess
+# The Lunge is the commitment tackle (playtest 2026-10-30: "X ... should
+# trigger more reliably as a tackle; sometimes I'm right next to them and
+# it won't trigger"). It wouldn't, silently: a carrier at arm's length who
+# was running across or away from you failed the closing-speed / angle gate
+# (TACKLE_LUNGE_TAP_*) and nothing played. At or inside this range the
+# gate is waived — the wrap always lands, and the tackle model still
+# decides whether it holds (TACKLE_LUNGE_BREAK_P), so a chase from behind
+# still mostly breaks. Outside it, the dash and the gate are unchanged.
+const TACKLE_LUNGE_SURE_RANGE := 1.4         # m (= TACKLE_RADIUS), unplaytested feel guess
+
+# ── B off the ball: the contest bump ───────────────────────────────────
+# Playtest 2026-10-30: "B should work more and act more like a bump in free
+# movement". B on a carrier is still the Slide / Sling (README "Tackling").
+# With no carrier to tackle, B on an opponent close by, while the ball is
+# loose or in the air and within CONTEST_BUMP_BALL_RADIUS of them, is a
+# legal bump — AFL lets a player bump or shepherd an opponent within 5 m of
+# the ball, so it's never a free kick. Which bump depends on how they meet:
+# - Side by side, both after the ball: a nudge. A short shoulder push off
+#   the line between them (CONTEST_BUMP_NUDGE_*), the bumper taking a
+#   share of it back. Nobody goes down; it's about getting there first.
+# - Closing on each other (head-on, a contest): a hip-and-shoulder, the
+#   hit stick's short dash at them (CONTEST_BUMP_DASH_DURATION) and its
+#   connect: running onto it, they're knocked down on the ragdoll ("half
+#   them"); glancing, they're knocked back. The bumper braces and stays up.
+# A human's only; the AI doesn't bump off the ball.
+const CONTEST_BUMP_RANGE := 2.2              # m, unplaytested feel guess
+const CONTEST_BUMP_BALL_RADIUS := 5.0        # m, AFL's shepherd/bump distance
+## Facing . to-opponent must clear this: a bump goes forward or sideways
+## (a shoulder), not backward.
+const CONTEST_BUMP_FACING_DOT := -0.2
+## Closing speed along the line between them at or above which it's a
+## hip-and-shoulder rather than a nudge.
+const CONTEST_BUMP_HEAD_ON_SPEED := 3.0      # m/s, unplaytested feel guess
+const CONTEST_BUMP_NUDGE_SPEED := 2.4        # m/s given to the opponent, unplaytested feel guess
+const CONTEST_BUMP_NUDGE_STUN := 0.3         # s, unplaytested feel guess
+const CONTEST_BUMP_NUDGE_RECOIL := 0.35      # share of the push the bumper takes back
+const CONTEST_BUMP_DASH_DURATION := 0.3      # s, unplaytested feel guess
+const CONTEST_BUMP_COOLDOWN := 0.8           # s, unplaytested feel guess
 # A standing Slide counts its tackler as stepping in at least this fast, for
 # the same reason: pressed against a carrier who'd stopped, it used to read
 # 0 m/s closing and whiff, at the full 1.3 s miss stun. A step, not a dive,
@@ -958,8 +1022,13 @@ const TACKLE_SLIDE_DIVE_MIN_DOT := 0.5      # facing . to-carrier must clear thi
 # 6thbuild skeleton goes physical (PlayerRagdoll / PhysicsRagdoll) and the
 # hit decides the fall. Slide's held-up wrap and every bump knockdown stay
 # on their clips, and so does any player on the procedural rig (no
-# 6thbuild skeleton to build bodies on). Slide is the AI's only tackle, so
-# no AI tackle ever ragdolls anyone.
+# 6thbuild skeleton to build bodies on). Slide is the AI's only tackle; since
+# 2026-11-11 its sling and stand ragdoll when either player is human (as the
+# ruck collision), so the AI can put the human down, and with
+# TACKLE_RAGDOLL_AI_V_AI AI on AI as well: the model's b and drive pick sling
+# (to ground) or stand (on their feet), and motor control plays it out.
+# Off puts AI-v-AI Slides back on the clips (cheaper: up to 36 ragdolls).
+const TACKLE_RAGDOLL_AI_V_AI := true
 #
 # Balance loss b (TackleBalance.balance_loss) is the tackle model's own
 # formula, σ(w_speed·speed + w_angle·angle + w_stamina·mass + bias), with
@@ -1092,6 +1161,46 @@ const TACKLE_SLIDE_SLING_FORWARD := 0.6
 const TACKLE_SLIDE_SLING_SIDE := 0.8
 const TACKLE_SLIDE_SLING_PUSH_SCALE := 1.0
 const TACKLE_SLIDE_SLING_STRENGTH_SCALE := 0.6
+# Who wins the collision (playtest 2026-10-30: outcomes from approach
+# angle, speed and both players' mass; "a head-on B where neither side
+# wins: both wrapped up, on their feet, held, a ball-up"; "an X where the
+# carrier is heavier may leave them standing"). A tackle that lands and
+# holds now ends one of five ways, all deterministic from the contact:
+#   stand — the carrier absorbs it and keeps their feet: the tackler didn't
+#           win the collision (TackleBalance's "drive", the pair's common
+#           velocity along the hit, below the tackle's DRIVE_MIN). The
+#           tackler hangs on (TACKLE_GRAB); the carrier staggers on the
+#           active ragdoll at STAND_STRENGTH, carrying STAND_SUPPORT of
+#           their weight, and is back on their feet after STAND_TIME. Held
+#           up: the ball drops at their feet and it's holding the ball or a
+#           ball-up. An AI's Slide keeps the TACKLE_HELD clip.
+#   hold  — B, the tackler wins but softly (b under SLIDE_KNOCKDOWN_B):
+#           the TACKLE_GRAB / TACKLE_HELD hold-up clips, as before.
+#   sling — B, the tackler wins hard: the carrier thrown, as before.
+#   fall  — X, the tackler only just wins it (drive under LUNGE_WRAP_DRIVE):
+#           the carrier loses balance and goes down alone (ragdoll); the
+#           tackler stays up (TACKLE_TAKEDOWN).
+#   wrap  — X, the tackler drives through (drive at or over
+#           LUNGE_WRAP_DRIVE: side-on, from behind, or much heavier): both
+#           down, the tackler's arms round the carrier (TackleWrap), as
+#           before.
+# Drive is mass-weighted, so mass decides a head-on: an 80 kg tackler
+# meeting an 80 kg carrier at the same pace is 0 (a B there stands; an X
+# knocks them over, its DRIVE_MIN being below 0), one meeting a 100 kg
+# carrier is -0.9 m/s (an X stands too), a 90 kg tackler into a 65 kg
+# carrier +1.4 (a fall). Side-on the tackler's whole run goes into the
+# carrier's side (+4 m/s at a sprint), from behind both runs do: those
+# wrap. How hard the hit is (b, the tackle model) still decides whether it
+# holds and how much muscle the falling body keeps. Unplaytested feel
+# guesses.
+const TACKLE_SLIDE_DRIVE_MIN := 1.0        # m/s
+const TACKLE_LUNGE_DRIVE_MIN := -0.5       # m/s
+const TACKLE_LUNGE_WRAP_DRIVE := 2.0       # m/s
+const TACKLE_STAND_STRENGTH := 0.75
+const TACKLE_STAND_SUPPORT := 0.8
+const TACKLE_STAND_STAGGER := 1.2          # m/s back along the hit, at the chest
+const TACKLE_STAND_BODY_SHARE := 0.3
+const TACKLE_STAND_TIME := 0.6             # s
 # Hit stick (a clean Bump). "The tackling animation for hit stick can be
 # more emphasized (player tackling should sort of dive forward into the
 # player and send the tackled player in the direction of the momentum)."
@@ -1117,6 +1226,199 @@ const BUMP_RAGDOLL_STRENGTH := 0.15
 const BUMP_DIVE_DRIVE := 2.5               # m/s
 const BUMP_DIVE_BODY_SHARE := 0.5
 const BUMP_DIVE_STRENGTH := 0.25
+# Bump miss (playtest 2026-10-30): a human's whiffed hit-stick on a 6thbuild
+# rig is a stumble on the active ragdoll, not the canned TACKLED fall. The
+# body is still going at STUMBLE_CARRY of BUMP_DASH_SPEED, gets a
+# STUMBLE_DRIVE m/s pitch at the chest along the dash (tipped down by
+# STUMBLE_DIP, BODY_SHARE of it on the whole body), and its motors are
+# strong (STRENGTH) with the balance assist carrying SUPPORT of its weight,
+# so it lurches forward and stays on its feet. After STUMBLE_TIME it hands
+# back to locomotion while still up (PlayerRagdoll's "max_time"); the
+# balance assist reads its tilt against the feet ("tilt_from_feet"), or it
+# cancels the run and sits the body back. Measured on a sprinting player:
+# hips no lower than ~0.85 m (from 1.0), a forward lurch to ~26° by 0.2 s
+# and upright again by 0.5 s, ~1.1 m carried. More carry slid the frozen
+# stride along the turf (it can't step); STUMBLE_STUN is the
+# time from the miss until the bumper has control back: still the biggest
+# miss in the kit, under the old fall's BUMP_MISS_STUN_DURATION plus its
+# clip. The procedural rig and any AI keep that fall. Unplaytested feel
+# guesses.
+const BUMP_MISS_STUMBLE_STRENGTH := 0.75
+const BUMP_MISS_STUMBLE_SUPPORT := 0.8
+const BUMP_MISS_STUMBLE_CARRY := 0.4
+const BUMP_MISS_STUMBLE_DRIVE := 1.6       # m/s
+const BUMP_MISS_STUMBLE_DIP := 0.3
+const BUMP_MISS_STUMBLE_BODY_SHARE := 0.2
+const BUMP_MISS_STUMBLE_TIME := 0.5        # s
+const BUMP_MISS_STUMBLE_STUN := 1.4        # s
+# Body contact reaction (2026-11-09, Build 7 Phase 3): two players whose
+# capsules meet closing at BODY_CONTACT_REACT_SPEED or more both play
+# PlayerAnimation's contact reaction (a torso sway away from the push), and
+# whoever has the other within BODY_CONTACT_HANDS_DOT of straight ahead
+# puts their hands up to them. Not again for BODY_CONTACT_REACT_COOLDOWN, so
+# two players leaning on each other don't buzz. Visual only: the capsules
+# collide and slide exactly as before. Unplaytested feel guesses.
+const BODY_CONTACT_REACT_SPEED := 1.5      # m/s
+const BODY_CONTACT_REACT_COOLDOWN := 0.4   # s
+const BODY_CONTACT_HANDS_DOT := 0.6
+
+# Physical contact reactions (2026-11-09, docs/ANIMATION_RAGDOLL_AUDIT.md
+# "Contact on the motor ragdoll"). On a rig that can ragdoll, every knock
+# that keeps a player on their feet goes to PlayerRagdoll.react instead of
+# the procedural sway above: the upper body is simulated over the animated
+# legs (PhysicsRagdoll's "Upper-body reactions") while the player keeps
+# running under the controller. That's two capsules meeting, a tackle that
+# lands but breaks (both players), a held-up tackle (both, AI or human), a
+# glancing bump or contest nudge, and a ruck shove on an AI. The procedural
+# rig keeps the sway. Nothing in gameplay reads any of it.
+#
+# The push is the tackle push's own sizing: the pair's reduced mass times
+# the closing speed, times IMPULSE_SHARE (most of a collision goes into the
+# legs and the capsules, which already took it), capped at IMPULSE_MAX, on
+# the chest on the side that was hit. The tone it leaves is the tackle
+# model's formula on the same contact: tone = 1 - TONE_DROP·b, with b from
+# TackleBalance.balance_loss (closing speed, how square, mass ratio), times
+# the player's stamina tone (below). A square hit at pace leaves a body
+# loose; a brush leaves it nearly as it was. FOLLOW is the rate (1/s) the
+# simulated bodies close on the animated pose at full tone (14/s closes
+# ~21% a tick at 60 Hz: a 60 N·s knock moves a sprinter's chest ~10-14 cm
+# at low tone and it's back inside ~0.3 s). MOTOR is the joint motors'
+# strength at full tone. Tone climbs back over RECOVER; physics hands back
+# to the animation over BLEND_OUT once TIME has passed. Unplaytested feel
+# guesses.
+const CONTACT_RAGDOLL_ENABLED := true
+const CONTACT_REACT_FOLLOW := 14.0          # 1/s at full tone
+const CONTACT_REACT_MOTOR := 0.6
+const CONTACT_REACT_TONE_DROP := 0.85
+const CONTACT_REACT_RECOVER := 0.45         # s
+const CONTACT_REACT_TIME := 0.55            # s
+const CONTACT_REACT_BLEND_OUT := 0.2        # s
+const CONTACT_REACT_PUSH_DURATION := 0.15   # s
+# How far off the chest's centre the push lands, toward the other body
+# (the tackle push's 0.12 m turned the trunk at 35-40 rad/s on the hit).
+const CONTACT_REACT_SIDE_OFFSET := 0.05     # m
+const CONTACT_REACT_IMPULSE_SHARE := 0.15
+const CONTACT_REACT_IMPULSE_MAX := 60.0    # N·s
+# A tackle that breaks, or one that holds the carrier up: both bodies take
+# half the closing speed along the hit line, as two players running into
+# each other do. The carrier's tone is the hit's own b; a held-up tackler's
+# is half of it, and a broken tackler bounces off with BREAK_RECOIL_SHARE
+# of the push at the carrier's share, 1 - b (PlayerController._break_tackle).
+const CONTACT_REACT_BREAK_RECOIL_SHARE := 0.5
+# A broken tackle drags the carrier's legs (TACKLE_BREAK_SPEED_KEEP), and
+# their trunk lurches on over them by its own momentum. All of it (2 m/s off
+# a sprint) pitched a loosened trunk 25° forward into the spine's bend limit,
+# which Jolt snapped on to 53° at 65 rad/s; this share of it rocks them
+# forward a step's worth. Unplaytested feel guess.
+const CONTACT_REACT_LURCH_SHARE := 0.5
+# A held-up pair used to stop dead on the frame the tackle held. They now
+# meet at their common velocity (mass-weighted, an inelastic collision) and
+# the carrier's legs brake it out at this rate, the tackler hanging on
+# behind (PlayerController._begin_tackle_hold). From a sprint that's ~2 m
+# over ~0.7 s. Unplaytested feel guess.
+const TACKLE_HOLD_BRAKE := 11.0             # m/s²
+
+# The held-up wrestle (2026-11-10). With WRESTLE_ENABLED a held-up pair
+# isn't braked out (TACKLE_HOLD_BRAKE above, still the path with it off):
+# for the length of the hold the two are one body that goes where its
+# forces send it (PlayerController._step_wrestle).
+#  - It starts at the pair's common velocity, as before: shared momentum.
+#  - Each player's legs drive at WRESTLE_DRIVE m/s² times their effort. The
+#    tackler drives along the line into the carrier; the carrier drives the
+#    way they were running (a standing one straight back at the tackler).
+#    Effort is the tackle formula's read of the contact, b for the tackler
+#    and 1 - b for the carrier, times each one's stamina tone. Force is
+#    mass × that, so the heavier, fresher player with the better of the hit
+#    walks the other back, and a side-on hit carries the pair off diagonally.
+#  - The feet bleed the pair's speed with time constant WRESTLE_SETTLE, so
+#    it settles at (net drive) × SETTLE: about 0.9 m/s when one side has
+#    all of it, nothing when they're even.
+#  - The tackler's sideways speed at contact swings them round the carrier:
+#    SPIN_SHARE of that angular rate, capped at SPIN_MAX, bled the same way.
+#  - Both trunks stay on physics for the hold (PlayerRagdoll.sustain). Each
+#    leans WRESTLE_LEAN_DEG × effort into their drive (the motors' target,
+#    PlayerAnimation.set_press) and the force between the bodies lands on
+#    both chests, TRUNK_SHARE of it; tone is 1 - WRESTLE_TONE_DROP × the
+#    other one's effort, so who's being overpowered shows in who gives.
+#  - With WRESTLE_LEGS the legs step on the locomotion blend under the
+#    hold-up clips once the pair moves faster than WRESTLE_LEGS_SPEED,
+#    instead of sliding on the clip's planted feet.
+# Whether the tackle holds is still TackleBalance's threshold; this only
+# moves the bodies by it. Where the pair ends up does change (it used to be
+# the common velocity braked out), so it's a gameplay-visible number.
+# Unplaytested feel guesses.
+const TACKLE_WRESTLE_ENABLED := true
+const TACKLE_WRESTLE_DRIVE := 6.0           # m/s² at full effort
+const TACKLE_WRESTLE_SETTLE := 0.3          # s
+const TACKLE_WRESTLE_SPIN_SHARE := 0.25
+const TACKLE_WRESTLE_SPIN_MAX := 2.5        # rad/s
+const TACKLE_WRESTLE_TRUNK_SHARE := 1.0
+const TACKLE_WRESTLE_TONE_DROP := 0.2
+const TACKLE_WRESTLE_LEAN_DEG := 14.0
+const TACKLE_WRESTLE_LEGS := true
+const TACKLE_WRESTLE_LEGS_SPEED := 0.5      # m/s
+# Efforts fade over the hold's last RELEASE seconds, so the pair is nearly
+# still when the controller takes the legs back.
+const TACKLE_WRESTLE_RELEASE := 0.25        # s
+
+# Direction from the angle of contact (2026-11-10). A knock's push used to
+# run straight along the line between the bodies, or along the hitter's
+# travel, applied at a point on that same line: nothing could turn a trunk,
+# and a glancing bump knocked its target along the bumper's run whatever
+# side it landed on. Now a contact's change of velocity is the closing
+# speed along the contact normal plus the rubbing speed across it, the
+# second capped at CONTACT_FRICTION × the first (a friction cone), and it
+# lands on the chest's surface CONTACT_REACT_CHEST_RADIUS toward the other
+# body: square on it shoves, off-centre it also turns the trunk. Glancing
+# bumps and contest hits knock their target that way too
+# (PlayerController.contact_change). Unplaytested feel guesses.
+const CONTACT_FRICTION := 0.35
+const CONTACT_REACT_CHEST_RADIUS := 0.16   # m
+# Shoulder-to-shoulder push (2026-11-11, ANIMATION_RAGDOLL_AUDIT "Phase 3
+# contact" item 2). Two players running the same way with their capsules
+# pressed together used to just slide along each other: nobody gave ground.
+# Now each drives into the other with mass × run speed × stamina tone (the
+# held-up wrestle's drive), and the pair moves sideways toward the weaker
+# side at SHOULDER_PUSH_SPEED × (stronger share - weaker share): the heavier
+# or faster one runs the other off their line while both lean in. Only
+# between runs within SHOULDER_PUSH_ALIGN of each other (head-on contacts
+# are knocks, not pushes) and both at SHOULDER_PUSH_MIN_SPEED. It changes
+# who wins a footrace for position, so it has its own switch.
+# PlayerController._shoulder_push. Unplaytested feel guesses.
+const SHOULDER_PUSH_ENABLED := true
+const SHOULDER_PUSH_MIN_SPEED := 2.5      # m/s, each
+const SHOULDER_PUSH_ALIGN := 0.5          # cos of the widest angle between the two runs (60°)
+const SHOULDER_PUSH_SPEED := 3.0          # m/s sideways at a total mismatch
+const SHOULDER_PUSH_SETTLE := 0.15        # s, time constant in and out
+const SHOULDER_PUSH_HOLD := 0.12          # s the press outlives the last touch
+const SHOULDER_PUSH_LEAN_DEG := 9.0       # trunk lean into the other, each
+# The whole-body ragdolls that keep a player standing (a held-up carrier's
+# stand, the whiffed bump's stumble, the ruck stagger) had their muscles
+# pulling toward the pose the animation had at contact, for their whole
+# 0.45-0.6 s: a body frozen mid-stride while it staggered. With this on,
+# they pull toward the live animation (PhysicsRagdoll.track_pose), which
+# while ragdolled is the controller's standing blend: the legs come back
+# under the body and the arms settle as it recovers.
+const STANDING_RAGDOLL_TRACKS := true
+
+# Stamina (2026-11-09): how fresh a player's body is, 0-1. It drains while
+# running faster than JOG_SPEED (all of SPRINT_DRAIN per second at a full
+# sprint, less in between), comes back below it (RECOVERY per second
+# standing, less while moving), and each knock takes CONTACT_COST × b. It
+# sets body tone only, never an outcome: contact reactions are
+# looser (tone × lerp(TONE_FLOOR, 1, stamina)) and every whole-body ragdoll's
+# muscles weaker (strength × lerp(STRENGTH_FLOOR, 1, stamina)), so a tired
+# player who's held up rocks further and a tired player who's tackled goes
+# down looser. Whether a tackle holds and who wins the collision don't read
+# it (RULES_REFERENCE.md §3's contests are unchanged); feeding it into
+# TackleBalance is a gameplay call left for a playtest. Unplaytested feel
+# guesses: 40 s of flat-out sprinting empties a full tank.
+const STAMINA_SPRINT_DRAIN := 0.025         # per s at SPRINT_SPEED
+const STAMINA_RECOVERY := 0.05              # per s standing still
+const STAMINA_CONTACT_COST := 0.04          # × b, per knock
+const STAMINA_TONE_FLOOR := 0.55
+const STAMINA_STRENGTH_FLOOR := 0.85
+
 # Every PlayerController's body mass when nothing sets it — Career sets it
 # from the roster's weight (RosterGenerator 58-92 kg). The ragdoll's
 # segment masses scale from PhysicsRagdoll's ~86 kg build.
@@ -1298,6 +1600,64 @@ const BUMP_MISTIMED_SCALE := 0.35      # knockback/stun fraction applied when ti
 # the way get_look_vector() reports every frame regardless of how it got
 # there. See InputManager.flick_vector().
 const FLICK_WINDOW := 0.15             # s the sweep has to complete within
+
+# Switch on defence (6AB, playtest 2026-11-11: "LB the default change-player
+# on defence"). LB is also bump stance (hold + right-stick flick), so the
+# switch fires on a TAP: released within this long with no flick while held.
+# A held LB, or one that flicked, is a bump and never switches.
+const DEFENCE_SWITCH_TAP_MAX := 0.25   # s; unplaytested feel guess
+
+# Fend-off, "don't argue" (6Y, playtest 2026-11-11: "RB in play with the
+# ball is a palm"). RB while carrying puts a straight arm out for
+# FEND_DURATION. A tackle that lands in that window from inside FEND_ARC_DEG
+# of the carrier's facing has its balance loss b cut by FEND_B_CUT, so its
+# p_break (1 - b) rises and more tackles break. Still the tackle model's
+# comparison against TACKLE_*_BREAK_P, never a roll (RULES_REFERENCE §3).
+# A fended Slide is judged on TACKLE_LUNGE_BREAK_P, not its own 0.95: the
+# straight arm keeps the wrap from closing, so it's only as good as a
+# strip. Without that a fend could never break a Slide (the AI's only
+# tackle): measured, b cut by 0.45 still left every Slide in a 28-hit grid
+# held. With it, a fend breaks a soft or glancing front-on tackle and a
+# hard square one (about 4 m/s closing or more) still holds.
+# A fended tackler who breaks is also shoved back FEND_PUSH_SPEED. From
+# behind (outside the arc) a fend does nothing: you can't fend what you
+# can't reach. All unplaytested feel guesses.
+const FEND_DURATION := 0.45
+const FEND_COOLDOWN := 1.2
+const FEND_ARC_DEG := 100.0
+const FEND_B_CUT := 0.35
+const FEND_PUSH_SPEED := 2.0
+const FEND_TARGET_RANGE := 2.2        # m: the arm goes to an opponent this close
+
+# Fist the ball away (6Y: "RB in a mark contest you might not win is a
+# fist-away, like the ruck tap"). The ruck tap's own leap (HIT_OUT, with its
+# drift under the ball) and reach, then a punch: harder and flatter than the
+# ruck palm, so it clears the contest. Unplaytested feel guesses.
+const FIST_SPEED := 9.0               # m/s, horizontal
+const FIST_UP_SPEED := 2.0            # m/s
+# How close the ball has to come to the punching hand or the chest-height
+# hands, any frame of the leap: the (Y) mark's own reach, so a fist meets
+# what a contested mark could have.
+const FIST_REACH := MARK_CATCH_RADIUS * MARK_AGGRESSIVE_REACH_SCALE + MARK_ASSIST_RADIUS_BONUS
+
+# Snap and banana kicks (6Z, playtest 2026-11-11: "hold LB while kicking;
+# the kick is chosen by the player's direction and kicking foot"). A kick
+# aimed across the body to the side away from the kicking foot (a right
+# footer aiming left of where they're running) by at least
+# KICK_SNAP_MIN_ANGLE is a SNAP: struck side-on, flatter and softer, with the
+# most sidespin. Anything else with LB held is a BANANA: closer to a normal
+# kick, with less bend. Either way a right foot hooks the ball right to left
+# and a left foot left to right (the inside of the boot). Most of the punt's
+# backspin goes, since the ball is struck across rather than through.
+# Unplaytested feel guesses.
+const KICK_SNAP_MIN_ANGLE := 45.0       # deg between aim and run direction
+const KICK_SNAP_SPIN := 60.0            # rad/s about vertical
+const KICK_SNAP_SPEED_SCALE := 0.85
+const KICK_SNAP_ELEVATION_DROP := 8.0   # deg flatter
+const KICK_BANANA_SPIN := 45.0
+const KICK_BANANA_SPEED_SCALE := 0.92
+const KICK_BANANA_ELEVATION_DROP := 3.0
+const KICK_CURVE_BACKSPIN_KEEP := 0.3
 const FLICK_MIN_MAGNITUDE := 0.75      # deflection that counts as "the flick landed"
 const FLICK_NEUTRAL_MAGNITUDE := 0.30  # deflection below this counts as "was neutral"
 
@@ -1389,7 +1749,10 @@ const AFTER_SIREN_MAX_FLIGHT := 6.0   # s
 # hauled them across the ground. MARK_STAND_ARRIVE_RADIUS is where the jog
 # stops and the exact hold takes over. Neither is a rule number —
 # feel/readability values, same category as the retreat walk-back above.
-const MARK_STAND_GOAL_SIDE_OFFSET := 1.0   # m goal-side of the mark-taker
+# 6X (playtest 2026-11-11): he now stands on the exact spot, so the offset
+# is 0. Collision with the retreating taker, not this offset, keeps the two
+# capsules apart (see PlayerController._apply_stand_the_mark).
+const MARK_STAND_GOAL_SIDE_OFFSET := 0.0   # m goal-side of the mark; 0 = on it
 const MARK_STAND_JOG_SPEED := JOG_SPEED    # m/s onto the mark — a jog, not a drag
 const MARK_STAND_ARRIVE_RADIUS := 0.3      # m — close enough, snap and hold
 
@@ -1414,14 +1777,47 @@ const MARK_CATCH_RADIUS := 1.15         # m
 ## The Aggressive leap is graded across the top of the jump
 ## (MARK_AGGRESSIVE_CATCH_WINDOW) instead of one instant, which is what the
 ## old 2.7 was making up for. Probe after: see the 2026-10-29 commit.
+## Then too hard (playtest 2026-10-30: "A and X marks are hard to
+## trigger"). Safe 0.9 -> 1.19 m and Running 0.8 -> 1.0 m, with Safe's hop
+## (MARK_SAFE_JUMP_SPEED) for a ball over the hands and Running's catch
+## window (MARK_RUNNING_CATCH_WINDOW). Probe numbers in that commit.
 ## Unplaytested feel guesses; AI Safe marks use the same reach.
-const MARK_SAFE_REACH_SCALE := 0.7         # 0.9 m from CatchPoint with the bonus
-const MARK_RUNNING_REACH_SCALE := 0.61      # 0.8 m
+const MARK_SAFE_REACH_SCALE := 0.95        # 1.19 m from CatchPoint with the bonus
+const MARK_RUNNING_REACH_SCALE := 0.78      # 1.0 m
 const MARK_AGGRESSIVE_REACH_SCALE := 0.87   # 1.1 m
 ## Seconds either side of ACTION_CONTACT[MARK_AGGRESSIVE] that the leap's
 ## hands are up and can take the ball. The first physics frame in it with
 ## the ball in reach is the catch; none is a miss at its far end.
 const MARK_AGGRESSIVE_CATCH_WINDOW := 0.14   # s, unplaytested feel guess
+## How long a Running (X) tap keeps the hands out (playtest 2026-10-30: "X
+## marks are hard to trigger"). It was the tap's frame alone. Every physics
+## frame of the window is tested against the reach, the first in reach is
+## the catch, and a window that closes empty is the miss. Timing is still
+## the skill: tap more than this early and the hands are down again before
+## the ball gets there. Unplaytested feel guess.
+const MARK_RUNNING_CATCH_WINDOW := 0.25   # s
+## Where the (X) ring closes: this long before the ball reaches the hands
+## (MarkPrompt, MarkCueModel.press_target), so a tap on the ring opens the
+## window just ahead of the ball and a press a beat either side still has
+## the ball arrive inside it. A press much after arrival is the ball
+## already off the chest (it collides with the body).
+const MARK_RUNNING_CUE_LEAD := 0.15       # s
+
+## A held Safe (A) mark — the high-percentage take (playtest 2026-10-30:
+## "A should be the safe mark: a chest mark, or a small jump up when the
+## ball is above the hands"). See PlayerController._maybe_safe_mark_jump.
+## The hop: v^2 = 2*g*h -> ~0.4 m of lift, its top 0.29 s after take-off.
+## A ball higher than that is Y's.
+const MARK_SAFE_JUMP_SPEED := 2.8          # m/s, unplaytested feel guess
+## How far ahead the hop looks for the ball passing over the hands. Longer
+## than the hop's rise, so the pass is found before it's time to go.
+const MARK_SAFE_JUMP_LOOKAHEAD := 0.6      # s
+## Holding A used to plant the player (MARK_SAFE_SPEED_SCALE) from the
+## press, so holding it early while running onto the drop stopped them
+## short of it. Now the hold costs this much until the ball is within
+## MARK_SAFE_PLANT_TIME of the hands, then plants. Unplaytested feel guess.
+const MARK_SAFE_APPROACH_SPEED_SCALE := 0.85
+const MARK_SAFE_PLANT_TIME := 0.3          # s
 
 # Movement cost while committed to each tier — see
 # PlayerController._update_locomotion / Tuning.action_speed_scale. Safe
@@ -1441,11 +1837,11 @@ const MARK_AGGRESSIVE_SPEED_SCALE := 0.45
 const MARK_AGGRESSIVE_JUMP_SPEED := 4.0    # m/s
 
 ## The little pop a Safe (A) mark takes on catch — not a jump commitment
-## like MARK_AGGRESSIVE_JUMP_SPEED above (Safe never leaves the ground
-## before the catch resolves, it's a plant-and-wait tier), just a small
-## reactive hop the instant the ball is secured, so a Safe take doesn't
-## read as completely inert next to Running's stride and Aggressive's
-## leap. v^2 = 2*g*h -> ~0.16m of lift, a hop not a jump.
+## like MARK_AGGRESSIVE_JUMP_SPEED above, just a small reactive hop the
+## instant the ball is secured on the ground, so a Safe take doesn't read
+## as completely inert next to Running's stride and Aggressive's leap.
+## A take already in the air (MARK_SAFE_JUMP_SPEED) doesn't get it.
+## v^2 = 2*g*h -> ~0.16m of lift, a hop not a jump.
 const MARK_SAFE_HOP_SPEED := 1.8           # m/s
 
 # How far out an airborne ball has to be before an aggressive attempt is
@@ -1668,6 +2064,38 @@ const MARK_TIMING_ARRIVED_RADIUS := MARK_CATCH_RADIUS * MARK_AGGRESSIVE_REACH_SC
 ## playtest note and still measures from CarryPoint, not the CatchPoint the
 ## marks moved to. Bringing it in too is a separate call.
 const RUCK_HIT_OUT_REACH := 3.105   # m
+## Hands on the ball (playtest 2026-10-30: "make sure the hand is actually
+## touching the ball — it works directionally but needs this fix"). The
+## tap now measures from the right palm (PlayerAnimation.
+## hand_world_position: where a ball in that hand would sit) instead of the
+## hip, and the ball is set on the palm as it's knocked, so it visibly
+## leaves the hand. RUCK_HIT_OUT_REACH is only the fallback for a rig with
+## no measured hands. To get the hand there, the leap drifts the ruckman
+## (RUCK_REACH_ASSIST_SPEED at most) so the right shoulder comes in under
+## where the ball will be at contact, the way a ruckman jumps at the ball,
+## not straight up beside it.
+const RUCK_PALM_REACH := 1.2            # m from the palm, unplaytested feel guess
+const RUCK_REACH_ASSIST_SPEED := 2.5    # m/s, unplaytested feel guess
+## How far in front of the shoulder the palm is at contact: HIT_OUT's arm
+## is near vertical then, tipped slightly forward.
+const RUCK_PALM_FORWARD := 0.15         # m
+## Two bodies meeting at the ball-up (same playtest: "apply the ragdoll
+## contest to the ruck ... they just need to collide a little"). At a tap,
+## if the other ruckman is within RUCK_COLLIDE_DISTANCE the two jostle: one
+## already past their own contact (or not leaping) takes a light, short
+## active-ragdoll knock off the other (strong muscles and balance support,
+## so it's a jolt, not a fall); one still going up for it is only pushed,
+## so the bump can't take their tap away. Only when a human is one of the
+## two (Tuning's "Active ragdoll tackles": the AI never starts a ragdoll);
+## two AI ruckmen just push off each other.
+const RUCK_COLLIDE_DISTANCE := 1.2      # m, unplaytested feel guess
+const RUCK_COLLIDE_RAGDOLL := true
+const RUCK_COLLIDE_STRENGTH := 0.75
+const RUCK_COLLIDE_SUPPORT := 0.85
+const RUCK_COLLIDE_DRIVE := 1.3         # m/s, unplaytested feel guess
+const RUCK_COLLIDE_BODY_SHARE := 0.3
+const RUCK_COLLIDE_TIME := 0.45         # s
+const RUCK_COLLIDE_PUSH := 1.6          # m/s, unplaytested feel guess
 ## How far out a hit-out attempt can even be committed from — tighter than
 ## MARK_CONTEST_RANGE, since a ruck contest is point-blank by nature (two
 ## players standing either side of where the ball is about to come down),
@@ -2035,6 +2463,9 @@ const KICK_TO_KICK_RIVAL_OFFSET := Vector3(0.0, 0.0, -18.0)   # from field centr
 const KICK_CHALLENGE_ATTEMPTS := 5
 
 const MARK_CHALLENGE_ATTEMPTS := 6
+## The marking tutorial (MarkChallenge's steps): catches of a step's tier
+## before it moves on. Unplaytested feel guess.
+const MARK_TUTORIAL_CATCHES_PER_STEP := 2
 const MARK_CHALLENGE_ELEVATION_DEG := 48.0     # deg, a generous hang-time arc
 const MARK_CHALLENGE_MIN_DISTANCE := 16.0      # m, just past MARK_STAND_MIN_DISTANCE so every delivery is legal-mark eligible
 const MARK_CHALLENGE_MAX_DISTANCE := 28.0      # m
@@ -2090,6 +2521,32 @@ const TACKLE_TUTORIAL_SPRINT_CLEAR_RANGE := 3.0   # m from the dummy that counts
 const TACKLE_TUTORIAL_STALE_REP_TIME := 4.0       # s a no-result rep runs before it silently restarts (a tutorial retries, it doesn't fail)
 const TACKLE_TUTORIAL_STEP_GAP := 1.2             # s beat between a cleared step and the next card
 const TACKLE_TUTORIAL_DUMMY_GAIT := 0.85          # 0..1 — a jog, not a sprint, so there's time to read the approach
+
+# ── Kicking tutorial (KickTutorial) ─────────────────────────────────────
+# Playtest 2026-10-30: "a random player currently just spawns in and takes
+# the ball — remove that. Instead, have a player lead on different angles:
+# kick to the player first, then practice kicking in front of them or to a
+# certain spot." A teammate (LeadBrain) stands KICK_TUTORIAL_LEAD_DISTANCE
+# out and, after KICK_TUTORIAL_LEAD_DELAY, leads for KICK_TUTORIAL_LEAD_TIME
+# at KICK_TUTORIAL_LEAD_GAIT: back at you, then off to either side, then
+# across you. Once the kick is in the air they run to where it'll come down
+# and take it. All unplaytested feel guesses.
+const KICK_TUTORIAL_LEAD_DISTANCE := 34.0     # m out from the kicker the leader starts
+const KICK_TUTORIAL_LEAD_DELAY := 0.9         # s after the card's dismissed before they go
+const KICK_TUTORIAL_LEAD_TIME := 2.8          # s they lead for before pulling up
+const KICK_TUTORIAL_LEAD_GAIT := 0.9          # 0..1
+## The across-you lead puts a ring this far along the lead from the
+## leader's start: kick it there and they run onto it.
+const KICK_TUTORIAL_SPACE_AHEAD := 14.0       # m
+## The last step's ring, straight out from the kicker.
+const KICK_TUTORIAL_SPOT_DISTANCE := 30.0     # m
+const KICK_TUTORIAL_RING_RADIUS := 3.5        # m
+## A catch counts as "in front of them" when it's at least this far along
+## the lead from where they were when the ball left the boot.
+const KICK_TUTORIAL_IN_FRONT_MIN := 2.0       # m
+## A kick that isn't taken is over this long after it first lands.
+const KICK_TUTORIAL_MISS_TIME := 1.2          # s
+const KICK_TUTORIAL_RETRY_DELAY := 1.4        # s
 
 # Padded tackle bags — training-ground dressing beside the tackling coach.
 # Player-sized flat-topped red cylinders, no branding (see TackleBag).

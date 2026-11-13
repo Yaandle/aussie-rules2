@@ -135,6 +135,25 @@ func wants_hit_out() -> bool:
 	return false
 
 
+## Edge-triggered (6Y): the carrier's fend-off, "don't argue" (RB while
+## carrying). See PlayerController._update_fend. AI doesn't fend yet.
+func wants_fend() -> bool:
+	return false
+
+
+## Edge-triggered (6Y): fist the ball away in a mark contest (RB, the
+## ruck tap's button, while a mark prompt is live). See
+## PlayerController._try_fist. AI doesn't fist yet.
+func wants_fist() -> bool:
+	return false
+
+
+## Held (6Z): curve the kick being struck, a snap or a banana (LB held
+## while kicking). See PlayerController._curve_kick.
+func wants_kick_curve() -> bool:
+	return false
+
+
 ## Held-down semantics, exactly like wants_kick()/wants_mark_safe(): true
 ## for as long as bump stance should be held (LB on a pad) — see
 ## PlayerController._update_bump. The flick that actually commits a bump

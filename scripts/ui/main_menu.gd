@@ -61,10 +61,15 @@ class Entry:
 
 var _entries: Array[Entry] = [
 	Entry.new("FULL GAME", "18-a-side, real clock, quarters, scoring",
-		"res://scenes/ui/full_game_pregame_screen.tscn", true, "menuscreen_field"),
+		"res://scenes/ui/side_select_screen.tscn", true, "menuscreen_field"),
 	Entry.new("SCENARIO", "Practice a set situation", "", false, "menuscreen_board"),
 	Entry.new("GOAL KICKING", "Shots on goal from the arc", "", false,
 		"menuscreen_ball"),
+	# Playtest 2026-10-30: kick-to-kick moved off the Character page into a
+	# card of its own, the 4th. It opens the Training screen: the open field
+	# with the coaches, and the drills.
+	Entry.new("KICK TO KICK", "Open field, coaches and drills",
+		"res://scenes/ui/training_screen.tscn", true, "menuscreen_training"),
 	Entry.new("CAREER", "Create a player, play a season",
 		"res://scenes/ui/career_character_screen.tscn", true, "menuscreen_career"),
 ]
@@ -83,11 +88,11 @@ const VERSION_SETTING := "application/config/version"
 const VERSION_FALLBACK := "dev"
 
 ## Utility row below the mode cards — navigable via ↓/↑ (or d-pad),
-## left/right to cycle, Enter/A to enter. Character and Team shortcuts
-## (C / T) still jump there directly.
+## left/right to cycle, Enter/A to enter. The Character shortcut (C) still
+## jumps there directly. TEAM left this row in 6AC (playtest 2026-11-11):
+## it's now a step of FULL GAME (side select -> TEAM -> match setup).
 const UTIL_ENTRIES := [
 	{"label": "CHARACTER", "scene": "res://scenes/ui/character_screen.tscn"},
-	{"label": "TEAM", "scene": "res://scenes/ui/team_list_screen.tscn"},
 ]
 const UTIL_ROW_HEIGHT := 28.0
 const UTIL_SEPARATION := 48
@@ -99,7 +104,7 @@ const IMAGE_EXTENSIONS := ["jpg", "jpeg", "png", "webp"]
 ## menuscreen_career image; the 3rd-person match capture centres on one
 ## player, which suits "create a player". Drop a real menuscreen_career.png
 ## in IMAGE_DIR and it takes over automatically.
-const IMAGE_FALLBACKS := {"menuscreen_career": "3rdperson"}
+const IMAGE_FALLBACKS := {"menuscreen_career": "3rdperson", "menuscreen_training": "fullside"}
 
 # ── Layout ───────────────────────────────────────────────────────────
 # Sizes on SoftBrutalist's 8px spacing step. Only minimums and gaps are
@@ -109,7 +114,9 @@ const SCREEN_MARGIN_Y := SoftBrutalist.SPACE_4      ## 32
 const BAND_GAP := int(SoftBrutalist.SPACE_4)        ## 32
 const CHROME_HEIGHT := 20.0
 const FOOTER_HEIGHT := 28.0
-const CARD_SEPARATION := int(SoftBrutalist.SPACE_5) ## 40
+## 28 (was SPACE_5, 40) and the cards 188x250 (was 216x288) since KICK TO
+## KICK made it five cards: the row has to fit in 1280 less the margins.
+const CARD_SEPARATION := 28
 ## Smaller than a full-bleed hero tile on purpose — these sit centred over
 ## the live 3D backdrop (menu_backdrop.tscn) with room left on every side,
 ## so the montage behind them stays visible rather than getting crowded out.
@@ -118,8 +125,8 @@ const CARD_SEPARATION := int(SoftBrutalist.SPACE_5) ## 40
 ## under the arrow badge. Still a 3:4 portrait tile with plenty of backdrop
 ## showing around the row; the band has ~380px of height to give, so the
 ## selected card's 1.07 pop (~308px) still clears the util row.
-const CARD_MIN_WIDTH := 216.0
-const CARD_MIN_HEIGHT := 288.0
+const CARD_MIN_WIDTH := 188.0
+const CARD_MIN_HEIGHT := 250.0
 const CARD_PAD := 16.0
 ## Sharp, matching RetroWindow's unrounded shell — the mode-select cards
 ## now read as the same "windowed retro console" family as the rest of
@@ -217,9 +224,6 @@ func _unhandled_input(event: InputEvent) -> void:
 	# Direct shortcuts still work regardless of row.
 	if event.is_action_pressed(&"character_menu"):
 		SceneWipe.change_scene("res://scenes/ui/character_screen.tscn")
-		return
-	elif event.is_action_pressed(&"team_menu"):
-		SceneWipe.change_scene("res://scenes/ui/team_list_screen.tscn")
 		return
 
 	if _row == 2:
@@ -678,7 +682,7 @@ func _on_card_hover(index: int) -> void:
 	_index = index
 	_refresh()
 
-	
+
 func _build_icon_badge(icon_name: StringName, badge_size: float) -> Panel:
 	var badge := Panel.new()
 	badge.custom_minimum_size = Vector2(badge_size, badge_size)
@@ -853,11 +857,11 @@ func _refresh() -> void:
 				InputManager.Device.KEYBOARD: [
 					{"keys": "← / →", "label": "Choose"},
 					{"keys": "Enter", "label": "Select"},
-					{"keys": "↓", "label": "Character / Team"},
+					{"keys": "↓", "label": "Character"},
 				],
 				InputManager.Device.GAMEPAD: [
 					{"keys": "D-Pad ↔", "label": "Choose"},
 					{"keys": "A", "label": "Select"},
-					{"keys": "D-Pad ↓", "label": "Character / Team"},
+					{"keys": "D-Pad ↓", "label": "Character"},
 				],
 			})

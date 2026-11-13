@@ -100,6 +100,14 @@ static func team_label(team: Tuning.Team) -> String:
 		var words := club.strip_edges().split(" ", false)
 		if not words.is_empty():
 			label = words[-1]
+	else:
+		# Quick play (6AC): the clubs picked on the side select, mascot only
+		# like Career's.
+		var club := Settings.quick_home_name() if team == Tuning.Team.HOME \
+			else Settings.quick_away_name()
+		var club_words := club.strip_edges().split(" ", false)
+		if not club_words.is_empty():
+			label = club_words[-1]
 	label = label.to_upper()
 	return label if label.length() <= 9 else label.substr(0, 9)
 
