@@ -1,29 +1,29 @@
-# Aussie Rules 2
+﻿# Aussie Rules 2
 
 A realistic 3D Aussie Rules football game built in **Godot 4.6**.
 
-Contests are physically simulated — kicking, marking, tackling, spoiling, smothering and ruck contests emerge from player movement, timing, positioning and physics.
+Contests are physically simulated â€” kicking, marking, tackling, spoiling, smothering and ruck contests emerge from player movement, timing, positioning and physics.
 
 
-**Status:** a complete sided match — AI on every player you're not
+**Status:** a complete sided match â€” AI on every player you're not
 controlling, real clock and quarters, physically resolved kicking,
 handballing, bouncing, marking, tackling, spoiling, smothering, bumping,
 and ruck contests, plus correct goal/behind restarts and a full-time score
 screen. There's a menu system, a character screen, a team formation/tactics
 editor, a settings/keyboard remapping screen, and a solo `Kick-to-Kick` practice mode
 with three training coaches (kicking, marking, tackling). Every model,
-animation, and sound effect is generated in code — there's no imported art
+animation, and sound effect is generated in code â€” there's no imported art
 or audio yet.
 
 See [docs/FEATURE_AUDIT.md](docs/FEATURE_AUDIT.md) for what's built vs.
 still missing, [docs/HANDOVER.md](docs/HANDOVER.md) for the build history,
-and [docs/RULES_REFERENCE.md](docs/RULES_REFERENCE.md) for how the real AFL
+and [docs/RULES_REFERENCE.md](docs/RULES_REFERENCE.md) for how the real Aussie Rules
 rules are simplified at this stage.
 
 
 ## Run
 
-### Windows — Play the game
+### Windows â€” Play the game
 
 1. Go to the [latest release](https://github.com/Yaandle/aussie-rules2/releases).
 2. Download **`Aussie-Rules-2-v0.1.0-Windows.zip`**.
@@ -34,7 +34,7 @@ rules are simplified at this stage.
 
 No Godot, Python, Git, or additional setup is required.
 
-### Development — Godot
+### Development â€” Godot
 
 1. Install **Godot 4.6+**.
 2. Clone the repository:
@@ -49,7 +49,7 @@ cd aussie-rules2
 5. In Godot, open the main game scene and use the **Play Project** button to run the game.
 6. Select **FULL GAME** from the main menu.
 
-### Development — PowerShell
+### Development â€” PowerShell
 
 Clone the repository:
 
@@ -84,7 +84,7 @@ scripts/
   tuning.gd               every tunable constant + shared enums (Team, Action)
   main.gd                 milestone-1 sandbox harness (scenes/main.tscn)
   autoload/                InputManager, GameState, ControlMode (routes human input to
-                            whichever body should receive it — SINGLE_PLAYER/TEAM_COMMAND),
+                            whichever body should receive it â€” SINGLE_PLAYER/TEAM_COMMAND),
                             MatchState, CharacterProfile, Settings (persisted
                             user://settings.cfg), SceneWipe,
                             AudioManager (synthesized placeholder SFX)
@@ -101,23 +101,23 @@ scripts/
   ball/                    Ball (RigidBody3D: spheroid hull, drag, Magnus, carry/launch)
   camera/                  BroadcastCamera (chase rig, Full-Side broadcast rig, dialogue two-shot)
   field/                   Field (oval markings, posts, fence, trees, score triggers)
-  ai/                      TeamFormation (18-slot AFL formation data)
+  ai/                      TeamFormation (18-slot Aussie Rules formation data)
   ui/                      main menu, character screen, team list, settings,
                             remap screen, scoreboard, debug hud, pause/match-end screens
-  dev/                     animation_viewer.gd — dev-only clip preview + a Tackle
+  dev/                     animation_viewer.gd â€” dev-only clip preview + a Tackle
                             Sandbox mode (two real, controllable players for testing
                             tackle/contest physics in isolation)
 
-scenes/                   mirrors scripts/ — see each script's header comment
+scenes/                   mirrors scripts/ â€” see each script's header comment
   modes/full_game.tscn     the match scene FULL GAME launches
   modes/kick_to_kick.tscn  solo practice, reached via the character screen
-  dev/animation_viewer.tscn  not reachable from the menu — open directly in the
+  dev/animation_viewer.tscn  not reachable from the menu â€” open directly in the
                               editor (see scripts/dev/ above)
   main.tscn                milestone-1 sandbox
 
-assets/shaders/           turf, boundary glow, backdrop scrims — no imported art yet
+assets/shaders/           turf, boundary glow, backdrop scrims â€” no imported art yet
 docs/
-  FEATURE_AUDIT.md         current-state inventory + development roadmap — start here
+  FEATURE_AUDIT.md         current-state inventory + development roadmap â€” start here
   HANDOVER.md              full session-by-session build log
   RULES_REFERENCE.md       Prototype 1's rule numbers translated to real metres
 ```
@@ -126,25 +126,25 @@ docs/
 
 | Action | Keyboard / Mouse | Pad |
 |---|---|---|
-| Move / walk / sprint | `WASD` / `Ctrl` / `Shift` | Stick / — / L3 (click) or RT |
+| Move / walk / sprint | `WASD` / `Ctrl` / `Shift` | Stick / â€” / L3 (click) or RT |
 | Camera / recentre | Mouse, arrows / `C` | Right stick / R3 |
-| Kick stance — hold to aim/charge | Right Mouse (or `K`) | LT |
-| Kick execute — aimed, while in stance | Left Mouse (or `F`) | RT (while LT held) |
-| Kick hip-fire — quick, imprecise | Left Mouse (or `F`) | RT (LT not held) |
+| Kick stance â€” hold to aim/charge | Right Mouse (or `K`) | LT |
+| Kick execute â€” aimed, while in stance | Left Mouse (or `F`) | RT (while LT held) |
+| Kick hip-fire â€” quick, imprecise | Left Mouse (or `F`) | RT (LT not held) |
 | Handball (toward move direction) | `Q` | X |
 | Bounce (in possession) | `Space` | B |
-| Slide tackle — hold, not carrying (higher takedown chance, real cost on a miss) | `E` | B |
-| Lunge tackle — tap, not carrying (lower commitment, weaker against a fast carrier) | `Q` | X |
-| Mark: Safe (hold) · Running (tap) · Aggressive (tap, jumps) | `G` · `Q` · `H` | A · X · Y |
+| Slide tackle â€” hold, not carrying (higher takedown chance, real cost on a miss) | `E` | B |
+| Lunge tackle â€” tap, not carrying (lower commitment, weaker against a fast carrier) | `Q` | X |
+| Mark: Safe (hold) Â· Running (tap) Â· Aggressive (tap, jumps) | `G` Â· `Q` Â· `H` | A Â· X Â· Y |
 | Spoil (not carrying, near a contest) | `P` | LT (tap) |
 | Smother (not carrying, opponent mid-kick) | `Q` | X |
 | Bump: hold stance, flick right stick to swing | `L` + flick | LB + flick |
-| Hit-out — ruck contest only | `J` | RB |
+| Hit-out â€” ruck contest only | `J` | RB |
 | Switch controlled player (Single Player mode) | `Tab` | D-pad Left |
 | Toggle Single Player / Team Command mode | `M` | D-pad Right |
 | Issue a move-here order (Team Command mode) | `B` | Misc1 (Xbox Share / PS Create) |
 | Pause | `Esc` | Start |
-| Reset ball · Debug HUD | `R` · `F3` | Back · D-pad up |
+| Reset ball Â· Debug HUD | `R` Â· `F3` | Back Â· D-pad up |
 
 ### Gameplay notes
 
@@ -159,7 +159,7 @@ docs/
 
 ### Controls
 
-Keyboard controls can be remapped through **Settings → Remap Controls**.
+Keyboard controls can be remapped through **Settings â†’ Remap Controls**.
 
 ## Placeholder art
 
@@ -180,3 +180,4 @@ All characters, animations, and audio are currently procedurally generated. Char
 **Default branch:** `dev`
 
 Development work should normally happen on `dev` or a temporary `feature/...`, `fix/...`, or `experiment/...` branch. Releases are made from `main`.
+

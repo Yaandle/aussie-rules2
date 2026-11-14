@@ -1,13 +1,13 @@
-class_name FullGamePregameScreen
+﻿class_name FullGamePregameScreen
 extends CanvasLayer
 
-## Full Game pregame settings screen — the step between main_menu.gd's
+## Full Game pregame settings screen â€” the step between main_menu.gd's
 ## FULL GAME card and full_game.tscn itself. main_menu.gd's FULL GAME
 ## Entry now points its scene_path here, and this screen is what actually
 ## calls SceneWipe.change_scene() on to the match once START MATCH is
 ## confirmed.
 ##
-## ── Why a card row and not another settings_screen.gd list ──────────
+## â”€â”€ Why a card row and not another settings_screen.gd list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 ## settings_screen.gd's plain vertical rows are the right shape for a
 ## long list of unrelated global options. A pregame screen is a small,
 ## fixed set of matchday choices you scan once and start, so this borrows
@@ -16,13 +16,13 @@ extends CanvasLayer
 ## cursor, and locked tiles greyed with a padlock (main_menu.gd's own
 ## SCENARIO/GOAL KICKING treatment). Each tile shows a setting's name and
 ## its current value rather than a mode name over artwork, so there is no
-## photo shader here — the tiles are plain RetroWindow parchment panels,
+## photo shader here â€” the tiles are plain RetroWindow parchment panels,
 ## matching settings/pause/team-list/remap rather than the menu's photo
 ## tiles.
 ##
-## ── Two-level cursor ────────────────────────────────────────────────
+## â”€â”€ Two-level cursor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 ## The row already spends left/right on moving the cursor, so a card's
-## own value picker cannot also live on left/right at the same time —
+## own value picker cannot also live on left/right at the same time â€”
 ## hence two modes, which is the whole interaction design of this screen:
 ##
 ##   ROW MODE   left/right   move the cursor across the 10 cards and the
@@ -31,7 +31,7 @@ extends CanvasLayer
 ##                           locked card, per main_menu.gd's locked-card
 ##                           _select(); on START MATCH, accept starts the
 ##                           match instead)
-##              down         jump straight to START MATCH — a spatial
+##              down         jump straight to START MATCH â€” a spatial
 ##                           "the button is below the cards" move, not a
 ##                           value-picker gesture
 ##              up           jump back from START MATCH to whichever card
@@ -39,7 +39,7 @@ extends CanvasLayer
 ##              cancel / pause  back to the main menu
 ##
 ##   CARD OPEN  left/right   cycle THAT card's value, live (see
-##                           SettingsScreen.Row.cycle() — the same
+##                           SettingsScreen.Row.cycle() â€” the same
 ##                           instant-apply cycling row this project
 ##                           already uses everywhere)
 ##              accept / cancel / up   close back to ROW MODE
@@ -47,39 +47,39 @@ extends CanvasLayer
 ## Down used to open a card's picker; it now moves the cursor down to
 ## START MATCH instead, since a controller/keyboard player reads "down"
 ## as "go to the button underneath the cards", not "start editing this
-## card" — accept alone still opens a card. Cancel is deliberately
-## swallowed by an open card rather than exiting the screen — you close
+## card" â€” accept alone still opens a card. Cancel is deliberately
+## swallowed by an open card rather than exiting the screen â€” you close
 ## the picker first, then back out, so a stray B press can never drop you
 ## out of the pregame screen mid-edit.
 ##
 ## Mouse: hovering a card or START MATCH moves the row cursor there (no
 ## picker needed) and a left click on a card cycles its value one step,
-## live — the click-to-change path the keyboard/controller two-level
+## live â€” the click-to-change path the keyboard/controller two-level
 ## cursor exists to also support without a mouse. A left click on START
 ## MATCH starts the match. ActionButton normally ignores the mouse
-## entirely (see its own header comment) — this screen overrides that
+## entirely (see its own header comment) â€” this screen overrides that
 ## deliberately, since it is the one screen an ActionButton needs to be
 ## clickable on.
 ##
 ## The trailing START MATCH stop follows character_screen.gd's PLAY row /
 ## settings_screen.gd's REMAP CONTROLS row convention ("one extra index
 ## past the real rows, accept activates instead of cycling"), just on a
-## horizontal cursor instead of a vertical one — so it costs no new input
+## horizontal cursor instead of a vertical one â€” so it costs no new input
 ## binding.
 ##
-## ── Locked cards ───────────────────────────────────────────────────
+## â”€â”€ Locked cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 ## DIFFICULTY / QUARTER LENGTH / VENUE / WEATHER are inert placeholders,
 ## the settings_screen.gd SCREEN SHAKE pattern: a fixed value displayed
 ## with no on_change and no second option to reach. Nothing in the
 ## project reads any of them and, deliberately, none of them has a
-## Settings field — inventing persisted state for a value nothing
+## Settings field â€” inventing persisted state for a value nothing
 ## consumes is exactly what settings_screen.gd's own header argues
 ## against.
 
-# ── Layout ───────────────────────────────────────────────────────────
+# â”€â”€ Layout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Design resolution is 1280x720 (project.godot [display], canvas_items
 # stretch). Bands are laid out in containers the way main_menu.gd's
-# rewrite does — the preview band is the only one that expands, so it
+# rewrite does â€” the preview band is the only one that expands, so it
 # absorbs whatever the fixed bands leave and nothing can grow into the
 # footer.
 
@@ -93,7 +93,7 @@ const FOOTER_HEIGHT := 24.0
 
 ## Ten cards plus nine gaps has to clear the screen's own side margins:
 ## 10*90 + 9*18 = 1062, against 1280 - 40*2 = 1200 usable. Card height is
-## set by the tallest content a card can hold — a two-line wrapped title
+## set by the tallest content a card can hold â€” a two-line wrapped title
 ## ("DEFENSIVE PRESSURE"), a two-line wrapped value, and the cursor glyph
 ## row under it.
 const CARD_WIDTH := 90.0
@@ -110,9 +110,9 @@ const CARD_CHEVRON_GAP := 6
 const PREVIEW_HEIGHT := DESIGN_HEIGHT - SCREEN_MARGIN_Y * 2.0 - HEADER_HEIGHT \
 	- CARD_HEIGHT - ActionButton.HEIGHT - FOOTER_HEIGHT - float(BAND_GAP) * 4.0
 
-## FormationWhiteboard draws itself to a portrait AFL aspect (Tuning's
+## FormationWhiteboard draws itself to a portrait Aussie Rules aspect (Tuning's
 ## half-width over half-length) fitted to the height it is given, plus its
-## own MARGIN inset on every side — so this is the panel width at which
+## own MARGIN inset on every side â€” so this is the panel width at which
 ## the board exactly fills the window rather than sitting in a band of
 ## empty parchment. Same derivation as TeamListScreen.BOARD_PANEL_WIDTH.
 const BOARD_ASPECT := 0.818
@@ -121,10 +121,10 @@ const PREVIEW_WIDTH := (PREVIEW_HEIGHT - FormationWhiteboard.MARGIN * 2.0) * BOA
 
 ## The board is centred in the preview window and sized to the height left
 ## after its own MARGIN, so the bottom MARGIN band of the window is empty
-## parchment. The readout strip is overlaid into exactly that band — it
+## parchment. The readout strip is overlaid into exactly that band â€” it
 ## costs the board no height, which is why the preview can carry a caption
 ## at all at this size. Four caption rows (FORMATION / CONTROL / CAMERA /
-## POSITION) run a little past that band into the board's own inset — a
+## POSITION) run a little past that band into the board's own inset â€” a
 ## harmless overlap of blank margin, not board content.
 const READOUT_INSET_X := 14.0
 const READOUT_HEIGHT := 66.0
@@ -151,13 +151,13 @@ const CARD_POP_EASE := Tween.EASE_OUT
 const CARD_SHADOW_TRANS := Tween.TRANS_CUBIC
 const CARD_SHADOW_EASE := Tween.EASE_OUT
 const CARD_SELECTED_SCALE := 1.06
-## Smaller than RetroWindow.SHADOW_OFFSET's 7px card-scale slab — these
+## Smaller than RetroWindow.SHADOW_OFFSET's 7px card-scale slab â€” these
 ## are small tiles, and the idle-to-selected growth is what sells the lift.
 const CARD_SHADOW_OFFSET_IDLE := Vector2(4.0, 4.0)
 const CARD_SHADOW_OFFSET_SELECTED := Vector2(9.0, 9.0)
 
 
-## One setting tile. `row` is SettingsScreen.Row — the project's
+## One setting tile. `row` is SettingsScreen.Row â€” the project's
 ## established cycling-value shape, reused rather than re-declared
 ## (team_list_screen.gd already reuses it the same way). `locked` is what
 ## separates the four inert placeholder cards from the five real ones: a
@@ -188,11 +188,11 @@ var _cards: Array[Card] = []
 var _index := 0
 
 ## Last card _index pointed at before jumping to the trailing START MATCH
-## stop — restored by _leave_start() so "up" from START MATCH is a real
+## stop â€” restored by _leave_start() so "up" from START MATCH is a real
 ## inverse of "down" into it, not a reset to card 0.
 var _last_card_index := 0
 
-## True while one functional card's value picker is open — the second
+## True while one functional card's value picker is open â€” the second
 ## level of the cursor. Never true for a locked card or for START MATCH.
 var _open := false
 
@@ -230,7 +230,7 @@ func _ready() -> void:
 			_set_defensive_pressure)),
 		Card.new(SettingsScreen.Row.new("YOUR POSITION",
 			_your_position_options(), Settings.home_human_slot, _set_your_position)),
-		# Inert placeholders from here down — see this file's header.
+		# Inert placeholders from here down â€” see this file's header.
 		Card.new(SettingsScreen.Row.new("DIFFICULTY", ["NORMAL"]), true),
 		Card.new(SettingsScreen.Row.new("QUARTER LENGTH", ["20 MIN"]), true),
 		Card.new(SettingsScreen.Row.new("VENUE", ["HOME GROUND"]), true),
@@ -239,7 +239,7 @@ func _ready() -> void:
 
 	_build()
 	# _refresh() drives the preview too, so there is no separate seeding
-	# call — one path keeps the cards and the window from ever disagreeing.
+	# call â€” one path keeps the cards and the window from ever disagreeing.
 	_refresh()
 
 
@@ -255,11 +255,11 @@ func _formation_options() -> Array[String]:
 
 ## One entry per HOME roster slot: "<n> <label>" (1-based roster index +
 ## the TeamFormation short label), so repeated labels (two BPs, two wings,
-## …) still read distinctly and the number doubles as the roster-index
-## cue. Static — every slot 0..TEAM_SIZE-1 is a real player at 18-a-side —
+## â€¦) still read distinctly and the number doubles as the roster-index
+## cue. Static â€” every slot 0..TEAM_SIZE-1 is a real player at 18-a-side â€”
 ## so unlike a formation-preset-derived list it never has to rebuild when
 ## another card changes. Slot 0 is the AI centre-bounce ruck (full_game.gd
-## _bounce_off); it's offered anyway — human-as-ruck is allowed, it just
+## _bounce_off); it's offered anyway â€” human-as-ruck is allowed, it just
 ## can't actively palm a hit-out. Only consumed in SINGLE_PLAYER mode; the
 ## card always shows (FULL TEAM ignores home_human_slot).
 func _your_position_options() -> Array[String]:
@@ -269,7 +269,7 @@ func _your_position_options() -> Array[String]:
 	return options
 
 
-# ── Input ────────────────────────────────────────────────────────────
+# â”€â”€ Input â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func _unhandled_input(event: InputEvent) -> void:
 	if _busy:
@@ -328,7 +328,7 @@ func _go_to_start() -> void:
 
 
 ## Up, from START MATCH only: back to whichever card sent you there. A
-## no-op from inside the card row — there's nothing above it to go to.
+## no-op from inside the card row â€” there's nothing above it to go to.
 func _leave_start() -> void:
 	if _index != _cards.size():
 		return
@@ -370,7 +370,7 @@ func _cycle(step: int) -> void:
 	_refresh()
 
 
-## Hovering a card moves the row cursor to it, same as arrowing over —
+## Hovering a card moves the row cursor to it, same as arrowing over â€”
 ## closes any open picker first, since the mouse never opens one (a click
 ## changes the value directly instead, see _on_card_input()).
 func _on_card_hovered(index: int) -> void:
@@ -411,9 +411,9 @@ func _back() -> void:
 	SceneWipe.change_scene(MENU_SCENE)
 
 
-# ── Setting writes ───────────────────────────────────────────────────
+# â”€â”€ Setting writes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Each writes its Settings field and saves immediately, so a value is
-# persisted the moment it is chosen rather than only on the way out —
+# persisted the moment it is chosen rather than only on the way out â€”
 # this screen has two exits (START MATCH and back) and one of them hands
 # straight over to a match that reads these same fields.
 
@@ -447,7 +447,7 @@ func _set_defensive_pressure(index: int) -> void:
 	Settings.save()
 
 
-# ── Build ────────────────────────────────────────────────────────────
+# â”€â”€ Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func _build() -> void:
 	var root := Control.new()
@@ -497,11 +497,11 @@ func _build_header(parent: Control) -> void:
 
 
 ## The preview window: a RetroWindow shell holding a live
-## FormationWhiteboard (the project's existing tactics board — the same
+## FormationWhiteboard (the project's existing tactics board â€” the same
 ## component team_list_screen.gd stages, driven by the same three
 ## Settings dials) plus an overlaid readout strip.
 ##
-## The board alone can only reflect three of the five real settings —
+## The board alone can only reflect three of the five real settings â€”
 ## it moves its 18 markers for FORMATION and BALL MOVEMENT and swings its
 ## dashed engagement line for DEFENSIVE PRESSURE, but it has no concept of
 ## who is holding the controller or where the camera is. Rather than
@@ -521,7 +521,7 @@ func _build_preview(parent: Control) -> void:
 	band.alignment = BoxContainer.ALIGNMENT_CENTER
 	parent.add_child(band)
 
-	# Landscape card — fixed width, centred; slightly inset from the screen edges.
+	# Landscape card â€” fixed width, centred; slightly inset from the screen edges.
 	var wrapper := Control.new()
 	wrapper.custom_minimum_size = Vector2(900.0, PREVIEW_HEIGHT)
 	wrapper.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -629,7 +629,7 @@ func _build_card(card: Card, index: int) -> void:
 	frame.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	frame.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	# STOP, not IGNORE: this card has to be the one thing under the mouse
-	# that actually receives the click (see _on_card_input()) — every
+	# that actually receives the click (see _on_card_input()) â€” every
 	# descendant built below stays IGNORE, so none of them steal the
 	# event, and it falls through to frame the way main_menu.gd's own
 	# mouse-only footer actions rely on the same fall-through.
@@ -639,7 +639,7 @@ func _build_card(card: Card, index: int) -> void:
 	card.frame = frame
 
 	# Hard offset shadow, added first so everything after it draws on top.
-	# RetroWindow's dusty teal rather than main_menu.gd's black — these
+	# RetroWindow's dusty teal rather than main_menu.gd's black â€” these
 	# tiles sit on the paper backdrop with the retro shell family, not over
 	# a photo montage.
 	var shadow := Panel.new()
@@ -673,7 +673,7 @@ func _build_card(card: Card, index: int) -> void:
 	column.add_theme_constant_override(&"separation", 2)
 	inset.add_child(column)
 
-	# Titles wrap rather than clip — "DEFENSIVE PRESSURE" does not fit a
+	# Titles wrap rather than clip â€” "DEFENSIVE PRESSURE" does not fit a
 	# 118px tile on one line at any readable size, and a card row where one
 	# label is silently truncated is worse than one where it takes two
 	# lines.
@@ -696,7 +696,7 @@ func _build_card(card: Card, index: int) -> void:
 
 	# Cursor/lock glyph, flanked by the two picker chevrons. The chevrons
 	# are always in the layout and only change alpha (see _refresh()), so
-	# opening a card never nudges the glyph sideways — a marker that shifts
+	# opening a card never nudges the glyph sideways â€” a marker that shifts
 	# as you press a button reads as a glitch, same reason main_menu.gd
 	# moved its cursor off a text prefix and onto a badge.
 	var glyph_row := HBoxContainer.new()
@@ -705,7 +705,7 @@ func _build_card(card: Card, index: int) -> void:
 	glyph_row.add_theme_constant_override(&"separation", CARD_CHEVRON_GAP)
 	column.add_child(glyph_row)
 
-	card.chevron_left = SoftBrutalist.label("‹", SoftBrutalist.SIZE_BODY,
+	card.chevron_left = SoftBrutalist.label("â€¹", SoftBrutalist.SIZE_BODY,
 		RetroWindow.ACCENT, SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_NONE)
 	card.chevron_left.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	glyph_row.add_child(card.chevron_left)
@@ -718,7 +718,7 @@ func _build_card(card: Card, index: int) -> void:
 	card.glyph.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	glyph_row.add_child(card.glyph)
 
-	card.chevron_right = SoftBrutalist.label("›", SoftBrutalist.SIZE_BODY,
+	card.chevron_right = SoftBrutalist.label("â€º", SoftBrutalist.SIZE_BODY,
 		RetroWindow.ACCENT, SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_NONE)
 	card.chevron_right.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	glyph_row.add_child(card.chevron_right)
@@ -731,9 +731,9 @@ func _build_card(card: Card, index: int) -> void:
 
 ## ActionButton measures its own width in _ready() and is positioned by
 ## hand (character_screen.gd stages it the same way) rather than sized by
-## a container, so the band holding it is a plain Control — a Container
+## a container, so the band holding it is a plain Control â€” a Container
 ## would re-sort the button back to its own content box every layout pass
-## — and the button is re-centred whenever either rect changes.
+## â€” and the button is re-centred whenever either rect changes.
 func _build_start_band(parent: Control) -> void:
 	_start_band = Control.new()
 	_start_band.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -743,7 +743,7 @@ func _build_start_band(parent: Control) -> void:
 	_start_button = ActionButton.new(START_TEXT)
 	# ActionButton ignores the mouse by design (see its own header) since
 	# every other screen that uses it drives it purely from the row
-	# cursor — this is the one screen where START MATCH also has to be a
+	# cursor â€” this is the one screen where START MATCH also has to be a
 	# real click target, so that default is overridden here rather than
 	# in the shared component.
 	_start_button.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -785,39 +785,39 @@ func _build_footer(parent: Control) -> void:
 	row.add_child(_hints)
 
 
-## The legend reflects the mode the cursor is actually in — an open card,
+## The legend reflects the mode the cursor is actually in â€” an open card,
 ## a locked card, a functional card, or the START MATCH stop all offer
 ## genuinely different things, and one combined run-on legend would be
 ## telling the player about three states they are not in.
 func _hints_for_state() -> Array:
 	if _open:
 		return [
-			{"keys": "← / →", "label": "Change"},
+			{"keys": "â† / â†’", "label": "Change"},
 			{"keys": "Enter / Esc", "label": "Close"},
 		]
 	if _index == _cards.size():
 		return [
-			{"keys": "← / →", "label": "Choose"},
+			{"keys": "â† / â†’", "label": "Choose"},
 			{"keys": "Enter", "label": "Start match"},
-			{"keys": "↑", "label": "Back to cards"},
+			{"keys": "â†‘", "label": "Back to cards"},
 			{"keys": "Esc", "label": "Back to menu"},
 		]
 	if _cards[_index].locked:
 		return [
-			{"keys": "← / →", "label": "Choose"},
-			{"keys": "—", "label": "Not built yet"},
-			{"keys": "↓", "label": "Start match"},
+			{"keys": "â† / â†’", "label": "Choose"},
+			{"keys": "â€”", "label": "Not built yet"},
+			{"keys": "â†“", "label": "Start match"},
 			{"keys": "Esc", "label": "Back to menu"},
 		]
 	return [
-		{"keys": "← / →", "label": "Choose"},
+		{"keys": "â† / â†’", "label": "Choose"},
 		{"keys": "Enter", "label": "Open"},
-		{"keys": "↓", "label": "Start match"},
+		{"keys": "â†“", "label": "Start match"},
 		{"keys": "Esc", "label": "Back to menu"},
 	]
 
 
-# ── Refresh ──────────────────────────────────────────────────────────
+# â”€â”€ Refresh â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func _refresh() -> void:
 	for i in _cards.size():
@@ -835,13 +835,13 @@ func _refresh() -> void:
 		card.glyph.line_colour = _glyph_colour(card, selected)
 
 		# Alpha rather than `visible`, so the glyph row's layout never
-		# reflows — see _build_card().
+		# reflows â€” see _build_card().
 		var chevron_alpha := 1.0 if open else 0.0
 		card.chevron_left.modulate.a = chevron_alpha
 		card.chevron_right.modulate.a = chevron_alpha
 
 		# The cursor "lifts" a locked card too (shadow and scale follow the
-		# cursor, not unlocked-ness) — same split main_menu.gd draws between
+		# cursor, not unlocked-ness) â€” same split main_menu.gd draws between
 		# its `selected` and `live` flags, so a locked tile still shows you
 		# where you are without pretending to be actionable.
 		var lifted := selected or open
@@ -859,7 +859,7 @@ func _card_style(card: Card, selected: bool, open: bool) -> StyleBoxFlat:
 		return RetroWindow.panel_style(SoftBrutalist.DISABLED_BG, SoftBrutalist.DISABLED_BORDER)
 	if open:
 		# The same accent wash RetroWindow.row_style() gives a selected
-		# list row — "this control has the input right now", one step past
+		# list row â€” "this control has the input right now", one step past
 		# merely being under the cursor.
 		return RetroWindow.panel_style(RetroWindow.ACCENT.lightened(0.78), RetroWindow.ACCENT)
 	if selected:
@@ -892,7 +892,7 @@ func _animate_card(card: Card, lifted: bool) -> void:
 			CARD_ANIM_DURATION).set_trans(CARD_SHADOW_TRANS).set_ease(CARD_SHADOW_EASE)
 
 
-## Shifts a full-rect-anchored shadow down-right without resizing it —
+## Shifts a full-rect-anchored shadow down-right without resizing it â€”
 ## offset_right/offset_bottom add rather than negate, so all four edges
 ## move by the same amount (RetroWindow._build() moves its own shadow the
 ## same way).
@@ -904,7 +904,7 @@ func _set_shadow_offset(shadow: Panel, offset: Vector2) -> void:
 
 
 ## Pushes the live settings into the preview window. All three board dials
-## are set every time even when only one changed — cheap (see
+## are set every time even when only one changed â€” cheap (see
 ## FormationWhiteboard._retarget()) and it keeps every caller from having
 ## to know which of them the board actually reacts to, same as
 ## team_list_screen.gd's own _sync_whiteboard().
@@ -919,7 +919,7 @@ func _sync_preview() -> void:
 	_readout_values[0].text = String(
 		Settings.FORMATION_PRESETS[Settings.home_formation_index]["name"])
 	# Phrased as what the player is holding rather than repeating the
-	# card's own "SINGLE PLAYER"/"FULL TEAM" wording verbatim — the card
+	# card's own "SINGLE PLAYER"/"FULL TEAM" wording verbatim â€” the card
 	# says which mode is set, the preview says what that means on the park.
 	_readout_values[1].text = "ONE PLAYER" \
 		if Settings.player_control_mode == Settings.PlayerControlMode.SINGLE_PLAYER \
@@ -928,6 +928,7 @@ func _sync_preview() -> void:
 		if Settings.full_game_camera_mode == Settings.FullGameCameraMode.THIRD_PERSON \
 		else "FULL-SIDE"
 	# Same "<n> <label>" form the YOUR POSITION card uses. Only bites in
-	# ONE PLAYER mode, but shown regardless — the card is too.
+	# ONE PLAYER mode, but shown regardless â€” the card is too.
 	_readout_values[3].text = "%d %s" % [Settings.home_human_slot + 1,
 		String(TeamFormation.roster_slot(Settings.home_human_slot)["label"])]
+

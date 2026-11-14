@@ -1,9 +1,9 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Team List — Formation Showcase</title>
+<title>Team List â€” Formation Showcase</title>
 <style>
   :root{
     --bg:#2a2a2a;
@@ -176,7 +176,7 @@
     box-shadow:inset 0 0 60px rgba(0,0,0,.28);
   }
 
-  /* pitch markings — schematic, on the tilted plane so they foreshorten */
+  /* pitch markings â€” schematic, on the tilted plane so they foreshorten */
   .mark{position:absolute;border:2px solid rgba(255,255,255,.42);pointer-events:none}
   .csquare{
     left:31.48%;top:34.85%;width:37.04%;height:30.30%;
@@ -355,7 +355,7 @@
     {key:"FORWARD",      name:"FORWARD",       cssVar:"--line-FORWARD"},
   ];
 
-  // 18 AFL slots (TeamFormation.SLOTS): line, label, depth (-1 own goal .. +1 attacking goal), lateral (-1..1).
+  // 18 Aussie Rules slots (TeamFormation.SLOTS): line, label, depth (-1 own goal .. +1 attacking goal), lateral (-1..1).
   const SLOTS = [
     {l:"BACK",         t:"FB",  d:-0.80, x: 0.00},
     {l:"BACK",         t:"BP",  d:-0.80, x:-0.55, pocket:true},
@@ -435,7 +435,7 @@
   legendEl.appendChild(benchHead);
   BENCH.forEach(function(b){
     const row = document.createElement("div");
-    row.className = "lrow in";               // static — not tied to the oval reveal
+    row.className = "lrow in";               // static â€” not tied to the oval reveal
     row.innerHTML =
       '<span class="sw" style="background:transparent;border:1.5px dashed var(--muted)"></span>' +
       '<span class="nm">' + b.name + '</span>' +
@@ -555,3 +555,4 @@
 </script>
 </body>
 </html>
+

@@ -1,4 +1,4 @@
-class_name Field
+﻿class_name Field
 extends Node3D
 
 ## The oval: turf, line markings and four posts at each end.
@@ -11,11 +11,11 @@ extends Node3D
 ##
 ## Prototype 1 drew its field at 166 x 88 logical units to suit a fixed
 ## 16:9 diorama camera. A 3D camera has no such constraint, so these are
-## real AFL proportions and real metres.
+## real Aussie Rules proportions and real metres.
 
 ## Emitted when the ball enters a goal or behind zone (see
 ## _build_score_zones). The scoring team is whichever side attacks this
-## end — HOME attacks +X per Tuning.gd's documented axis convention.
+## end â€” HOME attacks +X per Tuning.gd's documented axis convention.
 signal scored(team: Tuning.Team, is_goal: bool)
 
 const MARKING_HEIGHT := 0.012      ## m above the turf, to beat z-fighting
@@ -28,7 +28,7 @@ const COLOUR_LINE := Color("#f4f1e0")   ## Prototype 1's LINE
 const COLOUR_POST_BASE := Color("#c65449")  ## Prototype 1's POST_RED
 
 ## The goal line sits just inside the boundary, the way it does on a real
-## ground — there is playing surface behind the posts.
+## ground â€” there is playing surface behind the posts.
 const GOAL_LINE_INSET := 1.5
 
 ## How far the surrounds run past the boundary. Generous enough that wide
@@ -40,17 +40,17 @@ const GOAL_LINE_INSET := 1.5
 ## across the sky behind the treeline. This pushes that edge out to about
 ## half a kilometre, where the environment fog has faded it into the sky
 ## before it can be seen. The ground is two triangles however large it is
-## and the turf shader is per-pixel, so the extra reach costs nothing —
+## and the turf shader is per-pixel, so the extra reach costs nothing â€”
 ## the plane covers the same screen area either way.
 const SURROUND_MARGIN := 420.0
 
-## Stadium boundary fence — purely a "this is an oval, not an empty plane"
-## visual cue (design doc §9 territory, same spirit as the posts). Sits
+## Stadium boundary fence â€” purely a "this is an oval, not an empty plane"
+## visual cue (design doc Â§9 territory, same spirit as the posts). Sits
 ## just past the running-track apron drawn by turf.gdshader's apron_width.
 ##
 ## Its job is to frame the ground, not to be looked at. It used to be
-## painted in COLOUR_LINE — the exact white the goal posts and every
-## painted marking use — with COLOUR_POST_BASE red posts every eighth
+## painted in COLOUR_LINE â€” the exact white the goal posts and every
+## painted marking use â€” with COLOUR_POST_BASE red posts every eighth
 ## segment, which made it a bright dashed ring and the brightest
 ## continuous object in a wide shot. The colours below keep it a legible
 ## edge while dropping it well below the markings in contrast.
@@ -67,10 +67,10 @@ const COLOUR_FENCE := Color("#C9C6BA")
 const COLOUR_FENCE_RAIL := Color("#8E9089")
 const FENCE_RAIL_HEIGHT := 0.12
 
-# ── Surrounding trees ────────────────────────────────────────────────
+# â”€â”€ Surrounding trees â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # A ring of small stylised trees in the park beyond the fence. One
 # MultiMesh for the canopies and one for the trunks, so the whole band is
-# two draw calls however many trees it holds — a MeshInstance3D per tree
+# two draw calls however many trees it holds â€” a MeshInstance3D per tree
 # would be hundreds.
 #
 # Placed outside the boundary and never inside it: this is framing for
@@ -138,7 +138,7 @@ func is_inside_oval(point: Vector3, inset := 0.0) -> bool:
 	return x * x + z * z <= 1.0
 
 
-# ── Line markings ────────────────────────────────────────────────────
+# â”€â”€ Line markings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func _build_markings() -> void:
 	var surface := SurfaceTool.new()
@@ -268,7 +268,7 @@ func _arc_inside_oval(centre_point: Vector3, radius: float, start_angle: float,
 	return points
 
 
-# ── Posts ────────────────────────────────────────────────────────────
+# â”€â”€ Posts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func _build_goals() -> void:
 	var goals := Node3D.new()
@@ -339,11 +339,11 @@ func _post(parent: Node3D, base: Vector3, height: float,
 	body.add_child(band_node)
 
 
-# ── Scoring ──────────────────────────────────────────────────────────
+# â”€â”€ Scoring â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Three Area3D triggers per end: one goal-mouth box between the goal
 # posts, two behind boxes either side of it out to the behind posts. No
 # post-hit or crossing-height distinction (design doc scope for the Full
-# Game milestone) — whichever box the ball enters decides the outcome.
+# Game milestone) â€” whichever box the ball enters decides the outcome.
 
 const SCORE_ZONE_DEPTH := 4.0      ## m, how far past the goal line the trigger reaches
 const SCORE_ZONE_HEIGHT := 12.0    ## m, tall enough that no realistic kick clears it
@@ -379,16 +379,16 @@ func _score_zone(parent: Node3D, zone_name: String, centre_x: float, centre_z: f
 			scored.emit(team, is_goal))
 
 
-# ── Match officials ──────────────────────────────────────────────────
-# Core rulebook v1 §10: a boundary umpire either side and a goal umpire at
-# each end. Purely cosmetic actors with no collision — see umpire.gd's own
+# â”€â”€ Match officials â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Core rulebook v1 Â§10: a boundary umpire either side and a goal umpire at
+# each end. Purely cosmetic actors with no collision â€” see umpire.gd's own
 # class doc for why that's deliberate. Built here with the rest of the
 # ground furniture because that is what they are from this file's point of
 # view: something that stands on the field, sized off Tuning like
 # everything else here.
 
 ## How far behind the goal line the goal umpire stands. GOAL_LINE_INSET is
-## only 1.5m, so this puts them just off the playing surface — which is
+## only 1.5m, so this puts them just off the playing surface â€” which is
 ## exactly where the real one stands relative to a real goal line, and
 ## keeps them clear of a ball still travelling after it has scored.
 const UMPIRE_GOAL_SETBACK := 2.5
@@ -397,7 +397,7 @@ const UMPIRE_GOAL_SETBACK := 2.5
 ## reason.
 const UMPIRE_BOUNDARY_OFFSET := 0.6
 
-## How far to the side of a stoppage spot the field umpire stands — far
+## How far to the side of a stoppage spot the field umpire stands â€” far
 ## enough that he isn't inside the two ruckmen, close enough to read as
 ## the one throwing it up. Also his idle spot beside the centre circle.
 ##
@@ -409,13 +409,13 @@ const UMPIRE_BOUNDARY_OFFSET := 0.6
 ## up and being contested on the way down.
 const UMPIRE_CENTRE_OFFSET := 2.4
 
-## Which goal umpire signals which team's goals — the umpire at the end a
+## Which goal umpire signals which team's goals â€” the umpire at the end a
 ## team attacks. HOME attacks +X (Tuning's axis convention).
 var _goal_umpires := {}
 
 ## The one official who moves: he goes to wherever the next stoppage is and
 ## throws the ball up. See FullGame._begin_ruck_contest, which is the only
-## caller — this file just builds him and hands him over.
+## caller â€” this file just builds him and hands him over.
 var _field_umpire: Umpire
 
 
@@ -459,7 +459,7 @@ func _build_umpires() -> void:
 	scored.connect(_raise_goal_flags)
 
 
-## The goal umpire's two flags going up (rulebook §10) is the only thing
+## The goal umpire's two flags going up (rulebook Â§10) is the only thing
 ## any official here actually does. Driven off this file's own `scored`
 ## signal rather than from FullGame, so it happens wherever the field is
 ## used and can't be forgotten by a new mode.
@@ -471,8 +471,8 @@ func _raise_goal_flags(team: Tuning.Team, is_goal: bool) -> void:
 		umpire.signal_goal()
 
 
-# ── Boundary fence ───────────────────────────────────────────────────
-# A continuous low ribbon rather than individually instanced pickets —
+# â”€â”€ Boundary fence â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# A continuous low ribbon rather than individually instanced pickets â€”
 # cheaper (one mesh, same technique as _stripe()) and reads the same way
 # a real picket fence does from a broadcast camera's distance: a solid
 # white band, not distinct pickets. A handful of posts add just enough
@@ -559,7 +559,7 @@ func _fence_post(parent: Node3D, base: Vector3, material: Material) -> void:
 	parent.add_child(node)
 
 
-# ── Trees ────────────────────────────────────────────────────────────
+# â”€â”€ Trees â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 ## Scatters TREE_COUNT trees through a band in the park outside the fence.
 ##
@@ -567,7 +567,7 @@ func _fence_post(parent: Node3D, base: Vector3, material: Material) -> void:
 ## time a scene loads, and a park that rearranged itself between the menu
 ## montage and the match would read as a different venue.
 ##
-## Angles are stratified rather than uniformly random — one tree per equal
+## Angles are stratified rather than uniformly random â€” one tree per equal
 ## slice of the ellipse, jittered inside its own slice. Uniform random
 ## angles clump, and a ring with visible clusters and bald patches reads
 ## as a bug rather than as planting.
@@ -668,8 +668,9 @@ func _tree_multimesh(node_name: String, mesh: PrimitiveMesh, albedo: Color,
 	node.name = node_name
 	node.multimesh = multimesh
 	# The trees stand 90-120m out, well past anything the play happens
-	# near, so their shadows would only ever fall on empty park — and
+	# near, so their shadows would only ever fall on empty park â€” and
 	# casting them would spend a slice of the directional shadow atlas on
 	# ground no camera dwells on.
 	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(node)
+

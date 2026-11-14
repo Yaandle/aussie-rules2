@@ -1,6 +1,6 @@
-extends Node3D
+﻿extends Node3D
 
-## Full Game mode (design doc §7 priority 1): a small-sided match with a
+## Full Game mode (design doc Â§7 priority 1): a small-sided match with a
 ## real clock, quarters, scoring, tackling and AI.
 ##
 ## Milestone 1 proved one player's physics felt weighty. This proves the
@@ -8,7 +8,7 @@ extends Node3D
 ## (ai_brain.gd) everywhere the human isn't, contests resolved physically
 ## via PlayerController's tackle handling, goals/behinds detected by
 ## Field's trigger zones. See docs/RULES_REFERENCE.md for what's a real
-## AFL rule here and what's a deliberate MVP simplification.
+## Aussie Rules rule here and what's a deliberate MVP simplification.
 ##
 ## Owns the whole match state machine: kickoff formation -> centre bounce
 ## -> play -> (score -> pause -> re-bounce) | (quarter ends -> next
@@ -25,10 +25,10 @@ const KICKOFF_DEPTH := 30.0     ## m from centre each team lines up at
 ## Per-team lateral stagger for the full-18 formation spawn. TeamFormation
 ## is a single mirrored layout, so without this HOME's back line resolves
 ## to the exact same world points as AWAY's forward line (full-back on
-## full-forward, CHB on CHF, …) and the two coincident capsules blow the
-## solver up on the first physics tick. Shifting each side ±this along the
-## ground line puts paired opponents ~2x this apart — a defender goal-side
-## of their opponent, not standing in them. Not an AFL number; just enough
+## full-forward, CHB on CHF, â€¦) and the two coincident capsules blow the
+## solver up on the first physics tick. Shifting each side Â±this along the
+## ground line puts paired opponents ~2x this apart â€” a defender goal-side
+## of their opponent, not standing in them. Not an Aussie Rules number; just enough
 ## clearance that no two bodies ever spawn on one point.
 const FORMATION_TEAM_STAGGER := 2.0
 
@@ -43,10 +43,13 @@ var _away_players: Array[PlayerController] = []
 var _crosshair: KickCrosshair
 var _mark_prompt: MarkPrompt
 var _controlled_ring: ControlledPlayerRing
+var _goal_kick_prompt: GoalKickPrompt
+var _goal_kick_player: PlayerController = null
+var _goal_kick_pending := false
 
 ## The two ruckmen in the current live ruck contest (set in _release_ruck_
 ## contest). Cleared the instant a hit-out connects so the on-ballers are
-## freed to gather the tap — see _on_hit_out_resolved and
+## freed to gather the tap â€” see _on_hit_out_resolved and
 ## PlayerController.ruck_contest_locked.
 var _ruck_contestants: Array[PlayerController] = []
 
@@ -54,13 +57,13 @@ var _pause_timer := 0.0
 var _pause_callback := Callable()
 
 ## Last frame's ball position, tracked every frame the ball is live so the
-## exact boundary crossing can be bisected out of it — see
+## exact boundary crossing can be bisected out of it â€” see
 ## _check_out_of_bounds(). Reset to invalid across any stoppage, so a stale
 ## position from before it can never be bisected against a new one.
 var _prev_ball_pos := Vector3.ZERO
 var _prev_ball_pos_valid := false
 
-## Seconds until "call for the ball" can be used again — see
+## Seconds until "call for the ball" can be used again â€” see
 ## Tuning.CALL_FOR_BALL_COOLDOWN. Only ever non-zero in
 ## Settings.PlayerControlMode.SINGLE_PLAYER, since that's the only mode the
 ## action is routed in at all.
@@ -75,7 +78,7 @@ func _ready() -> void:
 	AudioManager.register_field(_field)
 
 	# Full Game is the one mode this option applies to (see Settings'
-	# own doc comment on full_game_camera_mode) — read the saved choice
+	# own doc comment on full_game_camera_mode) â€” read the saved choice
 	# now, and keep it live if changed mid-match from a paused settings
 	# screen rather than only taking effect on the next match.
 	_apply_camera_mode(Settings.full_game_camera_mode)
@@ -94,8 +97,11 @@ func _ready() -> void:
 	_mark_prompt.ball = _ball
 	add_child(_mark_prompt)
 
+	_goal_kick_prompt = GoalKickPrompt.new()
+	add_child(_goal_kick_prompt)
+
 	_controlled_ring = ControlledPlayerRing.new()
-	# _apply_camera_mode() ran above, before this existed — seed the state
+	# _apply_camera_mode() ran above, before this existed â€” seed the state
 	# it would have set, then it keeps it live on any mid-match change.
 	_controlled_ring.active = Settings.full_game_camera_mode \
 		== Settings.FullGameCameraMode.FULL_SIDE
@@ -107,6 +113,7 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	_check_out_of_bounds()
+	_update_goal_kick()
 	# Ticked ahead of the pause gate below, not inside the live-play branch:
 	# a call made just before a goal/ball-up shouldn't stay on cooldown for
 	# the whole stoppage as well.
@@ -127,7 +134,7 @@ func _physics_process(delta: float) -> void:
 func _apply_camera_mode(setting: Settings.FullGameCameraMode) -> void:
 	var full_side := setting == Settings.FullGameCameraMode.FULL_SIDE
 	_camera.set_mode(BroadcastCamera.Mode.FULL_SIDE if full_side else BroadcastCamera.Mode.CHASE)
-	# The foot ring only earns its keep in the wide view — in CHASE the
+	# The foot ring only earns its keep in the wide view â€” in CHASE the
 	# camera is already sitting behind the controlled player.
 	if is_instance_valid(_controlled_ring):
 		_controlled_ring.active = full_side
@@ -137,12 +144,16 @@ func _apply_camera_mode(setting: Settings.FullGameCameraMode) -> void:
 ## Full Game pregame screen) differ here and nowhere else: FULL_TEAM keeps
 ## switch_player, SINGLE_PLAYER swaps it for call_for_ball. Gated at the
 ## input site rather than inside each handler so the split is readable in
-## one place — which action even exists in which mode is the whole setting.
+## one place â€” which action even exists in which mode is the whole setting.
 ## Note this is Settings.PlayerControlMode, NOT ControlMode.Scheme: both
 ## teams stay registered as ControlMode.Scheme.SINGLE_PLAYER regardless,
 ## exactly as before this pass.
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed(&"switch_player"):
+	# Y is only meaningful here after a legal marked catch in range. Outside
+	# that context it retains its existing aggressive-mark meaning.
+	if event.is_action_pressed(&"goal_kick") and _request_goal_kick():
+		return
+	elif event.is_action_pressed(&"switch_player"):
 		if Settings.player_control_mode == Settings.PlayerControlMode.FULL_TEAM:
 			_switch_human_player()
 	elif event.is_action_pressed(&"call_for_ball"):
@@ -158,7 +169,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		_reset_ball()
 
 
-## Central reaction to ControlMode's one signal — every place that used to
+## Central reaction to ControlMode's one signal â€” every place that used to
 ## be told "here's the newly controlled/selected player" individually
 ## (camera, HUD, crosshair, mark-prompt) now just re-binds here instead.
 ## Only HOME is ever handled: AWAY never gets a focus_changed emission in
@@ -168,7 +179,7 @@ func _unhandled_input(event: InputEvent) -> void:
 ##
 ## Camera decision (documented per TASK's request not to silently pick
 ## one): `previous == null` means this is the very first focus this match
-## has ever had — nothing meaningful to move away from — so the camera
+## has ever had â€” nothing meaningful to move away from â€” so the camera
 ## snaps via recenter(). Every subsequent change, whether a switch or a
 ## TEAM_COMMAND selection change, goes through switch_target(), which snaps
 ## the focus onto the new player and does a brisk reorient behind them
@@ -191,11 +202,12 @@ func _on_focus_changed(team: Tuning.Team, previous: PlayerController, next: Play
 	_hud.player = next
 	_crosshair.player = next
 	_mark_prompt.player = next
+	_goal_kick_prompt.player = next
 	_controlled_ring.player = next
 
 
 ## Esc used to hard-cut straight to the main menu, discarding a match in
-## progress with zero confirmation — PauseScreen already existed fully
+## progress with zero confirmation â€” PauseScreen already existed fully
 ## built and simply wasn't wired to anything (see docs/FEATURE_AUDIT.md).
 ## Pushed as a real paused overlay: PROCESS_MODE_ALWAYS is what lets it
 ## keep receiving input while get_tree().paused freezes everything else
@@ -207,14 +219,14 @@ func _open_pause_menu() -> void:
 	get_tree().paused = true
 
 
-# ── Setup ────────────────────────────────────────────────────────────
+# â”€â”€ Setup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func _spawn_teams() -> void:
 	_home_players = _spawn_team(Tuning.Team.HOME, 1.0)
 	_away_players = _spawn_team(Tuning.Team.AWAY, -1.0)
 
 	# ControlMode (control-mode pass) is the single source of truth for
-	# "who's driving" from here on — this mode script still builds the
+	# "who's driving" from here on â€” this mode script still builds the
 	# actual brains (only it knows the AI config: ball ref, home position,
 	# attack direction), but which player is focused, and telling the
 	# camera/HUD/crosshair/mark-prompt about it, is centralised in
@@ -223,7 +235,7 @@ func _spawn_teams() -> void:
 	ControlMode.reset()
 	ControlMode.register_team(Tuning.Team.HOME, _home_players, ControlMode.Scheme.SINGLE_PLAYER)
 	# AWAY is registered with no human ever assigned (controlled_player
-	# stays null) rather than skipped — a router that only knows about
+	# stays null) rather than skipped â€” a router that only knows about
 	# teams a human might drive can't answer "is anyone controlling this
 	# team" for AWAY at all, and future local-multiplayer needs that
 	# question answerable for every team, not just HOME's.
@@ -234,7 +246,7 @@ func _spawn_teams() -> void:
 	# SINGLE_PLAYER position pick (Settings.home_human_slot, chosen on the
 	# pregame screen; default 1 = centre). Re-clamped to the live roster so
 	# a stale save can't index past the spawned team. _bounce_off() still
-	# rucks _home_players[0] regardless — see its comment.
+	# rucks _home_players[0] regardless â€” see its comment.
 	var human_idx := clampi(Settings.home_human_slot, 0, _home_players.size() - 1)
 	_home_players[human_idx].set_brain(HumanBrain.new())
 	ControlMode.set_controlled_player(Tuning.Team.HOME, _home_players[human_idx])
@@ -245,12 +257,12 @@ func _spawn_teams() -> void:
 		player.holding_the_ball_called.connect(_on_holding_the_ball)
 		player.run_too_far_called.connect(_on_run_too_far)
 		player.hit_out_resolved.connect(_on_hit_out_resolved)
-		# FULL_TEAM auto-carrier control — jump the human onto whoever HOME
+		# FULL_TEAM auto-carrier control â€” jump the human onto whoever HOME
 		# wins the ball. ball_gathered covers marks too (_finish_mark_catch
 		# routes through _complete_gather), so it's the one "now has it"
 		# hook. Bound with the player since the signal only carries the ball.
 		player.ball_gathered.connect(_on_home_gained_possession.bind(player))
-		# Box-score stats (docs/FEATURE_AUDIT.md) — bound with the player
+		# Box-score stats (docs/FEATURE_AUDIT.md) â€” bound with the player
 		# itself since neither signal carries a reference to who disposed/
 		# marked, only what happened.
 		player.ball_disposed.connect(_on_player_disposed.bind(player))
@@ -259,7 +271,7 @@ func _spawn_teams() -> void:
 
 ## Push the CharacterProfile stats onto HOME. CharacterProfile.apply_all
 ## picks the scope: every HOME player, or (false) only the pregame
-## start-position slot — deliberately fixed to that slot, it does NOT
+## start-position slot â€” deliberately fixed to that slot, it does NOT
 ## follow the controlled player across FULL_TEAM carrier switches (see
 ## _assign_human_to). AWAY is never touched. Mirrors kick_to_kick.gd's
 ## per-field assignment.
@@ -286,20 +298,20 @@ func _spawn_team(team: Tuning.Team, attack_direction: float) -> Array[PlayerCont
 
 		# Position before add_child(), not after. A CharacterBody3D that
 		# joins the tree registers its collision body with the physics
-		# server at whatever transform it already has — the scene's
-		# authored origin — and that registration isn't visible to script
+		# server at whatever transform it already has â€” the scene's
+		# authored origin â€” and that registration isn't visible to script
 		# as "wrong" but does not retroactively move once add_child()
 		# returns: the physics server only picks up a transform set
 		# afterward on its next flush, one full physics tick later. With
 		# TEAM_SIZE*2 players all instantiated at the origin and moved to
 		# their kickoff slot only after add_child(), every one of them sat
-		# on top of the ball (also at the origin) for that first tick —
+		# on top of the ball (also at the origin) for that first tick â€”
 		# eight overlapping capsules and a ball resolved by the solver in
 		# one step threw the ball across the map at thousands of m/s
 		# before the match even started. Setting the transform first means
 		# the body is created already at its slot; there is no origin to
 		# flash through.
-		# `position`, not `global_position` — the node isn't in the tree
+		# `position`, not `global_position` â€” the node isn't in the tree
 		# yet, so there's no parent transform to resolve a global position
 		# against. FullGame itself sits at identity, so the two are the
 		# same value once this becomes its child.
@@ -320,11 +332,11 @@ func _spawn_team(team: Tuning.Team, attack_direction: float) -> Array[PlayerCont
 
 
 ## Threads Team Edit's ball-movement/defensive-pressure tactics (formation
-## is handled separately, via _kickoff_slot — this is the other half) into
+## is handled separately, via _kickoff_slot â€” this is the other half) into
 ## a freshly-created AIBrain. Used both here and by _switch_human_player()'s
 ## own hand-back AIBrain, so the two call sites can't drift about which
 ## settings a HOME player's AI actually gets the moment nobody's driving
-## them. AWAY always keeps AIBrain's own un-tuned defaults — only the
+## them. AWAY always keeps AIBrain's own un-tuned defaults â€” only the
 ## human's own team is something Team Edit lets them shape.
 func _configure_ai_brain(brain: AIBrain, team: Tuning.Team, attack_direction: float,
 		home_position: Vector3) -> AIBrain:
@@ -341,13 +353,13 @@ func _configure_ai_brain(brain: AIBrain, team: Tuning.Team, attack_direction: fl
 ## TeamFormation layout, roster index mapped through
 ## TeamFormation.ROSTER_ORDER (on-ball unit first). world_position() folds
 ## in attack_direction, so AWAY's -1.0 mirrors HOME across the centre line
-## — which lands HOME's back line on top of AWAY's forward line (see
-## FORMATION_TEAM_STAGGER), so each team is also shifted ±that along the
+## â€” which lands HOME's back line on top of AWAY's forward line (see
+## FORMATION_TEAM_STAGGER), so each team is also shifted Â±that along the
 ## ground line to keep paired opponents from spawning on one point.
 ## Below a full roster (reduced-size testing) HOME instead uses whichever
-## of Settings.FORMATION_PRESETS the Team List screen last left selected —
+## of Settings.FORMATION_PRESETS the Team List screen last left selected â€”
 ## a curated "pick 4 of 18" shape that would collide two HOME players onto
-## shared slots at the full 18 — and AWAY/overflow fall back to a plain
+## shared slots at the full 18 â€” and AWAY/overflow fall back to a plain
 ## even spread 30 m back, a "not stacked on the centre circle" baseline
 ## rather than a real formation.
 func _kickoff_slot(index: int, attack_direction: float, team: Tuning.Team) -> Vector3:
@@ -366,8 +378,8 @@ func _kickoff_slot(index: int, attack_direction: float, team: Tuning.Team) -> Ve
 	return Vector3(x, 0.0, z)
 
 
-## Real AFL centre-square law: at a centre bounce a maximum of four players
-## per team — the ruck plus three midfielders ("on-ballers") — may be
+## Real Aussie Rules centre-square law: at a centre bounce a maximum of four players
+## per team â€” the ruck plus three midfielders ("on-ballers") â€” may be
 ## inside the 50 m centre square until the ball is bounced; everyone else
 ## must start outside it. So roster indices 0-3 go on the ruck-contest
 ## ring at the centre and indices 4+ hold their normal matchday formation
@@ -379,20 +391,20 @@ func _kickoff_slot(index: int, attack_direction: float, team: Tuning.Team) -> Ve
 ## bounces the ball, not a line 30 m back. At TEAM_SIZE 4 the ring is the
 ## whole team and indices 4+ never occur.
 const RUCK_CONTEST_OFFSET := 1.3   ## m either side of centre, ruck vs ruck
-const ON_BALLER_RING_RADIUS := 7.0 ## m from centre — outside CENTRE_CIRCLE_OUTER (5m),
+const ON_BALLER_RING_RADIUS := 7.0 ## m from centre â€” outside CENTRE_CIRCLE_OUTER (5m),
                                     ## inside CENTRE_SQUARE_SIZE (50m)
 const ON_BALLER_ANGLES_DEG: Array[float] = [-55.0, 0.0, 55.0]
 
 ## `index` 0 is the ruck; 1..3 are the three on-ballers ringed around the
 ## circle; 4+ hold their matchday formation slot (see the comment above).
 ## `attack_direction` biases each team to its own half so the two teams
-## never overlap — sign-symmetric the same way _kickoff_slot's own
+## never overlap â€” sign-symmetric the same way _kickoff_slot's own
 ## attack_direction split already is.
 func _centre_bounce_slot(index: int, attack_direction: float, team: Tuning.Team) -> Vector3:
 	if index == 0:
 		return Vector3(-attack_direction * RUCK_CONTEST_OFFSET, 0.0, 0.0)
 	if index < 4:
-		# (index - 1) % size() is defensive — index is always 1..3 here.
+		# (index - 1) % size() is defensive â€” index is always 1..3 here.
 		var angle := deg_to_rad(ON_BALLER_ANGLES_DEG[(index - 1) % ON_BALLER_ANGLES_DEG.size()])
 		return Vector3(-attack_direction * ON_BALLER_RING_RADIUS * cos(angle), 0.0,
 			ON_BALLER_RING_RADIUS * sin(angle))
@@ -401,7 +413,7 @@ func _centre_bounce_slot(index: int, attack_direction: float, team: Tuning.Team)
 
 ## Every centre-bounce moment (kickoff, after a goal, each quarter start)
 ## also re-anchors each AI's off-ball drift target (AIBrain.home_position)
-## to its current MATCHDAY FORMATION slot via _kickoff_slot — the same
+## to its current MATCHDAY FORMATION slot via _kickoff_slot â€” the same
 ## call _spawn_team used to set it initially, just re-run here so it can't
 ## go stale. Without this, home_position was only ever set once at spawn:
 ## a formation preset's effect on shape would fade over the match as
@@ -439,7 +451,7 @@ func _kickoff_home_position(index: int, attack_direction: float, team: Tuning.Te
 	return _kickoff_slot(index, attack_direction, team)
 
 
-# ── Match flow ───────────────────────────────────────────────────────
+# â”€â”€ Match flow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func _start_match() -> void:
 	MatchState.start_quarter(1)
@@ -447,18 +459,18 @@ func _start_match() -> void:
 
 
 ## `delay` is the gap between the reset finishing and the ball actually
-## going up — a quarter start uses the standard CENTRE_BOUNCE_DELAY, a
+## going up â€” a quarter start uses the standard CENTRE_BOUNCE_DELAY, a
 ## restart after a goal a longer one (see Tuning.GOAL_RESTART_BOUNCE_DELAY,
-## rulebook §3: everyone has just walked back to the middle and the moment
+## rulebook Â§3: everyone has just walked back to the middle and the moment
 ## read as rushed).
-## Pin the ball on the turf at `spot` for a stoppage's pre-throw wait —
+## Pin the ball on the turf at `spot` for a stoppage's pre-throw wait â€”
 ## every stoppage (centre bounce, field ball-up, boundary throw-in) parks
 ## the ball while the teams reset, and it was doing that a floating
-## 0.4–0.5 m off the ground, so for the two-to-four seconds before the
+## 0.4â€“0.5 m off the ground, so for the two-to-four seconds before the
 ## umpire picked it up it just hung in mid-air over the spot. A settled
 ## ball sits on the ground; y is the ball's own semi-minor so it rests on
-## the turf rather than half-sunk. Still a hard lock (Ball.lock_at) — a
-## dead-ball pause, nobody may collect it — just at a believable height.
+## the turf rather than half-sunk. Still a hard lock (Ball.lock_at) â€” a
+## dead-ball pause, nobody may collect it â€” just at a believable height.
 func _rest_ball_at(spot: Vector3) -> void:
 	_ball.lock_at(Vector3(spot.x, Tuning.BALL_SEMI_MINOR, spot.z))
 
@@ -468,7 +480,7 @@ func _prepare_centre_bounce(delay := Tuning.CENTRE_BOUNCE_DELAY) -> void:
 	MatchState.clock_running = false
 	_drop_all_balls()
 	_reposition_kickoff()
-	# Locked, not just placed — nobody may pick it up off the centre circle
+	# Locked, not just placed â€” nobody may pick it up off the centre circle
 	# while the teams are still walking back. Sits on the centre rather than
 	# hovering over it; released by the throw-up at the end of the chain
 	# (_release_ruck_contest).
@@ -479,31 +491,31 @@ func _prepare_centre_bounce(delay := Tuning.CENTRE_BOUNCE_DELAY) -> void:
 func _bounce_off() -> void:
 	# Roster index 0 of each team is the designated ruck for a centre bounce
 	# (TeamFormation.ROSTER_ORDER front-loads the ruck slot, and
-	# _centre_bounce_slot plants index 0 on the contest spot) — the same
+	# _centre_bounce_slot plants index 0 on the contest spot) â€” the same
 	# shared contest every stoppage in this file goes through, see
 	# _begin_ruck_contest. This stays index 0 regardless of
 	# Settings.home_human_slot: pick a non-ruck position and index 0 keeps
 	# its AIBrain and rucks; pick slot 0 and the human rucks in person
-	# (HumanBrain can't actively palm a hit-out — a pre-existing AI-scope
+	# (HumanBrain can't actively palm a hit-out â€” a pre-existing AI-scope
 	# limit, not addressed here).
 	_begin_ruck_contest(_field.centre(), _home_players[0], _away_players[0])
 
 
-# ── Ruck contests ────────────────────────────────────────────────────
+# â”€â”€ Ruck contests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Design brief priority 4: one shared mechanic for the centre bounce
-# (above), a field ball-up (a tackle inside the prior-opportunity grace —
-# the neutral case, RULES_REFERENCE.md §4) and a boundary throw-in (see
+# (above), a field ball-up (a tackle inside the prior-opportunity grace â€”
+# the neutral case, RULES_REFERENCE.md Â§4) and a boundary throw-in (see
 # _resume_after_out_of_bounds). They differ only in where the contest
-# happens and which two players are nominated into it — never in how the
+# happens and which two players are nominated into it â€” never in how the
 # contest itself resolves (Tuning's "Ruck contests" section /
 # PlayerController._update_ruck_contest own that).
 
 ## The one place every stoppage's bounce/throw-up actually launches from.
 ## Nominates the two contestants to read RB as a Hit-Out for
 ## Tuning.RUCK_CONTEST_WINDOW and bounces the ball straight up between
-## them — exactly the same physical launch _bounce_off() always used, now
+## them â€” exactly the same physical launch _bounce_off() always used, now
 ## shared rather than duplicated at each call site.
-## Playtest feedback: a ball-up ran too fast to see what had happened — the
+## Playtest feedback: a ball-up ran too fast to see what had happened â€” the
 ## ball simply appeared in the air. There is now a real throw-up in front
 ## of it: the field umpire walks to the spot and performs the crouch,
 ## wind-up and toss over Tuning.BALL_UP_THROW_DURATION, and only then does
@@ -522,7 +534,7 @@ func _begin_ruck_contest(spot: Vector3, contestant_a: PlayerController,
 
 	var umpire := _field.field_umpire()
 	if is_instance_valid(umpire):
-		# Beside the contest, facing it — not between the two ruckmen.
+		# Beside the contest, facing it â€” not between the two ruckmen.
 		var beside := (contestant_a.global_position - contestant_b.global_position) \
 			.cross(Vector3.UP)
 		beside = beside.normalized() if beside.length_squared() > 0.0001 else Vector3.BACK
@@ -536,13 +548,13 @@ func _begin_ruck_contest(spot: Vector3, contestant_a: PlayerController,
 			_ball.lock_to(grip)
 
 	# Released when the arms reach the top of the sweep, not at the end of
-	# the whole beat — the last stretch of the clip is him following through
+	# the whole beat â€” the last stretch of the clip is him following through
 	# and settling back, which happens after the ball has already gone.
 	_start_pause(Tuning.BALL_UP_THROW_DURATION * Umpire.THROW_RELEASE_END,
 		_release_ruck_contest.bind(spot, contestant_a, contestant_b))
 
 
-## The ball actually leaving the umpire's hands — a gentle lob (see
+## The ball actually leaving the umpire's hands â€” a gentle lob (see
 ## Tuning.BALL_UP_TOSS_SPEED) between the two ruckmen, not the hard drive
 ## _bounce_off() once borrowed from BOUNCE_SPEED. The two contestants are
 ## nominated here rather than at the top of the throw so
@@ -554,7 +566,7 @@ func _release_ruck_contest(spot: Vector3, contestant_a: PlayerController,
 	contestant_b.set_ruck_contestant(true)
 	_ruck_contestants = [contestant_a, contestant_b]
 	# Thrown from wherever his hands actually are, arcing to come down at
-	# the contest spot — he stands beside it, so a launch straight up would
+	# the contest spot â€” he stands beside it, so a launch straight up would
 	# drop the ball beside the two ruckmen rather than between them. Solves
 	# the plain projectile for the horizontal speed that covers the gap in
 	# the time the toss spends in the air; drag is ignored, which over the
@@ -572,7 +584,7 @@ func _release_ruck_contest(spot: Vector3, contestant_a: PlayerController,
 	MatchState.clock_running = true
 
 
-## A ruckman has palmed the ball away — the contest is over, so drop the
+## A ruckman has palmed the ball away â€” the contest is over, so drop the
 ## "only the two ruckmen may gather" lock (PlayerController._ruck_contest_
 ## locked) immediately rather than making the on-ballers wait out the rest
 ## of RUCK_CONTEST_WINDOW. A missed hit-out leaves the lock to self-expire.
@@ -585,19 +597,58 @@ func _on_hit_out_resolved(_player: PlayerController, connected: bool) -> void:
 	_ruck_contestants.clear()
 
 
-## The neutral half of holding-the-ball (RULES_REFERENCE.md §4): tackled
+## The neutral half of holding-the-ball (RULES_REFERENCE.md Â§4): tackled
 ## before PRIOR_OPPORTUNITY_GRACE elapses is nobody's fault, so instead of
 ## just leaving the tackle's own spill to a free-for-all scramble (the old
-## behaviour — this signal previously had no listener at all), it becomes
+## behaviour â€” this signal previously had no listener at all), it becomes
 ## a real, brief stoppage at the tackle spot, contested by the two players
 ## who were already right there. The free-kick half (holding_the_ball_
-## called) is a separate, harder problem — see docs/HANDOVER.md.
+## called) is a separate, harder problem â€” see docs/HANDOVER.md.
 func _on_player_disposed(action: Tuning.Action, player: PlayerController) -> void:
 	MatchState.record_disposal(player.team, action)
+	if player == _goal_kick_player:
+		_end_goal_kick()
 
 
 func _on_player_marked(_tier: Tuning.Action, _legal_mark: bool, player: PlayerController) -> void:
 	MatchState.record_mark(player.team)
+
+
+## B can be pressed as soon as a legal mark is taken. If the player is
+## still completing their automatic walk-back, the request waits for that
+## movement rather than interrupting it, then performs the short camera
+## sweep into the existing LT/RT kick controls.
+func _request_goal_kick() -> bool:
+	if GameState.phase != GameState.Phase.PLAY or _goal_kick_player != null:
+		return false
+	var player := ControlMode.controlled_player(Tuning.Team.HOME)
+	if not is_instance_valid(player) or not player.can_take_goal_kick(Tuning.GOAL_KICK_MAX_RANGE):
+		return false
+	_goal_kick_player = player
+	_goal_kick_pending = true
+	return true
+
+
+func _update_goal_kick() -> void:
+	if not is_instance_valid(_goal_kick_player):
+		_end_goal_kick()
+		return
+	if not _goal_kick_player.can_take_goal_kick(Tuning.GOAL_KICK_MAX_RANGE):
+		_end_goal_kick()
+		return
+	if _goal_kick_pending and not _goal_kick_player.is_retreating_from_mark():
+		_goal_kick_pending = false
+		_camera.begin_goal_kick()
+		_goal_kick_prompt.active = true
+
+
+func _end_goal_kick() -> void:
+	_goal_kick_pending = false
+	_goal_kick_player = null
+	if is_instance_valid(_goal_kick_prompt):
+		_goal_kick_prompt.active = false
+	if is_instance_valid(_camera):
+		_camera.end_goal_kick()
 
 
 func _on_field_ball_up(tackler: PlayerController, tackled: PlayerController) -> void:
@@ -611,7 +662,7 @@ func _on_field_ball_up(tackler: PlayerController, tackled: PlayerController) -> 
 	AudioManager.play_whistle()
 	# Freeze the ball at the stoppage spot immediately, same shape
 	# _prepare_centre_bounce() already uses (reposition/settle before the
-	# pause, not after) — otherwise the ball would keep tumbling from the
+	# pause, not after) â€” otherwise the ball would keep tumbling from the
 	# tackle's own spill impulse for the whole pause, and whoever it rolls
 	# to would have a scramble, not a ball-up. Rests on the turf, not
 	# hovering over the spot.
@@ -619,15 +670,15 @@ func _on_field_ball_up(tackler: PlayerController, tackled: PlayerController) -> 
 	_start_pause(Tuning.CENTRE_BOUNCE_DELAY, _begin_ruck_contest.bind(spot, tackler, tackled))
 
 
-## The free-kick half of holding-the-ball (RULES_REFERENCE.md §4, design
+## The free-kick half of holding-the-ball (RULES_REFERENCE.md Â§4, design
 ## brief priority 8). The *ruling* already fires correctly
-## (PlayerController._get_tackled) — nothing consumed it before this pass.
+## (PlayerController._get_tackled) â€” nothing consumed it before this pass.
 ## Deliberately minimal, reusing exactly what the protected kick-in already
 ## reuses (give_possession/grant_protection): no separate set-shot
 ## apparatus (aiming for goal on a shot clock, opponents actually retreating
 ## a real distance) exists in this project, so this stops at "the tackler
 ## gets the ball back where the infringement happened, protected long
-## enough to dispose of it" — the same primitive an earlier pass on this
+## enough to dispose of it" â€” the same primitive an earlier pass on this
 ## project explicitly flagged as the natural next step here.
 func _on_holding_the_ball(tackler: PlayerController) -> void:
 	if GameState.phase != GameState.Phase.PLAY:
@@ -636,7 +687,7 @@ func _on_holding_the_ball(tackler: PlayerController) -> void:
 	var spot := tackler.global_position
 	MatchState.clock_running = false
 	GameState.phase = GameState.Phase.STOPPAGE
-	_scoreboard.flash("HOLDING THE BALL — FREE KICK", Tuning.CENTRE_BOUNCE_DELAY)
+	_scoreboard.flash("HOLDING THE BALL â€” FREE KICK", Tuning.CENTRE_BOUNCE_DELAY)
 	AudioManager.play_whistle()
 	_start_pause(Tuning.CENTRE_BOUNCE_DELAY, _award_free_kick.bind(spot, tackler))
 
@@ -645,8 +696,8 @@ func _award_free_kick(spot: Vector3, tackler: PlayerController) -> void:
 	_award_possession_at(spot, tackler)
 
 
-## The 15 m run rule (RULES_REFERENCE.md §1: "Bounce every 15m while
-## running" — BOUNCE_INTERVAL, a real AFL law, not a P1 feel number).
+## The 15 m run rule (RULES_REFERENCE.md Â§1: "Bounce every 15m while
+## running" â€” BOUNCE_INTERVAL, a real Aussie Rules law, not a P1 feel number).
 ## PlayerController tracks the carry distance and fires run_too_far_called
 ## the instant it passes 15 m with no bounce. Same handling as
 ## _on_holding_the_ball: whistle, brief stoppage, free kick to the nearest
@@ -664,20 +715,20 @@ func _on_run_too_far(carrier: PlayerController) -> void:
 	var spot := carrier.global_position
 	MatchState.clock_running = false
 	GameState.phase = GameState.Phase.STOPPAGE
-	_scoreboard.flash("RUNNING TOO FAR — FREE KICK", Tuning.CENTRE_BOUNCE_DELAY)
+	_scoreboard.flash("RUNNING TOO FAR â€” FREE KICK", Tuning.CENTRE_BOUNCE_DELAY)
 	AudioManager.play_whistle()
 	_start_pause(Tuning.CENTRE_BOUNCE_DELAY, _award_possession_at.bind(spot, receiver))
 
 
 ## Shared tail of every "possession + immunity at a spot" restart (free
-## kick, protected kick-in, out on the full) — see docs/HANDOVER.md for why
+## kick, protected kick-in, out on the full) â€” see docs/HANDOVER.md for why
 ## this exact give_possession()/grant_protection() triad is the one
 ## established pattern instead of a parallel state machine per restart type.
 ## MARK_HOLD_DURATION is reused rather than a new invented threshold: the
 ## same duration a legal mark protects its taker for is "safe to take your
 ## time with the footy in hand" everywhere in this project, not just marks.
 ## `retreat` walks the receiver back off the spot exactly as a legal mark
-## does (_finish_mark_catch chains the same call) — a free kick reads like
+## does (_finish_mark_catch chains the same call) â€” a free kick reads like
 ## a mark and should back away for its run-up the same way. The goal-square
 ## kick-in is the one caller that passes false: it's already on the line.
 func _award_possession_at(spot: Vector3, receiver: PlayerController, retreat := true) -> void:
@@ -692,7 +743,7 @@ func _award_possession_at(spot: Vector3, receiver: PlayerController, retreat := 
 
 
 ## Every stoppage (bounce/ball-up/free-kick/out-of-bounds/reset) clears
-## whoever's currently holding the ball first — was the same five-line loop
+## whoever's currently holding the ball first â€” was the same five-line loop
 ## copy-pasted at each call site.
 func _drop_all_balls() -> void:
 	for player in _home_players + _away_players:
@@ -716,8 +767,8 @@ func _on_scored(team: Tuning.Team, is_goal: bool) -> void:
 	MatchState.clock_running = false
 	MatchState.score(team, is_goal)
 	GameState.phase = GameState.Phase.SCORE
-	# Dead from the moment it's a score — nobody may gather it during the
-	# celebration — but NOT frozen where it is: a hard lock_at() here
+	# Dead from the moment it's a score â€” nobody may gather it during the
+	# celebration â€” but NOT frozen where it is: a hard lock_at() here
 	# snapped the ball to a dead stop on the goal line mid-flight. set_
 	# unplayable() keeps is_held true (no gather/mark, and _check_out_of_
 	# bounds ignores it) while letting it fly on through the posts under
@@ -728,9 +779,9 @@ func _on_scored(team: Tuning.Team, is_goal: bool) -> void:
 	var label := "GOAL" if is_goal else "BEHIND"
 	_scoreboard.flash("%s! %s" % [label, _team_name(team)], Tuning.SCORE_PAUSE_DURATION)
 	_camera.punch(Tuning.CAM_PUNCH_KICK)
-	# AFL restarts a GOAL with a centre bounce; a BEHIND restarts with a
+	# Aussie Rules restarts a GOAL with a centre bounce; a BEHIND restarts with a
 	# protected kick-in by the team that conceded it (design brief
-	# priority 5) — not another centre bounce, which is what every score
+	# priority 5) â€” not another centre bounce, which is what every score
 	# used to get here regardless of which it was.
 	if is_goal:
 		_start_pause(Tuning.SCORE_PAUSE_DURATION,
@@ -741,7 +792,7 @@ func _on_scored(team: Tuning.Team, is_goal: bool) -> void:
 
 ## Protected kick-in (design brief priority 5): the team that just conceded
 ## the behind gets the ball back from inside their own goal square, immune
-## to being tackled until they play on — reuses PlayerController's existing
+## to being tackled until they play on â€” reuses PlayerController's existing
 ## _protected_timer/is_protected() and give_possession() directly rather
 ## than a parallel state machine. `scoring_team` is who was credited with
 ## the behind; the kick-in goes to the other side, from the goal square at
@@ -777,11 +828,11 @@ func _next_quarter() -> void:
 	_prepare_centre_bounce()
 
 
-## Used to flash "FULL TIME" forever with no way onward — MatchEndScreen
+## Used to flash "FULL TIME" forever with no way onward â€” MatchEndScreen
 ## already existed fully built and simply wasn't wired to anything (see
 ## docs/FEATURE_AUDIT.md). Holds the scoreboard flash for a beat so the
 ## result actually registers, then hands off to the real screen, which
-## reads the same MatchState.scoreline() fresh in its own _ready() — untouched
+## reads the same MatchState.scoreline() fresh in its own _ready() â€” untouched
 ## by anything in between, since nothing resets MatchState until a new match
 ## starts.
 func _finish_match() -> void:
@@ -806,21 +857,21 @@ func _start_pause(duration: float, on_complete: Callable) -> void:
 	_pause_callback = on_complete
 
 
-# ── Ball out of bounds ───────────────────────────────────────────────
+# â”€â”€ Ball out of bounds â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # A real (if simplified) boundary throw-in: no separate umpire/possession
-# model (design doc scope for this milestone, see RULES_REFERENCE.md —
+# model (design doc scope for this milestone, see RULES_REFERENCE.md â€”
 # there is no "deliberate out of bounds" free kick either, since that
 # needs the same adjudication apparatus holding-the-ball's ruling is
 # already waiting on, per an earlier session's note), but the moment now
 # actually stops play rather than the ball just quietly sliding back in
 # under everyone's feet mid-contest with zero signal that anything
-# happened — same STOPPAGE phase / pause-and-callback shape every other
+# happened â€” same STOPPAGE phase / pause-and-callback shape every other
 # dead-ball moment in this file already uses (goals, quarter breaks),
 # not a bespoke third mechanism.
 
 func _check_out_of_bounds() -> void:
 	# Mid-pause (this stoppage, a goal, a quarter break) the ball is either
-	# already being handled or about to be reset elsewhere — re-entering
+	# already being handled or about to be reset elsewhere â€” re-entering
 	# here would re-trigger on the same still-out-of-bounds position every
 	# remaining frame of the pause.
 	if _pause_timer > 0.0 or _ball.is_held:
@@ -830,7 +881,7 @@ func _check_out_of_bounds() -> void:
 
 	# Catches a ball that has fallen through geometry or been knocked clean
 	# off the ground slab's finite extent. Checked first and unconditionally
-	# — a ball in freefall past the edge of the world is technically also
+	# â€” a ball in freefall past the edge of the world is technically also
 	# "out of bounds", but there is no sane crossing point to throw it in
 	# from, so it wants the full reset rather than the boundary handling
 	# below.
@@ -841,10 +892,10 @@ func _check_out_of_bounds() -> void:
 		_prev_ball_pos_valid = false
 		return
 
-	# Rulebook §7's decision tree, in the order it's written: the ball
+	# Rulebook Â§7's decision tree, in the order it's written: the ball
 	# leaving play is one call, made the instant it happens; *then* the
 	# reason it left decides which restart follows. This used to be two
-	# unrelated tests — an every-frame airborne watch for out on the full,
+	# unrelated tests â€” an every-frame airborne watch for out on the full,
 	# and a rolled-out case gated on _ball.is_settled(), i.e. one that only
 	# fired once the ball had come to a complete stop somewhere past the
 	# line. That's why it worked on obvious kicks and missed a ball rolling
@@ -860,21 +911,21 @@ func _check_out_of_bounds() -> void:
 
 	# Out. Bisect the segment between last frame's (in-play) and this
 	# frame's (out) position rather than just taking whichever frame
-	# happened to land outside — at up to ~24 m/s plus carried momentum a
+	# happened to land outside â€” at up to ~24 m/s plus carried momentum a
 	# single frame's overshoot is small but not free, and this only ever
 	# runs on the one frame a crossing is detected.
 	var crossing := pos
 	if _is_in_play(_prev_ball_pos):
 		crossing = _bisect_boundary_crossing(_prev_ball_pos, pos)
 	elif not _ball.is_settled():
-		# Already out with no crossing ever observed — the ball was placed
+		# Already out with no crossing ever observed â€” the ball was placed
 		# or knocked out across a frame this check was skipped. Fall back
 		# to waiting for it to stop and using where it came to rest, which
 		# is what every rolled-out ball used to get, so it can't sit out of
 		# bounds indefinitely with play carrying on around it.
 		return
 	_prev_ball_pos_valid = false
-	# "Is it out on the full?" — only a live, untouched KICK still in the
+	# "Is it out on the full?" â€” only a live, untouched KICK still in the
 	# air qualifies (Ball.is_kick_flight() is cleared on landing and on
 	# knock()). A handball/bounce/hit-out/spoiled deflection that sails out
 	# isn't out on the full under the real rule; it's a throw-in like any
@@ -885,7 +936,7 @@ func _check_out_of_bounds() -> void:
 		_trigger_out_of_bounds(crossing)
 
 
-## Rulebook §7's "fully rolled over the boundary line" — the ball is out
+## Rulebook Â§7's "fully rolled over the boundary line" â€” the ball is out
 ## when no part of it is still over the line, not when its centre crosses.
 ## The oval test is expanded by the ball's own longest radius (treating it
 ## as a sphere of BALL_SEMI_MAJOR, which is the conservative read: it keeps
@@ -908,7 +959,7 @@ func _bisect_boundary_crossing(inside_pos: Vector3, outside_pos: Vector3) -> Vec
 	return (a + b) * 0.5
 
 
-## Free kick to `receiving_team` from the crossing point — reuses exactly
+## Free kick to `receiving_team` from the crossing point â€” reuses exactly
 ## the same give_possession()/grant_protection() triad the protected kick-in
 ## and the holding-the-ball free kick already reuse from each other, per
 ## this project's own established pattern for "possession + immunity at a
@@ -917,7 +968,7 @@ func _bisect_boundary_crossing(inside_pos: Vector3, outside_pos: Vector3) -> Vec
 ## long since been cleared by RELEASE_GRACE for anything but a very short kick.
 func _trigger_out_on_the_full(pos: Vector3, kicking_team: Tuning.Team) -> void:
 	if kicking_team == Tuning.Team.NONE:
-		# Shouldn't happen — _check_out_of_bounds only calls this while
+		# Shouldn't happen â€” _check_out_of_bounds only calls this while
 		# Ball.is_kick_flight() is true, which always sets a real team.
 		# Falling back to the neutral stoppage rather than awarding a free
 		# kick to nobody in particular if it ever does.
@@ -932,7 +983,7 @@ func _trigger_out_on_the_full(pos: Vector3, kicking_team: Tuning.Team) -> void:
 	_scoreboard.flash("OUT ON THE FULL", Tuning.OUT_OF_BOUNDS_PAUSE_DURATION)
 	AudioManager.play_whistle()
 	# Freeze the ball at the crossing spot immediately, same "settle before
-	# the pause, not after" shape every other stoppage in this file uses —
+	# the pause, not after" shape every other stoppage in this file uses â€”
 	# otherwise it would keep sailing out over the fence for the whole pause.
 	_ball.lock_at(spot + Vector3.UP * 0.5)
 	_start_pause(Tuning.OUT_OF_BOUNDS_PAUSE_DURATION,
@@ -949,7 +1000,7 @@ func _award_out_on_the_full(spot: Vector3, defenders: Array[PlayerController]) -
 ## the same radial the old silent version used. Shared by two callers now:
 ## the settled-out-of-bounds case below (a ball that rolled well past the
 ## line) and _trigger_out_on_the_full's bisected crossing point (already
-## almost exactly on the line) — the same radial normalise-and-rescale
+## almost exactly on the line) â€” the same radial normalise-and-rescale
 ## works regardless of how far out the input point actually is.
 func _throw_in_point(pos: Vector3) -> Vector3:
 	var radial := sqrt(pow(pos.x / Tuning.FIELD_HALF_LENGTH, 2.0)
@@ -961,7 +1012,7 @@ func _throw_in_point(pos: Vector3) -> Vector3:
 func _trigger_out_of_bounds(pos: Vector3) -> void:
 	var throw_in_point := _throw_in_point(pos)
 	# Brought back to the line and held there for the pause, the same
-	# "settle before the pause, not after" shape out on the full uses —
+	# "settle before the pause, not after" shape out on the full uses â€”
 	# it stops the ball rolling on into the fence, and stops anyone
 	# collecting it out of bounds while play is dead. Rests on the turf
 	# rather than hovering just inside the line.
@@ -975,7 +1026,7 @@ func _trigger_out_of_bounds(pos: Vector3) -> void:
 
 
 ## Boundary throw-in, through the same shared contest as the centre bounce
-## and a field ball-up (design brief priority 4/6) — "nearest player per
+## and a field ball-up (design brief priority 4/6) â€” "nearest player per
 ## side" for who contests it, per Prototype 1's own throw-in/ball-up model
 ## (see this project's memory of P1's contest_minigame.py approach).
 func _resume_after_out_of_bounds(throw_in_point: Vector3) -> void:
@@ -986,33 +1037,33 @@ func _resume_after_out_of_bounds(throw_in_point: Vector3) -> void:
 
 
 ## Manual safety net (bound to "debug_reset", same key as the milestone-1
-## sandbox's R) — brings the ball back to the centre if it ever ends up
+## sandbox's R) â€” brings the ball back to the centre if it ever ends up
 ## somewhere _check_out_of_bounds can't reason about.
 func _reset_ball() -> void:
 	_drop_all_balls()
 	_ball.reset_at(_field.centre())
 
 
-# ── Human control ────────────────────────────────────────────────────
+# â”€â”€ Human control â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 ## SINGLE_PLAYER's own hand-off (design brief's "must stay solid"): brain
 ## construction stays here (only this mode script knows AI config), but
 ## who's now focused is reported to ControlMode, which is what fans out to
-## camera/HUD/crosshair/mark-prompt via _on_focus_changed() — see that
+## camera/HUD/crosshair/mark-prompt via _on_focus_changed() â€” see that
 ## function for the camera pan-vs-snap decision.
 ##
 ## In TEAM_COMMAND this key instead cycles which teammate is selected
-## (directly human-driven) — same physical button, same "move on to the
+## (directly human-driven) â€” same physical button, same "move on to the
 ## next body" meaning, just within the other scheme's own bookkeeping.
 ##
 ## Only reached at all in Settings.PlayerControlMode.FULL_TEAM (see
-## _unhandled_input) — Settings.PlayerControlMode.SINGLE_PLAYER leaves the
+## _unhandled_input) â€” Settings.PlayerControlMode.SINGLE_PLAYER leaves the
 ## human on whichever body _spawn_teams() started them on for the whole
 ## match and gets _call_for_ball() instead.
 ##
 ## FULL_TEAM: the switch goes straight to the HOME player nearest the ball
 ## (ControlMode.next_in_roster with a reference point) rather than spawn-
-## array order. It no longer suppresses auto-carrier control afterwards —
+## array order. It no longer suppresses auto-carrier control afterwards â€”
 ## a switch is now itself just "get me to the ball", the same intent
 ## _on_home_gained_possession serves, so there is nothing to protect from
 ## it.
@@ -1022,7 +1073,7 @@ func _switch_human_player() -> void:
 		return
 
 	var previous := ControlMode.controlled_player(Tuning.Team.HOME)
-	# Straight to the HOME player nearest the ball — pass the ball as the
+	# Straight to the HOME player nearest the ball â€” pass the ball as the
 	# reference (see ControlMode.next_in_roster). One press puts you on
 	# whoever's on the ball; if you're already there this returns the same
 	# body and the guard below no-ops.
@@ -1045,17 +1096,17 @@ func _assign_human_to(next: PlayerController) -> void:
 			AIBrain.new(), Tuning.Team.HOME, 1.0, previous.global_position))
 	next.set_brain(HumanBrain.new())
 	ControlMode.set_controlled_player(Tuning.Team.HOME, next)
-	# CharacterProfile stats are NOT moved here — _apply_character_profile
+	# CharacterProfile stats are NOT moved here â€” _apply_character_profile
 	# bound them to the pregame start slot (or all of HOME) at spawn, and
 	# that binding is deliberately fixed regardless of who you're driving.
 
 
 ## FULL_TEAM: every time HOME wins the ball in open play, put the human
-## straight onto the carrier — you control whoever has it without hunting
+## straight onto the carrier â€” you control whoever has it without hunting
 ## for the switch key. Fires on every gather/mark (ball_gathered), with no
 ## post-switch suppression window: a manual switch is itself just "get me
 ## to the ball" now, so there is no deliberate off-ball pick to protect.
-## Only in SINGLE_PLAYER scheme — TEAM_COMMAND has its own selection model.
+## Only in SINGLE_PLAYER scheme â€” TEAM_COMMAND has its own selection model.
 func _on_home_gained_possession(_ball_ref: Ball, carrier: PlayerController) -> void:
 	if Settings.player_control_mode != Settings.PlayerControlMode.FULL_TEAM:
 		return
@@ -1066,19 +1117,19 @@ func _on_home_gained_possession(_ball_ref: Ball, carrier: PlayerController) -> v
 	_assign_human_to(carrier)
 
 
-# ── Call for the ball (SINGLE_PLAYER player-control mode) ────────────
+# â”€â”€ Call for the ball (SINGLE_PLAYER player-control mode) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Settings.PlayerControlMode.SINGLE_PLAYER locks the human to one body for
 # the whole match, which takes switch_player's escape hatch away: when a
 # teammate has the footy there is otherwise nothing at all the human can do
-# to influence what happens to it. This is that mode's replacement — lead
+# to influence what happens to it. This is that mode's replacement â€” lead
 # into space, shout for it, and the carrier may or may not give it to you.
-# Not an AFL rule (see Tuning's CALL_FOR_BALL_* block), and deliberately a
+# Not an Aussie Rules rule (see Tuning's CALL_FOR_BALL_* block), and deliberately a
 # request rather than a command: a guaranteed handball would make the AI a
 # ball-delivery service and every contest optional.
 
 ## No-ops (silently, no cooldown burned) whenever there's nothing to ask
 ## for: ball loose, AWAY has it, or the human is already the carrier. That
-## last case is not a special case worth feedback — the answer to "give me
+## last case is not a special case worth feedback â€” the answer to "give me
 ## the ball" when you're holding it is nothing. Deliberately no toast/
 ## prompt/SFX on any of these: this project has no general-purpose player-
 ## feedback channel to reuse (AudioManager's only public cues are the
@@ -1095,7 +1146,7 @@ func _call_for_ball() -> void:
 	if carrier == null or carrier == caller or carrier.team != Tuning.Team.HOME:
 		return
 	# The carrier is a real HOME teammate, so the shout happens and costs its
-	# cooldown from here on, whether or not it works — including the
+	# cooldown from here on, whether or not it works â€” including the
 	# out-of-range case below, which is a call that simply couldn't be heard
 	# rather than one that was never made.
 	_call_for_ball_cooldown = Tuning.CALL_FOR_BALL_COOLDOWN
@@ -1110,19 +1161,19 @@ func _call_for_ball() -> void:
 	if carrier_ai == null:
 		return
 	if randf() >= _call_for_ball_success_chance(carrier, caller):
-		return   # refused — the carrier just plays on under its own judgement
+		return   # refused â€” the carrier just plays on under its own judgement
 	carrier_ai.request_handball_to(caller)
 
 
 ## 0..1 chance that `carrier` actually gives it up when `caller` shouts.
 ## Three factors, all measured off geometry that already exists in this
-## match rather than off any invented per-player rating — there is no
+## match rather than off any invented per-player rating â€” there is no
 ## per-teammate stat data in this project to weigh (CharacterProfile is a
 ## single global profile describing the human's own body, and every AI
 ## PlayerController is spawned from one identical scene with identical
 ## Tuning-driven physics), so a "teammate rating" term would be fabricated.
 ##
-## 1. PRESSURE on the carrier — nearest AWAY player's distance to them,
+## 1. PRESSURE on the carrier â€” nearest AWAY player's distance to them,
 ##    against Tuning.AI_PRESSURE_RADIUS. Pressure RAISES the chance, and
 ##    that direction is chosen to agree with the AI this mechanic is asking
 ##    a favour of: AIBrain._think_carrying already treats an opponent inside
@@ -1134,12 +1185,12 @@ func _call_for_ball() -> void:
 ##    fight the existing state machine instead of reinforcing it, and would
 ##    make the call useless in exactly the situation a teammate leading into
 ##    space is most valuable.
-## 2. OPENNESS of the caller — nearest AWAY player's distance to THEM.
+## 2. OPENNESS of the caller â€” nearest AWAY player's distance to THEM.
 ##    Rewards actually leading into space; a caller with a defender draped
 ##    on them is a bad option and the carrier treats it as one. Fully open
 ##    at twice AI_PRESSURE_RADIUS (i.e. at double the range at which the AI
 ##    itself considers a player pressured), covered at zero.
-## 3. RANGE — caller-to-carrier distance against Tuning.CALL_FOR_BALL_RANGE,
+## 3. RANGE â€” caller-to-carrier distance against Tuning.CALL_FOR_BALL_RANGE,
 ##    a mild tax across the band rather than a second cliff; the hard cliff
 ##    is _call_for_ball()'s own range refusal above.
 func _call_for_ball_success_chance(carrier: PlayerController, caller: PlayerController) -> float:
@@ -1169,7 +1220,7 @@ func _nearest_opponent_distance(players: Array[PlayerController], spot: Vector3)
 	return INF if nearest == null else nearest.global_position.distance_to(spot)
 
 
-## Debug/prototyping entry point for ControlMode.Scheme.TEAM_COMMAND —
+## Debug/prototyping entry point for ControlMode.Scheme.TEAM_COMMAND â€”
 ## proves the routing works, per TASK's scope (full command UI/UX is
 ## explicitly not this pass's job). Swaps HOME between the two schemes,
 ## keeping whichever player is currently focused as the new scheme's
@@ -1183,7 +1234,7 @@ func _toggle_control_scheme() -> void:
 		else ControlMode.Scheme.SINGLE_PLAYER
 
 	# Give every other HOME player a fresh, mode-appropriate AI brain before
-	# switching — TEAM_COMMAND's teammates need CommandBrain (to be able to
+	# switching â€” TEAM_COMMAND's teammates need CommandBrain (to be able to
 	# receive an order), SINGLE_PLAYER's need plain AIBrain, and the brain
 	# a player was holding under the *other* scheme is the wrong type
 	# either way (a CommandBrain sitting around during SINGLE_PLAYER would
@@ -1212,7 +1263,7 @@ func _cycle_team_command_selection() -> void:
 		return
 
 	# The player losing the human's direct input becomes commandable again
-	# rather than plain AI — that's the whole point of TEAM_COMMAND over
+	# rather than plain AI â€” that's the whole point of TEAM_COMMAND over
 	# SINGLE_PLAYER, and it must happen on every hand-off, not just the
 	# first one, or a few switches in most of the team quietly reverts to
 	# uncommandable AIBrain.
@@ -1226,7 +1277,7 @@ func _cycle_team_command_selection() -> void:
 
 ## TEAM_COMMAND's minimal "move here/lead here" order (design brief:
 ## "likely via a selected-player + issued-command model"). No reticle/UI
-## exists yet (out of scope — Agent 1's territory), so the target point is
+## exists yet (out of scope â€” Agent 1's territory), so the target point is
 ## derived from the selected player's own facing rather than anything
 ## aimed: a fixed lead distance straight ahead of them. Good enough to
 ## prove CommandBrain actually picks up and clears an external order; a
@@ -1257,3 +1308,4 @@ func _nearest_commandable_teammate(from: PlayerController) -> PlayerController:
 			best_dist = dist
 			best = player
 	return best
+

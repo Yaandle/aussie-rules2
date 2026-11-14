@@ -1,14 +1,14 @@
-# Handover — end of session 1
+﻿# Handover â€” end of session 1
 
 ## What this session did
 
 Scaffolded the Godot project from an empty directory and built design doc
-§11's first milestone: **one `CharacterBody3D` player with blend-space
+Â§11's first milestone: **one `CharacterBody3D` player with blend-space
 locomotion and a physically simulated `RigidBody3D` ball**. Nothing beyond
 that milestone was attempted.
 
 Sources read: `PROTOTYPE2_DESIGN.md` (the brief), and Prototype 1 at
-`E:\aussie-rules_game` — `README.md`, `settings.py`, `most_RECENT_AUDIT.md`.
+`E:\aussie-rules_game` â€” `README.md`, `settings.py`, `most_RECENT_AUDIT.md`.
 No Prototype 1 code was ported. Its rule numbers were translated into real
 metres and recorded in [RULES_REFERENCE.md](RULES_REFERENCE.md).
 
@@ -17,13 +17,13 @@ metres and recorded in [RULES_REFERENCE.md](RULES_REFERENCE.md).
 The project **loads and runs clean**:
 
 ```
-godot --headless --path . --quit-after 300   →  exit 0, no output
+godot --headless --path . --quit-after 300   â†’  exit 0, no output
 ```
 
 Five seconds of the real main scene with no errors clears script parsing,
 scene loading, autoloads, the rig build, animation-library generation,
 AnimationTree assembly, the ball's runtime-built convex hull and the field
-mesh generation — all of which push errors or throw on failure.
+mesh generation â€” all of which push errors or throw on failure.
 
 One real bug was found this way and fixed: a partial rename left
 `field.gd:_stripe` calling `tool.*` on a parameter renamed to `surface`,
@@ -32,7 +32,7 @@ which took the whole Field script out.
 **Not yet verified: anything requiring input or a human eye.** Nobody has
 driven the player, so the weight model, the blend-space output, kick arcs and
 camera behaviour are all unobserved. The most likely remaining failure is
-cosmetic rather than structural — see risk 1 below.
+cosmetic rather than structural â€” see risk 1 below.
 
 ## The four design decisions worth knowing
 
@@ -40,11 +40,11 @@ cosmetic rather than structural — see risk 1 below.
    coupled rules: turn rate falls as speed rises, and running against your
    own momentum drives target speed toward zero. Braking then raises the
    turn rate, which swings you round. The plant-and-pivot move is not
-   special-cased anywhere — do not add a special case for it.
+   special-cased anywhere â€” do not add a special case for it.
 
 2. **The strafe axis is fed by physics, not input.** The rig's facing turns
-   faster (`FACING_TURN_RATE = 720°/s`) than the velocity heading does
-   (`TURN_RATE_SPRINT = 160°/s`), so mid-turn the velocity lags behind the
+   faster (`FACING_TURN_RATE = 720Â°/s`) than the velocity heading does
+   (`TURN_RATE_SPRINT = 160Â°/s`), so mid-turn the velocity lags behind the
    body and `locomotion_blend()` reports genuine lateral motion. This is why
    a 2D blend space earns its place in a game where you mostly run forwards.
 
@@ -54,7 +54,7 @@ cosmetic rather than structural — see risk 1 below.
    `player_animation.gd` explains the swap path. This was also the lower-risk
    choice given the scene files could not be validated in an editor.
 
-4. **Everything tunable lives in `scripts/tuning.gd`** — the descendant of
+4. **Everything tunable lives in `scripts/tuning.gd`** â€” the descendant of
    Prototype 1's `settings.py`. It also holds the two shared enums (`Team`,
    `Action`) because it is the one leaf module everything may depend on.
    Note: `MatchState.Team` deliberately does *not* exist; autoload enums
@@ -73,7 +73,7 @@ already match what the real version uses.
 1. **`_gait_pose` sign conventions** (`placeholder_animations.gd`). Limbs
    hang along -Y, the torso runs along +Y, so a positive X rotation swings a
    limb *forward* and the torso *backward*. If the run cycle moonwalks or
-   leans the wrong way, a sign is flipped — the physics underneath is fine
+   leans the wrong way, a sign is flipped â€” the physics underneath is fine
    and nothing outside that one function needs touching.
 2. **Feel tuning.** Every number in `tuning.gd` is a first guess made without
    playing it. `TURN_RATE_SPRINT`, `ACCELERATION`/`BRAKING` and
@@ -84,41 +84,41 @@ already match what the real version uses.
 ## What was NOT built, and why
 
 AI, a second player, a second team, tackling, marking, scoring, the match
-clock, menus, audio. The brief's own ordering (§11): prove the physical feel
+clock, menus, audio. The brief's own ordering (Â§11): prove the physical feel
 first. `scripts/mechanics/`, `scripts/ai/`, `scenes/modes/` and
-`data/scenarios/` exist as empty placeholders from §10.
+`data/scenarios/` exist as empty placeholders from Â§10.
 
-Root motion is **not** wired. §5 wants it for impacts only (tackles, marks)
+Root motion is **not** wired. Â§5 wants it for impacts only (tackles, marks)
 with locomotion staying code-driven. The hook is
 `AnimationTree.root_motion_track` plus `get_root_motion_position()` in the
-controller's move step — it needs contest mechanics to exist first.
+controller's move step â€” it needs contest mechanics to exist first.
 
 ## Next milestone
 
 Contest mechanics: a second player, tackling and marking resolved by
 collision and momentum rather than a probability table. That is the pillar
-in §1 that Prototype 2 exists for. `RULES_REFERENCE.md` §3 lists exactly
-which Prototype 1 numbers are being replaced by it, and §5 of that document
+in Â§1 that Prototype 2 exists for. `RULES_REFERENCE.md` Â§3 lists exactly
+which Prototype 1 numbers are being replaced by it, and Â§5 of that document
 records two audit findings from Prototype 1 worth designing against.
 
 ---
 
-## Handover — visual/UI pass (Agent: UI & visual quality)
+## Handover â€” visual/UI pass (Agent: UI & visual quality)
 
 Look-and-feel pass over the existing scaffold per the brighter-indie
 direction brief. No physics, contests, or game state touched. Verified by
 headless parse (`godot --headless --path . --quit-after N`) after every
 change, plus visual screenshots via a temporary `-s` SceneTree script
-(instance a scene, wait N frames, save the viewport to PNG, quit) — not
+(instance a scene, wait N frames, save the viewport to PNG, quit) â€” not
 committed, deleted at the end of the session.
 
 ### 1. Field/environment brightened, lighting centralised
 
 `main.tscn`, `kick_to_kick.tscn`, `full_game.tscn`, `menu_backdrop.tscn`
 and `character_backdrop.tscn` each carried their own copy of the same
-Sky/Environment sub-resources — five places to go out of sync. Extracted
+Sky/Environment sub-resources â€” five places to go out of sync. Extracted
 to one file, **`materials/broadcast_environment.tres`**, referenced by all
-five as an `ext_resource`. Sun `light_energy` raised 1.15 → 1.7 in each
+five as an `ext_resource`. Sun `light_energy` raised 1.15 â†’ 1.7 in each
 (the one field left un-shared, since it's a per-node property, not part
 of the Environment resource).
 
@@ -126,16 +126,16 @@ Turf shader (`assets/shaders/turf.gdshader`): `turf_a`/`turf_b` brightened
 and saturated, `surround` lightened so it doesn't read as near-black,
 `turf_roughness` dropped slightly. Mowing-stripe contrast is now visible
 at broadcast-camera distance, which it was not before (before/after was a
-literal "muddy dark green" → "vivid pitch green with visible stripes").
+literal "muddy dark green" â†’ "vivid pitch green with visible stripes").
 
 Sky colours in the shared Environment pushed more saturated/blue rather
-than pale grey-white — a flat grey top-of-frame in early screenshots
+than pale grey-white â€” a flat grey top-of-frame in early screenshots
 turned out to be the (working-as-intended) dark UI scrim over a correctly
 blue sky underneath, not a bug; confirmed by sampling raw pixel values and
 back-solving through the scrim's alpha blend. Added a modest
 `glow_enabled` bloom (intensity 0.35) for a bit of broadcast sheen.
 
-`Field.SURROUND_MARGIN` (`scripts/field/field.gd`) raised 25.0 → 60.0 m so
+`Field.SURROUND_MARGIN` (`scripts/field/field.gd`) raised 25.0 â†’ 60.0 m so
 wide establishing camera angles (the menu backdrop's flyover shot) don't
 run past the ground plane's edge; `field.tscn`'s placeholder mesh/collision
 sizes updated to match (both are overwritten at runtime by `field.gd`
@@ -144,7 +144,7 @@ anyway, this just keeps the editor preview honest).
 **Files touched outside strict ownership**: `main.tscn`, `kick_to_kick.tscn`,
 `full_game.tscn` are level-assembly scenes not on either agent's ownership
 list. Only their `WorldEnvironment`/`Sun` nodes were touched (swapped to
-the shared ext_resource, bumped light energy) — no Player/Ball/script
+the shared ext_resource, bumped light energy) â€” no Player/Ball/script
 nodes or gameplay properties were changed. Flagging per instructions;
 nothing here overlaps Agent 2's actual working files
 (`kick_to_kick.gd`, `player_controller.gd`, `tuning.gd`,
@@ -156,26 +156,26 @@ disk at session start and were left untouched).
 New shader **`assets/shaders/ui_glow_border.gdshader`** (canvas_item): an
 SDF rounded-rect outline with a soft exponential glow falloff, added to
 `main_menu.tscn` as a `ColorRect` (a bare `Control` doesn't draw anything,
-so the material never rasterized — first attempt was invisible for that
-reason). Sized to preserve the requested 1720×880 aspect ratio scaled down
-to fit the project's actual 1280×720 viewport (confirmed with the user —
-the literal 1720×880 would have rendered almost entirely off-screen).
-Visible border rect: 1152×589, centred, ~64px margin to the viewport edge.
+so the material never rasterized â€” first attempt was invisible for that
+reason). Sized to preserve the requested 1720Ã—880 aspect ratio scaled down
+to fit the project's actual 1280Ã—720 viewport (confirmed with the user â€”
+the literal 1720Ã—880 would have rendered almost entirely off-screen).
+Visible border rect: 1152Ã—589, centred, ~64px margin to the viewport edge.
 
 ### 3. Player silhouette pass
 
-`scripts/player/placeholder_rig.gd`: narrowed the pelvis box (0.30 → 0.23m)
-and the chest box (0.36 → 0.32m) so they no longer read as the same width,
-widened `SHOULDER_WIDTH` (0.21 → 0.24m), and added a **Yoke** box (a
-contrasting guernsey-style shoulder band) and two **SidePanel** boxes —
+`scripts/player/placeholder_rig.gd`: narrowed the pelvis box (0.30 â†’ 0.23m)
+and the chest box (0.36 â†’ 0.32m) so they no longer read as the same width,
+widened `SHOULDER_WIDTH` (0.21 â†’ 0.24m), and added a **Yoke** box (a
+contrasting guernsey-style shoulder band) and two **SidePanel** boxes â€”
 these are the widest points of the torso now, which is what actually sells
 a V-taper silhouette at distance (limb capsules alone read too thin to do
 it). Shins recoloured from bare skin to a sock colour (`COLOUR_TRIM`,
-off-white, shared with the yoke/panels) — AFL players play in long socks;
+off-white, shared with the yoke/panels) â€” Aussie Rules players play in long socks;
 before, the whole leg hip-to-ankle was one flat skin tone.
 `COLOUR_TRIM` (`#f0ece0`) intentionally echoes `Field.COLOUR_LINE` so
 player and pitch read as one system. All new geometry is primitive boxes
-(no added tris budget concern — still well within per-instance cost for
+(no added tris budget concern â€” still well within per-instance cost for
 many players on field). `_material()` now takes an optional roughness so
 the trim/yoke can have a bit less roughness (0.55) than skin/shorts (0.78)
 for a faint jersey sheen, cached per (colour, roughness) pair.
@@ -183,43 +183,43 @@ for a faint jersey sheen, cached per (colour, roughness) pair.
 ### 4. UI colour consistency
 
 `main_menu.gd`'s selected-row colour changed from reusing the title's
-off-white to gold (`#e9c95e`) — the same gold as the home guernsey.
+off-white to gold (`#e9c95e`) â€” the same gold as the home guernsey.
 Previously the only selection cue was cursor position; now the cursor row
 visibly pops. (Note: at the time this was written `character_screen.gd`
 used the same gold for its live-value highlight; it has since been rebuilt
-with its own accent — see §5 below. Main menu and scoreboard still share
+with its own accent â€” see Â§5 below. Main menu and scoreboard still share
 the gold/rust guernsey-accent system described here.)
 
 `scoreboard.tscn`'s `Label` converted to `RichTextLabel` (`bbcode_enabled`)
-so `scoreboard.gd` can colour the HOME segment gold and AWAY rust-red —
-the literal home/away guernsey colours from `placeholder_rig.gd` — so the
+so `scoreboard.gd` can colour the HOME segment gold and AWAY rust-red â€”
+the literal home/away guernsey colours from `placeholder_rig.gd` â€” so the
 scoreboard reads at a glance without parsing the words "HOME"/"AWAY".
 `flash()` (GOAL!/QUARTER TIME banners) now centres and golds its text too.
 
-DebugHud's smaller font/denser layout was left as-is — it's a deliberately
+DebugHud's smaller font/denser layout was left as-is â€” it's a deliberately
 different tier (diagnostic overlay vs. primary UI) and was already
 internally consistent.
 
 ### 5. Character screen rebuilt as a real component UI
 
-The BBCode/RichTextLabel table described in §4 above has been replaced
+The BBCode/RichTextLabel table described in Â§4 above has been replaced
 with an actual `Control`-based component system, built from a small shared
 library rather than one-off per-screen code:
 
-- **`scripts/ui/ui_style.gd`** — `UIStyle`: the palette, type scale
+- **`scripts/ui/ui_style.gd`** â€” `UIStyle`: the palette, type scale
   (`FontVariation` over the engine's default face, weight via
-  `variation_embolden`, tracking via `spacing_glyph` — no font asset), and
+  `variation_embolden`, tracking via `spacing_glyph` â€” no font asset), and
   a `rounded()` `StyleBoxFlat` factory. One accent colour, teal/cyan
   `ACCENT` (`#4fd1c5`), means "selected/interactive" on this screen.
-- **`scripts/ui/ui_icon.gd`** — `UIIcon`: single-colour line icons drawn
+- **`scripts/ui/ui_icon.gd`** â€” `UIIcon`: single-colour line icons drawn
   in `_draw()` from a shape table (poly/loop/arc/ring/dot/fill primitives
   on a 24-unit grid), one per stat (speed, jump, kick, accuracy, strength,
   height, weight, foot, play). No icon assets or import step.
-- **`scripts/ui/stat_row.gd`** — `StatRow`: one attribute line (icon,
-  label, optional "· LOCKED", a 9-segment bar, value text), column
+- **`scripts/ui/stat_row.gd`** â€” `StatRow`: one attribute line (icon,
+  label, optional "Â· LOCKED", a 9-segment bar, value text), column
   positions as explicit px offsets rather than a container, so the bar
   starts at the same x regardless of label length.
-- **`scripts/ui/key_hint_bar.gd`** / **`scripts/ui/action_button.gd`** —
+- **`scripts/ui/key_hint_bar.gd`** / **`scripts/ui/action_button.gd`** â€”
   the bottom control-legend chips and the PLAY button.
 - **`character_screen.gd`** now builds its whole left column from
   `ATTRIBUTE_ROWS` in code (eight `StatRow`s + header + button + hints);
@@ -228,7 +228,7 @@ library rather than one-off per-screen code:
 
 Backdrop (**`character_backdrop.gd`**, **`character_backdrop.tscn`**) was
 rebuilt to match: a dedicated dark navy-to-green **"studio"** environment
-(**`materials/character_studio_environment.tres`**) — deliberately *not*
+(**`materials/character_studio_environment.tres`**) â€” deliberately *not*
 `broadcast_environment.tres`, kept separate on purpose rather than
 parameterised, since a moody portrait box and a bright match day are
 different problems. A glowing selection ring
@@ -237,37 +237,37 @@ lights the turf under it rather than painting over it) sits under the
 player's feet, camera side-stepped so the figure sits right of the stat
 column instead of dead-centre. Legibility over the 3D backdrop comes from
 **`assets/shaders/ui_side_scrim.gdshader`**, a horizontal gradient wash
-(not a flat panel — a flat one has an edge, which reads as an unintended
+(not a flat panel â€” a flat one has an edge, which reads as an unintended
 panel divider) rather than the old full-screen flat scrim.
 
 Net effect: the character screen now has its own distinct visual identity
 (dark/teal "studio") separate from the bright broadcast look used
 everywhere else (menu, match, scoreboard). That's an intentional split,
-not a consistency gap — see the comment at the top of
+not a consistency gap â€” see the comment at the top of
 `character_studio_environment.tres`.
 
 ### 6. Follow-up round (user feedback on the above)
 
 - **Glow border was too bright.** `ui_glow_border.gdshader` defaults
-  toned down: `glow_strength` 0.85 → 0.4, `glow_radius` 22 → 14,
-  `line_width` 2.5 → 2.0, `glow_color` alpha 1.0 → 0.85.
+  toned down: `glow_strength` 0.85 â†’ 0.4, `glow_radius` 22 â†’ 14,
+  `line_width` 2.5 â†’ 2.0, `glow_color` alpha 1.0 â†’ 0.85.
 - **Main menu backdrop read as "night time."** Scoped to the menu only,
-  per instruction — match/character scenes were left alone:
-  - `main_menu.tscn`'s `Scrim` alpha dropped 0.45 → 0.22.
+  per instruction â€” match/character scenes were left alone:
+  - `main_menu.tscn`'s `Scrim` alpha dropped 0.45 â†’ 0.22.
   - `menu_backdrop.tscn` given its own **`materials/menu_environment.tres`**
     (brighter sky/ambient/tonemap than the shared broadcast one) instead of
     reusing `broadcast_environment.tres`, so gameplay scenes' lighting is
     untouched.
   - The wide establishing flyover shot still had one very dark diagonal
-    band even after that — turned out to be ordinary Lambertian falloff
+    band even after that â€” turned out to be ordinary Lambertian falloff
     (the sun grazing the outer grass at a shallow angle from that specific
     camera angle), not a bug. Fixed with a second, dimmer **`FillLight`**
     `DirectionalLight3D` in `menu_backdrop.tscn` from a complementary
-    angle — a standard stylised-lighting trick, not a physically-accurate
+    angle â€” a standard stylised-lighting trick, not a physically-accurate
     one, and scoped to that one scene.
 - **Stadium/oval feel requested**: `turf.gdshader` gained a running-track
   **apron** ring (`apron`/`apron_width` uniforms) between the playing oval
-  and the outer grass, layered outside-in (outer grass → apron → striped
+  and the outer grass, layered outside-in (outer grass â†’ apron â†’ striped
   turf) rather than the old flat "surround" colour. `field.gd` gained
   `_build_fence()`: a continuous low white ribbon (same
   `SurfaceTool`-around-an-ellipse technique as the line markings, cheaper
@@ -275,18 +275,18 @@ not a consistency gap — see the comment at the top of
   fence does from broadcast distance) plus support posts every 8th
   segment, ~9m outside the boundary. This is shared `Field` code, so it
   appears in every scene that instances the field (menu backdrop included)
-  — only the brightness fixes above were menu-scoped, the stadium dressing
+  â€” only the brightness fixes above were menu-scoped, the stadium dressing
   is global by design.
 
 ### 7. Character screen matched to the design reference
 
-Second pass over §5's screen against a supplied mock image. Layout and
-component structure from §5 survived; this round was metrics, the 3D
+Second pass over Â§5's screen against a supplied mock image. Layout and
+component structure from Â§5 survived; this round was metrics, the 3D
 preview's lighting, and one real bug underneath it.
 
 **How it was verified.** The real scene rendered at 1280x720 *and*
 1920x1080 through a temporary `-s` SceneTree harness (deleted), with
-pixel values sampled out of the PNGs rather than eyeballed — which is how
+pixel values sampled out of the PNGs rather than eyeballed â€” which is how
 the lighting bug below was actually caught, since it looks plausible
 until you read the numbers. Plus a scripted input test that pushed real
 `InputEventAction`s through `_unhandled_input` and asserted: cursor
@@ -305,23 +305,23 @@ render within ~5px of the scaled reference width.
 **The bug worth knowing about: `Transform3D` literals are row-major.**
 The 12 numbers in a `.tscn` `Transform3D(...)` are the basis **rows**,
 while `basis.x/y/z` are its **columns**. Write the axis you want along a
-triple instead of down the triples and you silently get the transpose —
+triple instead of down the triples and you silently get the transpose â€”
 which is still orthonormal, so the scene loads clean and nothing warns.
 Here it aimed the sun *upward*: every +Y surface in the scene (the whole
 pitch, every line marking) was lit by ambient alone, while the player,
 whose front faces +Z, looked correctly lit. That is why the turf went
 black the moment the studio environment replaced the bright broadcast
-one — the old environment's bright sky had been standing in for a sun
-that was never reaching the ground. Raising the sun 1.15 → 8.0 changed
+one â€” the old environment's bright sky had been standing in for a sun
+that was never reaching the ground. Raising the sun 1.15 â†’ 8.0 changed
 the ground by *one* 8-bit level; that ruled out every tuning explanation
 and pointed at geometry.
 
 **`character_backdrop.tscn` is fixed. The same literal is still in
 `main.tscn`, `kick_to_kick.tscn`, `full_game.tscn` and
-`menu_backdrop.tscn`** (§1 shared the Environment between them but left
+`menu_backdrop.tscn`** (Â§1 shared the Environment between them but left
 `Sun` as a per-node property in each). Those are level-assembly scenes,
 outside this pass, and correcting them is a real lighting change to
-gameplay — worth doing deliberately, not as a drive-by. Check
+gameplay â€” worth doing deliberately, not as a drive-by. Check
 `-sun.global_transform.basis.z` has a negative Y before assuming any of
 them is lit as intended.
 
@@ -330,15 +330,15 @@ pitch, which no single directional light gives. Split by cull mask:
 `Sun` (energy 0.14, mask excludes layer 2) does the ground, `Key`
 (energy 1.05, mask = layer 2 only) does the subject.
 `character_backdrop.gd` moves the previewed player's `MeshInstance3D`s
-onto `SUBJECT_LAYER` after `add_child()` — only ever on the instance
+onto `SUBJECT_LAYER` after `add_child()` â€” only ever on the instance
 this scene spawns, so the shared player scene is untouched. Ground and
 figure now tune independently, one light each.
 
 **Depth fog, not exponential.** This portrait box happens to stand on a
 165x135m oval, and seen edge-on from 1m off the ground everything past
-~50m — the boundary ellipse, the apron, §6's new fence — flattened into
+~50m â€” the boundary ellipse, the apron, Â§6's new fence â€” flattened into
 a hard near-white streak straight across the horizon, and straight
-across the KICKING ACCURACY row. `fog_mode = 1` with a 5→55m ramp erases
+across the KICKING ACCURACY row. `fog_mode = 1` with a 5â†’55m ramp erases
 that while leaving the near turf its colour; exponential fog can't,
 it takes the foreground green with it. `fog_light_color` is set just
 under the sky's horizon colour so the ground fades into the sky with no
@@ -353,23 +353,23 @@ under the camera, where it fans into a white wedge across the entire
 foreground.
 
 **The 3D preview now renders at native resolution.** It was in a
-`SubViewportContainer`, which sizes its viewport in *design* units — so
+`SubViewportContainer`, which sizes its viewport in *design* units â€” so
 under `canvas_items` stretch the 3D rendered at a fixed 1280x720 and got
 scaled up by the canvas transform, visibly soft on any window bigger
 than 720p (confirmed: viewport reported 1280x720 while the root was
 1920x1080). The backdrop is now a plain child of the scene root and the
-UI moved into an `Overlay` CanvasLayer. Nothing was lost — the isolation
+UI moved into an `Overlay` CanvasLayer. Nothing was lost â€” the isolation
 a SubViewport buys is meaningless when the scene *is* the whole scene.
 **`main_menu.tscn` still has this exact problem** and was left alone.
 
 **Three deliberate deviations from the mock**, all so the screen shows
 the truth rather than the picture:
 
-1. **SPEED reads 4/9 filled, the mock shows 5.** 8.40 m/s in a 6.0–11.0
+1. **SPEED reads 4/9 filled, the mock shows 5.** 8.40 m/s in a 6.0â€“11.0
    range is 48%. The mock was drawn by eye; the bar is computed.
 2. **Locked rows render an empty bar; the mock shows JUMPING at 4/9.**
-   `StatRow` honours a fill level on locked rows — locked disables
-   interaction, it does not hide a value — but there is no jumping stat
+   `StatRow` honours a fill level on locked rows â€” locked disables
+   interaction, it does not hide a value â€” but there is no jumping stat
    in `CharacterProfile` to read, and inventing one would be inventing
    gameplay. The moment a stat backs it, it fills.
 3. **KICKING FOOT has no bar at all** (`"bar": false`), matching the
@@ -378,7 +378,7 @@ the truth rather than the picture:
 
 **Control hints are device-keyed, not hardcoded.** `_hint_sets` in
 `character_screen.gd` is a dictionary keyed by `InputManager.Device`,
-already wired to `device_changed`. Only the keyboard set is filled in —
+already wired to `device_changed`. Only the keyboard set is filled in â€”
 the Xbox bindings are being settled elsewhere, so the controller legend
 is one more entry in that dictionary and no restructuring. Until it
 exists a plugged-in pad falls back to the keyboard legend, which is what
@@ -386,13 +386,13 @@ every other screen does today.
 
 ### Not done / left for later
 
-- No real screenshot-diff regression suite exists — verification this
+- No real screenshot-diff regression suite exists â€” verification this
   session was manual (temporary `-s` SceneTree scripts + eyeballing
   renders), not automated.
-- The transposed `Sun` transform (§7) is fixed only in
+- The transposed `Sun` transform (Â§7) is fixed only in
   `character_backdrop.tscn`. `main.tscn`, `kick_to_kick.tscn`,
   `full_game.tscn` and `menu_backdrop.tscn` still carry it.
-- No gamepad control legend yet — the hook is in place (§7), the data
+- No gamepad control legend yet â€” the hook is in place (Â§7), the data
   isn't, pending the Xbox binding set.
 - The character in the preview is still `PlaceholderRig`, so the figure
   itself doesn't match the mock's proportions or kit. That's the
@@ -405,38 +405,38 @@ every other screen does today.
   resource it renders through was touched, and that lives in the level
   scenes, not in `broadcast_camera.gd` itself.
 - Main menu (`main_menu.gd`) still uses its older ad hoc `COLOUR_*` string
-  constants and BBCode text rather than `UIStyle`/`UIIcon` — §5's component
+  constants and BBCode text rather than `UIStyle`/`UIIcon` â€” Â§5's component
   system only covers the character screen so far. A future pass could
   bring the menu and scoreboard onto the same system for real type/spacing
   parity rather than just matched accent colours.
-- The boundary fence is a flat ribbon, not real picket geometry — correct
+- The boundary fence is a flat ribbon, not real picket geometry â€” correct
   at broadcast distance, would read as fake up close (e.g. if a future
   camera mode ever gets near the boundary).
 
 ---
 
-## Handover — kick stance/execute + decoupled aim (Agent: mechanics/engine)
+## Handover â€” kick stance/execute + decoupled aim (Agent: mechanics/engine)
 
 First pass at the Xbox+KBM control scheme the design brief specifies,
 scoped to the one piece that was fully numerically specified: the two-stage
 kick, its independent aim, and handball's independent aim. Marking (3-tier),
 punch/spoil, smother, bump and the ruck hit-out are deliberately **not**
-built this pass — see "Deferred" below for why and what each still needs.
+built this pass â€” see "Deferred" below for why and what each still needs.
 No visuals, contests-beyond-tackle, or RULES_REFERENCE.md numbers touched.
 
 ### 1. Kick is now LT-hold-stance / RT-tap-execute, not hold-then-release
 
 `player_controller.gd`'s `_update_charge()` used to fire the kick on the
 same button's release (hold `kick` to charge, let go to fire). The brief
-wants two separate controls — hold to enter a slowed aiming stance, tap a
-different button to strike — so release-without-firing had to become a
+wants two separate controls â€” hold to enter a slowed aiming stance, tap a
+different button to strike â€” so release-without-firing had to become a
 real option (**cancel**), which the old model had no way to express.
 
 New flow: `wants_kick()` (LT / `K`) only ever charges and holds stance;
 `wants_kick_execute()` (RT / `F`, new on `PlayerBrain`) is the one thing
 that fires, and only while stance is already held. Releasing LT before ever
 tapping RT zeroes `_kick_charge` and drops out of stance with no kick fired.
-`AIBrain` needed the same shape — it used to just flip its simulated button
+`AIBrain` needed the same shape â€” it used to just flip its simulated button
 false when its hold timer ran out (which the old release-fires model read
 as "let go"); now it pulses `_kick_execute_pressed` true for one frame
 while keeping `wants_kick()` true that same frame, i.e. it "holds LT and
@@ -445,11 +445,11 @@ existing windup/contact timing (`Tuning.ACTION_DURATION`/`ACTION_CONTACT`)
 by hand: because `is_carrying()` always goes false at contact time (~0.42s
 into the swing) well before `_action` resets to `NONE` (~0.78s), a brief
 window where `AIBrain` can spuriously re-`_commit_kick()` while its own
-swing is still playing is real but inert — `_update_charge()` early-returns
+swing is still playing is real but inert â€” `_update_charge()` early-returns
 on `_action != NONE` the entire time, so nothing it sets during that window
 is ever read before the top-level `is_carrying()` check wipes it.
 
-### 2. Aim is decoupled from body facing — kick and handball each got their own source
+### 2. Aim is decoupled from body facing â€” kick and handball each got their own source
 
 The brief is explicit that this is new: "aim is fully decoupled from
 movement/facing... two different aim sources feeding the same shared
@@ -460,25 +460,25 @@ longer quietly default to body-forward for whichever action is calling it.
 
 - **Kick**: a new `_kick_aim_yaw` float, snapped to `_facing_yaw` the
   instant stance begins, then nudged by the right stick/mouse for a human
-  only (`_update_kick_aim()`) — reusing the exact same
+  only (`_update_kick_aim()`) â€” reusing the exact same
   `InputManager.get_look_vector()`/`take_mouse_look()` calls and sign
   convention `broadcast_camera.gd` already used for its own yaw, so "push
   the stick right" turns the aim the same way it already turns the camera.
   Frozen the moment the swing begins (RT consumes it once, waggling the
   stick after that can't retroactively redirect an already-struck kick).
-  AI never nudges it, so its kicks stay body-forward exactly as before —
+  AI never nudges it, so its kicks stay body-forward exactly as before â€”
   just captured a moment earlier (when its simulated stance begins, not at
   contact time), a difference too small to matter for a baseline explicitly
   "not a tactics system" (`ai_brain.gd`'s own docstring).
-- **Handball**: no persistent aim state — captured once in `_begin()` at
+- **Handball**: no persistent aim state â€” captured once in `_begin()` at
   the instant `X` is pressed, from `_wish_dir` (falling back to
   body-forward if the stick's neutral right then), matching "toward
   wherever Left stick is currently held" precisely rather than reading it
   again later at the animation's contact time, where it could have drifted.
-- **Bounce**: untouched, still body-forward — the brief doesn't ask for a
-  bounce aim source, and AFL's real bounce-while-running doesn't need one.
+- **Bounce**: untouched, still body-forward â€” the brief doesn't ask for a
+  bounce aim source, and Aussie Rules's real bounce-while-running doesn't need one.
 
-`kick_trajectory.gd` itself needed no changes — it was already a dumb
+`kick_trajectory.gd` itself needed no changes â€” it was already a dumb
 ballistic previewer fed an origin/velocity by `player_controller.gd`; once
 `_kick_parameters()` started resolving that velocity from the aim yaw
 instead of body facing, the preview correctly followed without knowing
@@ -488,9 +488,9 @@ lives in `_kick_parameters()`/`_launch_from()`, not in the trajectory node.)
 ### 3. Kick stance slows movement; camera stops eating the aim stick
 
 `Tuning.KICK_STANCE_SPEED_SCALE` (0.55) applied in `_update_locomotion()`
-while `_charging` — less restrictive than the existing swing-lock
+while `_charging` â€” less restrictive than the existing swing-lock
 `ACTION_SPEED_SCALE` (0.4), since the brief wants you still moving while
-aiming, just slower, not planted. `Tuning.KICK_AIM_YAW_SPEED` (180°/s,
+aiming, just slower, not planted. `Tuning.KICK_AIM_YAW_SPEED` (180Â°/s,
 starts equal to `CAM_YAW_SPEED` but is a separate dial) governs how fast
 the stick/mouse swings the aim.
 
@@ -498,7 +498,7 @@ the stick/mouse swings the aim.
 target is in kick stance (`is_kick_aiming()`, new on `PlayerController`),
 so the right stick/mouse drives aim instead of fighting the camera for the
 same input. Position/lookahead (`_update_focus`) and FOV (`_update_fov`)
-keep running unaffected — the rig still tracks the player, it just holds
+keep running unaffected â€” the rig still tracks the player, it just holds
 its current orientation instead of re-centring on stick input until aiming
 ends. This is the one change in `broadcast_camera.gd`; no lens/visual
 treatment touched, per the ownership split with Agent 1.
@@ -506,18 +506,18 @@ treatment touched, per the ownership split with Agent 1.
 ### 4. Tackle: renamed from `mark_contest`, moved to B, switched to hold
 
 The old `mark_contest` action (E / Y, edge-triggered) only ever meant
-"attempt a tackle" — there is no marking system yet, so the name was
+"attempt a tackle" â€” there is no marking system yet, so the name was
 already misleading and would only get worse once marking exists. Removed
-it outright and added `tackle` (E / **B**, `is_action_pressed` — a hold,
+it outright and added `tackle` (E / **B**, `is_action_pressed` â€” a hold,
 per "B hold near opponent: Tackle") rather than leaving a dead action name
 bound to nothing. `PlayerController._try_tackle()`'s existing guards
 already required `not is_carrying()` on the tackler, so switching from tap
 to hold is safe by inspection: it only re-attempts a tackle on a target
 still in range, and the moment one lands, `other.is_carrying()` goes false
-and removes them as a valid target — no re-tackle-spam from holding B down.
+and removes them as a valid target â€” no re-tackle-spam from holding B down.
 
 Y is now fully unbound (was tackle, freed for the brief's own "Aggressive
-mark" reservation). B keeps its existing Bounce binding *as well* —
+mark" reservation). B keeps its existing Bounce binding *as well* â€”
 Bounce needs `is_carrying()`, Tackle needs `!is_carrying()`, so the two are
 mutually exclusive by possession state and can safely share the physical
 button, exactly the "buttons remap by phase" pattern the brief describes
@@ -529,7 +529,7 @@ already shared physical `C` before this change).
 
 `project.godot [input]`: removed `kick` (K/A) and `mark_contest` (E/Y).
 Added `kick_stance` (K / LT axis4), `kick_execute` (**F**, not a mouse
-button — see below / RT axis5, physically shared with the pre-existing
+button â€” see below / RT axis5, physically shared with the pre-existing
 `sprint` action, same "one physical control, two named logical actions,
 gameplay code picks which applies" pattern already used for LT elsewhere),
 `tackle` (E / B button1). Left `bounce`, `handball`, `sprint`, `walk`,
@@ -542,15 +542,15 @@ for `kick_execute`. This project has never bound a mouse *button* to
 anything (only mouse *motion*, for camera look), so there were no verified
 examples of Godot 4's `InputEventMouseButton` text-resource format in this
 file to pattern-match against, and no way to headless-verify a guess (see
-§6). `F` is a plain `InputEventKey` identical in shape to the eight other
+Â§6). `F` is a plain `InputEventKey` identical in shape to the eight other
 key bindings already in the file, eliminating that risk for the same
 functional outcome. Worth revisiting for real mouse-click support once
 this can be tested in-editor.
 
-### 6. Verification — and the gap in it
+### 6. Verification â€” and the gap in it
 
 No `godot`/`godot4` executable was found on `PATH`, in `Program Files`, in
-`%LOCALAPPDATA%`, or anywhere else searched — this environment cannot run
+`%LOCALAPPDATA%`, or anywhere else searched â€” this environment cannot run
 `godot --headless --path . --quit-after 300`, the project's own standard
 smoke test (see this file's top section and `README.md`). Everything above
 was instead verified by:
@@ -559,14 +559,14 @@ was instead verified by:
   intended change) to catch anything the edit tool matched wrong.
 - Hand-tracing the state machine frame-by-frame for: a minimum-charge tap
   kick, hold-then-cancel, hold-to-execute at partial and full charge, the
-  `AIBrain` timing interaction in §1, handball while moving vs. stationary,
+  `AIBrain` timing interaction in Â§1, handball while moving vs. stationary,
   and tackle-hold while closing distance.
 - Re-deriving `_yaw_direction()` against `_update_facing()`'s existing
   `atan2(-desired.x, -desired.z)` and confirming they're exact inverses
-  (yaw→direction round-trips to the same direction that produced it),
+  (yawâ†’direction round-trips to the same direction that produced it),
   rather than trusting a fresh derivation by eye.
 - Grepping for every remaining reference to the removed `kick`/
-  `mark_contest` action names across the whole project — the only hits
+  `mark_contest` action names across the whole project â€” the only hits
   left are unrelated animation/icon lookup keys that happen to also be
   spelled `"kick"` (`player_animation.gd`, `placeholder_animations.gd`,
   `ui_icon.gd`, `character_screen.gd`), not `Input` action reads.
@@ -576,7 +576,7 @@ was instead verified by:
   reconstructing the format from memory.
 
 **What this hasn't caught**: anything that only shows up at actual engine
-parse time or in play — whether the two new axis-4/5 bindings read the
+parse time or in play â€” whether the two new axis-4/5 bindings read the
 Xbox triggers the way I expect, whether the stance slow/aim-swing feels
 right, whether `_kick_aim_yaw` drifting from `_facing_yaw` looks correct on
 the rig. Needs a real `godot --headless` pass and then hands-on-pad time in
@@ -585,13 +585,13 @@ inspection." Point me at the executable, or run the standard smoke test
 yourself, before relying on this beyond that.
 
 **Flag for Agent 1 (UI/visual, out of my scope)**: `debug_hud.gd`'s
-hardcoded control hint — `"K hold+release kick   Q handball   Space bounce
-R reset ball   F3 hud"` — describes the removed model. Not edited here;
+hardcoded control hint â€” `"K hold+release kick   Q handball   Space bounce
+R reset ball   F3 hud"` â€” describes the removed model. Not edited here;
 `HUD` is explicitly out of scope for this agent.
 
 ### Deferred: marking, punch/spoil, smother, bump, hit-out
 
-Not started. Unlike the kick, these have no numeric spec anywhere yet —
+Not started. Unlike the kick, these have no numeric spec anywhere yet â€”
 building them now would mean inventing detection radii, timing windows and
 risk/reward resolution unsupervised. Concretely still open before any of
 these can be built:
@@ -599,8 +599,8 @@ these can be built:
 - **Marking (A/X/Y tiers)**: needs "ball in flight" + timing-window
   detection (nothing in the codebase currently distinguishes a mark from
   `_try_gather()`'s passive proximity pickup), and per RULES_REFERENCE.md
-  §4 holding-the-ball/free-kick adjudication isn't resolved yet either —
-  the brief's "mistimed aggressive mark ≈ free-kick-against" has no home
+  Â§4 holding-the-ball/free-kick adjudication isn't resolved yet either â€”
+  the brief's "mistimed aggressive mark â‰ˆ free-kick-against" has no home
   until that lands.
 - **Punch/Spoil (LT tap, not carrying)**: needs a contest-detection radius
   and a resolution (does it just knock the ball loose faster, cancel a
@@ -609,7 +609,7 @@ these can be built:
   mid-disposal-windup (nothing public exposes `_action` today) plus a
   timing window and a resolution.
 - **Bump (LB hold + RT stick flick)**: needs the hit-stick timing model
-  itself designed — flick-direction-vs-carrier-approach-angle scoring,
+  itself designed â€” flick-direction-vs-carrier-approach-angle scoring,
   plus the free-kick-for-high-contact rule RULES_REFERENCE.md doesn't have
   numbers for yet.
 - **Hit-out (RB, ruck stoppage only)**: needs a ruck/stoppage phase to
@@ -618,29 +618,29 @@ these can be built:
 
 ---
 
-## Handover — playtest fixes + kicking coach (Agent: mechanics/engine)
+## Handover â€” playtest fixes + kicking coach (Agent: mechanics/engine)
 
 First real playtest of the kick-stance/execute work above happened in the
-gap between sessions (commit `aa34a6a`) — this pass is the fixes that
+gap between sessions (commit `aa34a6a`) â€” this pass is the fixes that
 playtest surfaced, plus the kicking-coach mini-game.
 
 ### 1. Kick was going ~100m at max power, wanted ~60m+
 
 `Tuning.KICK_MAX_SPEED` (30 m/s) was never actually simulated when it was
-picked — the old comment's "55-60m" was a hand estimate. Numerically
+picked â€” the old comment's "55-60m" was a hand estimate. Numerically
 stepped the real drag+gravity model this time (matching
-`KickTrajectory._simulate`'s own integration): 30 m/s at 40° comes out to
+`KickTrajectory._simulate`'s own integration): 30 m/s at 40Â° comes out to
 ~65m of *flight* standing, ~75m kicking on the run, before any bounce/
-roll-out is added on top — consistent with "~100m" once a real landing's
+roll-out is added on top â€” consistent with "~100m" once a real landing's
 bounce and roll are included. Dropped `KICK_MAX_SPEED` to 24.0 (~46m
 flight standing, ~55m on the run), leaving room for roll-out to land the
 *total* travelled distance around 60-70m instead of 100m+. `KICK_MIN_SPEED`
-untouched — only the top end was reported as too far.
+untouched â€” only the top end was reported as too far.
 
 ### 2. Kick charge could only ramp up, never back down
 
 The charge model was pure hold-duration (`_kick_charge += delta /
-KICK_CHARGE_TIME` while LT held, reset to 0 on release) — an Xbox
+KICK_CHARGE_TIME` while LT held, reset to 0 on release) â€” an Xbox
 trigger's actual pull depth was never read, so there was no way to ease
 power back down short of fully releasing and re-charging from zero, which
 is what got reported as "I can move direction but not the power back and
@@ -648,26 +648,26 @@ forth."
 
 Added `InputManager.kick_stance_strength()`: returns the trigger's real
 analog pull (`Input.get_action_strength`) on a gamepad, or a negative
-sentinel on keyboard (K has no pull depth to read — nothing analog to
-fall back to there). New `PlayerBrain.kick_charge_override()` — negative
+sentinel on keyboard (K has no pull depth to read â€” nothing analog to
+fall back to there). New `PlayerBrain.kick_charge_override()` â€” negative
 by default (AI and keyboard both keep the old time-ramp), `HumanBrain`
 returns the live trigger read. `PlayerController._update_charge()` uses
 the override directly as `_kick_charge` whenever one's available, instead
-of accumulating. Also dropped `kick_stance`'s InputMap deadzone 0.5→0.2
-(matching `MOVE_DEADZONE`) — at 0.5 half the trigger's travel was dead
+of accumulating. Also dropped `kick_stance`'s InputMap deadzone 0.5â†’0.2
+(matching `MOVE_DEADZONE`) â€” at 0.5 half the trigger's travel was dead
 zone, leaving almost no usable analog range once it *was* being read.
 
 ### 3. Character appears to move backward when running forward
 
-Investigated but **not fixed here** — re-derived and hand-verified the
+Investigated but **not fixed here** â€” re-derived and hand-verified the
 entire movement/facing pipeline in `player_controller.gd` (camera-relative
-input → `_heading` → `_facing_yaw`/`rotation.y` → `locomotion_blend()`)
+input â†’ `_heading` â†’ `_facing_yaw`/`rotation.y` â†’ `locomotion_blend()`)
 and confirmed it's mathematically correct; also checked every `Transform3D`
 literal in `player.tscn` for the row/column transpose bug this project has
-hit before (§7 above) and found none carry a non-identity rotation to even
+hit before (Â§7 above) and found none carry a non-identity rotation to even
 be vulnerable to it. That rules out this agent's own code. Most likely
-remaining suspect is `placeholder_animations.gd`'s `_gait_pose` — exactly
-the risk this project's own milestone-1 notes predicted — or something in
+remaining suspect is `placeholder_animations.gd`'s `_gait_pose` â€” exactly
+the risk this project's own milestone-1 notes predicted â€” or something in
 the rig/animation wiring; both are character-model/animation, outside
 this agent's ownership. Flagged with the full diagnostic trail as a
 spawned task rather than guessing blind edits into files this agent
@@ -677,15 +677,15 @@ doesn't own.
 
 `CarryPoint` (`player.tscn`) was still at the offset (`0.26, 1.02, -0.3`)
 it was presumably tuned at before the visual pass narrowed the torso
-(pelvis 0.30→0.23m, chest 0.36→0.32m — see §3 in the visual-pass section
+(pelvis 0.30â†’0.23m, chest 0.36â†’0.32m â€” see Â§3 in the visual-pass section
 above). Checked it against the *current* rig geometry in
 `placeholder_rig.gd`: at carry height (~hip level), the only nearby
-geometry is the Pelvis box, half-width 0.115m — 0.26 sits more than
+geometry is the Pelvis box, half-width 0.115m â€” 0.26 sits more than
 double that width out, past everything. Moved it to `(0.16, 1.20, -0.22)`,
 which lines up with the SidePanel boxes (offset `0.17, 0.15` from torso,
-added in the same visual pass) — carried at the ribs, snug against
+added in the same visual pass) â€” carried at the ribs, snug against
 existing geometry instead of floating past all of it. Not visually
-verified (see the environment note below) — likely still wants a final
+verified (see the environment note below) â€” likely still wants a final
 eyeball-and-nudge pass in-editor.
 
 ### 5. Kicking coach + target-practice mini-game (kick_to_kick only)
@@ -694,38 +694,38 @@ New: walk up to a coach standing on the field, `X`/interact to talk,
 `Y`/`confirm` to accept a kick-at-the-target challenge, camera does a
 two-shot for the conversation and pans back out behind the player for the
 challenge, 5 kicks at a downfield ring, hit/miss tracked. Scoped to
-`kick_to_kick.tscn` only and to the kicking coach only — a marking coach
+`kick_to_kick.tscn` only and to the kicking coach only â€” a marking coach
 and a tackling coach, and wiring any of this into Full Game, are next per
 the brief, once this one's been played.
 
 **New, mine**: `scripts/mechanics/coach_npc.gd` + `scenes/mechanics/
 coach_npc.tscn` (proximity trigger + a bare instance of the existing
-placeholder rig as a stand-in body — no `PlayerController`, so it can't
+placeholder rig as a stand-in body â€” no `PlayerController`, so it can't
 gather a loose ball or take a tackle just by existing on the field).
 `scripts/mechanics/kick_challenge.gd` + `scenes/mechanics/
 kick_challenge.tscn` (the mini-game: target ring is a mechanics-owned
-gizmo — `Area3D` + unshaded `TorusMesh`, the same category of thing
-`KickTrajectory`'s landing ring already is, not a modelled prop — hit/miss/
+gizmo â€” `Area3D` + unshaded `TorusMesh`, the same category of thing
+`KickTrajectory`'s landing ring already is, not a modelled prop â€” hit/miss/
 attempts state machine, signals for the rest to hook). Kept deliberately
 separate from `kick_to_kick.gd`'s own body rather than folded in, since
 what actually ends up shared once the marking/tackling coaches exist isn't
-knowable yet — that's a refactor for when there are three of these, not a
+knowable yet â€” that's a refactor for when there are three of these, not a
 shape to guess at with one.
 
 **`broadcast_camera.gd`**: added `enter_dialogue(left, right)` /
-`exit_dialogue()` — a fixed side-on two-shot (position off to the side of
-the left↔right line, spring arm collapsed to ~0, yaw/pitch aimed at the
+`exit_dialogue()` â€” a fixed side-on two-shot (position off to the side of
+the leftâ†”right line, spring arm collapsed to ~0, yaw/pitch aimed at the
 midpoint) as a genuinely different composition from the follow-cam's
 spring-arm-behind-one-target model, not a variation of it. `exit_dialogue()`
-is just `recenter()` — which now also restores `spring_length`/`fov`, since
+is just `recenter()` â€” which now also restores `spring_length`/`fov`, since
 dialogue framing is the first thing that ever moved them and nothing was
 putting them back. New `CAM_DIALOGUE_*` constants in `tuning.gd`.
 
-**`kick_to_kick.gd`**: owns the state machine (`NONE → PROMPT → DIALOGUE →
+**`kick_to_kick.gd`**: owns the state machine (`NONE â†’ PROMPT â†’ DIALOGUE â†’
 CHALLENGE`), reads new `interact`/`confirm`/`decline` actions directly
 (same pattern it already used for `pause`/`debug_reset`), freezes movement
 during dialogue via the existing `InputManager.gameplay_input_enabled`
-gate (already built for exactly this — menus/dialogue owning input — see
+gate (already built for exactly this â€” menus/dialogue owning input â€” see
 `input_manager.gd`'s own docstring), re-offers the prompt immediately on
 decline if still in range, and polls once a frame for "was carrying when
 I walked up, not carrying anymore" so the prompt doesn't get stuck
@@ -734,7 +734,7 @@ withheld until the player leaves and re-enters the coach's radius.
 **Placeholder UI, clearly fenced**: a bare `Label` in a `CanvasLayer`,
 built in code inside `kick_to_kick.gd` (not a scene file, not styled)
 stands in for the real chat-bubble dialogue the brief describes. This is
-UI, out of this agent's ownership — built only as a rough, load-bearing
+UI, out of this agent's ownership â€” built only as a rough, load-bearing
 placeholder so the feature is actually testable end to end right now,
 exactly the same "prove it before it's pretty" posture this whole project
 already takes with `PlaceholderRig`. **For whoever owns UI**: replace
@@ -742,19 +742,19 @@ already takes with `PlaceholderRig`. **For whoever owns UI**: replace
 the real coach-left/bubble-right presentation; the hook is `hint_changed`
 off `KickChallenge` plus the four state-transition points in
 `kick_to_kick.gd` (`_on_coach_range_entered`, `_begin_dialogue`,
-`_accept_challenge`, `_on_challenge_ended`) — none of that needs to
+`_accept_challenge`, `_on_challenge_ended`) â€” none of that needs to
 change shape, just what renders it.
 
-**New input actions**: `interact` (`Q`/X — physically shared with
+**New input actions**: `interact` (`Q`/X â€” physically shared with
 `handball`, same "one physical control, two logical actions, game state
 picks which" pattern as everywhere else in this input map; only matters
 while not carrying, so no real collision with handball), `confirm`
-(`Y`/A — A freed up last session when marking hadn't claimed it yet),
-`decline` (`N`/B — shared with `bounce`/`tackle`, a third context on an
+(`Y`/A â€” A freed up last session when marking hadn't claimed it yet),
+`decline` (`N`/B â€” shared with `bounce`/`tackle`, a third context on an
 already phase-remapped button).
 
 **Input actions verified**: while writing this pass I re-derived and
-cross-checked every physical keycode against ASCII (Y=89, N=78 — matches
+cross-checked every physical keycode against ASCII (Y=89, N=78 â€” matches
 the same convention every other letter key in this file already uses) and
 pattern-matched the new `project.godot` blocks character-for-character
 against existing verified blocks of the same event type, same discipline
@@ -765,37 +765,37 @@ as last session's input-map work.
 `kick_to_kick.gd` originally connected both `KickChallenge.target_hit`
 (2 args: hits, attempts_used) and `target_missed` (1 arg: attempts_used)
 to the same two-parameter handler. That would have thrown the first time
-a kick actually missed — not caught by any static read-through, only by
+a kick actually missed â€” not caught by any static read-through, only by
 tracing what each signal actually emits against what its handler
 declares. Removed the handler entirely; both signals' only real consumer
 was already `hint_changed`, which is correctly wired.
 
 ### Verification, and its limits (same gap as last session)
 
-Still no Godot binary available in this environment — same limitation as
-last time, see §6 there. Everything above was checked by full re-reads of
+Still no Godot binary available in this environment â€” same limitation as
+last time, see Â§6 there. Everything above was checked by full re-reads of
 every touched/new file, tracing the coach/dialogue/challenge state machine
-by hand for the whole flow (approach → prompt → accept/decline → re-prompt
-→ challenge → hit/miss/out-of-bounds → end), and specifically auditing
+by hand for the whole flow (approach â†’ prompt â†’ accept/decline â†’ re-prompt
+â†’ challenge â†’ hit/miss/out-of-bounds â†’ end), and specifically auditing
 every new signal `.connect()` call's parameter count against what the
 corresponding `signal` declaration actually emits (which is what caught
-the bug above — worth calling out as a category, since it's exactly the
+the bug above â€” worth calling out as a category, since it's exactly the
 kind of thing that reads fine top-to-bottom and only breaks at the moment
 a particular signal actually fires). The kick-distance fix was checked
 numerically (a standalone script stepping the same drag+gravity model
 `KickTrajectory` uses), not just eyeballed. None of this substitutes for
-an actual playtest — that's still the next real step, same as last time.
+an actual playtest â€” that's still the next real step, same as last time.
 
-No RULES_REFERENCE.md numbers were relied on for any of this pass — kick
+No RULES_REFERENCE.md numbers were relied on for any of this pass â€” kick
 distance is tuned by feel/observation against the brief's own "usually
-60+ metres," not an AFL rule number, and the coach/challenge system is
+60+ metres," not an Aussie Rules rule number, and the coach/challenge system is
 new mechanics of this project's own design, not a P1 rule being ported.
 
 **Addendum, same session**: the verification gap above is now closed. The
 user surfaced the Godot binary path
 (`C:\Users\Bozzy\Downloads\Godot_v4.6-stable_win64.exe\Godot_v4.6-
 stable_win64_console.exe`) via a real launch that hit `Could not find
-type "CoachNPC"/"KickChallenge" in the current scope` — not a code bug,
+type "CoachNPC"/"KickChallenge" in the current scope` â€” not a code bug,
 a stale `.godot/global_script_class_cache.cfg` from before those two
 scripts existed, which a plain game/headless launch trusts rather than
 rescanning. Fixed with `--headless --editor --quit`, which forces the
@@ -803,14 +803,14 @@ scan and registers new global classes without needing a GUI. With that
 done, actually ran headless: the project's own documented smoke test
 clean, plus `kick_to_kick.tscn` and `full_game.tscn` each booted directly
 (`--headless --path . "res://scenes/modes/X.tscn" --quit-after 180`) with
-zero errors — the first real (not just static) verification this agent
+zero errors â€” the first real (not just static) verification this agent
 has been able to do this project. Binary path and the exact incantations
 are saved to this agent's memory so future sessions don't have to
 rediscover them.
 
 ---
 
-## Handover — coach fixes + P1-informed aim rework (Agent: mechanics/engine)
+## Handover â€” coach fixes + P1-informed aim rework (Agent: mechanics/engine)
 
 Second playtest round. Three quick coach bugs, then a real rework of kick
 aiming after consulting Prototype 1 directly (`E:\aussie-rules_game`) at
@@ -819,20 +819,20 @@ the user's explicit request, rather than guessing at "smooth."
 ### Coach fixes
 
 1. **Coach floated 0.5m off the ground.** `_setup_coach()` positioned it
-   at `Field.centre() + COACH_STAND_OFFSET` wholesale — but `centre()`
+   at `Field.centre() + COACH_STAND_OFFSET` wholesale â€” but `centre()`
    returns `Vector3(0, 0.5, 0)`, tuned for resting a *ball* there, not a
    standing rig whose own local origin already means "feet on the
    ground." Now takes only centre's X/Z, Y forced to 0.
 2. **No ball at the start of a challenge.** Coach interaction is gated on
-   `not is_carrying()` by design (§5 last entry), so the player is always
-   empty-handed when `_accept_challenge()` runs — but nothing was giving
+   `not is_carrying()` by design (Â§5 last entry), so the player is always
+   empty-handed when `_accept_challenge()` runs â€” but nothing was giving
    them a fresh ball. Now calls the existing `_reset_ball()` (same
    placement the debug-reset/out-of-bounds paths already use) right
    before `KickChallenge.begin()`.
 3. **Gamepad sprint moved to L3 click** (FIFA-style, per direct request),
-   off RT — RT can no longer safely double as sprint now that it's the
+   off RT â€” RT can no longer safely double as sprint now that it's the
    kick trigger regardless of ADS state (see below). `walk`'s gamepad
-   binding (also L3, a direct conflict) is gone rather than relocated —
+   binding (also L3, a direct conflict) is gone rather than relocated â€”
    a gamepad's stick is already analog, so the discrete "walk" tier it
    provided was really only ever necessary for keyboard, which has no
    analog input to fall back on and keeps `Ctrl`. No `get_gait()` logic
@@ -843,56 +843,56 @@ the user's explicit request, rather than guessing at "smooth."
 Last session's "hold LT to aim" model was engineered from the design
 brief's prose alone. The user played it, said it wasn't smooth on a pad,
 and specifically asked to check how Prototype 1 did it before touching
-anything — so an Explore agent went and read `controller.py`/
+anything â€” so an Explore agent went and read `controller.py`/
 `gameplay.py`/`mechanics.py`/`settings.py` directly rather than guessing.
 Findings that actually changed the plan:
 
-- **P1 gates aiming behind a hold too** (`K_2`/LT → `enter_aim_mode`,
+- **P1 gates aiming behind a hold too** (`K_2`/LT â†’ `enter_aim_mode`,
   *then* the stick moves things). The brief's "I just used right stick
   for aiming" describes what happens *inside* that gated mode, not a
-  ungated always-on aim — so last session's LT-gate structure was
+  ungated always-on aim â€” so last session's LT-gate structure was
   already right and did not need removing. Good to have checked before
   ripping it out.
 - **P1's aim is a velocity-driven cursor** (`_aim_cursor += stick *
   AIM_CURSOR_SPEED * raw_dt`, unprojected through the camera each frame),
-  not a raw angle-rate rotation — plus the whole world runs at
+  not a raw angle-rate rotation â€” plus the whole world runs at
   `SLOWMO_FACTOR = 0.25` while aiming, with the cursor itself exempted
   (moves on `raw_dt`, not the dilated one) so aim input stays crisp while
   everything else slows down. Both are real, cited contributors to "felt
-  fine." **Neither is ported here** — a full 2D-cursor/ground-unprojection
+  fine." **Neither is ported here** â€” a full 2D-cursor/ground-unprojection
   system and a selective time-dilation layer are both significant,
   invasive rearchitectures that touch far more than kicking (the dilation
   in particular would need to reach animation timing, AI decision timers
   and ball physics without slowing the very input it's meant to keep
-  crisp), and neither was explicitly asked for — noted here so the option
+  crisp), and neither was explicitly asked for â€” noted here so the option
   is visible, not silently dropped. What *did* change: `KICK_AIM_YAW_SPEED`
-  180→100 deg/s, the simplest available lever toward "controlled, not
+  180â†’100 deg/s, the simplest available lever toward "controlled, not
   twitchy" without either of those.
 - **P1 has a real, deliberate, separately-implemented aim-assist**
   (`apply_aim_assist`/`AIM_ASSIST_RADIUS`/`AIM_ASSIST_STRENGTH = 6.0`,
   soft-pulls the cursor toward the nearest teammate, controller-only,
   confirmed structurally distinct from the `KICK_SCATTER_*`/`PRESSURE_*`
   accuracy-under-pressure system a previous research pass had already
-  found). Ported the constant directly — the blend formula
-  (`k = min(1, STRENGTH·dt)`) is a dimensionless fraction, so it carries
+  found). Ported the constant directly â€” the blend formula
+  (`k = min(1, STRENGTHÂ·dt)`) is a dimensionless fraction, so it carries
   over even though P1 blends 2D screen pixels and this blends a 1D world
   yaw. `CONE_DEG`/`RANGE` have no P1 equivalent (P1's radius gate is in
   screen-space pixels around a cursor, which doesn't translate to a
-  world-space angle system) — first pass at the same idea, not a port.
-- **P1 has no hip-fire/ADS split** — every kick, human or AI, goes
+  world-space angle system) â€” first pass at the same idea, not a port.
+- **P1 has no hip-fire/ADS split** â€” every kick, human or AI, goes
   through the identical aim-cursor pipeline. The "RT alone = quick,
   imprecise, facing-based kick" the user asked for (an explicit FPS
   analogy) has no P1 precedent; it's this project's own addition,
   confirmed as such so it doesn't get mistaken for a port later.
 
 **What actually changed in `player_controller.gd`:**
-`_update_charge()` is now a three-way branch instead of two: LT held →
+`_update_charge()` is now a three-way branch instead of two: LT held â†’
 existing ADS charge/aim/execute flow, unchanged in shape; LT released
-mid-charge → cancel, unchanged; **RT tapped with LT never having been
-held this attempt → new hip-fire branch** — fixed `KICK_HIP_FIRE_CHARGE`
+mid-charge â†’ cancel, unchanged; **RT tapped with LT never having been
+held this attempt â†’ new hip-fire branch** â€” fixed `KICK_HIP_FIRE_CHARGE`
 (0.55, since there's no stance to charge power through), aim snapped
 fresh to body-facing every time (not whatever `_kick_aim_yaw` was last
-left at by an earlier *cancelled* ADS attempt — that would've been a real
+left at by an earlier *cancelled* ADS attempt â€” that would've been a real
 staleness bug), fires immediately. `_apply_kick_accuracy()` split into a
 shared `_apply_spread()` primitive plus the existing skill-based caller,
 so the new `KICK_HIP_FIRE_SPREAD_DEG` scatter (stacks on top of the
@@ -900,11 +900,11 @@ skill-based one, doesn't replace it) can't drift out of sync with how the
 existing spread already rotates a launch vector. New `_apply_aim_assist()`
 + `_nearest_teammate_for_assist()`, called from `_update_kick_aim()` each
 frame while charging, gamepad-only (matches P1's own controller-only
-gate — a mouse already points exactly where aimed).
+gate â€” a mouse already points exactly where aimed).
 
 **A bug caught by re-checking the tackle-interruption path**: a hip-fire
 kick's swing can be interrupted by a tackle before `_dispose()` ever
-reads `_hip_fire_kick`, which would have left it stuck `true` — so the
+reads `_hip_fire_kick`, which would have left it stuck `true` â€” so the
 next kick to actually resolve, possibly a properly-aimed one with a
 freshly gathered ball, would have wrongly inherited hip-fire's scatter.
 Fixed by resetting it in `drop_ball()`, which already resets `_kick_charge`/
@@ -922,34 +922,34 @@ above, that AI never reaches the hip-fire branch (`wants_kick()` is always
 true before AI ever pulses execute, so it can't fall through to the RT-
 alone branch), and that `_apply_aim_assist` safely no-ops in `kick_to_kick`
 (no other `PlayerController` exists there for the teammate search to find
-— confirmed intentional, not a bug, since `CoachNPC` is deliberately not
+â€” confirmed intentional, not a bug, since `CoachNPC` is deliberately not
 in the `"players"` group).
 
 No RULES_REFERENCE.md numbers relied on. Prototype 1 specifics quoted
 above (`AIM_ASSIST_STRENGTH`, `SLOWMO_FACTOR`, etc.) are cited from the
 research pass, not RULES_REFERENCE.md, which doesn't cover aim-assist at
-all — worth adding a line there if this direction holds up under play.
+all â€” worth adding a line there if this direction holds up under play.
 
 ---
 
-## Handover — kick power off the aim stick, not the trigger (Agent: mechanics/engine)
+## Handover â€” kick power off the aim stick, not the trigger (Agent: mechanics/engine)
 
 Third playtest round on the same system. The user rejected the previous
 entry's power model outright: LT pull-depth, even live-adjustable, is
 still fundamentally a squeeze. What they wanted instead is the stick's
-Y-position read directly as power — wherever the trajectory preview line
+Y-position read directly as power â€” wherever the trajectory preview line
 currently reaches to, full stop, pushed forward for further and eased
 back for shorter, with no separate "charge" value underneath it at all.
 
 ### What changed
 
-`InputManager.kick_stance_strength()` → renamed `kick_reach_strength()`
+`InputManager.kick_stance_strength()` â†’ renamed `kick_reach_strength()`
 and re-sourced: was `Input.get_action_strength(&"kick_stance")` (LT's own
-analog depth), now `clampf(get_look_vector().y, 0.0, 1.0)` — the same
+analog depth), now `clampf(get_look_vector().y, 0.0, 1.0)` â€” the same
 right-stick vector `_update_kick_aim()` already reads `.x` off for aim
 yaw. `human_brain.gd`'s `kick_charge_override()` call site updated to
 match; `player_brain.gd`'s doc comment updated for the same reason.
-`player_controller.gd` itself needed no logic change — `_update_charge()`
+`player_controller.gd` itself needed no logic change â€” `_update_charge()`
 already treated any `override >= 0.0` as "this is the power, full stop,"
 so swapping what feeds that override was a one-line change one layer
 down. LT still gates entry into the aiming stance at its existing 0.2
@@ -960,7 +960,7 @@ Keyboard (with or without mouse) is unaffected: `InputManager.device`
 tracks mouse motion as `Device.KEYBOARD`, so `kick_reach_strength()`
 returns the `-1.0` sentinel for both, same as before, and `_update_charge()`
 falls through to the pre-existing `_kick_charge + delta / KICK_CHARGE_TIME`
-hold-ramp. AI is likewise untouched — `AIBrain` doesn't override
+hold-ramp. AI is likewise untouched â€” `AIBrain` doesn't override
 `kick_charge_override()`, so it inherits `PlayerBrain`'s base `-1.0` and
 always ramps too. Only a human on a gamepad reads differently than it did
 last round.
@@ -971,20 +971,20 @@ last round.
 the **combined 2D magnitude** by `pow(magnitude, LOOK_CURVE)` (curve =
 2.0) and reapplies that as one uniform factor to both x and y. That curve
 was picked for camera-look feel, back when x and y were both "look," i.e.
-one job. Now x is aim yaw and y is power — two logically separate values
-sharing one physical stick — and the shared magnitude curve means they
+one job. Now x is aim yaw and y is power â€” two logically separate values
+sharing one physical stick â€” and the shared magnitude curve means they
 are not read fully independently: nudging aim (x) while holding a power
 level (y) measurably changes the read power, and vice versa, because both
 axes are scaled by whatever the *combined* deflection works out to, not
-by each axis's own deflection. Concretely: holding raw `(0.3, 0.3)` — a
-moderate aim nudge at moderate power — shapes down to roughly `(0.13,
-0.13)`, not `(0.3, 0.3)`, because `pow(0.424, 2) ≈ 0.18` is the factor
+by each axis's own deflection. Concretely: holding raw `(0.3, 0.3)` â€” a
+moderate aim nudge at moderate power â€” shapes down to roughly `(0.13,
+0.13)`, not `(0.3, 0.3)`, because `pow(0.424, 2) â‰ˆ 0.18` is the factor
 applied to both. Small aim corrections during a held power barely move
 it; a large simultaneous diagonal push (aiming hard off to one side while
 holding high power) will visibly suppress the power reading versus
 pushing straight forward at the same perceived effort.
 
-Not fixed here — no playtest evidence yet that this is what anyone would
+Not fixed here â€” no playtest evidence yet that this is what anyone would
 actually feel as "power feels jumpy," and the fix isn't obvious even if
 it is: shaping x and y independently (two separate `pow()` calls instead
 of one radial one) is a small change, but whether that's the *right* feel
@@ -998,22 +998,22 @@ to the side" bug report.
 
 Same two real headless passes as both prior entries: `full_game.tscn` for
 240 frames and `kick_to_kick.tscn` for 180, both clean, exit 0, zero
-errors — confirms the rename and re-sourcing didn't break parsing or
+errors â€” confirms the rename and re-sourcing didn't break parsing or
 either scene's actual kick path (AI kicks every match in `full_game`,
 exercising `_update_charge`'s ramp branch same as always; a human brain's
 new stick-Y branch has no AI equivalent to exercise headless, so this
-only rules out parse/runtime breakage, not feel — same limitation every
+only rules out parse/runtime breakage, not feel â€” same limitation every
 entry in this doc has flagged). Confirmed by reading, not runtime: only
-`kick_reach_strength()`, its one call site, and doc comments changed —
+`kick_reach_strength()`, its one call site, and doc comments changed â€”
 `_update_kick_aim()`'s x-read and the aim-assist added last round are
 untouched by this round's diff.
 
 ### Open questions carried forward
 
 None of the tuning constants from the last two rounds have been
-playtested since landing — `KICK_HIP_FIRE_CHARGE` (0.55),
-`KICK_HIP_FIRE_SPREAD_DEG` (20°), `KICK_AIM_ASSIST_CONE_DEG`/`RANGE`
-(18°/60m — `STRENGTH` at 6.0 is P1-sourced, higher confidence than the
+playtested since landing â€” `KICK_HIP_FIRE_CHARGE` (0.55),
+`KICK_HIP_FIRE_SPREAD_DEG` (20Â°), `KICK_AIM_ASSIST_CONE_DEG`/`RANGE`
+(18Â°/60m â€” `STRENGTH` at 6.0 is P1-sourced, higher confidence than the
 other two), and now whether the x/y curve-coupling above is even
 noticeable at the stick deflections a real kick actually uses. All first-
 guess numbers or carried-over defaults, not verified by feel. Next round
@@ -1021,7 +1021,7 @@ should be a play pass, not another static read.
 
 ---
 
-## Handover — trajectory preview was cut short of its own landing ring (Agent: mechanics/engine)
+## Handover â€” trajectory preview was cut short of its own landing ring (Agent: mechanics/engine)
 
 Bug report from actually playing this build: the dashed trajectory line
 visibly stopped short of the landing ring instead of connecting to it,
@@ -1032,24 +1032,24 @@ ones. Both symptoms turned out to be the same root cause.
 
 `KickTrajectory._simulate()` (`scripts/player/kick_trajectory.gd`) stepped
 the flight model for exactly `MAX_DOTS` iterations (22) at `DOT_STEP_TIME`
-(0.05s) each — 1.10 simulated seconds, full stop, whether or not the ball
+(0.05s) each â€” 1.10 simulated seconds, full stop, whether or not the ball
 had come back down yet. That constant was doing two unrelated jobs at
 once: "how many dots to draw" (a rendering/perf concern) and "how long to
-simulate" (a correctness concern) — fine while they happened to be the
+simulate" (a correctness concern) â€” fine while they happened to be the
 same number, which they aren't once a real kick's flight time is
 considered. A full-charge kick at the `Tuning.KICK_MAX_ANGLE`/`_SPEED`
 this project actually uses takes on the order of 3.5s to land (confirmed
-by running the restructured model standalone, see Verification) — more
+by running the restructured model standalone, see Verification) â€” more
 than 3x the old budget. The landing ring was then placed at
 `points[points.size() - 1]` with `y` force-set to ground height
-regardless of whether that last point was actually on the ground — so for
+regardless of whether that last point was actually on the ground â€” so for
 any kick beyond a weak stab pass, the dashed line simply stopped in
 mid-air around apex, and the ring snapped to the ground directly beneath
 that mid-air point, nowhere near where the ball would really land. Since
 `_kick_parameters()` already multiplies speed by `kick_power_scale` for
 *both* the real kick and this preview (same function, see the previous
 entry's diagram of that call graph), the underlying physics was already
-scaling correctly with the character's kicking-power stat — the preview
+scaling correctly with the character's kicking-power stat â€” the preview
 just couldn't show more than the first ~30-100% of it depending on charge,
 which reads exactly like "distance doesn't seem to follow kicking power"
 even though the real kick already did.
@@ -1060,38 +1060,38 @@ Split the one job into two. `_simulate()` now steps until the ball
 actually reaches `GROUND_HEIGHT` (or a `MAX_SIM_SECONDS` = 8.0s safety
 valve, ~2x more than the slowest realistic landing even at
 `CHARACTER_KICK_POWER_MAX`, so it should never actually bind) and returns
-every raw point — this is the one that has to be physically correct, so
+every raw point â€” this is the one that has to be physically correct, so
 it doesn't get to stop early for rendering-budget reasons. A new
 `_downsample()` then thins that full path down to at most `MAX_DOTS`
-points spread evenly from boot to landing for the dashed line — a pure
+points spread evenly from boot to landing for the dashed line â€” a pure
 rendering concern, kept separate on purpose so neither job can
 accidentally shortchange the other again. The landing ring reads from the
 full (non-downsampled) path's true last point, so it always sits exactly
 where the last dot is, connected, not floating below it. Short kicks that
-already landed within 22 steps are unaffected — `_downsample` returns the
+already landed within 22 steps are unaffected â€” `_downsample` returns the
 array unchanged when there's nothing to thin.
 
 ### Verification
 
 Both standard headless passes (`full_game.tscn` 240 frames,
-`kick_to_kick.tscn` 180 frames) clean, exit 0 — confirms no parse/runtime
+`kick_to_kick.tscn` 180 frames) clean, exit 0 â€” confirms no parse/runtime
 break, though neither exercises the new code's actual values since the
 preview only updates for a `HumanBrain` (see `_update_charge`) and
 headless has no human driving one. So this was also checked numerically:
 a scratch `--script` run (`extends SceneTree`, instantiated
 `KickTrajectory` directly and called `_simulate`/`_downsample` with no
-scene tree needed, since neither touches `_dots`/`_ring` — deleted after,
+scene tree needed, since neither touches `_dots`/`_ring` â€” deleted after,
 not part of the diff) confirmed, at max charge and `kick_power_scale`:
-73 raw steps / 3.65s flight / lands at `y≈0` (not mid-air), downsamples
+73 raw steps / 3.65s flight / lands at `yâ‰ˆ0` (not mid-air), downsamples
 to exactly 22 dots whose last entry equals the true landing point, and
-that distance scales with `kick_power_scale` as expected — 24.7m at 0.7x,
+that distance scales with `kick_power_scale` as expected â€” 24.7m at 0.7x,
 45.2m at 1.0x, 67.8m at 1.3x, all at the same full charge. A weak
 min-charge/min-power kick landed in 13 raw steps, under the 22-dot cap,
 confirming the unchanged path for short kicks.
 
 ---
 
-## Handover — aim starts from the camera, not the body; keyboard/mouse power off the ramp (Agent: mechanics/engine)
+## Handover â€” aim starts from the camera, not the body; keyboard/mouse power off the ramp (Agent: mechanics/engine)
 
 Two more asks from the same play session. Both are about where a kick's
 aim *starts* and how its power is *set*, not the trajectory maths from
@@ -1100,35 +1100,35 @@ the previous entry (untouched this round).
 ### Aim starts from the camera, not body facing
 
 The concrete complaint: camera turned to line up a shot on goals while
-the body's still running a different line — pull LT, and the kick used
+the body's still running a different line â€” pull LT, and the kick used
 to start aimed wherever the *body* was facing, not what was on screen.
 `_update_charge()` snapped `_kick_aim_yaw = _facing_yaw` the instant
 stance began; the right stick/mouse could swing it from there, but the
 starting point itself ignored the camera entirely.
 
 New `PlayerController._current_look_yaw()` reads the camera's own current
-forward vector (`camera.global_transform.basis.z`, flattened to yaw —
+forward vector (`camera.global_transform.basis.z`, flattened to yaw â€”
 same `atan2(-x, -z)` convention `_update_facing()`/`_nearest_teammate_for_
 assist()` already use, just pointed at the camera instead of a movement/
 facing direction) and that's what the aim now snaps to on entering
 stance. `camera` is already the actual `Camera3D` leaf
-(`BroadcastCamera.camera()`, assigned by each mode — see `main.gd`/
+(`BroadcastCamera.camera()`, assigned by each mode â€” see `main.gd`/
 `kick_to_kick.gd`/`full_game.gd`), which inherits the full yaw+pitch the
 rig's `$Yaw`/`$Pitch` pivots apply, so this needed no new coupling to
 `BroadcastCamera` itself, and mirrors `HumanBrain.wish_direction()`'s
 existing camera-forward-flattening pattern rather than inventing a
-second one. Falls back to `_facing_yaw` with no camera assigned — AI
+second one. Falls back to `_facing_yaw` with no camera assigned â€” AI
 never gets one (`full_game.gd` only assigns `camera` to the one
 human-controlled `PlayerController`), so **AI kicks are unaffected, still
 body-forward, exactly as before**. Hip-fire is *deliberately* left on
-`_facing_yaw` too — it's specifically the "didn't aim down sights"
+`_facing_yaw` too â€” it's specifically the "didn't aim down sights"
 option, so it stays tied to the body on purpose; only the ADS/stance path
 changed.
 
 **New: `KickCrosshair`** (`scripts/ui/kick_crosshair.gd`, plain
-`CanvasLayer`, no `.tscn` — built in `_ready()`, same "simple enough not
+`CanvasLayer`, no `.tscn` â€” built in `_ready()`, same "simple enough not
 to need a scene file" call `kick_to_kick.gd`'s placeholder prompt already
-made). A small dot pinned to screen centre — no 3D→2D projection needed,
+made). A small dot pinned to screen centre â€” no 3Dâ†’2D projection needed,
 since for a perspective camera with no lens offset "straight down the
 camera's forward axis" *is* screen centre by definition, so the widget's
 position never has to know anything about the camera's actual rotation.
@@ -1136,7 +1136,7 @@ Faint (`IDLE_ALPHA` 0.35) normally, brighter (`AIM_ALPHA` 0.85) while
 `player.is_kick_aiming()`, lerped between the two rather than snapped.
 Colour matches `KickTrajectory`'s gold on purpose (same "this is the
 kick-aim system" visual language as the dashed line/ring) but as its own
-literal `Color` constant, not a cross-class reference — see the next
+literal `Color` constant, not a cross-class reference â€” see the next
 section, that turned out not to be optional. Instantiated once per mode
 (`kick_to_kick.gd`, `full_game.gd`) alongside the existing `_hud.player =
 ...` assignment, and re-pointed at the new player in `full_game.gd`'s
@@ -1144,22 +1144,22 @@ section, that turned out not to be optional. Instantiated once per mode
 
 **Papercut hit while building it, and a correction**: `KickCrosshair`
 first read `KickTrajectory.COLOUR` directly, and briefly failed to
-compile — `Parse Error: Cannot find member "COLOUR" in base
+compile â€” `Parse Error: Cannot find member "COLOUR" in base
 "KickTrajectory"`. First guess was a genuine GDScript limitation on
 cross-`class_name` const access and said so here; that guess was wrong,
 worth correcting rather than leaving stated as fact. `SoftBrutalist.
 ACCENT_PRIMARY`/`.INK`/`.panel_style()` are the exact same shape of
 access (`class_name` script, `const`/`static func`, referenced from
 `debug_hud.gd` by class name) and work fine, including in this entry's
-own `KickCrosshair` once pointed at `SoftBrutalist` instead — so cross-
+own `KickCrosshair` once pointed at `SoftBrutalist` instead â€” so cross-
 class const access isn't the problem. Far more likely: `kick_trajectory.
 gd` was being actively hand-edited in the Godot editor, in parallel with
-this session, for the entire second half of this round — dot tapering
+this session, for the entire second half of this round â€” dot tapering
 (size/alpha gradient along the trail), a two-layer pulsing landing ring,
 and its colour switched from a local literal to `SoftBrutalist.
 ACCENT_PRIMARY.lightened(0.35)` (an *instance* field now, computed in
 `_ready()`, not the `const COLOUR` this entry's first draft above was
-written against — see that file directly, not this doc, for its current
+written against â€” see that file directly, not this doc, for its current
 shape). The compile error most likely caught a mid-save/transient state
 of that file, not a real language limitation. Once noticed,
 `KickCrosshair` was pointed at the same `SoftBrutalist.ACCENT_PRIMARY.
@@ -1167,13 +1167,13 @@ lightened(0.35)` source directly (not read live off `KickTrajectory`,
 which is a per-instance field there now, not a class-level constant
 anything else could reach into) so the dot keeps matching the trail/ring
 it's meant to visually agree with. `kick_trajectory.gd`'s other visual
-changes are untouched by this session — not this agent's work, not
+changes are untouched by this session â€” not this agent's work, not
 reverted, not reviewed for correctness, purely noted so the diff makes
 sense to whoever reads it next.
 
 ### Keyboard/mouse power off the ramp
 
-The complaint: keyboard still used last round's outdated model — hold K,
+The complaint: keyboard still used last round's outdated model â€” hold K,
 power ramps up over `KICK_CHARGE_TIME`, one-way, release-and-recharge to
 go back down. Gamepad got a live/reversible reach in the "kick power off
 the aim stick" entry above; keyboard didn't.
@@ -1182,7 +1182,7 @@ The fix reuses machinery that was already half-there rather than
 inventing a parallel system. Two things were sitting idle during aim:
 
 - **Arrow up/down**, bound to the same `camera_up`/`camera_down` actions
-  `InputManager.get_look_vector()` already reads for `.y` — already
+  `InputManager.get_look_vector()` already reads for `.y` â€” already
   flowing through that function for keyboard players, just never
   consumed, since `_update_kick_aim()` only ever read `.x` off it (for
   yaw) and `kick_charge_override()`/`kick_reach_strength()` explicitly
@@ -1191,13 +1191,13 @@ inventing a parallel system. Two things were sitting idle during aim:
   alongside `.x` (which drives yaw), with `.y` simply discarded.
 
 `_update_kick_aim()` now spends both, for any non-gamepad device: arrow
-up/down as a held *rate* (`stick.y * delta / KICK_CHARGE_TIME` — same
+up/down as a held *rate* (`stick.y * delta / KICK_CHARGE_TIME` â€” same
 pacing the ramp and AI's ramp both already use, deliberately not a second
 independent knob), mouse motion as a raw per-frame delta
-(`Tuning.KICK_MOUSE_REACH_SENSITIVITY`, new constant, pixels→power-
+(`Tuning.KICK_MOUSE_REACH_SENSITIVITY`, new constant, pixelsâ†’power-
 fraction same idea as `CAM_MOUSE_SENSITIVITY` but unitless instead of
 degrees). Both added into `_kick_charge`, clamped 0..1, live and
-reversible either direction — arrow-up/mouse-forward raises it, arrow-
+reversible either direction â€” arrow-up/mouse-forward raises it, arrow-
 down/mouse-back lowers it, matching the sign convention `_update_rotation
 ()`'s existing mouse-pitch term already set (`_pitch -= mouse.y`, i.e.
 mouse-up increases the value it's steering).
@@ -1206,25 +1206,25 @@ Getting there took a wrong turn worth recording: the first draft tried
 making `kick_reach_strength()` device-agnostic (drop its `device !=
 GAMEPAD` gate, since `get_look_vector().y` already reads arrow keys) and
 let `_update_charge()`'s existing `override >= 0.0` branch handle
-keyboard too, same as gamepad. That's wrong — that branch treats the
+keyboard too, same as gamepad. That's wrong â€” that branch treats the
 value as an absolute position (`_kick_charge = override`, a hard snap
 every frame), which is correct for a stick that physically holds its
 deflection but not for a digital key: a keyboard player not currently
-holding either arrow reads `0.0` — still `>= 0.0`, so it *snaps* `_kick_
+holding either arrow reads `0.0` â€” still `>= 0.0`, so it *snaps* `_kick_
 charge` back to zero every single frame arrows aren't held, wiping out
 any mouse-driven adjustment made a moment earlier before it could
 persist. `kick_charge_override()`/`kick_reach_strength()` were left
 exactly as they were (still gamepad-only); the keyboard path lives
 entirely in `_update_charge()`'s new `elif not (_brain is HumanBrain)`
 branch (skips the ramp for a human on keyboard, since `_update_kick_aim`
-handles it) plus the accumulation in `_update_kick_aim()` itself — an
+handles it) plus the accumulation in `_update_kick_aim()` itself â€” an
 accumulator that's nudged, never snapped, which is what actually makes it
 reversible without self-erasing.
 
 **Not carried over on purpose**: the x/y shared-radial-curve coupling
 flagged in the "kick power off the aim stick" entry (`LOOK_CURVE`
 shaping `get_look_vector()`'s combined magnitude before x/y split) also
-applies to two arrow keys held together — e.g. up+right for power+yaw at
+applies to two arrow keys held together â€” e.g. up+right for power+yaw at
 once shapes to roughly 71% of either held alone. Same root cause as the
 gamepad note, not re-litigated in full here; flagging once more since
 this is now the second control scheme it quietly touches.
@@ -1233,17 +1233,17 @@ this is now the second control scheme it quietly touches.
 
 Both standard headless passes clean, exit 0, after first re-running the
 `--headless --editor --quit` global-class-cache rescan this project's
-memory already documents (`KickCrosshair` is a brand-new `class_name` —
+memory already documents (`KickCrosshair` is a brand-new `class_name` â€”
 skipping the rescan reproduces exactly the stale-cache failure that note
 warns about, confirmed by hitting it, not just reading about it, on the
 first attempt before the `COLOUR` fix was even in yet). Neither headless
 pass exercises `_current_look_yaw()`'s human path or the new keyboard
-power accumulation directly — headless generates no real input events, so
-`_charging` never goes true for a `HumanBrain` there — but both do
+power accumulation directly â€” headless generates no real input events, so
+`_charging` never goes true for a `HumanBrain` there â€” but both do
 exercise `KickCrosshair._process()` every frame (idle-alpha path, no
 errors) and confirm AI's unchanged body-forward/ramp paths still compile
 and run through a full match/practice session. The yaw maths itself
-wasn't re-verified numerically this round — it's the same `atan2(-x,-z)`
+wasn't re-verified numerically this round â€” it's the same `atan2(-x,-z)`
 pattern already proven correct three other places in this file, applied
 to a fourth vector, not new maths.
 
@@ -1255,28 +1255,28 @@ whether arrow-key power (a purely binary 0-or-1 input, unlike the
 gamepad's or mouse's continuous one) feels acceptable as a fallback or
 needs its own easing, and the crosshair's own idle/aim alpha and fade
 rate (0.35/0.85/rate 10). Plus everything already open from the last two
-entries — none of that has been played either.
+entries â€” none of that has been played either.
 
 ---
 
-## Handover — three-tier marking, ground pickup, spoil/smother, holding-the-ball ruling (Agent: mechanics/engine)
+## Handover â€” three-tier marking, ground pickup, spoil/smother, holding-the-ball ruling (Agent: mechanics/engine)
 
 Design brief priorities 2 and part of 3. The "Deferred" section several
 entries up explicitly declined to build marking/spoil/smother without a
-spec — this pass builds them against the brief's own three-tier
-description plus RULES_REFERENCE.md §4, and calls out exactly where an
-invented value sits versus a real AFL rule.
+spec â€” this pass builds them against the brief's own three-tier
+description plus RULES_REFERENCE.md Â§4, and calls out exactly where an
+invented value sits versus a real Aussie Rules rule.
 
-### 1. Movement (priority 1) — verified, not rebuilt
+### 1. Movement (priority 1) â€” verified, not rebuilt
 
 Read `player_controller.gd` end to end against the brief's Madden/FIFA
 movement ask before touching anything: asymmetric ACCELERATION/BRAKING,
-TURN_RATE_STANDING→TURN_RATE_SPRINT falloff producing the plant-and-pivot
+TURN_RATE_STANDINGâ†’TURN_RATE_SPRINT falloff producing the plant-and-pivot
 emergently, REVERSE_SPEED_SCALE, momentum-driven `_heading` distinct from
-`_facing_yaw` feeding the animation strafe axis — all already there and
+`_facing_yaw` feeding the animation strafe axis â€” all already there and
 already matches the brief closely (this is the same system multiple past
 entries in this doc built/tuned). Left alone. No Godot binary access to
-actually feel it on a pad — verified by headless boot + code reading only,
+actually feel it on a pad â€” verified by headless boot + code reading only,
 same caveat every past entry here has flagged for anything requiring a
 human hand.
 
@@ -1287,84 +1287,84 @@ appended (not inserted) so `ACTION_DURATION`/`ACTION_CONTACT`'s existing
 KICK/HANDBALL/BOUNCE indices don't shift. New
 `Tuning.action_speed_scale(action)` generalises the old flat
 `ACTION_SPEED_SCALE` so each tier can cost a different amount of
-movement — Safe plants (0.30), Running barely breaks stride (0.88),
+movement â€” Safe plants (0.30), Running barely breaks stride (0.88),
 Aggressive's mid-air control comes from the existing `AIR_ACCELERATION`
 instead.
 
 **Ball eligibility** (`ball.gd`): `launch()` gained a 5th param
-`is_kick_disposal` — only `PlayerController._dispose()`'s KICK branch
+`is_kick_disposal` â€” only `PlayerController._dispose()`'s KICK branch
 passes `true`. Ball tracks `_flight_origin`/`_is_kick_flight`, cleared on
 landing (the `landed` signal path) or on `attach_to()`/`reset_at()`.
-`is_mark_eligible()` is straight-line distance from `_flight_origin` ≥
+`is_mark_eligible()` is straight-line distance from `_flight_origin` â‰¥
 `Tuning.MARK_STAND_MIN_DISTANCE` (15m, the same real number
-RULES_REFERENCE.md already names for stand-the-mark — one rule, two
+RULES_REFERENCE.md already names for stand-the-mark â€” one rule, two
 consequences, one constant). Centre bounces/handballs/bounces never set
 the flag (default `false`), so they can never be marked, matching real
-AFL.
+Aussie Rules.
 
 **Resolution** (`player_controller.gd`, new "Marking" section): no RNG
-anywhere, matching RULES_REFERENCE.md §3's stance. Safe (A, held) is a
-per-frame reach test against the ball's live position while held —
+anywhere, matching RULES_REFERENCE.md Â§3's stance. Safe (A, held) is a
+per-frame reach test against the ball's live position while held â€”
 generous, no commitment, matches "lowest risk, default option." Running
 (X, tap) is a single-frame reach test at a tighter radius, full speed,
 silent whiff if it doesn't connect (same "button press with nothing to
 act on no-ops" precedent `wants_handball()` already sets). Aggressive (Y,
-tap) always commits — a real vertical impulse
+tap) always commits â€” a real vertical impulse
 (`Tuning.MARK_AGGRESSIVE_JUMP_SPEED`, ~0.82m of added reach) through the
 *existing* gravity/`is_on_floor()` integration, no separate jump-arc
-code — resolved at the jump's timed peak via the same `_action`/
+code â€” resolved at the jump's timed peak via the same `_action`/
 contact-time machinery kick/handball/bounce already use, just dispatched
 to `_resolve_aggressive_mark()` instead of `_dispose()`. A clean miss
-leaves the ball untouched — no contact, no effect, physically honest
+leaves the ball untouched â€” no contact, no effect, physically honest
 rather than a scripted bounce-off.
 
-Legal marks grant `_protected_timer` (`Tuning.MARK_HOLD_DURATION`, 5s —
+Legal marks grant `_protected_timer` (`Tuning.MARK_HOLD_DURATION`, 5s â€”
 RULES_REFERENCE.md's already-named constant) which `_try_tackle()` now
-checks (`other.is_protected()`) — the actual stand-the-mark mechanic
+checks (`other.is_protected()`) â€” the actual stand-the-mark mechanic
 doesn't exist yet (needs an opponent obligated to stand still, not just
 tackle-immunity), but the *protection* half is live and correct, and it's
 the same primitive a kick-in's goal-square immunity (priority 5) will
 want. Cleared early on disposal (`_dispose()`) or losing the ball
-(`drop_ball()`) — playing on forfeits it, matching the real rule's
+(`drop_ball()`) â€” playing on forfeits it, matching the real rule's
 spirit.
 
 **Ground pickup**: same `A`/`mark_safe` input, but once
 `Ball.is_airborne()` is false it means something else
-(`_update_ground_pickup`) — a wider, speed-responsive reach
+(`_update_ground_pickup`) â€” a wider, speed-responsive reach
 (`GROUND_PICKUP_RADIUS` plus a per-m/s lunge term) than the pre-existing
 passive `_try_gather()`, which is untouched and still fires on simple
-walk-over overlap (zero regression — verified both paths independently,
+walk-over overlap (zero regression â€” verified both paths independently,
 see below). This is the brief's "ball state + player state + proximity +
 input, not just the button" line applied literally.
 
 **Brains**: `PlayerBrain` gained `wants_mark_safe/running/aggressive`
 (default false), `HumanBrain` reads three new InputMap actions, `AIBrain`
 gets a Safe-only stub (holds up for a catch when it's the closest
-teammate to an airborne ball within `MARK_CONTEST_RANGE`) — deliberately
+teammate to an airborne ball within `MARK_CONTEST_RANGE`) â€” deliberately
 not smarter than that, matching the existing "not a tactics system" AI
 philosophy `ai_brain.gd`'s own docstring already states.
 
-**Input map**: `mark_safe` (G / gamepad A), `mark_running` (Q / X —
+**Input map**: `mark_safe` (G / gamepad A), `mark_running` (Q / X â€”
 shares the physical control with `handball`/`interact`, the established
 "one control, several logical actions, game state decides" pattern this
 file already uses 3-4 deep on B/C/X), `mark_aggressive` (H / gamepad
-**Y** — the physical Xbox Y button was fully free; the `confirm` action's
+**Y** â€” the physical Xbox Y button was fully free; the `confirm` action's
 keyboard `Y` is a different, coincidental thing, see below). Confirmed
 via a full audit of every existing `button_index` in the file before
-assigning — worth being explicit about since an earlier entry in this doc
+assigning â€” worth being explicit about since an earlier entry in this doc
 already flagged Y as "reserved" for exactly this.
 
 **A note on "Y" that's easy to get backward**: `confirm` (accept the
 coach's challenge) is bound to keyboard letter **Y** (mnemonic "yes")
-*and* gamepad button **A** (Xbox's actual confirm button) — not gamepad
+*and* gamepad button **A** (Xbox's actual confirm button) â€” not gamepad
 Y. Gamepad button_index 3 (the physical Y button) was genuinely unused
 before this pass, freed up by an earlier session specifically "for the
 brief's own 'Aggressive mark' reservation" (see the tackle-rework entry
-above) — confirmed by grep before relying on it, not assumed. That same
+above) â€” confirmed by grep before relying on it, not assumed. That same
 audit is also what confirmed **RT stays the kick trigger, not sprint**:
 an earlier session already moved gamepad sprint to L3 click specifically
 because "RT can no longer safely double as sprint now that it's the kick
-trigger regardless of ADS state" — so the brief's "RT: Sprint/chase"
+trigger regardless of ADS state" â€” so the brief's "RT: Sprint/chase"
 line for priority 3 is read here as already satisfied by the existing
 `sprint` action (which has nothing to do with possession state either
 way), not as an instruction to rebind a trigger that's already carrying
@@ -1372,7 +1372,7 @@ kick charge/execute.
 
 **Animation**: `PlaceholderAnimations` gained
 `_build_mark_safe/_running/_aggressive` (same pose-keyframe machinery as
-kick/handball/bounce — nothing new architecturally), registered in
+kick/handball/bounce â€” nothing new architecturally), registered in
 `PlayerAnimation.ACTION_STATES`, fully data-driven from there (the
 state-machine builder already iterates the dict generically).
 Aggressive's clip is the one with a real lead-in (crouch/reach/peak/land)
@@ -1382,39 +1382,39 @@ rather than pure follow-through, timed against
 **Marking coach + MarkChallenge** (`kick_to_kick.gd`, new
 `scripts/mechanics/mark_challenge.gd` + `.tscn`): mirrors the kicking
 coach almost exactly, per the note two entries up ("what actually ends up
-shared once the marking/tackling coaches exist isn't knowable yet —
+shared once the marking/tackling coaches exist isn't knowable yet â€”
 that's a refactor for when there are three of these"). This is that
 refactor's first half: `kick_to_kick.gd`'s single-coach state machine
 (`CoachState` plus one `_coach`/`_challenge` pair) is now parameterised
 by a `CoachKind` enum (`KICKING`/`MARKING`) so the prompt/dialogue/
-challenge flow is genuinely shared, not duplicated —
+challenge flow is genuinely shared, not duplicated â€”
 `_spawn_coach(offset, kind)`, `_coach_node(kind)`, every handler takes or
 branches on `kind`. A third coach (tackling) slots into the same shape
 later. `MarkChallenge` differs from `KickChallenge` in one structural way
-worth knowing: it's the *deliverer*, not just an observer — the coach
+worth knowing: it's the *deliverer*, not just an observer â€” the coach
 launches real kick-flight balls at the player (`Ball.launch(...,
 is_kick_disposal=true)`, so coach feeds count as legal marks same as any
 boot) on its own pacing rather than reacting to player-initiated kicks,
 using a small inverse-ballistics helper (closed-form no-drag range
 estimate plus one simulated correction pass, not a full iterative
-solver — a training delivery only needs to arrive somewhere reactable,
+solver â€” a training delivery only needs to arrive somewhere reactable,
 not land on an exact spot).
 
 ### 3. Spoil and Smother (priority 3, partial)
 
 Reuses the marking contest's reach-test primitives directly. **Spoil**
-(`_try_spoil`, LT tap — `P` / axis4, shares the physical LT with
+(`_try_spoil`, LT tap â€” `P` / axis4, shares the physical LT with
 `kick_stance`, mutually exclusive by `is_carrying()` same as everywhere
 else): a cooldown-gated punch at any airborne ball in reach, applies
-`Ball.knock()` (new small public method — an external hit that clears
+`Ball.knock()` (new small public method â€” an external hit that clears
 mark eligibility the same way landing does, kept encapsulated rather than
 letting callers reach into `_is_kick_flight` directly). No target player
 to name: physically deflecting the ball is sufficient to spoil whoever
 else was reaching for it, since their own `_ball_in_catch_reach` reads
-the ball's real post-knock position — nothing needed to coordinate across
+the ball's real post-knock position â€” nothing needed to coordinate across
 players.
 
-**Smother** (`_try_smother`/`_get_smothered`, X tap — shares Q/X with
+**Smother** (`_try_smother`/`_get_smothered`, X tap â€” shares Q/X with
 handball/interact/mark_running, a fourth meaning on that one physical
 control, mutually exclusive by state in every mode that actually has more
 than one player type on the field at once): targets an opponent still
@@ -1422,33 +1422,33 @@ carrying whose kick hasn't left yet (new `is_mid_kick_swing()` public
 getter, paired with the existing `is_kick_aiming()`), cancels the kick
 outright and drops the ball right at their feet (`SMOTHER_SPILL_SPEED`,
 much lower than a tackle's spill) rather than the fuller tackle-style
-scatter — no stun, since blocking a kick isn't knocking a player down.
+scatter â€” no stun, since blocking a kick isn't knocking a player down.
 
-Neither has a dedicated Tuning.Action/placeholder animation yet — same as
+Neither has a dedicated Tuning.Action/placeholder animation yet â€” same as
 tackle, which has shipped without one for several sessions already (an
 instantaneous physical contest, not a windup-and-contact disposal).
 Cosmetic gap, not a functional one.
 
-### 4. Holding-the-ball ruling (RULES_REFERENCE.md §4)
+### 4. Holding-the-ball ruling (RULES_REFERENCE.md Â§4)
 
-The ruling only — not the free kick itself, which needs a set-shot
+The ruling only â€” not the free kick itself, which needs a set-shot
 apparatus this project doesn't have. New `_possession_held_seconds` on
 `PlayerController`, reset whenever `is_carrying()` goes false, distinct
 on purpose from `MatchState.possession_seconds()`: that one tracks the
 *team's* unbroken hold and, by inspection of its setter, does **not**
 reset on a same-team handball (`if possession == value: return`
-short-circuits before the reset) — which would wrongly blame a player
+short-circuits before the reset) â€” which would wrongly blame a player
 tackled the instant they receive a handball for time their teammate
 already spent holding it. `_get_tackled` now checks the per-player timer
 against new `Tuning.PRIOR_OPPORTUNITY_GRACE` (0.5s, RULES_REFERENCE.md's
 already-named number) and fires `holding_the_ball_called(tackler)` when
-it's a real ruling — silent for the neutral case, since nothing about a
+it's a real ruling â€” silent for the neutral case, since nothing about a
 tackle inside the grace window differs from what already happened.
 Nothing consumes the signal yet.
 
 ### Verification
 
-No GUI/pad access this session either (see the priority-1 note above) —
+No GUI/pad access this session either (see the priority-1 note above) â€”
 same limitation every entry in this doc has hit. Compensated with three
 levels, same discipline as the trajectory-bug and kick-distance entries
 above:
@@ -1457,9 +1457,9 @@ above:
    `--headless --editor --quit` global-class-cache rescan after every new
    `class_name` (`MarkChallenge`), `--headless --path . <scene>
    --quit-after N` for `kick_to_kick.tscn`/`full_game.tscn`/the main menu
-   after every meaningful chunk — all clean, zero errors, throughout.
+   after every meaningful chunk â€” all clean, zero errors, throughout.
 2. **Scripted physics, not just parse-clean**: two temporary scenes
-   (`_scratch_mark_test.tscn`/`.gd`, `_scratch_defense_test.tscn`/`.gd` —
+   (`_scratch_mark_test.tscn`/`.gd`, `_scratch_defense_test.tscn`/`.gd` â€”
    deleted, not part of the diff, same "not committed" precedent this
    doc's very first `KickTrajectory` scratch script set) instantiated
    real `Player`/`Ball`/`Field` scenes under real Jolt physics with a
@@ -1468,7 +1468,7 @@ above:
    or mocking any of it. First attempt used `--script extends SceneTree`,
    which turned out **not** to bootstrap `[autoload]` singletons
    (`Identifier not found: MatchState` at compile time, only in that
-   mode) — a genuinely new gotcha for this project's headless toolkit,
+   mode) â€” a genuinely new gotcha for this project's headless toolkit,
    worth remembering: use a real scene plus the positional-scene-argument
    form for anything that touches an autoload, not bare `--script`.
    Saved to this agent's memory alongside the existing Godot-binary/
@@ -1476,12 +1476,12 @@ above:
 3. **Results, all passing**: a 20m kick caught (Safe, held) grants
    exactly `MARK_HOLD_DURATION` (5.00s) protection and
    `legal_mark=true`; an 8m kick is caught but grants none
-   (`legal_mark=false`) — confirms the eligibility gate is live, not just
+   (`legal_mark=false`) â€” confirms the eligibility gate is live, not just
    present. Ground pickup succeeds at ~1.05m (outside the passive 0.85m
-   `GATHER_RADIUS`, inside the new 1.3m `GROUND_PICKUP_RADIUS`) —
+   `GATHER_RADIUS`, inside the new 1.3m `GROUND_PICKUP_RADIUS`) â€”
    confirms it's genuinely a *new* reach, not the old one relabelled.
    Aggressive mark: real positive `velocity.y` observed, then a real
-   landing (`is_on_floor()` true again) — and, unprompted, a bonus
+   landing (`is_on_floor()` true again) â€” and, unprompted, a bonus
    confirmation that the catch itself connected and correctly read as
    `legal_mark=false` for a sub-15m flight, exercising the same
    eligibility gate a third way. Smother: kicker stops carrying, stops
@@ -1490,14 +1490,14 @@ above:
    still-airborne, still-loose ball has its `is_mark_eligible()` flip to
    false and its velocity visibly deflect off-axis (a nonzero
    X-component appearing on a flight that had none) the instant the
-   defender's reach connects — caught mid-flight by a diagnostic print,
+   defender's reach connects â€” caught mid-flight by a diagnostic print,
    not inferred after the fact.
 
 One test-harness bug worth recording, not a game bug: an early version
 of the spoil test kept force-tracking the defender onto the ball's
 position every frame *after* the spoil connected too, which then
 triggered the pre-existing passive `_try_gather()` a few frames later and
-made the ball read `held=true` — briefly looked like a real failure until
+made the ball read `held=true` â€” briefly looked like a real failure until
 the diagnostic log showed the deflection had already happened correctly
 a full 0.28s before that. Latching the check the instant a spoil is first
 observed fixed it. Recorded because it's exactly the "looks like a bug,
@@ -1506,13 +1506,13 @@ into the real code.
 
 ### Known limitations, honestly scoped rather than silently dropped
 
-- **Bump (LB hold + right-stick flick) — not built.** Genuinely new
+- **Bump (LB hold + right-stick flick) â€” not built.** Genuinely new
   ground unlike spoil/smother (a flick-gesture detector doesn't exist
-  anywhere in this input system yet — `InputManager` only has held-axis
+  anywhere in this input system yet â€” `InputManager` only has held-axis
   and tap-edge patterns today) *and* RULES_REFERENCE.md has zero numbers
   for the dangerous-contact/free-kick side of it. A previous session
   already declined exactly this feature for exactly these two reasons
-  (see "Deferred" above) — this pass had headroom to close marking/
+  (see "Deferred" above) â€” this pass had headroom to close marking/
   spoil/smother but not to also invent a gesture-detection primitive and
   a contact-danger heuristic unsupervised in the same sitting. Sketch for
   next time: reuse `Ball.knock()`-style external-hit plumbing for the
@@ -1523,32 +1523,32 @@ into the real code.
   RULES_REFERENCE.md or an explicit "not yet enforced" stub matching this
   pass's holding-the-ball pattern (decide the ruling, defer the
   consequence).
-- **Holding-the-ball has no consequence yet**, by design this pass — see
-  §4 above. The natural next step shares an apparatus with kick-in
+- **Holding-the-ball has no consequence yet**, by design this pass â€” see
+  Â§4 above. The natural next step shares an apparatus with kick-in
   (priority 5): both need "give a player the ball, freeze the opponent's
   ability to contest, let them dispose freely" as a state, which is
   exactly what `_protected_timer` already models for marks. A free-kick/
   set-shot phase built on that primitive would close both gaps in one
   pass.
 - **Stand-the-mark itself** (the mark-taker's opponent frozen in place,
-  ≥15m marks only) **is still not modelled** — `is_protected()` stops the
+  â‰¥15m marks only) **is still not modelled** â€” `is_protected()` stops the
   *tackle*, but nothing stops the opponent moving/repositioning. Needs
   Full Game's two-team context to matter at all; inert in solo
   `kick_to_kick`.
 - **AI only ever attempts a Safe mark**, never Running/Aggressive, and
   has no spoil/smother/tackle-avoidance awareness at all. Matches the
   existing "deliberately simple, not a tactics system" AI baseline
-  already in place for kicking/handballing — noted so it doesn't read as
+  already in place for kicking/handballing â€” noted so it doesn't read as
   an oversight.
 - **Ruck contests (priority 4) and protected kick-in (priority 5) are
-  untouched** — next in the brief's own ordering. `_protected_timer`/
+  untouched** â€” next in the brief's own ordering. `_protected_timer`/
   `is_protected()` (this pass) is directly reusable for kick-in's
   goal-square immunity; ruck can reuse the aggressive mark's exact
-  jump-impulse pattern (`_pending_jump` → gravity integration, no bespoke
+  jump-impulse pattern (`_pending_jump` â†’ gravity integration, no bespoke
   arc code) for ruckmen contesting a bounce.
 - **Full Game integration**: marking/ground-pickup/spoil/smother all
   already work in `full_game.tscn` as-is (same `PlayerController`,
-  verified via the standard headless AI-match smoke test) — nothing
+  verified via the standard headless AI-match smoke test) â€” nothing
   mode-specific was assumed. What's *not* done: AI never attempts spoil/
   smother, and there's no human-facing HUD callout for a legal mark or a
   holding-the-ball ruling beyond `DebugHud`'s diagnostic readout.
@@ -1564,12 +1564,12 @@ into the real code.
 Not touched: anything UI-owned (`ui_side_scrim.gdshader`/
 `team_list_screen.gd` had pre-existing uncommitted changes on disk at
 session start from another agent, left exactly as found),
-`broadcast_camera.gd`, `full_game.gd` (works unmodified — see Full Game
+`broadcast_camera.gd`, `full_game.gd` (works unmodified â€” see Full Game
 integration note above), `field.gd`, `team_formation.gd`.
 
 ---
 
-## Handover — placeholder rig replaced with a real Skeleton3D (Agent: UI/visual model)
+## Handover â€” placeholder rig replaced with a real Skeleton3D (Agent: UI/visual model)
 
 Design brief's own escape hatch for `PlaceholderRig` ("dropping in a
 Mixamo character replaces this node and the generated clips; the blend
@@ -1580,41 +1580,41 @@ are") is now built the way that promise actually needs: a real
 bone tracks instead of `Node3D` property tracks on bare "joint" nodes.
 Pulled current state from this file rather than assuming what a
 concurrent mechanics-agent pass might have changed underneath
-`player_controller.gd` — nothing there touched the rig/animation API this
+`player_controller.gd` â€” nothing there touched the rig/animation API this
 pass depends on (its most recent change was `_ball_in_catch_reach`'s
 assist-radius bonus and a new `catch_point_position()` getter, both
 unrelated).
 
 ### Bone hierarchy, and why it's this one
 
-22 bones: `Root → Hips → Spine → Chest → Neck → Head`,
-`Chest → Left/RightShoulder → Left/RightUpperArm → Left/RightLowerArm →
-Left/RightHand`, `Hips → Left/RightUpperLeg → Left/RightLowerLeg →
-Left/RightFoot → Left/RightToes`. This is exactly
-`SkeletonProfileHumanoid`'s **required** bone set and parent chain — the
+22 bones: `Root â†’ Hips â†’ Spine â†’ Chest â†’ Neck â†’ Head`,
+`Chest â†’ Left/RightShoulder â†’ Left/RightUpperArm â†’ Left/RightLowerArm â†’
+Left/RightHand`, `Hips â†’ Left/RightUpperLeg â†’ Left/RightLowerLeg â†’
+Left/RightFoot â†’ Left/RightToes`. This is exactly
+`SkeletonProfileHumanoid`'s **required** bone set and parent chain â€” the
 profile also defines optional eye/jaw/finger bones, skipped here since
 they carry no gameplay or silhouette weight at this project's current
 art fidelity and Godot's own retargeter treats them as optional, not
 required, for a BoneMap to resolve. Naming and parenting is what a mocap
 importer or Mixamo-via-BoneMap retarget actually matches on; getting that
-right (not rest-pose axis perfection — see Known limitations) is what
+right (not rest-pose axis perfection â€” see Known limitations) is what
 unlocks "drop in real clips later with no renaming."
 
 ### What replaced what
 
 - **`scripts/player/humanoid_rig.gd`** (`class_name HumanoidRig`) replaces
   `placeholder_rig.gd`/`PlaceholderRig` outright (deleted, not kept
-  alongside — this was the "likely removed" file the brief flagged, and
+  alongside â€” this was the "likely removed" file the brief flagged, and
   the swap is a straight 1:1 API replacement, confirmed by grepping every
   call site first: `away_kit`, the `HIP_HEIGHT` constant, and the `Rig`
   node name/type are the only things anything outside this file ever
   touched, and all three still exist with the same names). Builds a
   `Skeleton3D` child in code (bone rests from a `BONES` table: name,
-  parent, offset — mirrors the old joint-offset table almost line for
+  parent, offset â€” mirrors the old joint-offset table almost line for
   line) and hangs the same box/capsule/sphere placeholder meshes (yoke,
   side panels, sock trim, all of it) off `BoneAttachment3D` nodes instead
   of off the bones' former stand-in `Node3D`s. Visual output is
-  deliberately close to identical — this pass is the rig plumbing, not a
+  deliberately close to identical â€” this pass is the rig plumbing, not a
   new art pass; a couple of mesh offsets shifted a few centimetres where
   the old single "Torso" joint became a Spine/Chest split, not worth
   hand-tuning further at placeholder fidelity.
@@ -1622,11 +1622,11 @@ unlocks "drop in real clips later with no renaming."
   HumanoidAnimations`) replaces `placeholder_animations.gd`/
   `PlaceholderAnimations` outright, same reasoning. The parametric gait
   math (`_gait_pose`, every per-action keyframe pose, the sign-convention
-  comments, all of it) is **untouched** — only the track target changed,
+  comments, all of it) is **untouched** â€” only the track target changed,
   from `Animation.TYPE_ROTATION_3D`/`POSITION_3D` tracks on `NodePath`s
   like `"Hips/Torso"` to the same track types on `NodePath`s like
   `"Skeleton3D:Chest"`, Godot's own bone-track convention. The old
-  `PATHS` dict (joint key → node path) became `BONES` (joint key → bone
+  `PATHS` dict (joint key â†’ node path) became `BONES` (joint key â†’ bone
   name); `_assemble()`'s two track-building loops are the only functions
   that actually changed shape.
 - **`scripts/player/player_animation.gd`**: two lines. The
@@ -1634,15 +1634,15 @@ unlocks "drop in real clips later with no renaming."
   became `HumanoidAnimations.build_library(HumanoidRig.HIP_HEIGHT)`,
   plus doc-comment updates. `rig_path`/`animation_player_path`/
   `animation_tree_path` exports, `drive()`, `play_action()`,
-  `current_state()`, `blend_position()` — the whole public contract the
-  brief said to extend, not redesign — are byte-for-byte unchanged.
+  `current_state()`, `blend_position()` â€” the whole public contract the
+  brief said to extend, not redesign â€” are byte-for-byte unchanged.
   Nothing in `player_controller.gd` needed touching: it only ever calls
   through `PlayerAnimation`'s public methods, never reaches into the rig
   directly (confirmed by grep before assuming, not after finding a bug).
 
 ### Fully wired vs. stubbed
 
-**Fully wired**: the whole pipeline — `HumanoidRig` builds the skeleton
+**Fully wired**: the whole pipeline â€” `HumanoidRig` builds the skeleton
 and attaches meshes on `_ready()`, `PlayerAnimation._ready()` points
 `AnimationPlayer.root_node`/`AnimationTree.root_node` at the `Rig` node
 exactly as before, `HumanoidAnimations.build_library()` generates bone
@@ -1650,7 +1650,7 @@ tracks against that skeleton, the `AnimationNodeStateMachine`/
 `BlendSpace2D` graph is unchanged and plays them the same way. Every call
 site that reached into the old rig (`full_game.gd`, `menu_backdrop.gd`,
 `character_backdrop.gd`, `coach_npc.tscn`) is updated to the new class
-name and confirmed working by the headless passes below —
+name and confirmed working by the headless passes below â€”
 `character_backdrop.gd`'s `find_children("*", "MeshInstance3D", true,
 false)` recursive mesh-layer reassignment still finds every mesh despite
 them now sitting two levels deeper (`Rig/Skeleton3D/BoneAttachment3D/
@@ -1658,7 +1658,7 @@ Mesh` instead of `Rig/Joint/Mesh`), since it was already recursive.
 
 **Stubbed / explicitly not attempted**: real skinning. `BoneAttachment3D`
 gives rigid-body-per-bone motion (a mesh rides its bone's transform
-wholesale, no per-vertex blend weights) — correct for primitive boxes/
+wholesale, no per-vertex blend weights) â€” correct for primitive boxes/
 capsules standing in for limbs, and it's what makes bone tracks the right
 choice now rather than after a real mesh import, but it is not a smooth-
 skinned character and won't become one until an actual skinned mesh
@@ -1669,10 +1669,10 @@ the old joint hierarchy already used, which is internally consistent and
 matches this file's own `_gait_pose()` sign-convention comments, but
 whether it's byte-for-byte what Godot's `BoneMap`/humanoid retargeter
 expects for automatic axis correction hasn't been checked against a real
-mocap import — that importer step (`BoneMap` UI, or manual axis fixup) is
+mocap import â€” that importer step (`BoneMap` UI, or manual axis fixup) is
 still ahead of this rig, not proven clear by it. Root motion
 (`AnimationTree.root_motion_track`) remains unwired, exactly as every
-prior entry in this file has flagged — still blocked on contest mechanics
+prior entry in this file has flagged â€” still blocked on contest mechanics
 existing, unrelated to this pass.
 
 ### Verification
@@ -1681,13 +1681,13 @@ Same toolkit this project's memory already documents: `--headless
 --editor --quit` to force a class-cache rescan after the two new
 `class_name` scripts (`HumanoidRig`/`HumanoidAnimations` both showed up
 in the rescan log, confirming registration), then the three standard
-headless passes — `--quit-after 300` on the main scene, `kick_to_kick.tscn`
+headless passes â€” `--quit-after 300` on the main scene, `kick_to_kick.tscn`
 for 180 frames, `full_game.tscn` for 240 frames (AI-driven matches, so
 this exercises the animation state machine's action states, not just
-locomotion) — all exit 0, zero errors. The first `kick_to_kick.tscn` run
+locomotion) â€” all exit 0, zero errors. The first `kick_to_kick.tscn` run
 caught a real miss: `scenes/mechanics/coach_npc.tscn` had its own direct
 `ext_resource` reference to the now-deleted `placeholder_rig.gd`, not
-reachable by grepping `.gd` scripts alone — worth remembering that
+reachable by grepping `.gd` scripts alone â€” worth remembering that
 `.tscn` `ext_resource` lines need their own sweep whenever a script gets
 renamed or deleted, not just call sites in code. Fixed, re-ran, clean.
 Also grepped the whole repo (`.gd` and `.tscn`) for `PlaceholderRig`/
@@ -1696,20 +1696,20 @@ all fixes; the only remaining hits are inside the two new files'
 own doc comments, explaining what they replaced.
 
 No human/pad verification possible in this environment (same limitation
-every mechanics-agent entry above has flagged) — nothing here needed one,
+every mechanics-agent entry above has flagged) â€” nothing here needed one,
 since the deliverable is rig/animation plumbing verifiable by the
 animation system actually building and running without error, not by
 feel.
 
 ---
 
-## Handover — character-screen standing-twitch fix + skeleton wireframe (Agent: UI/visual model)
+## Handover â€” character-screen standing-twitch fix + skeleton wireframe (Agent: UI/visual model)
 
 Follow-up to the rig replacement above, from a direct playtest report:
 the character screen's preview figure was visibly jittering/twitching
 while standing still. Root-caused rather than papered over, plus a
 wireframe overlay so the rig reads as a real skeleton at a glance, plus a
-small mesh-completeness pass — all per this round's brief.
+small mesh-completeness pass â€” all per this round's brief.
 
 ### Root cause: collision-response noise re-entering the animation blend
 
@@ -1717,36 +1717,36 @@ small mesh-completeness pass — all per this round's brief.
 top of every physics frame to derive `_speed`/`_heading`, which
 `locomotion_blend()` then reports to the `AnimationTree` as real motion.
 `velocity` is a `CharacterBody3D` built-in that `move_and_slide()` is
-free to modify as part of its own collision response — and this
+free to modify as part of its own collision response â€” and this
 project's floor-contact "bite" (`velocity.y = -0.5` every frame
 `is_on_floor()` is true, `_physics_process`) means a standing player
 re-triggers a resting collision every single frame, each one a chance for
 slide resolution to leave a sub-millimetre horizontal residue in
 `velocity`. That residue read straight back into `_speed`/`_heading` next
-frame, which `locomotion_blend()` reported as genuine (if tiny) motion —
+frame, which `locomotion_blend()` reported as genuine (if tiny) motion â€”
 enough for the BlendSpace2D to blend in a hair of a moving clip (jog/
 strafe) over pure idle, and since that clip's own internal clock keeps
 advancing even at a low blend weight, the visible result is a continuous
 low-amplitude twitch, not a one-off. This is a general-purpose bug, not a
-character-screen-only one — it affects any player standing still
+character-screen-only one â€” it affects any player standing still
 anywhere, just far more visible on the screen's static close framing
 than on a moving broadcast camera.
 
 **Fix** (`player_controller.gd`, `_update_locomotion()`): a
-`Tuning.LOCOMOTION_VELOCITY_DEADZONE` (0.03 m/s) — horizontal velocity
+`Tuning.LOCOMOTION_VELOCITY_DEADZONE` (0.03 m/s) â€” horizontal velocity
 below it is snapped to exactly `Vector3.ZERO` (and `velocity.x`/`.z`
 zeroed with it) before `_speed`/`_heading` are derived from it. This
 kills the feedback loop at its source: even if `move_and_slide()`
 reintroduces a hair of noise next frame, it gets zeroed again before
 anything downstream ever reads it, so it can't accumulate into a visible
 sustained twitch. One `if`, no allocation, same cost for every player on
-the field — the "simple maths, stays cheap at team scale" ask, and it
+the field â€” the "simple maths, stays cheap at team scale" ask, and it
 happens to fix the exact screen that surfaced it too.
 
 **Scope note**: this touches `player_controller.gd`'s movement code,
 which earlier passes in this doc were deliberately kept out of (see the
 original rig-replacement brief's own constraint). Direct instruction this
-round to fix the twitch is what justifies it — flagged here rather than
+round to fix the twitch is what justifies it â€” flagged here rather than
 silently done, per this project's own pattern of calling out when a pass
 crosses another agent's usual territory.
 
@@ -1754,20 +1754,20 @@ crosses another agent's usual territory.
 
 New **`scripts/player/skeleton_wireframe.gd`** (`SkeletonWireframe`,
 `MeshInstance3D`): given a `Skeleton3D` via `track()`, rebuilds one
-short camera-facing quad per bone (parent origin → bone origin) each
+short camera-facing quad per bone (parent origin â†’ bone origin) each
 frame from `get_bone_global_pose()`, in `SoftBrutalist.ACCENT_PRIMARY`
 green, unshaded and lightly emissive so it pops against the studio
 backdrop regardless of the two-light rig underneath it. Quads, not
 `PRIMITIVE_LINES`, because line width is unsupported/ignored on several
-of Godot's rendering backends — a billboard quad renders identically
-everywhere for a trivial vertex cost (~21 bones × 6 verts).
+of Godot's rendering backends â€” a billboard quad renders identically
+everywhere for a trivial vertex cost (~21 bones Ã— 6 verts).
 
-**Deliberately not attached to on-field players** — only wired into
+**Deliberately not attached to on-field players** â€” only wired into
 `character_backdrop.gd`, which now calls `SkeletonWireframe.new()` +
 `.track(rig.skeleton())` once, after the existing mesh-layer reassignment
 loop. This project is scaling toward 16-a-side, and a per-frame rebuild
 that's free for one close-up preview instance would not be free times
-dozens of on-field bodies — the same "keep it cheap enough for a team"
+dozens of on-field bodies â€” the same "keep it cheap enough for a team"
 constraint this round's brief stated explicitly. `HumanoidRig.skeleton()`
 (added in the previous pass, unused until now) is what makes this a
 one-line hookup rather than a new lookup path.
@@ -1790,73 +1790,73 @@ listed):
    that joint used to be), landing at 0.165/-0.07 instead of the
    previous pass's 0.225/-0.01.
 2. **Hands.** The forearm capsules previously ended in empty air past
-   the elbow — no geometry marked where a hand would be, which read as
+   the elbow â€” no geometry marked where a hand would be, which read as
    an amputee at anything closer than broadcast distance (exactly what
    the close character-screen framing exposes). Added one small sphere
-   per `LowerArm` bone attachment — one extra low-poly mesh per arm, same
+   per `LowerArm` bone attachment â€” one extra low-poly mesh per arm, same
    cost category as everything else already there.
 
 ### Verification
 
 Same toolkit as every other entry: `--headless --editor --quit` rescan
 (`SkeletonWireframe` confirmed registered), then all four headless scene
-passes — main scene (300 frames), `kick_to_kick.tscn` (180),
+passes â€” main scene (300 frames), `kick_to_kick.tscn` (180),
 `full_game.tscn` (240), and this round added `character_screen.tscn`
-(180, the actual scene this bug was reported on) — all exit 0, zero
+(180, the actual scene this bug was reported on) â€” all exit 0, zero
 errors. One real typo caught by the first attempt at the rescan, not by
 inspection: a stray `//` (C-style, not GDScript) survived an earlier
 edit into a comment line in `humanoid_rig.gd` and failed the parse;
-fixed, re-ran clean. Not verified visually — no GUI in this environment,
-same limitation as every prior entry — so the deadzone fix is verified
+fixed, re-ran clean. Not verified visually â€” no GUI in this environment,
+same limitation as every prior entry â€” so the deadzone fix is verified
 as "compiles and runs error-free through the same physics paths every
 other pass exercises," not as "confirmed the twitch is gone on screen."
 That confirmation needs eyes on the actual character screen.
 
 ---
 
-## Handover — six-item playtest punch list: jitter round 2, scrim, out-of-bounds, centre-bounce formation, camera, mouse kick, landing shadow (Agent: UI/visual model)
+## Handover â€” six-item playtest punch list: jitter round 2, scrim, out-of-bounds, centre-bounce formation, camera, mouse kick, landing shadow (Agent: UI/visual model)
 
 A batch of direct playtest reports, spanning well outside this agent's
 usual UI/visual lane (camera tuning, match phase logic, input mapping).
 Handled directly rather than deferred, since no other agent was
 available in-session and each item was small/targeted enough to reason
-about in isolation — flagged per item below since several of these cross
+about in isolation â€” flagged per item below since several of these cross
 into `player_controller.gd`/mechanics/camera territory prior sessions
 kept separate.
 
 ### 1. Character-screen jitter, actually fixed this time
 
 The previous pass's deadzone fix was in the wrong place. It zeroed
-`velocity.x`/`.z` at the *top* of `_update_locomotion()` — before
+`velocity.x`/`.z` at the *top* of `_update_locomotion()` â€” before
 `move_and_slide()` runs later in `_physics_process()`. But
 `locomotion_blend()` (the function that actually feeds the
 AnimationTree) is called at the very *end* of `_physics_process()`,
-*after* `move_and_slide()` — so it was reading whatever collision-
+*after* `move_and_slide()` â€” so it was reading whatever collision-
 response noise `move_and_slide()` introduced that frame, completely
 unprotected by the earlier snap. The deadzone was real and correctly
 reasoned about, just guarding a read nothing downstream actually used.
 
 Fixed by adding the same deadzone check directly inside
 `locomotion_blend()` itself (`player_controller.gd`), immediately before
-the dot-product framing — the one place whose output actually matters,
+the dot-product framing â€” the one place whose output actually matters,
 independent of whatever `_update_locomotion()`'s own bookkeeping is
 doing. Left the original `_update_locomotion()` guard in place too (it's
-not wrong, just insufficient alone — it still matters for `_speed`/
+not wrong, just insufficient alone â€” it still matters for `_speed`/
 `_heading` derivation).
 
 ### 2. Character-screen scrim opacity
 
-`ui_side_scrim.gdshader`'s `tint.a` cut 0.18 → 0.10 (already reduced
+`ui_side_scrim.gdshader`'s `tint.a` cut 0.18 â†’ 0.10 (already reduced
 twice in earlier sessions, see the shader's own comment history) after a
 direct "I want to see more of the field" report. At this screen's dim
 studio lighting (Sun energy 0.14), even a low-alpha cream wash reads
-brighter than the turf behind it — cutting alpha further mattered more
+brighter than the turf behind it â€” cutting alpha further mattered more
 here than narrowing the wash's screen-width window did last time.
 
 ### 3. Boundary out-of-bounds: real stoppage, not a silent nudge
 
 `full_game.gd._check_out_of_bounds()` already pulled a settled ball back
-inside the oval — but silently, on a still-live ball, with zero signal
+inside the oval â€” but silently, on a still-live ball, with zero signal
 anything happened, which is indistinguishable from "not implemented" in
 play. Rebuilt as a real (if simplified) stoppage using the exact
 pause/callback shape every other dead-ball moment in this file already
@@ -1872,7 +1872,7 @@ every remaining frame of its own pause window (the ball doesn't actually
 move until the callback fires).
 
 **Not built**: a real umpire/possession model or a "deliberate out of
-bounds" free kick — both need the same adjudication apparatus
+bounds" free kick â€” both need the same adjudication apparatus
 holding-the-ball's ruling was already left waiting on (see the marking/
 spoil/smother entry above); this pass only makes the stoppage itself
 real, not who gets the ball out of it (still "contestable by whoever's
@@ -1882,7 +1882,7 @@ nearest," unchanged).
 
 `_reposition_kickoff()` used the same wide `_kickoff_slot()` spread
 (`KICKOFF_DEPTH` = 30m back) for *every* centre bounce, including every
-restart after a goal — real AFL only allows one ruck plus three
+restart after a goal â€” real Aussie Rules only allows one ruck plus three
 on-ballers per team inside the centre square for a bounce, and this
 project's `Tuning.TEAM_SIZE` (4) happens to equal exactly that
 allowance, so "the whole team gathers at the circle" and "a correct
@@ -1898,7 +1898,7 @@ initial pre-match layout, which is a different moment or the design.
 
 **Known gap**: `AIBrain.home_position` (each player's "return here when
 idle" anchor) is set once at spawn to the wide kickoff slot and is *not*
-updated by the new centre-bounce reposition — so a player not actively
+updated by the new centre-bounce reposition â€” so a player not actively
 contesting the ball will start drifting back toward their original
 30m-back anchor once the bounce contest settles. The formation is
 correct *at the moment of the bounce* (confirmed by inspection of the
@@ -1907,24 +1907,24 @@ is worth fixing too is a follow-up, not attempted here.
 
 ### 5. Camera: ground-clip fix, ball-focus tuning, orthodox mode + settings
 
-**Ground clip, root-caused.** `CAM_PITCH_MAX` (22°, upward look) combined
+**Ground clip, root-caused.** `CAM_PITCH_MAX` (22Â°, upward look) combined
 with `CAM_DISTANCE` (7.5m arm) and `CAM_FOCUS_HEIGHT` (1.35m, chest
 height) put the camera's own Y below zero at the extreme of the existing
-pitch range — `1.35 - 7.5·sin(22°) ≈ -1.45m` — genuinely underground, not
+pitch range â€” `1.35 - 7.5Â·sin(22Â°) â‰ˆ -1.45m` â€” genuinely underground, not
 a rare edge case. Fixed with a height floor applied *after* whichever
 mode's update runs (`BroadcastCamera._clamp_camera_height()`, `MIN_
 CAMERA_HEIGHT` = 0.4m): pushes the whole rig up by however much the
 lens dipped below the floor, preserving yaw/pitch/arm framing exactly as
 computed, just translated clear of the ground. Deliberately a floor on
 the one thing that actually matters (rendered lens height) rather than a
-re-derived safe pitch bound — robust to the orthodox mode below or any
+re-derived safe pitch bound â€” robust to the orthodox mode below or any
 future distance/height tuning without re-deriving anything by hand.
 
 **Ball-focus swivel/lingering, tuned.** `CAM_BALL_FOCUS_MAX` (how much of
-the focus point's position can slide toward the ball) cut 0.55 → 0.35,
+the focus point's position can slide toward the ball) cut 0.55 â†’ 0.35,
 `CAM_BALL_FOCUS_RATE` (how fast that slide commits *and* releases,
-symmetric) raised 3.0 → 4.5. The "swivel" after a kick was never the
-camera's own yaw — that stays exactly where the player was looking — it
+symmetric) raised 3.0 â†’ 4.5. The "swivel" after a kick was never the
+camera's own yaw â€” that stays exactly where the player was looking â€” it
 was the whole rig's *position* sliding toward the ball while orientation
 held, which reads as a swing from a shifted vantage point. Less maximum
 slide, and a faster release once the ball lands/is held, address both
@@ -1933,22 +1933,22 @@ root tuning, not two separate fixes.
 
 **Orthodox camera mode, new.** `BroadcastCamera.Mode` (`CHASE`/
 `ORTHODOX`), `set_mode()`. `ORTHODOX` reuses the existing yaw/pitch/
-spring-arm rig wholesale — no new nodes — just drives it differently:
-fixed pitch (`CAM_ORTHODOX_PITCH`, -62°), no player yaw/pitch input, arm
+spring-arm rig wholesale â€” no new nodes â€” just drives it differently:
+fixed pitch (`CAM_ORTHODOX_PITCH`, -62Â°), no player yaw/pitch input, arm
 length reused as elevation (`CAM_ORTHODOX_HEIGHT`, 34m) at that steep
 pitch, slower pan (`CAM_ORTHODOX_FOLLOW_RATE`, 2.2 vs `CAM_FOLLOW_RATE`'s
 9.0) tracking the midpoint of the controlled player and the ball rather
-than snapping to either — Prototype 1's own high strategic-view style,
+than snapping to either â€” Prototype 1's own high strategic-view style,
 per direct request, as an *option* alongside the chase cam rather than a
 replacement. Full Game only, wired through `Settings.
 full_game_camera_mode` (see below); `kick_to_kick.gd` reads nothing here
 and keeps the chase cam unconditionally, per the brief's explicit "kick-
 to-kick stays the same."
 
-### 6. New: `Settings` autoload — the project's first real persisted settings
+### 6. New: `Settings` autoload â€” the project's first real persisted settings
 
 `settings_screen.gd` was, by its own header comment, "deliberately not a
-functioning settings system" — every row was in-memory display only,
+functioning settings system" â€” every row was in-memory display only,
 reset on reopen. Two new features this round both needed a real,
 persisted, live-applied setting (camera mode; which mouse button aims
 vs. kicks), so this pass built the first one: `scripts/autoload/
@@ -1956,11 +1956,11 @@ settings.gd` (`Settings`), `ConfigFile`-backed (`user://settings.cfg`),
 two values (`full_game_camera_mode`, `mouse_kick_swapped`), each with a
 property setter that applies the change immediately (camera mode emits
 `camera_mode_changed`, full_game.gd listens live; mouse-kick rewrites the
-InputMap on the spot — see below) rather than only taking effect on next
+InputMap on the spot â€” see below) rather than only taking effect on next
 load. `SettingsScreen.Row` gained an optional `on_change` callback so its
 existing cycle-left/right UI could drive real state without changing its
 shape; the three original placeholder rows (volume/control scheme/screen
-shake) are untouched and still inert — nothing reads those yet, so
+shake) are untouched and still inert â€” nothing reads those yet, so
 wiring them would mean inventing values, not implementing a feature.
 `_back()` now calls `Settings.save()` on the way out.
 
@@ -1974,11 +1974,11 @@ Godot binary, so rather than hand-typing the format, a throwaway
 headless `--script` (extends `SceneTree`, not committed) constructed the
 two `InputEventMouseButton` resources via the real engine API
 (`ProjectSettings.set_setting()` + `.save()`) and let Godot itself write
-the correct serialization — diffed before/after to confirm it touched
+the correct serialization â€” diffed before/after to confirm it touched
 only the two intended actions, nothing else in the file. Result: `kick_
 stance` (aim) now also fires on right-click, `kick_execute` (kick) on
 left-click, alongside the existing LT/RT gamepad and K/F keyboard
-bindings — `human_brain.gd` needed zero changes, since it already just
+bindings â€” `human_brain.gd` needed zero changes, since it already just
 reads `Input.is_action_pressed(&"kick_stance")`/`is_action_just_pressed
 (&"kick_execute")`, and actions don't care which physical input fired
 them.
@@ -1987,7 +1987,7 @@ them.
 swapped` (default false = right-click aim / left-click kick, matching
 the request verbatim) is applied by `Settings._apply_mouse_kick_
 binding()`, which erases whichever `InputEventMouseButton` currently
-sits on each action and re-adds the correct one — so every existing
+sits on each action and re-adds the correct one â€” so every existing
 `is_action_pressed`-style read anywhere in the project keeps working
 unchanged regardless of which physical button is currently bound to
 which logical action, rather than threading a swap flag through
@@ -2002,9 +2002,9 @@ boots and runs clean. Needs a hands-on pass.
 ### 8. Landing shadow marker
 
 New `scripts/ball/landing_shadow.gd` (`LandingShadow`), a child of `Ball`
-in `ball.tscn` — one per ball, not per player, so the cost is flat
+in `ball.tscn` â€” one per ball, not per player, so the cost is flat
 regardless of team size. Visible whenever `Ball.is_airborne()` is true
-(any kick, lob, or spoiled deflection back into the air — not gated to
+(any kick, lob, or spoiled deflection back into the air â€” not gated to
 the kicker or to a human's own charge, unlike `KickTrajectory`'s pre-kick
 preview), showing a small flat "(v)" chevron at the estimated landing
 point. Reuses `KickTrajectory._simulate()`'s exact gravity+drag step
@@ -2017,11 +2017,11 @@ never inherits the ball's spin.
 ### Verification
 
 Every touched scene re-run headless after each change and again as a
-full batch at the end — main scene (300 frames), `kick_to_kick.tscn`,
+full batch at the end â€” main scene (300 frames), `kick_to_kick.tscn`,
 `full_game.tscn` (both 200+, and once each for an extra 1800-frame/30s
 pass specifically to give centre-bounce/out-of-bounds/scoring code paths
 time to actually fire, not just parse), `character_screen.tscn`,
-`settings_screen.tscn`, `main_menu.tscn` — all exit 0, zero errors,
+`settings_screen.tscn`, `main_menu.tscn` â€” all exit 0, zero errors,
 including one pass with `full_game_camera_mode` forced to `ORTHODOX` and
 `mouse_kick_swapped` forced `true` via a throwaway `user://settings.cfg`
 (deleted afterward, along with the scratch scripts used to write it and
@@ -2029,21 +2029,21 @@ the mouse-button InputMap entries) to actually exercise both new code
 paths rather than only the defaults. `--headless --editor --quit`
 class-cache rescan run after every new `class_name` script (`Settings`,
 `LandingShadow`). No visual/feel verification was possible in this
-environment for any of the eight items above — every fix here is
+environment for any of the eight items above â€” every fix here is
 verified as "reasoned-through and runs error-free," not as "confirmed
 correct on screen." All eight want a real playtest pass before being
 trusted beyond that.
 
 ---
 
-## Handover — movement backpedal/burst, ruck contests, kick-ins, holding-the-ball, camera rename, bump (Agent: mechanics/engine + UI)
+## Handover â€” movement backpedal/burst, ruck contests, kick-ins, holding-the-ball, camera rename, bump (Agent: mechanics/engine + UI)
 
 A pass through the design brief's own priority order (movement first, then
 ruck/kick-in/camera, then bump/holding-the-ball as room allowed) plus the
 character-screen punch list. Same no-GUI limitation every prior entry has
-flagged — verification here is real, scripted Jolt-physics runs (a new
+flagged â€” verification here is real, scripted Jolt-physics runs (a new
 `.tscn`+`.gd` scratch harness per system, positional-scene-argument form so
-autoloads resolve, deleted after — same discipline the marking/spoil/
+autoloads resolve, deleted after â€” same discipline the marking/spoil/
 smother entry set), not eyeballing, plus the standard headless boots. Two
 real test-harness bugs were caught and fixed *in the tests*, not the game
 code, worth naming since both looked like game bugs at first: a scratch
@@ -2055,31 +2055,31 @@ correctly no-opped, which looked like the ruling not firing). Both are
 recorded under their own sections below since the same trap is worth
 recognising quickly next time, not just once here.
 
-### 1. Movement (priority 1) — a real backpedal, not just a bigger read of the existing plant-and-pivot
+### 1. Movement (priority 1) â€” a real backpedal, not just a bigger read of the existing plant-and-pivot
 
 `player_controller.gd`'s existing model (asymmetric ACCELERATION/BRAKING,
 speed-coupled turn rate, `REVERSE_SPEED_SCALE = 0` driving a full-speed
 reversal to a hard brake-and-swing) already gives the "plant-and-drive"
-half of the brief unchanged — verified again by reading, not rebuilt. What
+half of the brief unchanged â€” verified again by reading, not rebuilt. What
 it had no way to express is the *other* named technique: "backpedal-to-
-turn transitions for defenders reading the play" — a defender holding a
+turn transitions for defenders reading the play" â€” a defender holding a
 cushion, eyes on the ball, shuffling backward, not sprinting-then-
 reversing. Structurally these are different moves at different speeds/
 contexts, not one dial.
 
 **New state**: `_backpedaling`/`_turn_burst_timer` on `PlayerController`,
 gated in `_update_locomotion()` on how far the *new* wish direction is
-from where the body is currently **facing** (not travelling) —
+from where the body is currently **facing** (not travelling) â€”
 `Tuning.BACKPEDAL_ENTER_DOT`/`_EXIT_DOT` (hysteresis band so a diagonal
 push near the threshold doesn't flicker), and only from a speed at/under
-`JOG_SPEED + BACKPEDAL_ENTRY_SPEED_MARGIN` — a player already at sprint
+`JOG_SPEED + BACKPEDAL_ENTRY_SPEED_MARGIN` â€” a player already at sprint
 who reverses still gets the existing plant-and-pivot, a faster, more
 committed move for a different moment (chasing/leading) than this one
 (holding a defensive cushion). While backpedaling, `_heading` tracks
 `_wish_dir` directly every frame (a shuffle answers the stick immediately,
 it isn't a turn-rate-limited sprint commitment) at a flat capped
 `BACKPEDAL_SPEED`, and `_update_facing()` returns immediately without
-touching `_facing_yaw` at all — the entire mechanic *is* that one early
+touching `_facing_yaw` at all â€” the entire mechanic *is* that one early
 return: eyes stay on the play, only the feet move.
 
 **The burst** ("acceleration bursts when starting a lead or chase"): the
@@ -2089,17 +2089,17 @@ facing (`facing_alignment >= EXIT_DOT`), `_turn_burst_timer` arms for
 as long as it's counting down and still accelerating. **A real bug caught
 by the scratch test, not by reading**: the first version left `_heading`
 holding whatever the backpedal shuffle had last set it to (the *old*,
-backward wish direction) instead of snapping it to the new one on exit —
+backward wish direction) instead of snapping it to the new one on exit â€”
 so the very next frame's alignment check read a full reversal against the
 stale heading and applied `REVERSE_SPEED_SCALE` braking instead of a
 drive-off, i.e. exactly backwards from the intended effect. Fixed by
-snapping `_heading = _wish_dir` in the same branch that arms the burst —
+snapping `_heading = _wish_dir` in the same branch that arms the burst â€”
 facing is already there (that's what triggered the exit), so there's
 nothing left to turn through, only to drive off from. Verified
 numerically after the fix: 14 frames into the burst window, speed had
 climbed to 6.51 m/s from a 3.0 m/s backpedal-speed start, against a
 computed "no burst" prediction of ~5.10 m/s at plain `ACCELERATION` over
-the same window — comfortably distinguishing burst-applied from not.
+the same window â€” comfortably distinguishing burst-applied from not.
 
 **Speed-dependent gather** ("bringing the ball to hand must be affected by
 the player's speed at the moment of contact"): the passive walk-over
@@ -2110,28 +2110,28 @@ passive path the same idea, gentler: `GatherZone`'s physics shape is now
 sized to the *maximum* possible reach (`GATHER_RADIUS + GATHER_LUNGE_MAX`)
 so it always has the real candidate available, and `_try_gather()` adds an
 explicit distance test against `GATHER_RADIUS + speed * GATHER_LUNGE_PER_
-SPEED` (capped at `GATHER_LUNGE_MAX`) on top — deliberately *not* just
+SPEED` (capped at `GATHER_LUNGE_MAX`) on top â€” deliberately *not* just
 resizing the live Area3D shape and reading `get_overlapping_bodies()` in
 the same frame, since that list is a physics-step-stale cache, not a
 live query (same reasoning `_update_ground_pickup()`'s own explicit
 distance test already used, now shared). Verified: a player sprinting
 through a stationary ball (starting 15m back, at full speed by arrival)
-gathered it at ~1.20m from the carry point — meaningfully past the 0.85m
+gathered it at ~1.20m from the carry point â€” meaningfully past the 0.85m
 base radius, and consistent with the vertical carry-point-to-ball offset
 plus the expected horizontal lunge budget at 8.4 m/s.
 
-**Not changed**: `ACCELERATION`/`BRAKING`/`TURN_RATE_*` themselves — no
+**Not changed**: `ACCELERATION`/`BRAKING`/`TURN_RATE_*` themselves â€” no
 evidence either way without a human hand on a pad, and the brief's own
 "real cost to changing direction" / "no instantaneous changes" asks were
 already satisfied by the existing model on inspection. `REVERSE_SPEED_
-SCALE` stays 0.0, untouched — the plant-and-pivot is a separately-verified,
+SCALE` stays 0.0, untouched â€” the plant-and-pivot is a separately-verified,
 already-tuned system this pass was careful not to disturb.
 
-### 2. Ruck contests (priority 4) — one shared mechanic, three launch sites
+### 2. Ruck contests (priority 4) â€” one shared mechanic, three launch sites
 
 New "Ruck contests" sections in `Tuning`/`PlayerController`/`full_game.gd`.
 Per the brief: reuses `PlayerController._begin_aggressive_mark`'s exact
-jump pattern (`_pending_jump` into the existing gravity integration — no
+jump pattern (`_pending_jump` into the existing gravity integration â€” no
 new arc code) for the leap, and the existing gravity/`is_on_floor()`
 machinery handles the rest, same as every other airborne frame already
 does.
@@ -2145,12 +2145,12 @@ clock live. Three call sites, differing *only* in where and who (exactly
 the brief's "vary only in setup/launch conditions"):
 
 - **Centre bounce**: `_bounce_off()` now calls it with `_home_players[0]`/
-  `_away_players[0]` — the existing centre-bounce formation (already
+  `_away_players[0]` â€” the existing centre-bounce formation (already
   built, a prior pass) already puts index 0 at the ruck contest spot, so
   this needed no new positioning code, only the launch itself moved into
   the shared function.
 - **Field ball-up**: the *neutral* half of holding-the-ball
-  (RULES_REFERENCE.md §4 — tackled inside `PRIOR_OPPORTUNITY_GRACE` is
+  (RULES_REFERENCE.md Â§4 â€” tackled inside `PRIOR_OPPORTUNITY_GRACE` is
   nobody's fault). `PlayerController._get_tackled` already computed this
   condition and did nothing with it (the marking-pass entry above left it
   silent on purpose); it now emits a new `field_ball_up_called(tackler,
@@ -2158,90 +2158,90 @@ the brief's "vary only in setup/launch conditions"):
   the tackle spot (same "reposition/settle before the pause, not after"
   shape `_prepare_centre_bounce` already uses, so nobody can wander over
   and gather a still-tumbling ball during the pause) and contests it
-  between the tackler and tackled — already the two nearest players by
+  between the tackler and tackled â€” already the two nearest players by
   construction, since a tackle only lands within `TACKLE_RADIUS`.
 - **Boundary throw-in**: `_resume_after_out_of_bounds` (existing, from an
   earlier pass) previously just repositioned the ball with a bare
   `reset_at`. Now selects the nearest player per side to the throw-in
   point (`_nearest_player`, P1's own "nearest player per side" model per
   this project's memory of `contest_minigame.py`) and runs the same
-  contest. This is real, working code, not just "compatible" — priority
+  contest. This is real, working code, not just "compatible" â€” priority
   6's out-of-bounds foundation gets most of its remaining scope for free
   from this.
 
 **RB = Hit-Out**: new `Tuning.Action.HIT_OUT` (appended, per the enum's
-own append-only rule — `ACTION_DURATION`/`ACTION_CONTACT` copy `MARK_
+own append-only rule â€” `ACTION_DURATION`/`ACTION_CONTACT` copy `MARK_
 AGGRESSIVE`'s row verbatim, since it's the identical jump, not a new
-timing to invent), new `hit_out` input action (`J` / gamepad button 10 —
+timing to invent), new `hit_out` input action (`J` / gamepad button 10 â€”
 **RB**, confirmed against this project's own already-verified mapping:
 button 11 matches `debug_hud.gd`'s documented "F3/D-pad Up", which
 anchors the rest of the enum, and button 10 was only ever bound to
-`team_menu`, which nothing reads during an actual match — grepped before
+`team_menu`, which nothing reads during an actual match â€” grepped before
 assuming, not after). `PlayerController._update_ruck_contest` gates RB to
 nominated contestants only, in range (`RUCK_CONTEST_JUMP_RANGE`), on a
 live airborne ball; `_begin_hit_out()`/`_resolve_hit_out()` mirror
 aggressive mark's begin/resolve shape exactly, except the connect knocks
 the ball away (`Ball.knock()`, the same external-hit primitive spoil/
-smother already use) rather than gathering it — a palm, not a catch.
+smother already use) rather than gathering it â€” a palm, not a catch.
 `RUCK_HIT_OUT_REACH` is deliberately `MARK_CATCH_RADIUS *
-MARK_AGGRESSIVE_REACH_SCALE`, not a new number — same leap, same reach.
+MARK_AGGRESSIVE_REACH_SCALE`, not a new number â€” same leap, same reach.
 Verified end to end with a scripted two-player contest: nomination,
 timed RB press, ball knocked off its straight-up path in the hitter's
 facing direction, `hit_out_resolved(player, connected=true)` fired.
 
 **AI never attempts a hit-out** (no `wants_hit_out()` override on
-`AIBrain`) — matches this project's existing "deliberately simple, not a
+`AIBrain`) â€” matches this project's existing "deliberately simple, not a
 tactics system" AI baseline for every other contest tier, not an
 oversight.
 
-### 3. Full Game ball-up formation (priority 3) — already done, now fed by the contest above
+### 3. Full Game ball-up formation (priority 3) â€” already done, now fed by the contest above
 
 The two-ruck/three-on-baller centre-bounce formation was already built
-(an earlier pass, see above) and needed no changes — `_bounce_off()` just
+(an earlier pass, see above) and needed no changes â€” `_bounce_off()` just
 now launches through the shared contest instead of a bare `Ball.launch()`
 call. Confirmed still correct via the extended `full_game.tscn` runs
 below.
 
-### 4. Protected kick-in (priority 5) — and a real pre-existing rules bug found while building it
+### 4. Protected kick-in (priority 5) â€” and a real pre-existing rules bug found while building it
 
 Per the brief: reuses `_protected_timer`/`is_protected()` directly, no new
 protection system. New `PlayerController.grant_protection(duration)` (sets
 `_protected_timer`, already clears itself early on disposal via the
-existing `_dispose()`/`drop_ball()` logic — "playing on forfeits
+existing `_dispose()`/`drop_ball()` logic â€” "playing on forfeits
 protection" already applies here with zero extra code) and
 `give_possession(ball)` (a public name for the existing shared
 `_complete_gather()` path, for placements that hand a player the ball
 outright rather than having them reach for it).
 
-**The bug**: `full_game.gd._on_scored` sent *every* score — goals and
-behinds alike — to a centre bounce. Real AFL: a goal restarts with a
+**The bug**: `full_game.gd._on_scored` sent *every* score â€” goals and
+behinds alike â€” to a centre bounce. Real Aussie Rules: a goal restarts with a
 centre bounce, a behind restarts with a kick-in by the team that
 conceded, no centre bounce at all. `_on_scored` now branches on
 `is_goal`; `_prepare_kick_in(scoring_team)` finds the nearest defending
 player to the goal square at the scoring end (`_nearest_player`, the same
 helper the throw-in above uses), places them in it, gives them the ball,
-and protects them for `MARK_HOLD_DURATION` (5s — the same number stand-
+and protects them for `MARK_HOLD_DURATION` (5s â€” the same number stand-
 the-mark protection already uses, not a new invented threshold; an
 earlier pass on this project's own notes flagged this exact reuse as the
 plan). Verified: after a forced behind credited to HOME, the AWAY kicker
-ended up at the +X goal square (`x≈76.5`, matching `goal_line_x(1) -
+ended up at the +X goal square (`xâ‰ˆ76.5`, matching `goal_line_x(1) -
 GOAL_SQUARE_DEPTH/2`), carrying, protected for ~4.95s.
 
 **Not built**: retreat distance for the non-kicking team, a shot clock, or
 anything about the kicker actually *choosing* to shoot for goal versus
-play on — this project has no set-shot apparatus at all yet, and the
+play on â€” this project has no set-shot apparatus at all yet, and the
 brief's ask was specifically the placement/possession/immunity triad, not
 a full kick-in flow.
 
-### 5. Holding-the-ball consequence (priority 8) — the free-kick half, reusing the same triad
+### 5. Holding-the-ball consequence (priority 8) â€” the free-kick half, reusing the same triad
 
 The *ruling* already fired correctly (`holding_the_ball_called`, an
 earlier pass); nothing consumed it. `FullGame._on_holding_the_ball` now
 does, and deliberately reuses exactly what the kick-in above reuses
 (`give_possession`/`grant_protection`) rather than a third bespoke
-mechanism — the tackler gets the ball back at the tackle spot, protected
+mechanism â€” the tackler gets the ball back at the tackle spot, protected
 long enough to dispose of it. Per the brief: the existing ruling logic
-(`PlayerController._get_tackled`) was **not** touched — no bug was
+(`PlayerController._get_tackled`) was **not** touched â€” no bug was
 identified there, only a consumer was missing. Also deliberately minimal:
 no separate set-shot apparatus, same scope boundary as the kick-in.
 Verified with a scripted scenario (a player held the ball ~0.6s, past
@@ -2252,75 +2252,75 @@ tackler was carrying, protected (~4.77s remaining), phase back to `PLAY`.
 ### 6. Camera: Full-Side / 3rd Person rename, and a real reposition, not a rotate
 
 Renamed throughout (code and Settings UI, not just labels) per the brief:
-`BroadcastCamera.Mode.ORTHODOX` → `FULL_SIDE`, `Settings.
-FullGameCameraMode.BROADCAST/ORTHODOX` → `THIRD_PERSON/FULL_SIDE` (kept
+`BroadcastCamera.Mode.ORTHODOX` â†’ `FULL_SIDE`, `Settings.
+FullGameCameraMode.BROADCAST/ORTHODOX` â†’ `THIRD_PERSON/FULL_SIDE` (kept
 the same ordinal order so an existing `user://settings.cfg` int still
 resolves correctly), Settings screen row now reads "3RD PERSON"/
 "FULL-SIDE". `BroadcastCamera.Mode.CHASE` (the 3rd Person rig) keeps its
-internal name — a legitimate technical term, not a player-facing label
+internal name â€” a legitimate technical term, not a player-facing label
 that needed to match.
 
 **The reposition** (brief: "do not simply rotate the existing camera
 downward... reposition to achieve the perspective of a camera situated
 outside the field"): the old orthodox mode hovered its rig directly above
-the play at a steep -62° pitch — reaching "elevated" honestly, but never
+the play at a steep -62Â° pitch â€” reaching "elevated" honestly, but never
 actually "outside the field," and reading as a blimp/drone shot, not a
 broadcast one. `_update_full_side()` now puts the rig's own pivot at a
 **fixed position outside the boundary** (`Tuning.CAM_FULL_SIDE_SIDE_
 OFFSET` = 100m on Z, well past the fence at ~76.5m) and a fixed elevation
 (`CAM_FULL_SIDE_HEIGHT` = 34m, direct on `global_position.y` now rather
-than smuggled in through spring-arm length) — "outside the field" is
+than smuggled in through spring-arm length) â€” "outside the field" is
 where the rig actually lives, not a side effect of enough arm-length/
 pitch tuning. It pans along the field's length (X) to track which end
 play is at, and the look-down pitch is *computed* each frame from the
 real geometry (`atan2(height, horizontal distance)`), not a fixed guessed
-angle — so it's never aimed above or below the actual ball as play moves,
+angle â€” so it's never aimed above or below the actual ball as play moves,
 satisfying "do not just rotate it" by computing the angle instead of
-picking one. Verified: after settling, the rig sits at `z≈100` (outside
+picking one. Verified: after settling, the rig sits at `zâ‰ˆ100` (outside
 `FIELD_HALF_WIDTH`=67.5m), elevated ~34-36m, pitch settling around
--18° to -19° — genuinely side-on, not top-down.
+-18Â° to -19Â° â€” genuinely side-on, not top-down.
 
 **3rd Person** (ball-follow/swivel/ground-clip): all three were already
 addressed by the immediately-prior session on this same uncommitted work
 (`CAM_BALL_FOCUS_MAX`/`_RATE` tuned down/up, `_clamp_camera_height()`
-added) in direct response to this same feedback. Re-read and left as-is —
+added) in direct response to this same feedback. Re-read and left as-is â€”
 no new evidence to justify re-tuning numbers that were just tuned against
 the identical complaint, and the brief's own engineering constraints ask
 for small, evidenced changes over speculative re-tuning.
 
-**kick_to_kick unchanged**, confirmed by inspection — it never calls
+**kick_to_kick unchanged**, confirmed by inspection â€” it never calls
 `BroadcastCamera.set_mode()`, so it stays on `CHASE` regardless of the
 Settings value, exactly as the brief requires.
 
-### 7. Bump (priority 7) — a real flick primitive, and a real, documented control conflict resolved
+### 7. Bump (priority 7) â€” a real flick primitive, and a real, documented control conflict resolved
 
 **The flick primitive** (`InputManager.flick_vector()`/`_update_flick()`):
 tracks the last time the right stick's *raw* magnitude (before MOVE/
-LOOK_CURVE shaping — that curve exists for camera/kick feel, not for
+LOOK_CURVE shaping â€” that curve exists for camera/kick feel, not for
 deciding whether a swing counts) was below `Tuning.FLICK_NEUTRAL_
 MAGNITUDE`, and fires once, edge-triggered, if the stick then reaches
 `FLICK_MIN_MAGNITUDE` within `FLICK_WINDOW` seconds of that neutral
-moment — a genuine sweep-shaped gesture, not a held-axis read pretending
+moment â€” a genuine sweep-shaped gesture, not a held-axis read pretending
 to be one (nothing like this existed before; the brief was explicit that
 it shouldn't be faked from `get_look_vector()`). Re-arms once the stick
 returns to neutral. Works unmodified on keyboard: a digital arrow-key tap
-is already an instant 0→1 jump, trivially satisfying "swept from neutral
+is already an instant 0â†’1 jump, trivially satisfying "swept from neutral
 to full within the window" with no separate keyboard path needed.
 
 **A real control conflict, found and resolved, not guessed past**: the
 brief specifies LB hold for bump stance. LB (gamepad button 9) was
-already bound to `switch_player` — and unlike `team_menu` (which hit_out
+already bound to `switch_player` â€” and unlike `team_menu` (which hit_out
 above shares RB with safely, since nothing reads it mid-match),
 `switch_player` **is** read live during a match
 (`full_game.gd._unhandled_input`), so sharing LB unmodified would fire a
 player switch the instant LB is pressed, before any flick could ever
-register — not a hypothetical, a guaranteed break of a verified feature.
+register â€” not a hypothetical, a guaranteed break of a verified feature.
 Relocated `switch_player`'s gamepad binding to D-pad Left (button 13,
-confirmed completely unused anywhere in the input map before this — a
+confirmed completely unused anywhere in the input map before this â€” a
 natural fit for "cycle to the next player" besides), keeping its keyboard
 Tab binding untouched, and bound the new `bump_stance` action to LB
 instead. This is a deliberate, reasoned rebind of a verified control
-where a literal conflict was identified by direct inspection — not the
+where a literal conflict was identified by direct inspection â€” not the
 kind of speculative change the controller-diagnostic section warns
 against (that warning is about not guessing at *why* an Xbox input isn't
 registering; this is a *known, certain* two-actions-one-button collision
@@ -2333,7 +2333,7 @@ possession only): finds the nearest opposing ball carrier in
 `BUMP_RANGE`, checks the flick's world-space direction (camera-relative,
 same conversion `HumanBrain.wish_direction()` already uses, so "flick
 right" means the same thing on screen a bump does as it does for
-running) against the real bearing to them within `BUMP_CONE_DEG` — no
+running) against the real bearing to them within `BUMP_CONE_DEG` â€” no
 target lock, a physical swing that has to actually line up, matching
 every other contest here's "physically doing the right thing resolves
 it" stance. "Timing relative to the carrier's approach" (brief) is a real
@@ -2341,7 +2341,7 @@ dot product against the carrier's live velocity: closing on the bumper
 lands clean (full knockback/stun), anything else still connects (they
 were in range and cone) but glances (`BUMP_MISTIMED_SCALE`).
 
-**Knockback needed a new mechanism, not just an impulse** — a real bug
+**Knockback needed a new mechanism, not just an impulse** â€” a real bug
 class avoided by testing, not just reasoning: `_update_locomotion()`
 overwrites `velocity.x`/`.z` from internal `_heading`/`_speed` state every
 single frame, unconditionally, so a naive `velocity += impulse` on the
@@ -2349,16 +2349,16 @@ bumped player would have been silently steamrolled the very next physics
 tick with zero visible effect. New `_knockback` vector: while nonzero,
 `_update_locomotion()` returns immediately after driving `_speed`/
 `_heading` straight from it (decaying via `BRAKING` each frame) instead of
-reading any brain input at all — the hit is what's moving the body, not
+reading any brain input at all â€” the hit is what's moving the body, not
 the stick. Verified directly: a scripted `receive_bump(Vector3(6,0,0),
 0.4, ...)` moved a stationary player +0.29m in three physics frames with
-velocity decaying exactly as expected (6.0 → 5.53 m/s over three frames
+velocity decaying exactly as expected (6.0 â†’ 5.53 m/s over three frames
 at `BRAKING`).
 
 **Deliberately not built, per the brief's own explicit instruction**: any
 dangerous/high-contact free-kick consequence. `RULES_REFERENCE.md` has no
 distance/angle/force/timing threshold for "high contact" to judge
-against — `bump_landed(bumper, carrier, clean)` fires on every connect so
+against â€” `bump_landed(bumper, carrier, clean)` fires on every connect so
 a future pass with real numbers has an event to hook, but nothing here
 judges legality. Flagged in the signal's own doc comment, not silently
 dropped.
@@ -2366,86 +2366,86 @@ dropped.
 ### 8. Character screen (priority 9)
 
 **Background wash**: `ui_side_scrim.gdshader`'s `tint.a` cut a fourth time,
-0.10 → 0.06, per the brief's explicit "do not leave the current opacity
+0.10 â†’ 0.06, per the brief's explicit "do not leave the current opacity
 unchanged."
 
 **Wireframe visibility + body transparency**: the skeleton wireframe
 (`SkeletonWireframe`, an earlier pass) already tracked real bone poses
-every frame — "bone-following" was already true, it just had nothing to
+every frame â€” "bone-following" was already true, it just had nothing to
 show *through*: the placeholder body meshes in front of it are fully
 opaque, so it only ever peeked past the silhouette edge. `CharacterBackdrop`
 now sets every body mesh's material to `TRANSPARENCY_ALPHA` at
-`BODY_ALPHA = 0.55` for this preview only — safe to mutate directly
+`BODY_ALPHA = 0.55` for this preview only â€” safe to mutate directly
 because `HumanoidRig._materials` is a plain per-instance dict, not shared/
 static (checked before touching it, not after), so this can't leak into
 any on-field player's own materials. `SkeletonWireframe.LINE_WIDTH`
-0.012→0.022 and its emission multiplier 1.4→1.8 for the "more visible"
+0.012â†’0.022 and its emission multiplier 1.4â†’1.8 for the "more visible"
 half of the same ask.
 
-**Jitter — investigated thoroughly, no further code-level cause found**.
+**Jitter â€” investigated thoroughly, no further code-level cause found**.
 Traced both mechanisms this project's own history has previously
 implicated, from scratch, with numbers:
 1. **Locomotion-blend noise** (the `move_and_slide()` collision-response
    residue leaking into the animation blend, "fixed" twice already by
    earlier passes). Verified directly: a scripted player with zero brain
-   input, settled on a real floor, sampled for 270 physics frames —
+   input, settled on a real floor, sampled for 270 physics frames â€”
    `locomotion_blend()` and horizontal velocity were bit-exact
    `Vector2.ZERO`/`Vector3.ZERO` on every single frame. This path is
    provably silent now.
 2. **The idle animation clip's own keyframe data**
-   (`HumanoidAnimations.GAITS["idle"]`) — a comment already on disk
+   (`HumanoidAnimations.GAITS["idle"]`) â€” a comment already on disk
    records two earlier rounds of shrinking idle's sway parameters toward
    zero and *still* reading as a twitch, landing on exact zero as a last
    resort ("revisit... if idle sway is wanted again later"). Re-derived
    `_gait_pose()` by hand against the current all-zero idle dict: every
    term in that function is linear in `stride`/`knee_lift`/`bob`/`lean`/
    `twist`/`abduct`/`yaw_bias`/`roll`, all of which are 0 or defaulted to
-   0 for idle — so all 14 generated keyframes are mathematically
+   0 for idle â€” so all 14 generated keyframes are mathematically
    *identical* (the same `Quaternion.from_euler(Vector3.ZERO)` /
    `Vector3(0, hip_height, 0)` called with the same input 14 times).
    Cubic interpolation between bit-identical control points has zero
-   tangent and zero curvature to overshoot around — this clip cannot
+   tangent and zero curvature to overshoot around â€” this clip cannot
    itself introduce per-frame variation, full stop, regardless of the
    interpolation-overshoot mechanism the on-disk comment still names as
    the suspected (but not re-confirmed) cause.
 
-Attempted a third, independent check — pixel-diffing rendered frames of
+Attempted a third, independent check â€” pixel-diffing rendered frames of
 the actual `character_screen.tscn`, the same technique the original
-visual-pass session used — but this headless build's rendering driver is
+visual-pass session used â€” but this headless build's rendering driver is
 the dummy/null one (`texture_2d_get` on a null texture, confirmed by
 hitting the error directly), so `get_viewport().get_texture()` never
 produces a real image here; that verification path isn't available in
 this environment. **Net**: both previously-suspected mechanisms are now
 provably eliminated at the code level. If jitter is still visible on a
 real screen, the cause is something neither this nor prior sessions have
-identified yet, and needs eyes on an actual GUI session to localise —
+identified yet, and needs eyes on an actual GUI session to localise â€”
 recorded here so the next session doesn't have to re-derive either proof
 from scratch.
 
-### 9. Out-of-bounds (priority 6) — mostly inherited from §2 above; one gap identified, not guessed past
+### 9. Out-of-bounds (priority 6) â€” mostly inherited from Â§2 above; one gap identified, not guessed past
 
 Detection/stoppage/restart were already real (an earlier pass); the
-restart now goes through the shared ruck contest (§2). **Not built**:
-"out on the full" (RULES_REFERENCE.md §4 — a kick crossing the boundary
+restart now goes through the shared ruck contest (Â§2). **Not built**:
+"out on the full" (RULES_REFERENCE.md Â§4 â€” a kick crossing the boundary
 *in the air* is a free kick to the other side, distinct from a neutral
-ball-up) isn't distinguished from a rolled-out ball at all — both hit the
-same "settled outside the oval → neutral throw-in contest" path today.
+ball-up) isn't distinguished from a rolled-out ball at all â€” both hit the
+same "settled outside the oval â†’ neutral throw-in contest" path today.
 Building the distinction needs checking the ball's flight *as it crosses*
 the boundary while still airborne (a per-frame bisection against the
 flight segment, per this project's own memory of Prototype 1's approach),
 and awarding it needs the same missing free-kick/set-shot apparatus the
 kick-in and holding-the-ball sections above already stop short of.
-Identified and left, not guessed at — RULES_REFERENCE.md already lists
+Identified and left, not guessed at â€” RULES_REFERENCE.md already lists
 this as a known, not-yet-reached rule.
 
 ### 10. Controller diagnostics (priority 10)
 
 `DebugHud`'s F3 diagnostic (`last gamepad button/axis`) is untouched and
 still the intended next step for the reported Xbox marking/defensive-
-action issue — nobody in this session had a controller attached to
+action issue â€” nobody in this session had a controller attached to
 generate new raw-index evidence, so no bindings were changed on the
 strength of a guess. The one binding this session *did* change
-(`switch_player`'s gamepad button, §7) was a certain, grepped-and-
+(`switch_player`'s gamepad button, Â§7) was a certain, grepped-and-
 confirmed logical conflict with a brand-new action, not a response to the
 Xbox-registration report, and is called out on its own above rather than
 folded in quietly.
@@ -2457,28 +2457,28 @@ a full batch at the end: `--headless --editor --quit` class-cache rescan
 (no new `class_name` scripts this pass, so nothing new to register, but
 run anyway per this project's own standing discipline), then `main_menu`/
 `kick_to_kick`/`full_game`/`character_screen`/`settings_screen`, all exit
-0, zero errors — plus one extended `full_game.tscn` run at 9000 frames
+0, zero errors â€” plus one extended `full_game.tscn` run at 9000 frames
 (2.5 simulated minutes, well past `QUARTER_LENGTH`) specifically to give
 repeated centre bounces, kick-ins, tackles and quarter transitions time to
 actually fire against each other under real AI play, not just parse.
 Beyond the headless boots, **seven** separate scripted-physics scratch
 harnesses (positional-scene-argument form, real autoloads, deleted after
-— none committed) numerically verified: backpedal entry/cap/facing-freeze,
+â€” none committed) numerically verified: backpedal entry/cap/facing-freeze,
 the turn-burst acceleration spike (and the stale-heading bug it caught),
-speed-scaled gather reach, a full ruck contest's nomination→jump→hit-out→
+speed-scaled gather reach, a full ruck contest's nominationâ†’jumpâ†’hit-outâ†’
 knock chain, the protected kick-in's placement/possession/protection,
 Full-Side's settled position/elevation/pitch, the flick primitive plus
 bump connect/timing/knockback-displacement, and the holding-the-ball
-ruling→pause→free-kick chain end to end. Two of those runs hit real
+rulingâ†’pauseâ†’free-kick chain end to end. Two of those runs hit real
 test-harness bugs before landing (see this entry's own opening paragraph)
-— both diagnosed and fixed in the test, confirmed not to be game bugs by
+â€” both diagnosed and fixed in the test, confirmed not to be game bugs by
 re-deriving the actual cause rather than assuming.
 
-**No human/pad verification was possible in this environment** — same
+**No human/pad verification was possible in this environment** â€” same
 limitation every mechanics-agent entry in this file has flagged from the
 start. Everything above is verified as "reasoned through, numerically
 checked against real physics, and runs error-free," not as "confirmed to
-feel right." Movement in particular — the brief's own highest priority —
+feel right." Movement in particular â€” the brief's own highest priority â€”
 most needs a real hands-on pass before any of `BACKPEDAL_SPEED`/
 `BACKPEDAL_ACCELERATION`/`TURN_BURST_DURATION`/`TURN_BURST_ACCEL_MULT`
 (all first-guess numbers, same as every other movement constant's own
@@ -2487,23 +2487,23 @@ history in this file) should be trusted beyond "does what it says".
 ### Known limitations / unresolved
 
 - **Dangerous-contact free-kick consequences for Bump**: not built,
-  per explicit instruction — `RULES_REFERENCE.md` has no numeric
+  per explicit instruction â€” `RULES_REFERENCE.md` has no numeric
   threshold. `bump_landed` is the hook for whenever one exists.
-- **"Out on the full"** vs. a rolled-out ball: not distinguished. See §9.
-- **AI**: no hit-out, no bump, no spoil/smother attempts — matches this
+- **"Out on the full"** vs. a rolled-out ball: not distinguished. See Â§9.
+- **AI**: no hit-out, no bump, no spoil/smother attempts â€” matches this
   project's existing, deliberate "not a tactics system" AI baseline for
   every other contest tier, not new scope creep or an oversight.
 - **Stand-the-mark** (the mark-taker's opponent frozen in place) is still
-  not modelled — `is_protected()`/`grant_protection()` stop the *tackle*,
+  not modelled â€” `is_protected()`/`grant_protection()` stop the *tackle*,
   nothing stops the opponent repositioning. Same gap an earlier pass
   already flagged, now shared by three protection use sites instead of
   one.
-- **Character-screen jitter**: see §8 — two previously-suspected causes
+- **Character-screen jitter**: see Â§8 â€” two previously-suspected causes
   eliminated at the code level; if still visible, needs a live GUI
   session to actually localise, which no session in this project's
   history has had.
 - **Free-kick/set-shot apparatus**: both the kick-in and holding-the-ball
-  consequences stop at "possession + protection at the right spot" —
+  consequences stop at "possession + protection at the right spot" â€”
   retreat distance, a shot clock, and choosing to shoot vs. play on are
   all still unbuilt, same scope boundary an earlier pass's own notes
   already anticipated.
@@ -2511,7 +2511,7 @@ history in this file) should be trusted beyond "does what it says".
 ### Files changed
 
 `scripts/tuning.gd` (backpedal/turn-burst, gather lunge, ruck contest,
-bump, flick — all new constants; Full-Side's `CAM_ORTHODOX_*` renamed/
+bump, flick â€” all new constants; Full-Side's `CAM_ORTHODOX_*` renamed/
 redesigned), `scripts/player/player_controller.gd` (backpedal/burst
 locomotion, speed-scaled gather, ruck contest section, bump section,
 kick-in/free-kick support methods, two new signals), `scripts/autoload/
@@ -2525,16 +2525,16 @@ debug_hud.gd` (backpedal/ruck diagnostic lines), `scripts/ui/
 character_backdrop.gd` (body transparency), `scripts/player/
 skeleton_wireframe.gd` (visibility), `assets/shaders/ui_side_scrim.
 gdshader` (opacity), `project.godot` (`[input]` only: new `hit_out`/
-`bump_stance` actions, `switch_player`'s gamepad button relocated — see
-§7). Not touched: `scripts/ball/ball.gd`/`landing_shadow.gd` (both
-already correct for this pass's needs — `Ball.knock()` already existed
+`bump_stance` actions, `switch_player`'s gamepad button relocated â€” see
+Â§7). Not touched: `scripts/ball/ball.gd`/`landing_shadow.gd` (both
+already correct for this pass's needs â€” `Ball.knock()` already existed
 and was reused as-is for the hit-out palm), `scripts/field/field.gd`,
-`humanoid_rig.gd`/`humanoid_animations.gd` (read, not edited — see §8's
+`humanoid_rig.gd`/`humanoid_animations.gd` (read, not edited â€” see Â§8's
 jitter investigation), anything coach/challenge-related.
 
 ---
 
-## Handover — camera-switch pan, Madden-style mark prompt, tackle-lunge assist, kick-to-kick rival, Team Edit formation picker (Agent: mechanics/engine + UI)
+## Handover â€” camera-switch pan, Madden-style mark prompt, tackle-lunge assist, kick-to-kick rival, Team Edit formation picker (Agent: mechanics/engine + UI)
 
 A broad polish-pass brief covering code quality, accessibility/gameplay
 clarity, and several named feature asks, worked in the order the brief's
@@ -2543,19 +2543,19 @@ first) plus every concretely-specified item (Madden-style contest icons,
 a ball-steal assist, kick-to-kick and Team Edit expansion). Not attempted
 this pass, and called out honestly rather than silently dropped: a full
 line-by-line redundant-code/accessibility sweep of the whole codebase,
-and character-interaction polish beyond what's listed below — this
+and character-interaction polish beyond what's listed below â€” this
 entry's own scope is already large; see "Known limitations" for the rest
 of the original brief still sitting on the table.
 
 ### 1. Camera-switch pan, no longer an instant cut
 
 `BroadcastCamera.recenter()` hard-sets position, yaw and pitch in one
-frame — correct for "camera, get back on me" (exiting dialogue, entering
+frame â€” correct for "camera, get back on me" (exiting dialogue, entering
 a mode) but read as a teleport on a mid-match player switch (`switch_
 player`), which the brief named directly. New `switch_target(new_target)`
 (`broadcast_camera.gd`) leaves `_update_focus()`'s own per-frame lerp
-(`CAM_FOLLOW_RATE`) to carry `global_position` across on its own — nothing
-here calls `recenter()`, so nothing snaps it — and adds a short
+(`CAM_FOLLOW_RATE`) to carry `global_position` across on its own â€” nothing
+here calls `recenter()`, so nothing snaps it â€” and adds a short
 `_switch_timer` window (`CAM_SWITCH_PAN_DURATION` = 0.6s) where `_update_
 rotation()` eases yaw/pitch toward the new target's facing at a dedicated,
 deliberately cinematic `CAM_SWITCH_YAW_RATE` (5.0, slower than `CAM_
@@ -2563,11 +2563,11 @@ ROTATE_RATE`'s 12.0) instead of reading stick/mouse input, then hands
 control back. `FullGame._switch_human_player()` now calls `switch_target()`
 instead of `target = next; recenter()`.
 
-### 2. Madden-style mark-tier prompt — (A)/(X)/(Y) over the receiver's head
+### 2. Madden-style mark-tier prompt â€” (A)/(X)/(Y) over the receiver's head
 
 The three-tier mark system (Safe/Running/Aggressive) already maps exactly
-onto Xbox A/X/Y — confirmed against `project.godot`'s own joypad bindings
-(`mark_safe`→button 0/A, `mark_running`→button 2/X, `mark_aggressive`→
+onto Xbox A/X/Y â€” confirmed against `project.godot`'s own joypad bindings
+(`mark_safe`â†’button 0/A, `mark_running`â†’button 2/X, `mark_aggressive`â†’
 button 3/Y) before building anything, not assumed. New `PlayerController.
 live_mark_prompts(ball)` reuses the exact reach tests `_update_aerial_
 contest` itself resolves against (`_ball_in_catch_reach` for Safe/Running,
@@ -2576,40 +2576,40 @@ that could drift out of sync. New `scripts/ui/mark_prompt.gd` (`MarkPrompt`,
 same instantiate-and-assign-`player`/`ball` pattern as `KickCrosshair`/
 `DebugHud`) projects the live player's head position via `Camera3D.
 unproject_position()`/`is_position_behind()` and draws stacked colour
-badges — green/blue/yellow, `SoftBrutalist.BUTTON_A/X/Y`, the same
+badges â€” green/blue/yellow, `SoftBrutalist.BUTTON_A/X/Y`, the same
 convention anyone who's held an Xbox pad already has memorised rather than
 a new one invented for this screen. Wired into both `full_game.gd` (kept
 in sync on every `_switch_human_player()`) and `kick_to_kick.gd`.
 
-### 3. Tackle lunge — the actual fix for "hard to get the ball off the AI"
+### 3. Tackle lunge â€” the actual fix for "hard to get the ball off the AI"
 
 Diagnosed before writing any code: tackling itself was never chance-based
 (a tackle in `TACKLE_RADIUS` always spills the ball), and the AI's own
 `AI_PRESSURE_RADIUS` (4.0m) forces a disposal well outside `TACKLE_RADIUS`
-(1.4m) — a defender closing at ordinary run speed essentially never
+(1.4m) â€” a defender closing at ordinary run speed essentially never
 reaches tackle range before the AI has already kicked or handballed away.
 The fix is a genuine speed burst, not a radius or chance change (same
 "physical, not a dice roll" stance every other contest in this file
 already takes): tapping tackle (the rising edge, not `wants_tackle()`'s
-held state `_try_tackle()` already reads directly — holding it at standing
+held state `_try_tackle()` already reads directly â€” holding it at standing
 range still works exactly as before) while an opposing carrier is between
 `TACKLE_RADIUS` and `TACKLE_LUNGE_RANGE` (2.4m) and roughly in front
 (`TACKLE_LUNGE_MIN_DOT`) commits to a `TACKLE_LUNGE_DURATION` (0.35s) dash
-at `TACKLE_LUNGE_SPEED` (7.5 m/s, faster than sprint) toward them —
+at `TACKLE_LUNGE_SPEED` (7.5 m/s, faster than sprint) toward them â€”
 `PlayerController._update_tackle_lunge()`, overriding `_update_locomotion`
 the same way `_knockback` already does for a bump's hit. A miss just
-leaves the lunger having sprinted past/short — no separate whiff penalty
+leaves the lunger having sprinted past/short â€” no separate whiff penalty
 invented on top of `TACKLE_LUNGE_COOLDOWN`'s (1.1s) real commitment cost.
 Reuses the existing `_nearest_opposing_carrier()` bump already added.
 
-### 4. Kick-to-kick rival — a live opponent, not just scripted deliveries
+### 4. Kick-to-kick rival â€” a live opponent, not just scripted deliveries
 
-The brief asked for kick-to-kick to actually be usable for testing — it
+The brief asked for kick-to-kick to actually be usable for testing â€” it
 previously had exactly one player and nobody to tackle, bump, or contest a
 mark against; every contest mechanic in the game was literally untestable
 there. `kick_to_kick.gd._spawn_rival()` adds a second `PlayerController`
 (`Team.AWAY`, `KICK_TO_KICK_RIVAL_OFFSET` clear of both coach zones) with
-a stock `AIBrain` — reused wholesale rather than a bespoke "practice
+a stock `AIBrain` â€” reused wholesale rather than a bespoke "practice
 partner" behaviour, since chase/mark/dispose/press-and-tackle already *is*
 a sparring partner, and a chase-and-return loop against one real opponent
 is also just what "kick to kick" already means. Frozen outright
@@ -2620,33 +2620,33 @@ challenge so a drill stays a clean 1-on-0 loop, resuming the instant
 Caught by the verification harness, not by inspection: the harness's own
 defender and carrier both defaulted to `Team.HOME` (`player.tscn`'s own
 export default), which silently made `_nearest_opposing_carrier()` see no
-target at all and reported zero tackles — not a lunge bug, a test-setup
+target at all and reported zero tackles â€” not a lunge bug, a test-setup
 bug, but exactly the kind of team-filtering mistake `_spawn_rival()` had
 to get right for real, so it was worth fixing in the harness and
 re-confirming rather than waving off.
 
-### 5. Team Edit expansion — a matchday formation picker, wired into a real match
+### 5. Team Edit expansion â€” a matchday formation picker, wired into a real match
 
 `TeamListScreen` and `FormationWhiteboard` both carried their own explicit
 "editing is out of scope for this pass" notes across several prior
-sessions — not a hard wall, a breadcrumb: `TeamFormation.world_positions()`
+sessions â€” not a hard wall, a breadcrumb: `TeamFormation.world_positions()`
 was already built and already commented "used by a testing mode spawning
 fewer than 18 a side," describing `full_game.gd`'s own `TEAM_SIZE` (4)
 exactly, and simply never connected. This pass connects it, scoped down
 from "edit any of 18 named roles freely" (which would need a real
 roster/persistence system this project has repeatedly and deliberately
-not built yet — see `character_screen.gd`'s own header) to picking between
-three curated 4-a-side presets drawn from the real 18-slot AFL data:
+not built yet â€” see `character_screen.gd`'s own header) to picking between
+three curated 4-a-side presets drawn from the real 18-slot Aussie Rules data:
 `Settings.FORMATION_PRESETS` (BALANCED/ATTACKING/DEFENSIVE, persisted to
 `user://settings.cfg` same as `full_game_camera_mode`/`mouse_kick_swapped`
 already are). `TeamListScreen`'s old static "18 A-SIDE" info card is now
 a real ui_left/ui_right picker (same cycle convention `settings_screen.
 gd`'s `Row` rows use) that also rings the chosen four dots on the
-whiteboard (`FormationWhiteboard.selected_indices`, additive — empty by
+whiteboard (`FormationWhiteboard.selected_indices`, additive â€” empty by
 default, so nothing else that draws the board changes). `FullGame.
 _kickoff_slot()` now reads `Settings.home_formation_slots()` for HOME
 directly, so a choice made on the Team List screen changes where the
-human side actually lines up in the next match — AWAY keeps the old even
+human side actually lines up in the next match â€” AWAY keeps the old even
 spread, since it's an opponent, not the side being edited.
 
 ### 6. Code-quality pass
@@ -2667,18 +2667,18 @@ headless: `main_menu`/`kick_to_kick`/`full_game`/`character_screen`/
 
 Method note for whoever runs headless verification next: `--quit-after N`
 alone, without `--fixed-fps 60`, does **not** reliably mean N physics
-frames in this environment — an unthrottled headless main loop can iterate
+frames in this environment â€” an unthrottled headless main loop can iterate
 far faster than physics catches up, so a scripted scratch harness that
 needs its state machine to actually reach a later phase produced zero
 output at `--quit-after 400` until `--fixed-fps 60` was added, which
 locks idle/physics stepping together and made the same 400 iterations
 behave as the intended ~6.7 simulated seconds. Doesn't affect a plain
 boot/parse smoke test (those don't need to *reach* anything), only a
-harness that scripts a sequence of state over time — this project's own
+harness that scripts a sequence of state over time â€” this project's own
 memory of the Godot binary/CLI incantations has been updated with this.
 
 Beyond the headless boots, a scripted-physics scratch harness (positional-
-scene-argument form, real autoloads, deleted after — not committed)
+scene-argument form, real autoloads, deleted after â€” not committed)
 numerically verified all three new mechanics end to end in one run: the
 tackle lunge does *not* fire beyond `TACKLE_LUNGE_RANGE` (carrier at 3.0m
 keeps the ball) and *does* close a 2.0m gap and complete the tackle within
@@ -2689,29 +2689,29 @@ facing within tolerance; and `live_mark_prompts()` returns the right tier
 set at close range (all three live), mid range (only Aggressive, per
 `MARK_CONTEST_RANGE`), and beyond it (none).
 
-**No human/pad verification was possible in this environment** — the same
+**No human/pad verification was possible in this environment** â€” the same
 limitation every mechanics-agent entry in this file has flagged from the
 start. The tackle-lunge's numbers in particular (`TACKLE_LUNGE_SPEED`/
 `RANGE`/`DURATION`/`COOLDOWN`) are first-guess, same as every other new
-movement constant's own history in this file — numerically verified to do
+movement constant's own history in this file â€” numerically verified to do
 what they say, not confirmed to feel right at the stick.
 
 ### Known limitations / unresolved
 
 - **Kick-to-kick rival is the stock match AI**, not a purpose-built
-  practice partner — it will chase, mark, tackle and dispose exactly like
+  practice partner â€” it will chase, mark, tackle and dispose exactly like
   a Full Game defender/attacker, including kicking "toward goal" in a mode
   with no goals. Reads fine as a sparring partner in practice, but it is
   literally `AIBrain` with no kick-to-kick-specific tuning.
-- **Team Edit is still three curated presets, not free assignment** —
+- **Team Edit is still three curated presets, not free assignment** â€”
   picking which named role goes where, or fielding named/persisted
   players, remains the scope boundary `character_screen.gd`'s own header
   already documents (no multi-profile persistence exists yet).
 - **The rest of the original brief is untouched this pass**: a systematic
-  redundant-code/simplification sweep beyond the two items in §6, a
+  redundant-code/simplification sweep beyond the two items in Â§6, a
   dedicated accessibility pass (colour/contrast, remapping, readability),
   and character-interaction polish (coach dialogue, the placeholder prompt
-  label) were all named in the brief and are not addressed here — this
+  label) were all named in the brief and are not addressed here â€” this
   entry covers camera/gameplay-feel and the concretely-specified feature
   asks only.
 - **Dangerous-contact free-kick consequences for Bump**, **"out on the
@@ -2735,12 +2735,12 @@ formation lookup, `BALL_LOST_BELOW` dedup), `scripts/modes/kick_to_kick.gd`
 team_list_screen.gd` (formation picker, replaces the static info card),
 `scripts/ui/formation_whiteboard.gd` (`selected_indices` highlight). Not
 touched: `scripts/ai/team_formation.gd` (already had exactly the API this
-needed — `world_position()` — nothing to add), roster/persistence, coach/
+needed â€” `world_position()` â€” nothing to add), roster/persistence, coach/
 dialogue UI, anything animation- or rig-related.
 
 ---
 
-## Handover — Team Edit tactics (ball movement + defensive pressure), mark prompt single-tier fix (Agent: mechanics/engine + UI)
+## Handover â€” Team Edit tactics (ball movement + defensive pressure), mark prompt single-tier fix (Agent: mechanics/engine + UI)
 
 Direct follow-up to the entry above, on two specific pieces of feedback:
 Team Edit should change actual match behaviour, not just where the team
@@ -2752,24 +2752,24 @@ would technically connect instead of the one actually relevant right now.
 Matchday Formation (previous entry) only ever changed *where* players
 start. This adds two settings that change *how* HOME's AI actually
 plays, both read once per spawn/hand-back the same way formation already
-is — no live mid-match re-tuning, since Team List is only reachable from
+is â€” no live mid-match re-tuning, since Team List is only reachable from
 the main menu.
 
 - **Ball Movement** (`Settings.BallMovementPreference`: CORRIDOR/MUTUAL/
-  BOUNDARY) — `AIBrain._lateral_target_z(pos)` pulls a lateral world-Z
+  BOUNDARY) â€” `AIBrain._lateral_target_z(pos)` pulls a lateral world-Z
   target toward whichever boundary `pos` is already nearer to, scaled by
   a new `lateral_bias` field (0.05/0.40/0.85 per preference, `Settings.
   BALL_MOVEMENT_BIAS`). Consumed by both `_think_carrying` (a carrier's
-  disposal aim — `goal_point.z` used to be hardcoded 0) and
+  disposal aim â€” `goal_point.z` used to be hardcoded 0) and
   `_think_support` (an off-ball teammate's run target, half-weighted so
   it colours rather than overrides the existing home/ball anchor). The
   kick-range/pressure distance check in `_think_carrying` deliberately
   still measures straight-line distance to the goal *line*, not to the
-  now-off-centre aim point — using the biased point there too would have
+  now-off-centre aim point â€” using the biased point there too would have
   made a strong boundary bias misreport "too far to shoot" for a carrier
   who is actually well within range straight down the middle.
 - **Defensive Pressure** (`Settings.DefensivePressure`: LOOSE/BALANCED/
-  TIGHT) — a new `press_intensity` field (0.65/1.0/1.3, `Settings.
+  TIGHT) â€” a new `press_intensity` field (0.65/1.0/1.3, `Settings.
   DEFENSIVE_PRESSURE_INTENSITY`) scales both the chase gait and the
   tackle-commit distance in `_think_defend` together, not as two
   separately-invented numbers: TIGHT closes at full gait and commits to
@@ -2778,7 +2778,7 @@ the main menu.
   file's original, un-tuned behaviour.
 
 Both settings are HOME-only (AWAY keeps `AIBrain`'s bare defaults) and
-apply the moment a `AIBrain` is created — `FullGame._configure_ai_brain()`
+apply the moment a `AIBrain` is created â€” `FullGame._configure_ai_brain()`
 is now the one place that happens, used by both the initial kickoff spawn
 and `_switch_human_player()`'s hand-back brain, so the two call sites
 can't drift about which settings a HOME player's AI actually gets the
@@ -2789,12 +2789,12 @@ inline with no tactics applied at all).
 of one: reuses `SettingsScreen.Row` directly (title/options/index/cycle,
 the exact same shape a second implementation would have just copied) for
 all three rows, with the same up/down-select, left/right-cycle input
-convention `settings_screen.gd` already established — not a new
+convention `settings_screen.gd` already established â€” not a new
 convention invented for this screen. Three separate `_card()` shells (each
 paying the full `CARD_PAD` border/shadow overhead) did not fit this
 column's existing height budget, so all three rows now live in one
 lighter-weight card instead. `home_formation_name()`, added last entry,
-is gone again — the `Row` pattern already owns display strings via its
+is gone again â€” the `Row` pattern already owns display strings via its
 own `options` array, so a second lookup for the same string was dead
 code the moment this screen adopted `Row`; same reasoning removed the
 unused `Settings.formation_changed` signal (declared last entry, never
@@ -2803,7 +2803,7 @@ connected to anything).
 ### 2. Mark prompt: exactly one badge, not a stack of every live tier
 
 `live_mark_prompts()` (plural) tested each tier independently and could
-easily return all three at once — Safe's reach always covers Running's
+easily return all three at once â€” Safe's reach always covers Running's
 narrower one, and Aggressive's `MARK_CONTEST_RANGE` is wider again, so
 nearly every live moment had all three "live" simultaneously, which the
 UI then drew as a stack. Replaced with singular `live_mark_prompt()`,
@@ -2814,7 +2814,7 @@ actually moving faster than `JOG_SPEED`; Safe the instant you're not;
 Aggressive only while the ball hasn't reached normal catching reach yet
 (once it has, a leap stops being the natural read even though it would
 still technically connect). `MarkPrompt` draws that one badge at the
-player's head position — no more stacking offset, no more looping over an
+player's head position â€” no more stacking offset, no more looping over an
 array.
 
 ### Verification
@@ -2831,42 +2831,42 @@ behaviour change, not just that it compiles: `lateral_bias` 0.0 vs 0.9
 produced clearly opposite-signed lateral aim directions from the same
 starting position; `press_intensity` LOOSE/BALANCED/TIGHT at a fixed
 1.8m defender-to-holder distance produced the expected gait (0.65/1.0/
-1.0) *and* the expected tackle-commit decision (false/false/true) —
+1.0) *and* the expected tackle-commit decision (false/false/true) â€”
 distance chosen specifically to sit between BALANCED's and TIGHT's commit
 thresholds so only TIGHT would fire; and `live_mark_prompt()` returned
-exactly the expected single tier in four cases (stationary+close → Safe,
-moving+close after a real ~1.5s speed ramp → Running, mid-range →
-Aggressive, beyond `MARK_CONTEST_RANGE` → None). All passed on the first
-run — no bugs caught this time, unlike the previous entry's team-
+exactly the expected single tier in four cases (stationary+close â†’ Safe,
+moving+close after a real ~1.5s speed ramp â†’ Running, mid-range â†’
+Aggressive, beyond `MARK_CONTEST_RANGE` â†’ None). All passed on the first
+run â€” no bugs caught this time, unlike the previous entry's team-
 assignment miss.
 
 **No human/pad verification was possible in this environment**, same
 standing limitation as every entry in this file. The three new intensity/
 bias numbers (`BALL_MOVEMENT_BIAS`, `DEFENSIVE_PRESSURE_INTENSITY`) are
-first-guess, same as every other new tuning number's own history here —
+first-guess, same as every other new tuning number's own history here â€”
 numerically confirmed to move the AI's behaviour in the intended
 direction, not confirmed to feel like three genuinely distinct tactical
 identities at the stick. The Team List screen's new three-row card height
 (`TACTICS_CARD_HEIGHT`) is a hand-computed budget against the same left-
-column space the whiteboard already shares — not visually confirmed; see
+column space the whiteboard already shares â€” not visually confirmed; see
 the screen's own header comment if it turns out to overflow in an actual
 editor session.
 
 ### Known limitations / unresolved
 
 - **Ball Movement/Defensive Pressure only affect HOME's off-ball/defending
-  AI** — a human-controlled player's own aim and tackle timing are
+  AI** â€” a human-controlled player's own aim and tackle timing are
   entirely player-input, same as Matchday Formation only ever affected
   HOME's spawn positions. Working as designed, not a gap, but worth
   stating plainly since "Team Edit" now covers three settings with three
   different reach.
 - **Still no free assignment** of which of the 18 named roles plays where,
-  or independent tuning of formation vs. tactics per named player — same
+  or independent tuning of formation vs. tactics per named player â€” same
   scope boundary the previous entry already documented, unchanged.
 - Everything the previous entry's own "Known limitations" section listed
   as still open (redundant-code sweep beyond what's been touched directly,
   a dedicated accessibility pass, coach-dialogue polish, the rest of the
-  original brief) remains open — this entry only covers the two items it
+  original brief) remains open â€” this entry only covers the two items it
   was asked for.
 
 ### Files changed
@@ -2880,7 +2880,7 @@ target_z()`, `_think_carrying`/`_think_support`/`_think_defend` updated),
 sites routed through it), `scripts/tuning.gd` (`AI_BOUNDARY_LEAN_
 FRACTION`), `scripts/ui/team_list_screen.gd` (rebuilt around `Settings
 Screen.Row`, three-row tactics card, up/down navigation), `scripts/
-player/player_controller.gd` (`live_mark_prompts` → singular `live_mark_
+player/player_controller.gd` (`live_mark_prompts` â†’ singular `live_mark_
 prompt`), `scripts/ui/mark_prompt.gd` (single-badge draw, no more
 stacking). Not touched: `scripts/ui/settings_screen.gd` (its `Row` class
 was reused as-is, nothing about it needed to change), `scripts/ui/
@@ -2889,17 +2889,17 @@ already covers what this needed).
 
 ---
 
-## Handover — feature audit, then stand-the-mark, out-on-the-full, pause/match-end wiring (Agent: general)
+## Handover â€” feature audit, then stand-the-mark, out-on-the-full, pause/match-end wiring (Agent: general)
 
 First pass working down `docs/FEATURE_AUDIT.md`'s own priority roadmap
-(new this session — a from-scratch inventory of the whole project against
+(new this session â€” a from-scratch inventory of the whole project against
 current code, not assumed from this file's own prose; see that doc for
 the full current-state breakdown). This entry covers the "implemented but
 buggy" and "partially implemented" items that were unambiguous enough to
 build without a design call, plus the two "present in code but not
 exposed" screens. Left alone, deliberately: bump's dangerous-contact free
 kick and the AI behaviour gaps (spoil/smother/bump/hit-out/Running-
-Aggressive marks) — both need a real decision from the user (AFL rule
+Aggressive marks) â€” both need a real decision from the user (Aussie Rules rule
 numbers that don't exist yet in RULES_REFERENCE.md, and a scope call on
 whether "not a tactics system" should still hold), not a guess.
 
@@ -2908,7 +2908,7 @@ whether "not a tactics system" should still hold), not a guess.
 `scripts/ui/debug_hud.gd`'s control-hint text still described the
 pre-ADS-stance kick model (`"K hold+release kick"`) and had never
 mentioned spoil/bump/hit-out at all. Rewritten to match the actual current
-bindings. `README.md` was rewritten wholesale — it still described the
+bindings. `README.md` was rewritten wholesale â€” it still described the
 milestone-1 sandbox (one player, "no menus... yet", a 446-line
 `player_controller.gd`) despite the real file being well over 3x that and
 the project having had a full menu system, marking, ruck, bump, kick-ins
@@ -2919,14 +2919,14 @@ re-inlining a per-file line-count table that goes stale within a session.
 ### 2. Stand-the-mark
 
 `RULES_REFERENCE.md`'s `MARK_STAND_MIN_DISTANCE` entry was already half
-built — `is_protected()`/`_protected_timer` stop the mark-taker being
+built â€” `is_protected()`/`_protected_timer` stop the mark-taker being
 tackled, but nothing stopped the *opponent* just walking up and
 repositioning, which is the actual rule. New, symmetrical mechanism on
 `PlayerController`: `_frozen_timer` (parallel to `_protected_timer`, same
 duration) plus `stand_the_mark()`/`is_standing_the_mark()`/
-`release_stand_the_mark()`. Purely a movement freeze — an early branch in
+`release_stand_the_mark()`. Purely a movement freeze â€” an early branch in
 `_update_locomotion()` right after the knockback/lunge overrides, zeroing
-velocity and returning before any brain input is read — so a frozen player
+velocity and returning before any brain input is read â€” so a frozen player
 can still act, just not reposition, matching the real rule.
 
 This project has no player-marking assignment (no concept of "whose
@@ -2934,14 +2934,14 @@ opponent" anyone is), so `_apply_stand_the_mark()` uses the nearest
 opponent at the moment of the mark, the same "nearest player" pattern
 `full_game.gd`'s own kick-in/throw-in code already uses elsewhere. Called
 from both `_complete_mark()` (Safe/Running) and `_resolve_aggressive_mark()`
-— both already compute `legal_mark`, so the hook is one line each. The
+â€” both already compute `legal_mark`, so the hook is one line each. The
 mark-taker tracks `_stood_opponent` and calls `release_stand_the_mark()` on
-them from both `_dispose()` and `drop_ball()` — real AFL releases the man
+them from both `_dispose()` and `drop_ball()` â€” real Aussie Rules releases the man
 on the mark the instant the kick is taken or the mark-taker plays on, not
 only once the full 5s window lapses, so an early release needed its own
 explicit hook rather than just letting the timer run out.
 
-Deliberately scoped to legal marks only, not free kicks/kick-ins — those
+Deliberately scoped to legal marks only, not free kicks/kick-ins â€” those
 already reuse `_protected_timer` for the *taker's* immunity, but "every
 other opponent retreats 10m" is a bigger, separate piece of the free-kick/
 set-shot apparatus `docs/FEATURE_AUDIT.md` flags as still open, not folded
@@ -2950,12 +2950,12 @@ in here as a guess.
 ### 3. Out on the full
 
 `Ball` gained `_kick_team` (set alongside `_is_kick_flight`/`_flight_origin`
-in `launch()`, cleared everywhere `_is_kick_flight` already gets cleared —
+in `launch()`, cleared everywhere `_is_kick_flight` already gets cleared â€”
 landing, `attach_to()`, `knock()`, `reset_at()`) and two public getters,
 `is_kick_flight()` (like `is_mark_eligible()` but with no
-`MARK_STAND_MIN_DISTANCE` floor — out on the full has no minimum-distance
+`MARK_STAND_MIN_DISTANCE` floor â€” out on the full has no minimum-distance
 rule the way a legal mark does) and `kick_team()`. `_carrier` itself
-couldn't be reused for this — it's cleared after `RELEASE_GRACE` (0.25s),
+couldn't be reused for this â€” it's cleared after `RELEASE_GRACE` (0.25s),
 long before a kick's actual flight time.
 
 `full_game.gd._check_out_of_bounds()` now also runs
@@ -2967,17 +2967,17 @@ actual crossing point, per this project's own memory of how Prototype 1
 approached the same problem. `_trigger_out_on_the_full()` awards the free
 kick to the non-kicking side from that point, reusing the exact same
 `give_possession()`/`grant_protection()` triad the protected kick-in and
-the holding-the-ball free kick already reuse from each other — freezing the
+the holding-the-ball free kick already reuse from each other â€” freezing the
 ball at the crossing spot immediately (same "settle before the pause, not
 after" shape every other stoppage in this file uses) rather than letting it
 keep sailing out over the fence for the 2s pause window.
 `_throw_in_point()` (previously only used for a settled-outside ball) is
-reused as-is for the crossing point too — the same radial pull-back works
+reused as-is for the crossing point too â€” the same radial pull-back works
 regardless of how far out the input point is.
 
 ### 4. PauseScreen and MatchEndScreen wired in
 
-Both screens were fully built and simply never instantiated — Esc mid-match
+Both screens were fully built and simply never instantiated â€” Esc mid-match
 hard-cut straight to the main menu with zero confirmation
 (`get_tree().change_scene_to_file` direct in both `full_game.gd` and
 `kick_to_kick.gd`), and full time dead-ended in a scoreboard flash held for
@@ -2986,13 +2986,13 @@ comment already documented exactly how to wire it as a real overlay; this
 pass did that literally. `full_game.gd._open_pause_menu()`/
 `kick_to_kick.gd._open_pause_menu()`: instantiate `PauseScreen`, set
 `process_mode = PROCESS_MODE_ALWAYS` (the one thing that lets it keep
-receiving input while `get_tree().paused` freezes everything else — every
+receiving input while `get_tree().paused` freezes everything else â€” every
 other node in both scenes is default `PROCESS_MODE_INHERIT`, so setting
 `paused = true` genuinely freezes players/ball/the mode's own
 `_physics_process` exactly where they are), `add_child`, then
 `get_tree().paused = true`. `PauseScreen` gained a `resumed` signal, emitted
 right before it frees itself on the RESUME path (not the QUIT path, which
-changes scene instead) — `kick_to_kick.gd` listens for it to re-capture the
+changes scene instead) â€” `kick_to_kick.gd` listens for it to re-capture the
 mouse cursor it explicitly releases while the pause menu is up (this
 scene's own `_ready()` captures it; `full_game.gd` never uses mouse capture,
 so it doesn't need the same hook, but the signal exists generically either
@@ -3001,7 +3001,7 @@ way).
 `full_game.gd._finish_match()` now holds the "FULL TIME" flash for
 `Tuning.MATCH_END_FLASH_DURATION` (3.0s, new constant) via the same
 `_start_pause()`/callback mechanism every other stoppage in this file
-already uses, then calls `SceneWipe.change_scene(MATCH_END_SCREEN_PATH)` —
+already uses, then calls `SceneWipe.change_scene(MATCH_END_SCREEN_PATH)` â€”
 `MatchEndScreen` reads `MatchState.scoreline()` fresh in its own `_ready()`,
 untouched by anything in between since nothing resets `MatchState` until a
 new match actually starts, so no data needs passing across the scene swap.
@@ -3016,7 +3016,7 @@ as the standard smoke-test set (`full_game`/`kick_to_kick`/`main_menu`/
 errors, both before and after every change in this pass.
 
 Beyond the headless boots, two scripted-physics scratch harnesses
-(positional-scene-argument form, real autoloads, deleted after — not
+(positional-scene-argument form, real autoloads, deleted after â€” not
 committed, same discipline every prior entry in this file has used):
 
 1. **Stand-the-mark + out-on-the-full**, driving real `Player`/`Ball`/
@@ -3039,7 +3039,7 @@ committed, same discipline every prior entry in this file has used):
    the game, on the first attempt: the driver's own `_physics_process`
    deadlocked the instant it set `get_tree().paused = true`, since it
    hadn't given *itself* the same `PROCESS_MODE_ALWAYS` every real caller
-   needs — silent zero-output hang at `--quit-after 300` until fixed,
+   needs â€” silent zero-output hang at `--quit-after 300` until fixed,
    worth recording as the same "looks like a bug, is actually the test"
    category this project's own history already has an example of). Once
    fixed: `_open_pause_menu()` set `get_tree().paused` true, produced a
@@ -3051,42 +3051,42 @@ committed, same discipline every prior entry in this file has used):
    check ran), and `_pause_callback` was confirmed bound to
    `_show_match_end_screen` by name via `Callable.get_method()`. The
    actual `SceneWipe.change_scene()` scene-swap was deliberately not
-   forced to run for real inside this harness — replacing
+   forced to run for real inside this harness â€” replacing
    `get_tree().current_scene` would have torn down the test's own root
    out from under itself, since `full_game` was nested as a child rather
-   than booted as the real scene root — so this checks the new glue
+   than booted as the real scene root â€” so this checks the new glue
    (timer, callback, target path existing via `ResourceLoader.exists()`)
    and trusts `SceneWipe.change_scene()` itself, which is already proven
    by heavy existing use elsewhere in this project (main menu, character
    screen, team list, settings screen all transition through it
    successfully today).
 
-**No human/pad verification was possible in this environment** — same
+**No human/pad verification was possible in this environment** â€” same
 standing limitation every mechanics-focused entry in this file has flagged
 from the start. Everything above is verified as reasoned-through and
 numerically confirmed against real physics/state, not confirmed to feel
-right at the stick — stand-the-mark's freeze in particular will want a
+right at the stick â€” stand-the-mark's freeze in particular will want a
 human check for whether "input simply does nothing" reads as intended or
 needs its own feedback (a HUD callout beyond `DebugHud`'s diagnostic line
 already exists for it).
 
 ### Known limitations / unresolved (carried forward, from `docs/FEATURE_AUDIT.md`)
 
-- **The rest of the free-kick/set-shot apparatus** — a shot clock, real
+- **The rest of the free-kick/set-shot apparatus** â€” a shot clock, real
   opponent retreat distance (beyond the one direct opponent stand-the-mark
-  now covers), and an explicit shoot-vs-play-on moment — is still open.
+  now covers), and an explicit shoot-vs-play-on moment â€” is still open.
   Stand-the-mark and out-on-the-full close two named pieces of it; the
   rest needs design decisions this pass didn't have (how long a shot
   clock, how "10m retreat" should read given no player-marking assignment
   exists).
-- **Bump's dangerous-contact free kick** — still not built, still blocked
+- **Bump's dangerous-contact free kick** â€” still not built, still blocked
   on `RULES_REFERENCE.md` having no distance/angle/force/timing threshold
   to judge "dangerous" by. `bump_landed(bumper, carrier, clean)` remains
   the hook.
 - **AI never attempts Running/Aggressive marks, spoil, smother, bump, or a
-  ruck Hit-Out** — unchanged, still a deliberate scope decision per this
+  ruck Hit-Out** â€” unchanged, still a deliberate scope decision per this
   project's own "not a tactics system" baseline, not touched this pass.
-- **Audio** — still entirely absent. Nearly every mechanic touched this
+- **Audio** â€” still entirely absent. Nearly every mechanic touched this
   session (a completed mark, a frozen opponent, an awarded free kick, a
   paused/resumed match, full time) is exactly the kind of moment that
   wants a sound and doesn't have one yet.
@@ -3101,21 +3101,21 @@ already exists for it).
 `scripts/modes/kick_to_kick.gd` (pause overlay), `scripts/ui/
 pause_screen.gd` (`resumed` signal, doc comment), `scripts/tuning.gd`
 (`MATCH_END_FLASH_DURATION`). New: `docs/FEATURE_AUDIT.md` (this
-session's own starting point — a full current-state inventory and
+session's own starting point â€” a full current-state inventory and
 priority roadmap, written before any of the above was touched). Not
 touched: `scripts/ui/match_end_screen.gd` (used exactly as it already
-was — no changes needed to make it a valid hand-off target), anything
+was â€” no changes needed to make it a valid hand-off target), anything
 mark/animation-, camera-, or AI-behaviour-related.
 
 ---
 
-## Handover — 10m retreat rule, placeholder SFX pass (Agent: general)
+## Handover â€” 10m retreat rule, placeholder SFX pass (Agent: general)
 
 Direct continuation of the entry above, same session: asked to keep going
 down `docs/FEATURE_AUDIT.md`'s roadmap. Two of the three open items from
-last entry got a real default rather than staying blocked — the third
+last entry got a real default rather than staying blocked â€” the third
 (bump's dangerous-contact free kick) stays untouched on purpose, for the
-same reason as before: no AFL number exists anywhere in this project to
+same reason as before: no Aussie Rules number exists anywhere in this project to
 judge "dangerous" by, and inventing one contradicts `RULES_REFERENCE.md`'s
 own explicit stance against exactly that. The set-shot apparatus's
 remaining half (a shot clock, an explicit shoot-vs-play-on moment) is pure
@@ -3124,15 +3124,15 @@ for a real design pass rather than guessed at here.
 
 ### 1. The general 10m retreat rule
 
-Real AFL: the one opponent standing the mark (built last entry) holds
+Real Aussie Rules: the one opponent standing the mark (built last entry) holds
 their exact ground, but *every other* opponent within 10 metres of the
-mark/free-kick/kick-in spot has to clear out to it too — a real, widely-
+mark/free-kick/kick-in spot has to clear out to it too â€” a real, widely-
 known rule number, unlike Bump's threshold. `PlayerController._stood_
 opponent` (singular) became `_frozen_opponents` (`Array[PlayerController]`),
 and a new `_apply_retreat_freeze(duration)` walks every opposing player
 within `Tuning.FREE_KICK_RETREAT_DISTANCE` (10.0m, new constant) and calls
 the same `stand_the_mark()`/`release_stand_the_mark()` pair the direct-
-opponent rule already uses — no new freeze mechanism, just a second way to
+opponent rule already uses â€” no new freeze mechanism, just a second way to
 arm the one that already existed.
 
 The natural hook turned out to be `grant_protection()` itself: every place
@@ -3140,7 +3140,7 @@ that already calls it (`full_game.gd`'s kick-in, holding-the-ball free
 kick, and this session's earlier out-on-the-full award) now gets the
 retreat for free, with zero changes needed at any of those three call
 sites. Marks used to set `_protected_timer` directly instead of calling
-`grant_protection()` — changed to call it (`_complete_mark`/
+`grant_protection()` â€” changed to call it (`_complete_mark`/
 `_resolve_aggressive_mark`), which behaves identically for the timer itself
 (`maxf(_protected_timer, duration)` vs. a plain assignment are the same
 thing starting from a fresh mark) and picks up the retreat as a side
@@ -3149,7 +3149,7 @@ the one direct opponent. A pack mark can now legitimately freeze 2-3
 opponents at once at this roster size (`Tuning.TEAM_SIZE = 4`), which is
 the correct, realistic outcome of a contested mark near goal, not a bug.
 
-Deliberately still a freeze, not an active retreat-and-return — same MVP
+Deliberately still a freeze, not an active retreat-and-return â€” same MVP
 scope every other "possession + protection at the right spot" moment in
 this project has already settled for (see the previous entry, and every
 kick-in/holding-the-ball entry before it). An opponent already standing
@@ -3161,51 +3161,51 @@ wrong once played.
 
 New autoload `AudioManager` (`scripts/autoload/audio_manager.gd`), added
 to `project.godot` after `Settings`. Every clip is synthesized in code at
-startup — a short sine or noise burst shaped by an exponential decay
-envelope, nothing filtered or layered beyond that — the same "prove the
+startup â€” a short sine or noise burst shaped by an exponential decay
+envelope, nothing filtered or layered beyond that â€” the same "prove the
 system, no imported assets" stance this project has taken with the rig and
 every mesh/animation since milestone 1; `assets/audio/` stays an empty
 `.gitkeep`. A small 8-voice round-robin pool of plain `AudioStreamPlayer`
-nodes (non-positional — this is a broadcast-camera game, not first-person,
+nodes (non-positional â€” this is a broadcast-camera game, not first-person,
 so flat 2D audio reads fine for a placeholder pass) handles overlap by
 stealing the oldest voice rather than growing dynamically.
 
 **Wired to signals that already existed, not new hooks invented for
-audio.** `AudioManager.register_player(player)` — called once per spawn
+audio.** `AudioManager.register_player(player)` â€” called once per spawn
 site (`full_game.gd._spawn_team`, `kick_to_kick.gd._ready`/`_spawn_rival`,
 `main.gd._ready`, the same explicit-wiring-at-spawn convention `full_game.
-gd` already used for `field_ball_up_called`/`holding_the_ball_called`) —
+gd` already used for `field_ball_up_called`/`holding_the_ball_called`) â€”
 connects `ball_disposed` (kick/handball/bounce), `mark_caught`/
 `mark_missed`, `hit_out_resolved`, `bump_landed`, and both tackle signals
-(`holding_the_ball_called`/`field_ball_up_called`, which — per their own
-doc comments — only ever fire on the tackled player, covering every tackle
-between them). `AudioManager.register_field(field)` (full_game.gd only —
+(`holding_the_ball_called`/`field_ball_up_called`, which â€” per their own
+doc comments â€” only ever fire on the tackled player, covering every tackle
+between them). `AudioManager.register_field(field)` (full_game.gd only â€”
 kick_to_kick has no scoring) connects `Field.scored` for goal/behind.
 Match-flow moments with no natural per-instance signal (stoppage whistles,
 full time) are called directly from `full_game.gd`, at the exact same
-lines that already call `Scoreboard.flash()` for the same moments — the
+lines that already call `Scoreboard.flash()` for the same moments â€” the
 established "this is where a match beat gets announced" convention in that
 file, not a new pattern.
 
 **Master Volume, made real.** `settings_screen.gd`'s own header comment
 already flagged this row as pure decoration ("nothing in the project reads
-audio... settings yet") — no longer true, so it's wired: `Settings.
+audio... settings yet") â€” no longer true, so it's wired: `Settings.
 master_volume` (0..1, persisted alongside the other four settings in
 `user://settings.cfg`, default 1.0 so audio is on unless a player turns it
 down), a `VOLUME_STEPS` table (`0/0.25/0.5/0.75/1.0`) maps the row's five
 options either way, and `AudioManager._play()` reads it directly on every
 playback (`linear_to_db(Settings.master_volume)` added to each clip's own
-`volume_db`) — no signal needed the way `full_game_camera_mode`'s live-
+`volume_db`) â€” no signal needed the way `full_game_camera_mode`'s live-
 apply needs one, since this is only ever read at the moment a sound
 actually fires, never cached ahead of time. `master_volume <= 0.0` short-
 circuits `_play()` before it touches the voice pool at all, so muting is a
 real gate, not just an inaudibly-quiet playback.
 
 **Not done, on purpose.** Music, crowd ambience, and UI navigation sounds
-(menu move/confirm) — none of those have an existing signal this pass
+(menu move/confirm) â€” none of those have an existing signal this pass
 could hook the same way, and inventing menu-sound design wasn't part of
 what was asked. `Ball.landed` (a ball touching down) was deliberately not
-wired — `is_airborne()`'s height-threshold definition means a single kick
+wired â€” `is_airborne()`'s height-threshold definition means a single kick
 landing and rolling could cross that threshold repeatedly as it bounces
 down the field, and wiring it without checking for that risked a noisy,
 spammy result; left for a session that can actually listen to it.
@@ -3218,17 +3218,17 @@ set this project's memory now documents (`main`/`full_game`/`kick_to_kick`/
 exit 0, zero errors, both before and after every change.
 
 Two more scripted-physics scratch harnesses (same discipline as the entry
-above — positional-scene-argument form, real autoloads, deleted after):
+above â€” positional-scene-argument form, real autoloads, deleted after):
 
 1. **10m retreat**, three real players (`Player`/`Ball`/`Field`, real Jolt
    physics): an opponent 5m from a legal mark (inside both the retreat
    radius and, incidentally, the nearest-opponent stand-the-mark test) came
    up frozen; one at 12m (outside the retreat, not the nearest) stayed
-   free — confirming the two mechanisms are actually distinguishing by
+   free â€” confirming the two mechanisms are actually distinguishing by
    distance, not just both firing on anything nearby. `drop_ball()`
    released the 5m opponent immediately, as expected.
 2. **AudioManager**, no scene beyond a bare test root (no field/physics
-   needed — this exercises signal wiring and the synth/playback pipeline,
+   needed â€” this exercises signal wiring and the synth/playback pipeline,
    not gameplay): confirmed the voice pool is the configured size and
    `_clip_kick` actually contains synthesized sample data (not null/empty);
    a direct call started real playback on the expected voice with the
@@ -3243,13 +3243,13 @@ above — positional-scene-argument form, real autoloads, deleted after):
    change` wiring works through the real screen, not just the setter in
    isolation.
 
-**No human ears have heard any of this** — the same standing limitation
+**No human ears have heard any of this** â€” the same standing limitation
 every entry in this file has flagged for anything requiring a human sense,
 now extended from "no eyes" to "no eyes or ears." Godot's headless build
 uses a dummy audio driver: playback state (`AudioStreamPlayer.playing`,
 which voice/clip got used) is real and was verified for real, but nothing
-about how any of these clips actually *sound* — pitch choices, decay
-rates, whether "sine burst" reads as intended per event — has been
+about how any of these clips actually *sound* â€” pitch choices, decay
+rates, whether "sine burst" reads as intended per event â€” has been
 confirmed, only reasoned about from first principles (percussive events
 get noise, signal events get a clean tone). Wants a real playthrough with
 speakers on before any of the specific synth parameters
@@ -3258,16 +3258,16 @@ speakers on before any of the specific synth parameters
 
 ### Known limitations / unresolved (carried forward)
 
-- **Bump's dangerous-contact free kick** — still not built, still
+- **Bump's dangerous-contact free kick** â€” still not built, still
   genuinely blocked on a missing rule number, not a guess away from done.
-- **Shot clock / explicit shoot-vs-play-on** — the 10m retreat closes the
+- **Shot clock / explicit shoot-vs-play-on** â€” the 10m retreat closes the
   distance half of the set-shot apparatus; the timing half is still open,
   and still needs a real design pass rather than an invented number.
 - **AI behaviour scope** (spoil/smother/bump/hit-out/Running-Aggressive
-  marks) — untouched, still the project's own "not a tactics system"
+  marks) â€” untouched, still the project's own "not a tactics system"
   baseline.
-- **Music, crowd ambience, UI sounds** — see "Not done, on purpose" above.
-- **`Ball.landed` unwired** — same section; needs a spam-check before it's
+- **Music, crowd ambience, UI sounds** â€” see "Not done, on purpose" above.
+- **`Ball.landed` unwired** â€” same section; needs a spam-check before it's
   safe to hook.
 
 ### Files changed
@@ -3288,30 +3288,30 @@ reached it only through PlayerController/Field signals it already emits).
 
 ---
 
-## Handover — tackling coach, post-match stats, keyboard remapping (Agent: general)
+## Handover â€” tackling coach, post-match stats, keyboard remapping (Agent: general)
 
 Third pass this same session, continuing straight down `docs/
 FEATURE_AUDIT.md`'s P1/P2 list per the same "keep going" instruction as
-the entry above. Three substantial, well-specified items — no open design
+the entry above. Three substantial, well-specified items â€” no open design
 questions this round, unlike the two still deliberately left alone
 (bump's dangerous contact, the shot-clock half of the set-shot apparatus).
 
-### 1. Tackling coach — the third and final planned coach
+### 1. Tackling coach â€” the third and final planned coach
 
 The kick-to-kick rival (an existing, proven `AIBrain`-driven
 `PlayerController` sparring partner) becomes the tackling dummy rather
-than a second dedicated NPC being spawned — `TackleChallenge`
+than a second dedicated NPC being spawned â€” `TackleChallenge`
 (`scripts/mechanics/tackle_challenge.gd` + `.tscn`) positions it ahead of
 the player along its own attack direction, hands it the ball
 (`give_possession()`, the same shared entry point every protected restart
 in `full_game.gd` already uses), and lets its stock AI carry on exactly as
-it always does: run toward its own goal, and — this project's own
-`_think_carrying` logic, untouched — get rid of the ball under pressure.
+it always does: run toward its own goal, and â€” this project's own
+`_think_carrying` logic, untouched â€” get rid of the ball under pressure.
 Unlike `KickChallenge`/`MarkChallenge`, there's no target zone or
 "did-it-land" check; success is `PlayerController.holding_the_ball_called`/
 `field_ball_up_called` firing on the rival (a real tackle landed, either
 ruling), and failure is either `ball_disposed` firing on the rival first
-(it got the kick/handball away) or a hard time limit expiring — the safety
+(it got the kick/handball away) or a hard time limit expiring â€” the safety
 valve every other challenge here gets for free from `Ball.is_settled()`; a
 live AI carrier never settles, so this needed its own.
 
@@ -3327,7 +3327,7 @@ its third branch with no restructuring, confirming the enum-parameterised
 shape from two coaches ago was actually general, not just reused twice by
 coincidence.
 
-**Real, not forced, outcome distribution** — worth recording since it
+**Real, not forced, outcome distribution** â€” worth recording since it
 wasn't what was originally guessed at: a scripted test that left the
 player brain doing nothing found the rival disposing of the ball well
 inside the 5s time limit on every single unpressured attempt (AI_KICK_RANGE
@@ -3335,7 +3335,7 @@ being 45m against this drill's short setup distances means an unpressured
 "carrier" just kicks forward regardless of pressure), never the pure
 timeout path. The timeout branch is still real code, still exercised every
 frame the countdown runs, just not the thing that happened to end an
-attempt in this particular test — recorded so a future session doesn't
+attempt in this particular test â€” recorded so a future session doesn't
 read "never observed timing out" as evidence something's wrong with it.
 
 ### 2. Post-match box-score stats
@@ -3343,13 +3343,13 @@ read "never observed timing out" as evidence something's wrong with it.
 `MatchState` gained `kicks`/`handballs`/`marks`/`tackles`
 (`{Team.HOME: int, Team.AWAY: int}`, same shape `goals`/`behinds` already
 use) and `record_disposal()`/`record_mark()`/`record_tackle()`, all reset
-alongside score in `reset()`. Bounces aren't tracked — not a real AFL
+alongside score in `reset()`. Bounces aren't tracked â€” not a real Aussie Rules
 box-score stat. `full_game.gd._spawn_teams()` connects two more signals per
 player (`ball_disposed`, `mark_caught`, both `.bind(player)`'d since
 neither signal itself carries a reference to who acted) alongside the
 tackle signals it already connected; the two existing tackle handlers
 (`_on_field_ball_up`/`_on_holding_the_ball`) gained one line each
-recording the tackler's team. Kick-to-Kick never touches any of this —
+recording the tackler's team. Kick-to-Kick never touches any of this â€”
 it has no clock or scoring either, and never calls `MatchState.reset()`,
 so wiring stats there would only ever contaminate whatever a later Full
 Game match displays.
@@ -3361,57 +3361,57 @@ to fit beneath the score this time), reading `MatchState`'s four
 dictionaries by name through `Object.get()` so the row table
 (`STAT_ROWS`) is the only place that would need to change if another stat
 gets tracked later. HOME/AWAY columns reuse `Scoreboard.COLOUR_HOME/
-COLOUR_AWAY` directly rather than picking new colours — same guernsey
+COLOUR_AWAY` directly rather than picking new colours â€” same guernsey
 palette the scoreboard and match-end score block already share.
 
 ### 3. Keyboard control remapping
 
 New `RemapScreen` (`scripts/ui/remap_screen.gd` + `.tscn`), reachable from
 Settings' own REMAP CONTROLS row (replacing the previously-inert CONTROL
-SCHEME row outright — it had no real purpose device switching doesn't
+SCHEME row outright â€” it had no real purpose device switching doesn't
 already handle automatically via `InputManager`). Deliberately scoped to
-the keyboard binding on 18 discrete action buttons — not the WASD/arrow
+the keyboard binding on 18 discrete action buttons â€” not the WASD/arrow
 movement-camera axes (a clean "press a key" flow doesn't extend cleanly to
 a four-way direction), not gamepad bindings (no axis/button capture flow
 built), not mouse buttons (`Settings.mouse_kick_swapped` already owns
 those). A bounded first version, not a claim this is remapping "done".
 
 Two-column layout (9 rows each) navigated as one linear list; select a
-row, Enter/`ui_accept` enters a "PRESS A KEY…" listening state, the next
+row, Enter/`ui_accept` enters a "PRESS A KEYâ€¦" listening state, the next
 non-echo `InputEventKey` becomes the new binding, Escape always cancels
-without changing anything — Escape is reserved as the universal cancel key
+without changing anything â€” Escape is reserved as the universal cancel key
 across every remappable action, not stealable by design.
 
 **Conflict handling**: rebinding a key already held by a different
 remappable action takes it away from that other action outright (no
-fallback to a remembered original — `InputMap.action_erase_event()`
+fallback to a remembered original â€” `InputMap.action_erase_event()`
 doesn't remember what it erased), the standard "last one wins" remap UX.
 Only checked against the 18 actions this screen itself manages, not every
-action in the project — a player can still knowingly bind a remappable
+action in the project â€” a player can still knowingly bind a remappable
 action onto a movement/camera key; documented as a known, accepted
 limitation rather than guarded against, since guarding it would mean
 enumerating every action in `project.godot`, not just this screen's own
 list.
 
-**Persistence lives in `Settings.gd`**, not the screen — `keybind_overrides`
+**Persistence lives in `Settings.gd`**, not the screen â€” `keybind_overrides`
 (`Dictionary[StringName, int]`, only ever holding entries a player has
 actually changed), `apply_keybind()`/`clear_keyboard_binding()`/
 `keyboard_keycode()` as the InputMap-mutation primitives, applied to the
 live InputMap once at `_ready()` for whatever `_load()` restored from
-`user://settings.cfg` — same "InputMap is the live source of truth, not
+`user://settings.cfg` â€” same "InputMap is the live source of truth, not
 project.godot's baked-in defaults" pattern `_apply_mouse_kick_binding()`
 already established for the mouse-kick swap, now shared by a second
 feature instead of being one-off.
 
 `settings_screen.gd`'s trailing REMAP CONTROLS row is a new shape for that
 file: not a `Row` (nothing to cycle, just a destination), one extra index
-past `_rows.size()` that `ui_accept` activates instead — the same "one
+past `_rows.size()` that `ui_accept` activates instead â€” the same "one
 extra action row past the real ones" pattern `character_screen.gd`'s own
 PLAY row already established, applied here for the first time outside
-that file. The screen's stale "PLACEHOLDER · NOT SAVED" subtitle (wrong
+that file. The screen's stale "PLACEHOLDER Â· NOT SAVED" subtitle (wrong
 since Master Volume/Full Game Camera/Mouse Kick Buttons all went live
 across this session) was also fixed while touching this file for
-something else in the same area — Screen Shake is the one row actually
+something else in the same area â€” Screen Shake is the one row actually
 covered by "not yet wired" now.
 
 ### Verification
@@ -3424,32 +3424,32 @@ this project's memory now documents (`main`/`full_game`/`kick_to_kick`/
 change.
 
 Three more scripted-physics/state scratch harnesses (same discipline as
-every entry above — deleted after, not committed):
+every entry above â€” deleted after, not committed):
 
 1. **Tackling coach**, driving a real `kick_to_kick.tscn` instance (the
-   coach-approach/dialogue UI itself skipped deliberately — already proven
-   by the other two coaches, not what's new here — by setting
+   coach-approach/dialogue UI itself skipped deliberately â€” already proven
+   by the other two coaches, not what's new here â€” by setting
    `_coach_state`/`_active_coach` directly, the same effect a real
    "confirm" press has). Five real attempts: one scripted chase (player
    teleported to point-blank range, tackle held) landed a genuine
    `tackle_hit`; the other four, left with no player input at all,
-   resolved via the rival disposing before the timer ran out (see §1's own
+   resolved via the rival disposing before the timer ran out (see Â§1's own
    note on why the pure-timeout path wasn't the one observed); final
    `challenge_ended(1, 5)` matched exactly.
 2. **Post-match stats**, spawning a real `full_game.tscn`, emitting real
    signals on real spawned players (`ball_disposed`, `mark_caught`, both
-   tackle signal shapes — the second deliberately re-armed
+   tackle signal shapes â€” the second deliberately re-armed
    `GameState.phase` back to `PLAY` first, since the tackle handlers'
    own pre-existing phase guard correctly no-ops a second ruling fired
    mid-stoppage, which is exactly what happens for real after any real
-   tackle — a test-sequencing detail caught and fixed in the test, not a
+   tackle â€” a test-sequencing detail caught and fixed in the test, not a
    game bug), confirming zero cross-team contamination throughout. Then a
    real `match_end_screen.tscn` instance's built node tree was walked by
-   child index to confirm the Kicks row actually displays "2"/"0" — caught
+   child index to confirm the Kicks row actually displays "2"/"0" â€” caught
    and fixed one real indexing mistake in the test itself along the way
    (`SoftBrutalist.soften()` inserts a `SoftShadow` at child index 0 of
    whatever it's given, shifting every hand-counted index after it by
-   one — the same "looks like a bug, is actually the test" category this
+   one â€” the same "looks like a bug, is actually the test" category this
    file has flagged before, this time from a UI helper's own documented
    behaviour rather than test sequencing).
 3. **Keyboard remapping**, driving a real `remap_screen.tscn` instance
@@ -3460,7 +3460,7 @@ every entry above — deleted after, not committed):
    real `user://settings.cfg` on disk by reading that file back with a
    fresh `ConfigFile`, not just trusting the in-memory dictionary. The
    test restored the original (empty) `keybind_overrides` and re-saved
-   before exiting, confirmed by reading the file directly afterward —
+   before exiting, confirmed by reading the file directly afterward â€”
    this session's own real settings file was not left with test data in
    it.
 
@@ -3469,7 +3469,7 @@ every entry in this file carries forward. The tackling drill's actual
 feel (is a 9m/5s window fair, does the rival's stock AI read as a
 sensible practice partner rather than either a pushover or hopeless),
 the stat card's on-screen layout, and whether "press a key" reads clearly
-without a human ever having navigated the remap list — none of it is
+without a human ever having navigated the remap list â€” none of it is
 confirmed beyond "runs the real code paths correctly, verified
 numerically." All first-guess numbers (`TACKLE_CHALLENGE_LEAD_DISTANCE`/
 `_TIME_LIMIT`, the remap screen's own column/row geometry) carry the same
@@ -3479,16 +3479,16 @@ does.
 ### Known limitations / unresolved (carried forward)
 
 - **Bump's dangerous-contact free kick, the shot-clock/play-on half of
-  the set-shot apparatus, AI behaviour scope** — unchanged from the entry
+  the set-shot apparatus, AI behaviour scope** â€” unchanged from the entry
   above, still open for the same reasons.
-- **Remapping stays keyboard-only** — no gamepad rebinding, no
+- **Remapping stays keyboard-only** â€” no gamepad rebinding, no
   movement/camera-axis remapping, both explicitly out of this pass's
-  scope (see §3).
-- **Screen Shake is Settings' last inert row** — nothing in the project
+  scope (see Â§3).
+- **Screen Shake is Settings' last inert row** â€” nothing in the project
   reads a screen-shake value yet.
 - **Real controller hardware, free player/roster assignment, Goal
   Kicking mode, real art import, Scenario mode, automated test harness**
-  — all still open, unchanged from `docs/FEATURE_AUDIT.md`'s own roadmap.
+  â€” all still open, unchanged from `docs/FEATURE_AUDIT.md`'s own roadmap.
 
 ### Files changed
 
@@ -3506,12 +3506,12 @@ remap_screen.gd` (new), `scenes/ui/remap_screen.tscn` (new),
 persistence), `scripts/ui/settings_screen.gd` (CONTROL SCHEME row removed,
 REMAP CONTROLS action row added, stale subtitle fixed). Not touched:
 anything mark/animation-, camera-, ball-physics-, or AI-decision-related;
-`scripts/ball/ball.gd` (none of this round's work needed it — every hook
+`scripts/ball/ball.gd` (none of this round's work needed it â€” every hook
 was a `PlayerController`/`Field`/`MatchState` signal or a UI screen).
 
 ---
 
-## Handover — control-mode pass (Agent: mechanics/engine)
+## Handover â€” control-mode pass (Agent: mechanics/engine)
 
 Foundational layer for player-control-mode switching (design doc's Full
 Game/local-multiplayer direction): a single source of truth for "which
@@ -3535,12 +3535,12 @@ registered in `[autoload]` right after `GameState`) is the router: per
 `Tuning.Team`, it tracks a `Scheme` (`SINGLE_PLAYER` or `TEAM_COMMAND`),
 who's `controlled` (SINGLE_PLAYER) or `selected` (TEAM_COMMAND), and
 exposes one `focus_player(team)` getter both schemes funnel through. It
-does **not** construct brains — an `AIBrain` needs mode-specific config
+does **not** construct brains â€” an `AIBrain` needs mode-specific config
 (ball ref, home position, attack direction) this autoload has no business
 knowing, so `full_game.gd` still builds brains and just reports the
 outcome via `set_controlled_player`/`set_selected_player`. One signal,
 `focus_changed`, replaces every scattered "tell the camera/HUD/crosshair/
-mark-prompt" call site — `full_game.gd`'s new `_on_focus_changed()` is now
+mark-prompt" call site â€” `full_game.gd`'s new `_on_focus_changed()` is now
 the only place that reacts to a focus change, whichever scheme or
 direction caused it.
 
@@ -3553,7 +3553,7 @@ override, cleared once the target is reached. This is TEAM_COMMAND's
 form: `_issue_team_command()` (new `issue_command` input action) sends
 whichever non-selected teammate is nearest the selected player to a fixed
 lead-distance point (`Tuning.COMMAND_LEAD_DISTANCE`, a placeholder, not an
-AFL number — no reticle/aim UI exists yet, that's Agent 1's territory).
+Aussie Rules number â€” no reticle/aim UI exists yet, that's Agent 1's territory).
 `_toggle_control_scheme()` (new `toggle_control_scheme` input action) is
 the debug/prototyping entry point that flips HOME between schemes,
 carrying the currently-focused player across as the new scheme's starting
@@ -3563,21 +3563,21 @@ focus so the swap itself never drops anyone mid-air.
 
 A scratch scene (`_scratch_control_mode_test.tscn` + `.gd`, deleted after
 the run) instantiated real `full_game.tscn`, ran headless with
-`--fixed-fps 60`, and scripted: initial single-player state → switch
-control human→AI/AI→human (asserted brain types and that the released
-player wasn't left in a bad state) → toggle to TEAM_COMMAND (asserted
+`--fixed-fps 60`, and scripted: initial single-player state â†’ switch
+control humanâ†’AI/AIâ†’human (asserted brain types and that the released
+player wasn't left in a bad state) â†’ toggle to TEAM_COMMAND (asserted
 every non-selected HOME player got a `CommandBrain`, selection carried
-over) → issue a command (asserted a commandable teammate actually moved,
-proving `wish_direction`/`gait` flowed through) → toggle back to
+over) â†’ issue a command (asserted a commandable teammate actually moved,
+proving `wish_direction`/`gait` flowed through) â†’ toggle back to
 SINGLE_PLAYER (asserted a clean revert, no leftover `CommandBrain`). All
 five checks passed in one run. Plain headless boot re-verified on both
 `full_game.tscn` and `kick_to_kick.tscn` (the latter untouched by this
-pass — it has no team roster, so `ControlMode` never enters its path).
+pass â€” it has no team roster, so `ControlMode` never enters its path).
 
 ### Design decisions made along the way
 
 - **Contest prompts (mark/tackle): only the focus player ever gets one**,
-  in both schemes — documented on `ControlMode.focus_player()`'s own doc
+  in both schemes â€” documented on `ControlMode.focus_player()`'s own doc
   comment. A multi-prompt system (whose prompt wins when two AI-run
   teammates are both under the ball?) is real UX surface area for a
   dedicated pass, not a side effect of this routing layer; every
@@ -3585,16 +3585,16 @@ pass — it has no team roster, so `ControlMode` never enters its path).
   judgement, exactly as full AI-vs-AI already does.
 - **Camera pan vs snap**: `previous == null` (the very first focus a match
   has ever had) snaps via `recenter()`; every later change, in either
-  scheme, pans via the existing `switch_target()` — extending
+  scheme, pans via the existing `switch_target()` â€” extending
   `_switch_human_player`'s prior behaviour to TEAM_COMMAND rather than
   special-casing it.
 - **Scheme is tracked per-team**, not as one match-wide flag, so a human
   playing SINGLE_PLAYER against a fully-AI AWAY team (today's only real
   case) and a future local-multiplayer scenario are both representable
-  without a rewrite — `ControlMode.register_team()` takes the team and its
+  without a rewrite â€” `ControlMode.register_team()` takes the team and its
   starting scheme independently.
 - **AWAY is still registered with `ControlMode`** even though nothing
-  currently gives it a human — a router that only knows about teams a
+  currently gives it a human â€” a router that only knows about teams a
   human might drive can't answer "is anyone driving this team" for AWAY at
   all, which local multiplayer will eventually need to ask.
 
@@ -3602,11 +3602,11 @@ pass — it has no team roster, so `ControlMode` never enters its path).
 
 Full whole-team-command UX (a real reticle/aim target for issued orders,
 a way to select *which* teammate to command rather than "nearest
-commandable one", any on-screen indication of scheme or selection) — all
+commandable one", any on-screen indication of scheme or selection) â€” all
 explicitly out of scope per the brief ("minimal version... not full
 whole-team command UI/UX polish", and UI/visuals are Agent 1's territory).
 `toggle_control_scheme` is a debug-grade entry point, not a designed menu
-flow. Kick/handball input rework was deliberately left untouched —
+flow. Kick/handball input rework was deliberately left untouched â€”
 sequenced as the next task after this one.
 
 ### Files changed
@@ -3620,24 +3620,24 @@ command_brain.gd` (new), `scripts/modes/full_game.gd` (`_spawn_teams`,
 `project.godot` (`ControlMode` autoload registration, `toggle_
 control_scheme`/`issue_command` input actions). Not touched: `scripts/
 mechanics/player_brain.gd`/`human_brain.gd`/`ai_brain.gd` (both existing
-brains needed no changes — `CommandBrain` extends `AIBrain` rather than
+brains needed no changes â€” `CommandBrain` extends `AIBrain` rather than
 modifying it), `scripts/player/player_controller.gd` (already asked a
 brain rather than checking mode directly, which is exactly the pattern
-this pass generalised — nothing there needed to change), `scripts/camera/
+this pass generalised â€” nothing there needed to change), `scripts/camera/
 broadcast_camera.gd` (its `switch_target()`/`recenter()` API already
 covered both the pan and snap cases this pass needed), `kick_to_kick.gd`
 (single-player-only mode, no team roster, never touches `ControlMode`).
 
 
-## Handover — Slide/Lunge tackle split (Agent: mechanics/engine)
+## Handover â€” Slide/Lunge tackle split (Agent: mechanics/engine)
 
 Sequenced follow-up to the control-mode pass above, whose own entry said
-kick/handball input rework was next — research showed kick, handball,
+kick/handball input rework was next â€” research showed kick, handball,
 marking (3-tier), spoil, smother, and bump already fully match the design
 brief (ADS kick stance/charge, free-aim decoupled from facing, tap-to-
 handball toward the stick, timing-graded marks, flick-gesture bump), so
 that part of the brief was verification-only. The real work was tackling:
-until this pass it was proximity-only with no success/fail branch at all —
+until this pass it was proximity-only with no success/fail branch at all â€”
 holding the tackle button in range always connected, no dice roll but also
 no actual contest. This gives it two genuinely different physical risk
 profiles instead.
@@ -3648,49 +3648,49 @@ profiles instead.
 **Lunge** (new `lunge_tackle` action, Q/X tap, shares its physical binding
 with `handball`/`mark_running`/`smother` the same way those three already
 overload one key) now both resolve through one shared function,
-`PlayerController._resolve_tackle_contact(tackler, target, is_slide)` —
-closing speed (relative velocity dotted along the tackler→target line),
-approach angle (0° = tackler sitting in the carrier's path, 180° = chasing
+`PlayerController._resolve_tackle_contact(tackler, target, is_slide)` â€”
+closing speed (relative velocity dotted along the tacklerâ†’target line),
+approach angle (0Â° = tackler sitting in the carrier's path, 180Â° = chasing
 from directly behind), and carrier speed as the momentum proxy (every
-player shares one physics mass — `CharacterProfile` has no weight stat),
-never a probability roll (RULES_REFERENCE.md §3 notes Prototype 1's old
+player shares one physics mass â€” `CharacterProfile` has no weight stat),
+never a probability roll (RULES_REFERENCE.md Â§3 notes Prototype 1's old
 flat `TACKLE_BREAK_CHANCE=0.45` coin-flip was deliberately dropped for
 exactly this reason).
 
 Slide gets a low closing-speed bar and wide angle tolerance (works even
-side-on/trailing — "higher takedown chance") but a real cost on miss:
+side-on/trailing â€” "higher takedown chance") but a real cost on miss:
 `_stun_timer` (the same field a successful tackle's victim or a mistimed
 bumper already gets) snaps to `TACKLE_SLIDE_MISS_STUN_DURATION` (1.3s, 2.6x
 `PRIOR_OPPORTUNITY_GRACE`'s 0.5s, longer than every other cooldown in the
-kit — the point being a whiffed Slide can't reset within one possession-
+kit â€” the point being a whiffed Slide can't reset within one possession-
 grace window). Lunge gets a higher closing-speed bar that scales up far
 more steeply with carrier speed (the concrete mechanism behind
-"correspondingly lower success chance against a strong/fast carry" — a
+"correspondingly lower success chance against a strong/fast carry" â€” a
 tackler chasing dead-straight behind a sprinting carrier nets ~0 closing
 speed and fails outright) and a narrower angle tolerance, but on miss only
-pays a short `_lunge_tap_cooldown` (0.4s) — it never leaves its feet.
+pays a short `_lunge_tap_cooldown` (0.4s) â€” it never leaves its feet.
 
-The existing dash-assist (previously misleadingly also called "lunge" —
+The existing dash-assist (previously misleadingly also called "lunge" â€”
 `_update_tackle_lunge`, a movement-closing mechanic, not a second tackle
 type) is renamed to `_update_slide_dive`/`TACKLE_SLIDE_DIVE_*` throughout,
 freeing "Lunge" for the new X-tap mechanic and resolving the naming
-collision. It's unchanged in behaviour — still a committed dash to close
-distance on a Slide attempt — except a dive that lands now still has to
+collision. It's unchanged in behaviour â€” still a committed dash to close
+distance on a Slide attempt â€” except a dive that lands now still has to
 pass `_resolve_tackle_contact` like any standing Slide attempt, so a
 missed dive can now genuinely whiff and eat the stun, not just "sprint past
 and reset" as its old doc comment claimed.
 
 `AIBrain.wants_tackle()` drives the same `_try_tackle()` path, so AI
 standing tackles are now gradeable too and can miss (with the same 1.3s
-self-stun) — deliberate, not a side effect: AI's Safe marks already resolve
+self-stun) â€” deliberate, not a side effect: AI's Safe marks already resolve
 through the identical physics-based reach test as human marks with no
 AI-only leniency, so this extends that same precedent to tackling. AI never
-attempts the new Lunge — `AIBrain`/`CommandBrain` inherit `PlayerBrain`'s
+attempts the new Lunge â€” `AIBrain`/`CommandBrain` inherit `PlayerBrain`'s
 new `wants_lunge_tackle()` base `false` with no override, same as every
 other AI-out-of-scope action (`mark_running`, `smother`, `spoil`, `bump`).
 
 Also fixed while touching the input map: `sprint` now has RT (gamepad axis
-5) as a third alias alongside Shift/left-stick-click — the defense-remap
+5) as a third alias alongside Shift/left-stick-click â€” the defense-remap
 spec calls for "RT = sprint" but it was never actually bound (RT only fired
 `kick_execute`); purely additive, the existing two events are untouched.
 
@@ -3704,22 +3704,22 @@ the run) instantiated `field.tscn`/`player.tscn`/`ball.tscn` directly, drove
 a tackler and a carrier via a small scripted `PlayerBrain` subclass exposing
 `wish_dir`/`gait_value`/`tackle_wanted`/`lunge_tackle_wanted`, and ran
 headless with `--fixed-fps 60`: Slide success (carrier sprinting straight at
-a stationary tackler — high closing speed, 0° angle — ball spills, tackler
+a stationary tackler â€” high closing speed, 0Â° angle â€” ball spills, tackler
 takes no stun), Slide miss (tackler trailing a carrier at matched sprint
-speed, ~0 closing speed and ~180° angle — no spill, `_stun_timer` snaps to
+speed, ~0 closing speed and ~180Â° angle â€” no spill, `_stun_timer` snaps to
 ~1.3s, and a second attempt doesn't re-fire while still stunned), Lunge
 success (carrier running straight at a stationary tackler within
-`TACKLE_RADIUS` — same easy-approach geometry Slide's success case used —
+`TACKLE_RADIUS` â€” same easy-approach geometry Slide's success case used â€”
 ball spills, no stun, no lasting cooldown), and Lunge miss (same matched-
-speed chase as the Slide-miss case — no spill, only a short ~0.4s cooldown,
+speed chase as the Slide-miss case â€” no spill, only a short ~0.4s cooldown,
 `_stun_timer` stays 0, and the tackler responds normally to a fresh
 movement input immediately after). All seven checks passed in one run.
 Separately, a lightweight `ControlMode` regression check (register two HOME
 players + one AWAY, assign `HumanBrain`/`AIBrain`, toggle
-`SINGLE_PLAYER → TEAM_COMMAND → SINGLE_PLAYER` via `ControlMode`'s own
+`SINGLE_PLAYER â†’ TEAM_COMMAND â†’ SINGLE_PLAYER` via `ControlMode`'s own
 API) confirmed `focus_player()` still tracks the right player and brain
 type in both schemes, and that `CommandBrain`/`AIBrain` both still resolve
-the new `wants_lunge_tackle()` method without error — none of this pass's
+the new `wants_lunge_tackle()` method without error â€” none of this pass's
 changes touch `full_game.gd` or `ControlMode` themselves, so this was a
 smoke check on the `PlayerBrain` interface addition, not a deep re-test of
 the prior pass.
@@ -3727,26 +3727,26 @@ the prior pass.
 ### Two corrections to the task brief, found while reading the actual code
 
 - The brief claimed `full_game.gd::_switch_human_player()` had been removed
-  by the control-mode pass. It hadn't — it's still the `switch_player`-
+  by the control-mode pass. It hadn't â€” it's still the `switch_player`-
   action handler for cycling the human slot in `SINGLE_PLAYER`, and it
   delegates to `ControlMode.set_controlled_player()` internally.
   `ControlMode.focus_player(team)` is correctly the read API everything
-  else should query, which the brief also said — that part was accurate.
+  else should query, which the brief also said â€” that part was accurate.
   Not touched by this pass either way.
 - The brief said "RT = sprint" was already intact in the defense remap. It
-  wasn't bound at all (see the `project.godot` fix above) — treated as
+  wasn't bound at all (see the `project.godot` fix above) â€” treated as
   completing the spec's own stated intent rather than an open question,
   since it's additive and low-risk.
 
 ### Files changed
 
 `scripts/player/player_controller.gd` (rename `_update_tackle_lunge`/
-`_lunge_timer`/`_lunge_cooldown`/`_lunge_direction`/`_tackle_was_pressed` →
+`_lunge_timer`/`_lunge_cooldown`/`_lunge_direction`/`_tackle_was_pressed` â†’
 `_update_slide_dive`/`_slide_dive_timer`/`_slide_dive_cooldown`/
 `_slide_dive_direction`/`_slide_was_pressed`, new
 `_resolve_tackle_contact`, updated `_try_tackle`, new `_try_lunge_tackle` +
 `_lunge_tap_cooldown`, dispatch wiring), `scripts/tuning.gd` (renamed
-`TACKLE_LUNGE_*` → `TACKLE_SLIDE_DIVE_*`, new `TACKLE_SLIDE_MIN_CLOSING_
+`TACKLE_LUNGE_*` â†’ `TACKLE_SLIDE_DIVE_*`, new `TACKLE_SLIDE_MIN_CLOSING_
 SPEED`/`TACKLE_SLIDE_CLOSING_SPEED_SCALE`/`TACKLE_SLIDE_MAX_ANGLE_DEG`/
 `TACKLE_SLIDE_MISS_STUN_DURATION`/`TACKLE_LUNGE_TAP_MIN_CLOSING_SPEED`/
 `TACKLE_LUNGE_TAP_CLOSING_SPEED_SCALE`/`TACKLE_LUNGE_TAP_MAX_ANGLE_DEG`/
@@ -3763,15 +3763,15 @@ existing `TackleChallenge` coach minigame and the ruck/holding-the-ball
 handlers keep working as-is).
 
 
-## Handover — Tackle Sandbox mode in the animation dev viewer (Agent: mechanics/engine)
+## Handover â€” Tackle Sandbox mode in the animation dev viewer (Agent: mechanics/engine)
 
 Follow-up to the Slide/Lunge pass above, requested directly rather than
 sequenced from a task brief: `kick_to_kick.tscn`'s AI rival always sprints
 the instant it has the ball (`AIBrain._think_carrying`), which makes it
 genuinely hard to set up a deliberate tackle attempt there to watch the new
-Slide/Lunge resolution play out. `scenes/dev/animation_viewer.tscn` — until
+Slide/Lunge resolution play out. `scenes/dev/animation_viewer.tscn` â€” until
 now a pure animation-clip preview with no physics at all (a bare
-`HumanoidRig` driven directly by `PlayerAnimation`, no `CharacterBody3D`) —
+`HumanoidRig` driven directly by `PlayerAnimation`, no `CharacterBody3D`) â€”
 gained a second mode built for exactly this: two real, controllable
 `PlayerController` instances a developer can position freely and tackle on
 demand.
@@ -3782,7 +3782,7 @@ demand.
 default; `TACKLE_SANDBOX`, new), toggled by two buttons at the top of the
 screen. `TACKLE_SANDBOX` instantiates the same `field.tscn`/`player.tscn`/
 `ball.tscn`/`broadcast_camera.tscn` scenes `full_game.gd`/`kick_to_kick.gd`
-already use — not a stand-in — so Slide/Lunge resolve through the real
+already use â€” not a stand-in â€” so Slide/Lunge resolve through the real
 `_resolve_tackle_contact` (closing speed, approach angle, stun/cooldown,
 all of it), not a simplified preview version.
 
@@ -3790,16 +3790,16 @@ The actual design problem this solves: kick_to_kick's rival is `AIBrain`-
 driven and can't be made to just stand still. Here, whichever of the two
 players ISN'T currently controlled gets a bare `PlayerBrain` (every `wants_*`
 defaults `false`, `wish_direction()` always `Vector3.ZERO`) instead of an
-`AIBrain` — it simply stands wherever it was last driven to. `switch_player`
+`AIBrain` â€” it simply stands wherever it was last driven to. `switch_player`
 (the same action `full_game.gd`'s human-slot cycling already uses) swaps
 which of the two gets `HumanBrain`, so a developer can walk one player into
 any position/approach angle they want, switch control to the other, and
-attempt a Slide or Lunge tackle against a deliberately-placed target — real
+attempt a Slide or Lunge tackle against a deliberately-placed target â€” real
 input, real bindings, nothing sandbox-specific to learn. A `RESET` button
 puts both back at a fixed 3m gap facing each other with the ball on one
 side and every tackle timer zeroed; `GIVE BALL TO A`/`GIVE BALL TO B` swap
 possession without a full reset. A status readout shows who's in control,
-who's carrying, and both players' live stun timer / Lunge cooldown — the
+who's carrying, and both players' live stun timer / Lunge cooldown â€” the
 two numbers that actually distinguish a Slide miss from a Lunge miss.
 
 ### A real fix found along the way: reset positions were facing away from each other
@@ -3807,34 +3807,34 @@ two numbers that actually distinguish a Slide miss from a Lunge miss.
 `_reset_sandbox()` originally set each player's rotation facing *away* from
 the other (mirroring how they'd stand in a real kickoff formation, which
 wasn't the right model to copy here). Backwards for a tool whose entire
-point is "walk toward the other player and tackle them" — fixed to face
+point is "walk toward the other player and tackle them" â€” fixed to face
 them at each other instead, so the first step out of a RESET is already
 useful.
 
 ### A test-only artifact, not a real bug: same-frame reposition race
 
-Headless verification of this feature — via a self-test hook run through
+Headless verification of this feature â€” via a self-test hook run through
 `ANIM_VIEWER_SELFTEST=1` against the real scene (removed before this was
-considered done, not part of the diff) — hit what first looked like a
+considered done, not part of the diff) â€” hit what first looked like a
 serious physics bug: a freshly-constructed `CharacterBody3D`, repositioned
 in the *same physics frame* it's instantiated, could read back a garbled
 transform for its first several physics steps (an idle player drifting to
-match the mover's position with a growing vertical offset, or — with facing
-corrected — a full-speed collision launching the idle player hundreds of
+match the mover's position with a growing vertical offset, or â€” with facing
+corrected â€” a full-speed collision launching the idle player hundreds of
 metres away). Isolated with a minimal repro completely outside this file
 (two bare `player.tscn` instances, no `AnimationViewer`, no ball, no
-tackle-sandbox code at all) — same symptom, confirming it's a pre-existing
+tackle-sandbox code at all) â€” same symptom, confirming it's a pre-existing
 Jolt/Godot initial-registration race, not anything introduced by this
 change. Confirmed harmless for real use: the sandbox stays hidden behind
 `CLIP_PREVIEW` for those first few frames regardless of when construction
 happens, and a real developer's first click on the `TACKLE SANDBOX` button
 is already many frames past the window by the time `_reset_sandbox()` ever
-runs for real — human reaction time alone clears it. The self-test confirmed
+runs for real â€” human reaction time alone clears it. The self-test confirmed
 this directly: waiting a few `physics_frame` ticks after construction before
 touching anything (standing in for that unavoidable real-world delay) made
 all 13 checks pass cleanly, including a full end-to-end Slide tackle
 resolving correctly through the real sandbox instances. Flagging this here
-rather than silently — if anyone ever sees a player rocket across the map on
+rather than silently â€” if anyone ever sees a player rocket across the map on
 contact in `full_game`/`kick_to_kick`, this same-frame-construction race is
 the first thing worth ruling out, though nothing in normal match flow
 constructs and immediately repositions a player in one frame the way a
@@ -3850,13 +3850,13 @@ facing each other, ball on B, A in control; `switch_player` moves
 `HumanBrain` to whichever is now active and leaves the other idle; the
 `BroadcastCamera` follows the swap; `GIVE BALL TO A`/`B` and `RESET` both
 correctly move possession; and an end-to-end scripted Slide tackle
-(stationary tackler, carrier closing the distance — the same geometry the
+(stationary tackler, carrier closing the distance â€” the same geometry the
 Slide/Lunge formulas were already proven against) resolves correctly
 through the real sandbox instances. All 13 checks passed.
 
 ### Files changed
 
-`scripts/dev/animation_viewer.gd` only — `ViewMode` enum, the
+`scripts/dev/animation_viewer.gd` only â€” `ViewMode` enum, the
 `TACKLE_SANDBOX`-half of `_ready()`/`_process()`/`_unhandled_input()`, and
 new `_build_tackle_sandbox`/`_reset_sandbox`/`_give_ball_to`/
 `_set_active_player`/`_apply_active_brain`/`_update_sandbox_status`/
@@ -3866,54 +3866,54 @@ button groups, the studio floor) is untouched, just toggled alongside the
 new mode rather than replaced.
 
 
-## Handover — Action.TACKLED: a tackled player falls and gets up (Agent: mechanics/engine)
+## Handover â€” Action.TACKLED: a tackled player falls and gets up (Agent: mechanics/engine)
 
 Direct follow-up: the Tackle Sandbox above made it obvious a tackle
-connecting had no animation at all — the tackled player just stopped,
+connecting had no animation at all â€” the tackled player just stopped,
 still standing, for `TACKLE_STUN_DURATION`. This adds the fall/recover
 clip `player_animation.gd`'s own doc comment already named as the thing to
 add "if that ever changes" for tackle specifically (bump/spoil/smother
-stay physics-only, unaffected — this is only a Slide or Lunge connecting).
+stay physics-only, unaffected â€” this is only a Slide or Lunge connecting).
 
 ### What changed and why
 
-New `Tuning.Action.TACKLED` (appended — the enum is positionally indexed by
+New `Tuning.Action.TACKLED` (appended â€” the enum is positionally indexed by
 `ACTION_DURATION`/`ACTION_CONTACT`, existing slots never move), a new
-procedural clip `HumanoidAnimations._build_tackled()` (impact lurch → hips
-dropping and pitching forward → near-flat sprawl → a brief stunned beat →
-an asymmetric one-arm push-up recovery → back to `_base_pose()`), and
+procedural clip `HumanoidAnimations._build_tackled()` (impact lurch â†’ hips
+dropping and pitching forward â†’ near-flat sprawl â†’ a brief stunned beat â†’
+an asymmetric one-arm push-up recovery â†’ back to `_base_pose()`), and
 `player_animation.gd`'s `ACTION_STATES` map picking it up like every other
-action clip — no new machinery, this rides the same
+action clip â€” no new machinery, this rides the same
 `AnimationNodeStateMachine`/`play_action()`/`current_state()` plumbing
 kick/handball/marks already use.
 
 `PlayerController._get_tackled()` now computes the fall direction from the
-same `_scatter_from(by, 0.0)` the ball already spills along — "falls in the
+same `_scatter_from(by, 0.0)` the ball already spills along â€” "falls in the
 direction it is coming from" reads as: away from the tackler, exactly where
 the loose ball goes too, not a second, independent direction calculation.
 New `_fall_toward(direction)` snaps `rotation.y`/`_facing_yaw`/`_heading` to
 face that direction immediately (bypassing `_update_facing()`'s normal
-`rotate_toward` easing — a tackle puts you down facing away from the hit on
+`rotate_toward` easing â€” a tackle puts you down facing away from the hit on
 the frame it connects, not several frames of gradual turning later), then
 `_begin(Tuning.Action.TACKLED)` plays the clip. `_update_action()`'s
 contact-time match statement treats `TACKLED` as cosmetic-only (the tackle
-itself already resolved — spilled ball, stun timer — before the clip ever
+itself already resolved â€” spilled ball, stun timer â€” before the clip ever
 starts), alongside the existing mark-miss reactions.
 
 `TACKLE_STUN_DURATION` raised from 0.5s to 1.3s to match
-`ACTION_DURATION[TACKLED]` exactly — the old value was tuned back when a
+`ACTION_DURATION[TACKLED]` exactly â€” the old value was tuned back when a
 tackle was a pure physics reaction with nothing to watch; now that the rig
 visibly goes down and gets back up, the "can't act" window has to last as
 long as that takes, or the player would be moving again while still drawn
 lying on the ground. `Tuning.action_speed_scale()` gets an explicit `0.0`
-case for `TACKLED` too — redundant with what `_stun_timer` already forces
+case for `TACKLED` too â€” redundant with what `_stun_timer` already forces
 onto gait for this action's entire span, added anyway for the same reason
 every other action in that match statement is explicit rather than relying
 on incidental behaviour.
 
 `animation_viewer.gd`'s clip-preview action list gains a `TACKLED` button
 (moved out of the `UNIMPLEMENTED`/no-clip-yet row, which now reads BUMP/
-SPOIL/SMOTHER only) — and because the real tackle-split logic lives in
+SPOIL/SMOTHER only) â€” and because the real tackle-split logic lives in
 `player_controller.gd` regardless of which mode is driving a `PlayerController`,
 the Tackle Sandbox added in the pass above shows this fall animation for
 free on any Slide/Lunge that connects, with no sandbox-specific wiring.
@@ -3923,16 +3923,16 @@ free on any Slide/Lunge that connects, with no sandbox-specific wiring.
 The bone-rotation sign convention for pitching the whole body forward
 (`_build_tackled`'s "hips"/"torso" keys) is inferred from `_build_kick()`'s
 own established forward-lean direction, not independently verified against
-a render — this project's animations are all procedural bone-track data
+a render â€” this project's animations are all procedural bone-track data
 with no visual proof-render step available to a headless agent. If the fall
 reads as toppling backward, or into the tackler rather than away, every
 angle in `_build_tackled()` needs the same sign flip and nothing else about
 the clip changes. The Animation Viewer's Tackle Sandbox (previous pass) is
-built for exactly this kind of check — trigger a real tackle there and look.
+built for exactly this kind of check â€” trigger a real tackle there and look.
 
 Deliberately out of scope for this pass: the tackled player's collision
 shape stays the standing 1.85m capsule the whole time, even flat on the
-ground — a fallen player still blocks movement/collision like a standing
+ground â€” a fallen player still blocks movement/collision like a standing
 one. Real per-state collision-shape resizing is a reasonable follow-up once
 the fall pose itself is confirmed to look right, not bundled in blind.
 
@@ -3940,14 +3940,14 @@ the fall pose itself is confirmed to look right, not bundled in blind.
 
 Verifying this needed the same "two fresh `PlayerController`s, one
 scripted, one carrying the ball" pattern the Tackle Sandbox's own
-self-test used — and hit the identical symptom (one idle body drifting to
+self-test used â€” and hit the identical symptom (one idle body drifting to
 match the mover's position, climbing toward a ~1.85m vertical offset,
 velocity pinned near zero) in a completely fresh scratch scene with no
 `AnimationViewer` involved at all. Waiting a few `physics_frame`s first
 (the previous pass's fix) works, but so does something not tried before:
 spawning and discarding two or three throwaway `PlayerController`
 instances *before* the real test pair, with zero elapsed physics time in
-between (all synchronous within the same `_ready()`) — the earlier pass's
+between (all synchronous within the same `_ready()`) â€” the earlier pass's
 own scratch harness had incidentally done exactly this (a `ControlMode`
 regression check spawning three players ahead of the real test pair) and
 never hit the race at all, which is what this pass traced it back to.
@@ -3964,16 +3964,16 @@ bodies this close together in one frame.
 
 Plain headless boot re-verified clean on `animation_viewer.tscn`,
 `full_game.tscn`, and `kick_to_kick.tscn` (confirms `_build_tackled()`
-constructs without error — bone paths resolve, `Quaternion.from_euler`
-doesn't choke on any of the new keyframes — since every `player.tscn`
+constructs without error â€” bone paths resolve, `Quaternion.from_euler`
+doesn't choke on any of the new keyframes â€” since every `player.tscn`
 instance builds the whole `AnimationLibrary` including this clip on
 `_ready()`). A scratch physics test (two real `PlayerController`s, a
 scripted brain driving a straight-line Slide tackle, three throwaway
 instances spawned first per the workaround above) confirmed: the tackle
 connects through the real resolver; `_action` becomes `Tuning.Action.TACKLED`
 on the tackled player; `rotation.y` snaps to face away from the tackler
-(measured dot product ≈ -0.98, i.e. facing almost exactly opposite);
-`_stun_timer` reads ≈1.3s immediately after; the `AnimationTree` actually
+(measured dot product â‰ˆ -0.98, i.e. facing almost exactly opposite);
+`_stun_timer` reads â‰ˆ1.3s immediately after; the `AnimationTree` actually
 travels to the `"tackled"` state (`animation_state()` reports it); the
 action is still `TACKLED` partway through the clip; and both `_action` and
 `_stun_timer` cleanly return to neutral once the full duration elapses. All
@@ -3983,7 +3983,7 @@ action is still `TACKLED` partway through the clip; and both `_action` and
 
 `scripts/tuning.gd` (`Action.TACKLED` appended; `ACTION_DURATION`/
 `ACTION_CONTACT` index 10; `action_speed_scale()` case;
-`TACKLE_STUN_DURATION` 0.5→1.3), `scripts/player/humanoid_animations.gd`
+`TACKLE_STUN_DURATION` 0.5â†’1.3), `scripts/player/humanoid_animations.gd`
 (new `_build_tackled()`, registered in `build_library()`),
 `scripts/player/player_animation.gd` (`ACTION_STATES` entry, doc comment),
 `scripts/player/player_controller.gd` (`_get_tackled()` now computes fall
@@ -3991,13 +3991,13 @@ direction and calls `_begin()` instead of hand-resetting `_action`; new
 `_fall_toward()`; `_update_action()`'s cosmetic-only match arm),
 `scripts/dev/animation_viewer.gd` (`TACKLED` moved from `UNIMPLEMENTED` to
 `ACTIONS`, doc comments updated). Not touched: the tackle-split resolver
-itself (`_resolve_tackle_contact`, `_try_tackle`, `_try_lunge_tackle`) —
+itself (`_resolve_tackle_contact`, `_try_tackle`, `_try_lunge_tackle`) â€”
 this pass is purely the cosmetic layer on top of an already-resolved
 outcome, same relationship every other `_MISS` clip already has to its own
 resolution logic.
 
 
-## Handover — TACKLED pose bug fixed, tackler grab beat, bump rebuilt into a hit-stick, Smother gets a reaction clip (Agent: mechanics/engine)
+## Handover â€” TACKLED pose bug fixed, tackler grab beat, bump rebuilt into a hit-stick, Smother gets a reaction clip (Agent: mechanics/engine)
 
 Direct follow-up to the three passes above: `Action.TACKLED` landed with a
 correctness bug in the pose data itself (not just an unverified sign
@@ -4009,13 +4009,13 @@ Madden-style committed dash, and gives Smother its own reaction clip.
 ### 1. `Action.TACKLED`: the actual bug, not just the flagged sign guess
 
 The previous pass's own doc comment already described the intended
-design — `"hips"` (the root bone every other bone hangs off) should carry
+design â€” `"hips"` (the root bone every other bone hangs off) should carry
 the big topple rotation, `"torso"`/`"neck"` only a small relative hunch on
 top, so the body falls as one unit instead of folding at the waist. The
 code never did that: every pose dict in `_build_tackled()` went straight
 from `hip_y` to `torso`, so `"hips"` silently sat at its `Vector3.ZERO`
 default for the whole clip, and all ~1.1-1.5 rad (63-86 deg) of pitch that
-was supposed to topple the whole body landed on `"torso"` alone — the
+was supposed to topple the whole body landed on `"torso"` alone â€” the
 chest whipping back and forth relative to a pelvis that never left
 upright. That reads exactly like the "weird glitch, not a fall" report: a
 body snapping in half at the waist, not a person going to ground. This is
@@ -4026,15 +4026,15 @@ doesn't exist.
 
 Fixed by moving the big pitch onto `"hips"` where the design always said
 it belonged, and cutting `"torso"`/`"neck"` down to a genuinely small
-hunch (max ~0.24 rad) riding on top of it. Legs and arms are untouched —
+hunch (max ~0.24 rad) riding on top of it. Legs and arms are untouched â€”
 they were already using the established kick-derived swing convention
 correctly, the bug was isolated to the root/torso/neck triplet. Sign
 followed the same reasoning `_gait_pose()`'s own comment already
 establishes for `"torso"` ("the torso runs along +Y, so its lean is the
 same rotation with the opposite sign" as a limb): negative X pitches
 `"hips"` toward local -Z, which is wherever `_fall_toward()` has already
-rotated the body to face by the time this clip starts — i.e. the real
-fall direction — so the body now goes down face-first the way it's
+rotated the body to face by the time this clip starts â€” i.e. the real
+fall direction â€” so the body now goes down face-first the way it's
 travelling. Same caveat as last time, now scoped to three keys instead of
 the whole clip: if this still reads as falling backward or into the
 tackler, `"hips"`/`"torso"`/`"neck"` need the same sign flip and nothing
@@ -4042,10 +4042,10 @@ else changes.
 
 ### 2. Tackler grab beat
 
-New `Tuning.Action.TACKLE_GRAB` — a short (0.4s) reach-and-drive-down clip
+New `Tuning.Action.TACKLE_GRAB` â€” a short (0.4s) reach-and-drive-down clip
 that plays on the TACKLER, not the tackled player, the instant a Slide
 connects (`PlayerController._try_tackle`). Not aimed at the target's
-actual position (no root motion yet), just a generic committed reach —
+actual position (no root motion yet), just a generic committed reach â€”
 the tackler is already facing the target at the moment of contact, so a
 canned pose reads fine, the same way every other action clip in this file
 is a canned pose regardless of exact aim. Lunge deliberately does not get
@@ -4056,13 +4056,13 @@ comment so the asymmetry doesn't look like an oversight later).
 ### 3. Bump rebuilt into a real hit-stick
 
 The old `_try_bump()` resolved instantly off a proximity+cone check the
-frame a flick completed. Rebuilt into a committed dash — the same
+frame a flick completed. Rebuilt into a committed dash â€” the same
 "external velocity owns the body for a window" shape Slide's dive-in
-(`_update_slide_dive`) already uses — except a bump dash never locks onto
+(`_update_slide_dive`) already uses â€” except a bump dash never locks onto
 a target first (direction comes straight from the flick gesture), so it
 can genuinely swing at empty air. `_update_bump()` now only launches the
 dash (`_bump_dash_timer`/`_bump_dash_direction`/`_bump_dash_active`,
-`Tuning.BUMP_DASH_SPEED` 11.5 m/s over `BUMP_DASH_DURATION` 0.4s — the
+`Tuning.BUMP_DASH_SPEED` 11.5 m/s over `BUMP_DASH_DURATION` 0.4s â€” the
 fastest committed movement in the kit); `_try_bump_contact()`, called
 post-move alongside `_try_tackle()`/`_try_smother()` in
 `_physics_process` (the same "physics decides after the body moves"
@@ -4070,62 +4070,62 @@ ordering every other contest here follows), checks every frame the dash
 is live whether an opposing carrier is now in `BUMP_RANGE`/`BUMP_CONE_DEG`
 of the dash direction.
 
-Three outcomes, all through the same shared `_knockdown()` helper (new —
+Three outcomes, all through the same shared `_knockdown()` helper (new â€”
 factored out of the old `_get_tackled()`, see below):
 - **Clean connect** (`BUMP_APPROACH_DOT_MIN` timing check, unchanged from
   the old instant-resolve version): the carrier goes all the way down,
   reusing `Action.TACKLED`'s fall/recover clip on top of the existing
   knockback impulse (design brief: "reusing Action.TACKLED's knockdown is
-  a fine default") — `BUMP_KNOCKDOWN_STUN_DURATION` (aliased straight to
+  a fine default") â€” `BUMP_KNOCKDOWN_STUN_DURATION` (aliased straight to
   `TACKLE_STUN_DURATION` so it always matches the clip's own length). The
-  bumper stays standing — the whole point of a hit-stick over a tackle —
+  bumper stays standing â€” the whole point of a hit-stick over a tackle â€”
   and the ball is never stripped, same as before; a bumped carrier keeps
   the ball even while animated flat on the ground for the stun window.
 - **Mistimed/glancing connect** (stationary or retreating carrier): stays
-  the original lighter physics-only knockback+stun, no clip — unchanged
+  the original lighter physics-only knockback+stun, no clip â€” unchanged
   behaviour, just reached through the new dash instead of an instant check.
-- **Miss** — the dash's own clock runs out with nobody ever found. Unlike
+- **Miss** â€” the dash's own clock runs out with nobody ever found. Unlike
   Slide's dive-in, which just fizzles for free if it never reaches anyone,
   overcommitting a hit-stick swing at nobody now sends the bumper down too
   (`_resolve_bump_miss()`, same `Action.TACKLED` knockdown, tumbling along
   the direction they were already committed to) with `BUMP_MISS_STUN_
-  DURATION` (2.0s) on top — deliberately the single biggest miss penalty
+  DURATION` (2.0s) on top â€” deliberately the single biggest miss penalty
   in the kit now, ahead of `TACKLE_SLIDE_MISS_STUN_DURATION` (1.3s, the
-  previous record holder — its own comment is updated to say so explicitly
+  previous record holder â€” its own comment is updated to say so explicitly
   rather than leaving a stale "costliest in the kit" claim sitting next to
   a bigger number). `TACKLE_SLIDE_MISS_STUN_DURATION` is still the
   costliest *tackle* commitment; it's no longer the costliest thing you
   can whiff, period, and both comments now say why.
 
 `bump_landed(bumper, carrier, clean)`'s signal contract is unchanged
-(still fires once per connect, clean or mistimed) — `audio_manager.gd`'s
+(still fires once per connect, clean or mistimed) â€” `audio_manager.gd`'s
 existing `_on_bump_landed` needed no changes.
 
 ### 4. `_knockdown()`: one shared helper behind every hard knockdown
 
 Factored out of `_get_tackled()`: `_knockdown(direction, stun_duration)`
-sets `_stun_timer` (via `maxf`, never shortening one in progress — same
+sets `_stun_timer` (via `maxf`, never shortening one in progress â€” same
 pattern `receive_bump()` already used), force-resets `_action` to `NONE`,
 calls `_fall_toward(direction)`, then `_begin(Tuning.Action.TACKLED)`.
 `_get_tackled()` now just computes its scatter direction, drops the ball,
-and calls this. The bump outcomes above call it too — a clean connect and
+and calls this. The bump outcomes above call it too â€” a clean connect and
 a whiffed dash both go down through the identical fall/recover clip a
 real tackle uses, just via this shared entry point instead of three
 near-duplicate copies of the same four lines. Never touches the ball or
-possession itself — callers that need that keep doing it themselves first
+possession itself â€” callers that need that keep doing it themselves first
 (a tackle strips it via `drop_ball()`; a bump never does, by design).
 
 ### 5. Smother gets a reaction clip
 
 New `Tuning.Action.SMOTHERED` and `HumanoidAnimations._build_smothered()`
-— a short (0.45s) recoil/stumble, not a knockdown: hands flinching off the
+â€” a short (0.45s) recoil/stumble, not a knockdown: hands flinching off the
 blocked kick, half a beat of stumble, recovery. Deliberately does not
-route through `_knockdown()` — no facing change, no `_stun_timer` — a
+route through `_knockdown()` â€” no facing change, no `_stun_timer` â€” a
 smothered player is gated off other actions for the clip's own short span
 by the ordinary `_action != Tuning.Action.NONE` guard, the same "reaction,
 not a stun" precedent `MARK_SAFE_MISS`/`MARK_RUNNING_MISS` already set
 (neither of those gets a hard stun either). `_get_smothered()` still
-force-resets `_action` to `NONE` before calling `_begin()` — the smothered
+force-resets `_action` to `NONE` before calling `_begin()` â€” the smothered
 player is essentially always still mid-`KICK` at this exact instant (that
 `_action` state is literally what made them a valid smother target via
 `is_kick_aiming()`/`is_mid_kick_swing()`), and `_begin()` refuses to start
@@ -4135,7 +4135,7 @@ a new action over one already in progress.
 
 Plain headless boot re-verified clean on `full_game.tscn`,
 `kick_to_kick.tscn`, and `animation_viewer.tscn` (confirms every new/edited
-clip builds without error — bone paths resolve, no malformed keyframes —
+clip builds without error â€” bone paths resolve, no malformed keyframes â€”
 since `player.tscn` builds the whole `AnimationLibrary` on `_ready()`).
 
 A scratch physics scene (`_scratch_contest_test.tscn` + `.gd`, deleted
@@ -4143,7 +4143,7 @@ after the run) instantiated `field.tscn`/two `player.tscn`s/`ball.tscn`
 directly, drove both through a small scripted `PlayerBrain` subclass
 (`wish_dir`/`gait_value`/`tackle_wanted`/`lunge_wanted`/`smother_wanted`,
 plus direct field-injection of `_bump_dash_*` state where a real flick
-gesture would otherwise be needed — `InputManager.flick_vector()` itself
+gesture would otherwise be needed â€” `InputManager.flick_vector()` itself
 is unchanged by this pass and wasn't re-tested), and ran headless with
 `--fixed-fps 60` through nine scenarios in sequence: Slide connect (target
 `TACKLED` + stunned, tackler plays `TACKLE_GRAB`, ball spilled), a clean
@@ -4160,7 +4160,7 @@ passed.
 Hit the documented same-frame-construction-race artifact again while
 writing this test, in a new shape: this time it wasn't about *when* two
 fresh `PlayerController`s are constructed relative to physics frames, but
-where they're constructed *to* — both spawned at `player.tscn`'s shared
+where they're constructed *to* â€” both spawned at `player.tscn`'s shared
 default transform (effectively the same position) for several physics
 frames before the test's own `_reset_sandbox()`-style repositioning ever
 ran, so Jolt's overlap resolver launched them apart (one clocked at
@@ -4170,7 +4170,7 @@ it addresses a different trigger; the actual fix was assigning each
 player a distinct `global_position` immediately in `_ready()`, before the
 first physics step, rather than waiting for a later phase to move them
 apart. Noting this as a third data point on the same underlying class of
-issue (documented across the previous two handover entries) — still never
+issue (documented across the previous two handover entries) â€” still never
 seen in real match flow, which never spawns two players on top of each
 other.
 
@@ -4178,8 +4178,8 @@ other.
 
 The `Action.TACKLED` fix is a structural bug fix (a bone that was never
 being written at all), not just a sign flip, so confidence is higher than
-last pass — but it's still unrendered. Please open the Tackle Sandbox
-(`animation_viewer.tscn` → TACKLE SANDBOX mode) and check, in order:
+last pass â€” but it's still unrendered. Please open the Tackle Sandbox
+(`animation_viewer.tscn` â†’ TACKLE SANDBOX mode) and check, in order:
 1. A Slide tackle connecting: does the tackled player now fall as one
    toppling body (hips leading, chest/head only slightly hunched) rather
    than bending double at the waist? Does it fall in the direction of the
@@ -4194,18 +4194,18 @@ last pass — but it's still unrendered. Please open the Tackle Sandbox
 4. A Smother connecting: does the target visibly flinch/stumble now,
    rather than just silently losing the ball?
 If any of these reads wrong, the fix is scoped and documented above (sign
-flips are called out explicitly at each site) — this shouldn't need
+flips are called out explicitly at each site) â€” this shouldn't need
 another blind pass.
 
 ### Files changed
 
 `scripts/tuning.gd` (`Action.TACKLE_GRAB`/`Action.SMOTHERED` appended;
-`ACTION_DURATION`/`ACTION_CONTACT` extended; Bump section rebuilt —
+`ACTION_DURATION`/`ACTION_CONTACT` extended; Bump section rebuilt â€”
 `BUMP_DASH_SPEED`/`BUMP_DASH_DURATION`/`BUMP_KNOCKDOWN_STUN_DURATION`/
 `BUMP_MISS_STUN_DURATION` new, `BUMP_STUN_DURATION`'s doc comment narrowed
 to the mistimed case only; `TACKLE_SLIDE_MISS_STUN_DURATION`'s comment
 updated for the new cost ordering), `scripts/player/humanoid_animations.gd`
-(`_build_tackled()`'s pose data fixed — `"hips"` now carries the topple,
+(`_build_tackled()`'s pose data fixed â€” `"hips"` now carries the topple,
 `"torso"`/`"neck"` cut down to a hunch; new `_build_tackle_grab()`/
 `_build_smothered()`, registered in `build_library()`),
 `scripts/player/player_animation.gd` (`ACTION_STATES` gains
@@ -4213,7 +4213,7 @@ updated for the new cost ordering), `scripts/player/humanoid_animations.gd`
 `scripts/player/player_controller.gd` (new `_knockdown()` helper;
 `_get_tackled()` simplified to call it; `_get_smothered()` now calls
 `_begin(Action.SMOTHERED)`; `_try_tackle()` plays `TACKLE_GRAB` on a Slide
-connect; Bump section rebuilt — `_update_bump()` now launches a dash,
+connect; Bump section rebuilt â€” `_update_bump()` now launches a dash,
 new `_try_bump_contact()`/`_resolve_bump_contact()`/`_resolve_bump_miss()`
 replace the old instant-resolve `_try_bump()`; `_update_locomotion()` gets
 a bump-dash movement-override branch alongside Slide's own; `_update_
@@ -4222,12 +4222,12 @@ animation_viewer.gd` (`TACKLE_GRAB`/`SMOTHERED` buttons added to
 `ACTIONS`, `UNIMPLEMENTED` down to just `SPOIL`, Tackle Sandbox's reset/
 status readout extended with bump cooldown, doc comments updated). Not
 touched: `_resolve_tackle_contact`, `_try_lunge_tackle`, `InputManager.
-flick_vector()`/`_flick_world_direction()` — this pass changed what a
+flick_vector()`/`_flick_world_direction()` â€” this pass changed what a
 successful contest *does*, not how any of the underlying contests decide
 success in the first place.
 
 
-## Handover — bump assist/knockback/gravity retune, Smother rebuilt into a real dive, Animation Viewer's free-roam sandbox replaced with click-to-run contests (Agent: mechanics/engine)
+## Handover â€” bump assist/knockback/gravity retune, Smother rebuilt into a real dive, Animation Viewer's free-roam sandbox replaced with click-to-run contests (Agent: mechanics/engine)
 
 Direct follow-up to the pass above, driven entirely by real playtest
 feedback rather than a written brief: "the opposition player with ball
@@ -4243,7 +4243,7 @@ mode.
 
 Real playtesting exposed two problems the previous pass's scratch tests
 never would have caught (they injected a dash pointed straight at a
-stationary or matched-velocity target — never a genuinely moving one the
+stationary or matched-velocity target â€” never a genuinely moving one the
 dash has to catch up to):
 
 - **"Cannot hit the other player"**: `_bump_dash_direction` was set once
@@ -4257,8 +4257,8 @@ dash has to catch up to):
   swing that's already roughly aimed, never substitutes for aiming one),
   the same "correction on top of real input, not a lock-on" shape
   `_apply_aim_assist()`'s `KICK_AIM_ASSIST_*` already established.
-- **"Moves too far/fast"**: `BUMP_DASH_SPEED` cut 11.5→9.5 m/s (~4.6m of
-  travel down to ~3.8m) and `BUMP_KNOCKBACK_SPEED` cut 5.5→3.0 m/s — a
+- **"Moves too far/fast"**: `BUMP_DASH_SPEED` cut 11.5â†’9.5 m/s (~4.6m of
+  travel down to ~3.8m) and `BUMP_KNOCKBACK_SPEED` cut 5.5â†’3.0 m/s â€” a
   clean connect used to send the target sliding over 2m along the ground,
   which read as flying rather than falling.
 - **"Add a bit of gravity"**: a knockdown's slide was all-horizontal, no
@@ -4271,18 +4271,18 @@ dash has to catch up to):
   timer` field) so real `Tuning.GRAVITY` actually gets to arc it back down
   instead of the very next frame's `velocity.y = -0.5` floor bite silently
   cancelling the hop before it ever moved anything. Scoped to bump's two
-  knockdown sites only — tackle's own knockdown feel was never part of
+  knockdown sites only â€” tackle's own knockdown feel was never part of
   this report, so `_get_tackled()`/`_knockdown()` are untouched.
 
-### 2. "The opposition player falls over with just a click of B" — investigated, not changed
+### 2. "The opposition player falls over with just a click of B" â€” investigated, not changed
 
 Slide tackle's own bar (`TACKLE_SLIDE_MIN_CLOSING_SPEED` 0.5 m/s,
-`TACKLE_SLIDE_MAX_ANGLE_DEG` 160°) is deliberately low — see that
+`TACKLE_SLIDE_MAX_ANGLE_DEG` 160Â°) is deliberately low â€” see that
 constant's own long-standing comment: "higher takedown chance... its cost
 lives entirely in TACKLE_SLIDE_MISS_STUN_DURATION, not in failing against
 a fast carrier." Any real forward movement while holding Tackle near a
 carrier clears that bar easily, so a single tap connecting is the design
-working as specified, not a bug — see this handover's own closing section
+working as specified, not a bug â€” see this handover's own closing section
 for the full explanation handed back to the user rather than silently
 retuned, since raising Slide's bar is a balance call outside what was
 actually asked for this pass.
@@ -4292,44 +4292,44 @@ actually asked for this pass.
 The previous pass gave the *victim* a reaction clip (`Action.SMOTHERED`)
 but left the smotherer's own trigger exactly as it always was: an instant
 "already standing within `SMOTHER_RADIUS` (1.1m)" check with zero
-animation and zero movement. In real play that essentially never fires —
+animation and zero movement. In real play that essentially never fires â€”
 you have to already be standing on top of a kicker at the exact instant
 they enter their kick stance, which the shared-binding dispatch (`_try_
 lunge_tackle()`/`_update_smother()` both read the same physical Q/X press
-— see `_try_lunge_tackle()`'s own doc comment) almost always loses to
+â€” see `_try_lunge_tackle()`'s own doc comment) almost always loses to
 Lunge tackle instead, since Lunge's filter (not kick-aiming) is the one
 that matches whenever the opponent hasn't started their kick yet. That's
-exactly the reported "X... knock[s] the player over like tapping B" —
+exactly the reported "X... knock[s] the player over like tapping B" â€”
 Lunge firing successfully (correctly, per the previous pass's fix) while
 the user was expecting Smother.
 
 Rebuilt `_update_smother()`/new `_try_smother_contact()` into a real
 committed dive, the same "external velocity owns the body for a window"
-shape as Slide's dive-in and Bump's dash — except, unlike Bump, Smother
+shape as Slide's dive-in and Bump's dash â€” except, unlike Bump, Smother
 already knows exactly who it's diving at the instant it triggers (its own
 existing target filter has to find one specific kick-aiming/mid-swing
 carrier to fire at all), so it locks that target and **re-aims at their
 live position every single frame** rather than freezing a direction at
-launch — a stronger, fully-committed correction Bump's own gentler
+launch â€” a stronger, fully-committed correction Bump's own gentler
 assist doesn't need. New `Action.SMOTHER_DIVE` (`HumanoidAnimations.
-_build_smother_dive()`) plays on the smotherer regardless of outcome — a
+_build_smother_dive()`) plays on the smotherer regardless of outcome â€” a
 low, forward-driving lunge with both arms reaching low and forward (design
 intent: blocking the ball off the boot, not catching it out of the air,
 unlike a mark's overhead reach). Trigger range widened from the old
-instant `SMOTHER_RADIUS` to `SMOTHER_COMMIT_RANGE` (3.0m) — a real
+instant `SMOTHER_RADIUS` to `SMOTHER_COMMIT_RANGE` (3.0m) â€” a real
 anticipation window instead of requiring you to already be standing on
 top of them. On arrival within `SMOTHER_RADIUS` while the kick is still
 blockable, `_get_smothered()` fires exactly as before (kick cancelled,
-ball dropped, `Action.SMOTHERED` on the victim) — unchanged. A dive that
+ball dropped, `Action.SMOTHERED` on the victim) â€” unchanged. A dive that
 never reaches its target in time (kick already fired, target disposed,
 timer ran out) just quietly does nothing, no miss penalty, the same
 "stays on feet, minimal cost" precedent Lunge tackle's own miss already
-set — a dive is inherently a bigger commitment than Lunge's tap-in-place,
+set â€” a dive is inherently a bigger commitment than Lunge's tap-in-place,
 but not one this pass was asked to punish harder.
 
 This does **not** widen *when* Smother can trigger (still only once the
 target is genuinely `is_kick_aiming()`/`is_mid_kick_swing()` at the moment
-of the press) — only what happens once it does. If Q/X keeps resolving as
+of the press) â€” only what happens once it does. If Q/X keeps resolving as
 Lunge instead of Smother, it's because the opponent hadn't started their
 kick yet at that instant; see the closing section below.
 
@@ -4337,65 +4337,65 @@ kick yet at that instant; see the closing section below.
 
 Direct request: remove the full `field.tscn`/free movement/`switch_player`
 sandbox mode entirely and fold tackle-family previews into the same
-click-a-button-and-watch shape every other clip already has — "if I
+click-a-button-and-watch shape every other clip already has â€” "if I
 select the tackle features just generate another character in and run
 the simulation of the player doing the action."
 
 `ViewMode`/`TACKLE_SANDBOX` are gone. A new `CONTESTS` button group sits
-alongside `LOCOMOTION`/`ACTIONS`/`OTHER`: **TACKLE — SLIDE**, **TACKLE —
-LUNGE**, **BUMP — CLEAN HIT**, **BUMP — MISS**, **SMOTHER**. Pressing one
+alongside `LOCOMOTION`/`ACTIONS`/`OTHER`: **TACKLE â€” SLIDE**, **TACKLE â€”
+LUNGE**, **BUMP â€” CLEAN HIT**, **BUMP â€” MISS**, **SMOTHER**. Pressing one
 lazily builds (once) a second real `PlayerController` + `Ball` (same
 `player.tscn`/`ball.tscn` full_game.gd/kick_to_kick.gd instantiate, not a
 stand-in), hides the single-figure clip-preview rig, and runs a short,
 fixed, non-interactive scripted approach through the real gameplay
-resolvers — `_resolve_tackle_contact`, `_try_bump_contact`, `_try_
-smother_contact`, exactly what a real match runs — driven by a small
+resolvers â€” `_resolve_tackle_contact`, `_try_bump_contact`, `_try_
+smother_contact`, exactly what a real match runs â€” driven by a small
 `ContestBrain` (every want a plain field this script sets directly, the
 scripted-choreography equivalent of `HumanBrain` reading real input) not
 live input. `_step_contest()` watches for the real resolution signal
 (`TACKLED`/`TACKLE_GRAB`/`SMOTHERED` actually firing) each frame and stops
-driving once it lands (or `CONTEST_TIMEOUT` — 3s — expires); the two
+driving once it lands (or `CONTEST_TIMEOUT` â€” 3s â€” expires); the two
 bodies keep simulating on their own after that exactly like a real match
 would (a knockdown's own `Action` duration plays the fall *and* the
 recovery with no extra logic needed), so leaving a contest on screen for a
 few seconds shows the whole cycle, not a freeze-frame. Pressing the same
 button again just re-launches the identical scenario from scratch.
 
-Bump has no brain-mediated trigger to script — `_update_bump()` reads
+Bump has no brain-mediated trigger to script â€” `_update_bump()` reads
 `InputManager.flick_vector()` directly, a raw device gesture with nothing
 to fake headless or in a scripted vignette. `BUMP_CLEAN`/`BUMP_MISS`
 inject the dash fields directly instead (`_bump_dash_direction`/`_timer`/
 `_active`/`_bump_cooldown`), the same private-field-injection this
 project's own scratch physics tests already use for the identical reason
-— after `BUMP_CONTEST_TRIGGER_DELAY` (0.6s) lets the carrier close real
-distance and reach real speed first, so the assist added in §1 has
+â€” after `BUMP_CONTEST_TRIGGER_DELAY` (0.6s) lets the carrier close real
+distance and reach real speed first, so the assist added in Â§1 has
 something genuine to correct rather than firing at point-blank range.
 Every other scenario (both Tackle variants, Smother) is fully brain-
-mediated — `_brain.wants_tackle()`/`wants_lunge_tackle()`/`wants_smother()`
+mediated â€” `_brain.wants_tackle()`/`wants_lunge_tackle()`/`wants_smother()`
 returning true is all it takes, the same as a real human holding/tapping
 the button, because that dispatch was already brain-agnostic.
 
 The full 165x135m `Field` scene is gone from this screen entirely,
-replaced by a small (20x20m) invisible `StaticBody3D`/`BoxShape3D` floor —
+replaced by a small (20x20m) invisible `StaticBody3D`/`BoxShape3D` floor â€”
 same `collision_layer = 1`/`collision_mask = 0` shape `Field`'s own
 "Ground" node uses, just sized for a two-body vignette instead of a real
 oval; the existing decorative wireframe grid (already built for the
 single-subject preview) stays the only *visible* floor cue for both modes.
 Camera stays a second fixed transform (`CONTEST_CAMERA_*`, pulled back and
 raised from the single-subject framing) rather than the old sandbox's
-`BroadcastCamera` follow-rig — a static shot, matching every other button
+`BroadcastCamera` follow-rig â€” a static shot, matching every other button
 on this screen, not a controllable one.
 
 A genuine bug found and fixed while building this, not just in the
 mechanics: the first version of `_step_contest()`'s "has this resolved
 yet" check treated `_contest_a._action == Tuning.Action.SMOTHER_DIVE` as
-a resolution signal, same as `TACKLE_GRAB`. For a tackle that's correct —
+a resolution signal, same as `TACKLE_GRAB`. For a tackle that's correct â€”
 `_try_tackle()` only ever starts `TACKLE_GRAB` in the same call that
-already resolved the target's `TACKLED` — but Smother's dive is a real
+already resolved the target's `TACKLED` â€” but Smother's dive is a real
 ~0.4s travel window before it connects or doesn't; treating "started
 diving" as "resolved" cut the vignette's own driving logic off mid-flight,
 before `_try_smother_contact()` ever got a chance to land it. Fixed by
-dropping `SMOTHER_DIVE` from that check — the underlying PlayerController
+dropping `SMOTHER_DIVE` from that check â€” the underlying PlayerController
 physics were never affected (this bug only lived in the viewer's own
 bookkeeping of when to stop polling), but the self-test below caught it
 immediately once it started checking the actual outcome instead of just
@@ -4413,30 +4413,30 @@ Plain headless boot re-verified clean on `animation_viewer.tscn`,
 Three scratch physics scenes (all deleted after their runs, not part of
 the diff): a new consolidated regression scene re-checked Slide connect,
 Lunge connect/miss, Bump clean/miss, and Smother end-to-end (14 checks, all
-green — not the previous pass's literal 23-check script re-run verbatim,
+green â€” not the previous pass's literal 23-check script re-run verbatim,
 a fresh script covering the same ground) after `_knockdown()`/dispatch
 refactoring incidental to this pass, confirming nothing in this pass
 regressed the previous one's own machinery. Two authoring mistakes in this
 new script itself were caught and fixed along the way, not product bugs:
 the Lunge-miss and Bump-clean phases both started with the two bodies too
 far apart for the scenario to physically work (Bump's own dash can only
-ever cover ~3.8m in its 0.4s window — not the 6m gap the first draft used
-— so tightening the reset distance, not the mechanic, was the fix). A
+ever cover ~3.8m in its 0.4s window â€” not the 6m gap the first draft used
+â€” so tightening the reset distance, not the mechanic, was the fix). A
 second scene targeted exactly what changed here: a bump dash aimed
 at a carrier's *starting* position while they sprint laterally away still
 connects (assist working), the hop actually applies (`_knockdown_hop_
 timer` > 0 immediately after both a clean connect and a miss), a clean
 connect's own knockback slide measured directly (impact position vs.
-position ~0.6s later) came in under 2m — down from north of 2m at the old
-5.5 m/s — and a full Smother-dive scenario (target kept "kicking" via a
+position ~0.6s later) came in under 2m â€” down from north of 2m at the old
+5.5 m/s â€” and a full Smother-dive scenario (target kept "kicking" via a
 scripted `wants_kick()` override, since the previous version of this test
 tried setting `_charging` directly and had it silently overwritten by the
-carrier's own `_update_charge()` the very next frame — a test-harness bug,
+carrier's own `_update_charge()` the very next frame â€” a test-harness bug,
 caught and fixed, not a product one) connects and drops the ball. 9/9
 checks passed. One real bug surfaced and fixed mid-test: `_try_bump_
 contact()` cleared `_bump_dash_active` on a connect but not `_bump_dash_
 timer` itself, and `_update_locomotion`'s dash-override branch keys off
-the timer, not the flag — a connect landing well before the dash's own
+the timer, not the flag â€” a connect landing well before the dash's own
 clock ran out (trivial for Bump, which unlike Slide's dive-in has no
 launch-range gate and can connect on its very first frame) would have kept
 sliding the bumper forward at full dash speed, straight through whoever
@@ -4454,7 +4454,7 @@ the timeout; switching back to a plain locomotion button hides the contest
 bodies again. 10/10 checks passed once the SMOTHER_DIVE-as-"resolved" bug
 above and a GDScript lambda-closure counting bug in the self-test itself
 (outer `checks`/`passed` locals mutated only inside a lambda never
-propagate back out — GDScript captures locals by value, not reference; the
+propagate back out â€” GDScript captures locals by value, not reference; the
 fix was moving the counters to member fields) were both found and fixed.
 Removed before this pass was considered done, per the project's own
 scratch-test convention.
@@ -4462,22 +4462,22 @@ scratch-test convention.
 ### What still needs a human look
 
 Everything from the previous handover entry still applies (the `Action.
-TACKLED` pose fix in particular is still unrendered) — this pass adds:
+TACKLED` pose fix in particular is still unrendered) â€” this pass adds:
 
 1. Open the Animation Viewer (`animation_viewer.tscn`) and try each of the
    five CONTESTS buttons. Does the framing (`CONTEST_CAMERA_DISTANCE`
    8.0m / `CONTEST_CAMERA_HEIGHT` 1.6m, picked without a render to check
    against) actually fit both bodies and the approach comfortably, or does
    it need pulling back further / repositioning? This is the single
-   least-confident number in this whole pass — everything else at least
+   least-confident number in this whole pass â€” everything else at least
    has a scratch-physics check behind it; camera framing has none.
 2. In real play: does Bump actually connect reliably now against a moving
    AI carrier, and does the knockdown read as weighted rather than floaty?
    The assist and hop are both scratch-tested in isolation but this is
    their first time facing a real AI-driven opponent rather than a
    scripted one.
-3. Does Smother's new dive read as a genuine committed lunge, and — the
-   open question flagged in §3 above — does it actually trigger often
+3. Does Smother's new dive read as a genuine committed lunge, and â€” the
+   open question flagged in Â§3 above â€” does it actually trigger often
    enough in real play now that its range is wider, or does it still lose
    to Lunge tackle most of the time because the opponent usually hasn't
    started kicking yet? If the latter, that's a *when does it trigger*
@@ -4487,21 +4487,21 @@ TACKLED` pose fix in particular is still unrendered) — this pass adds:
 **On "which button does what"**, since that was asked directly: Slide
 tackle is **hold** Tackle (keyboard E / gamepad B). Lunge tackle, Handball,
 Running Mark, and Smother all share the **same** physical tap (keyboard Q
-/ gamepad X) — which one actually fires is decided by game state, not a
-separate binding: carrying the ball → Handball; not carrying, ball
-airborne and reachable → Running Mark; not carrying, an opponent is
-carrying and *not* yet kicking → Lunge tackle; not carrying, an opponent
-is carrying and *already* in their kick stance or mid-swing → Smother.
+/ gamepad X) â€” which one actually fires is decided by game state, not a
+separate binding: carrying the ball â†’ Handball; not carrying, ball
+airborne and reachable â†’ Running Mark; not carrying, an opponent is
+carrying and *not* yet kicking â†’ Lunge tackle; not carrying, an opponent
+is carrying and *already* in their kick stance or mid-swing â†’ Smother.
 Bump is **hold** Bump stance (keyboard L / gamepad Left Bumper) plus a
-flick of the right stick (or equivalent) toward the target — a swing, not
+flick of the right stick (or equivalent) toward the target â€” a swing, not
 a second tap.
 
 ### Files changed
 
-`scripts/tuning.gd` (Bump section retuned — `BUMP_DASH_SPEED` 11.5→9.5,
-`BUMP_KNOCKBACK_SPEED` 5.5→3.0, new `BUMP_ASSIST_STRENGTH`/`BUMP_ASSIST_
+`scripts/tuning.gd` (Bump section retuned â€” `BUMP_DASH_SPEED` 11.5â†’9.5,
+`BUMP_KNOCKBACK_SPEED` 5.5â†’3.0, new `BUMP_ASSIST_STRENGTH`/`BUMP_ASSIST_
 CONE_DEG`/`BUMP_ASSIST_RANGE`/`BUMP_KNOCKDOWN_HOP_SPEED`/`BUMP_KNOCKDOWN_
-HOP_DURATION`; new Smother section — `SMOTHER_COMMIT_RANGE`/`SMOTHER_DIVE_
+HOP_DURATION`; new Smother section â€” `SMOTHER_COMMIT_RANGE`/`SMOTHER_DIVE_
 SPEED`/`SMOTHER_DIVE_DURATION`/`SMOTHER_DIVE_COOLDOWN`; `Action.SMOTHER_
 DIVE` appended, `ACTION_DURATION`/`ACTION_CONTACT` extended),
 `scripts/player/player_controller.gd` (new `_knockdown_hop_timer` field +
@@ -4515,81 +4515,81 @@ locomotion()` gets a smother-dive movement-override branch),
 `scripts/player/humanoid_animations.gd` (new `_build_smother_dive()`,
 registered in `build_library()`), `scripts/player/player_animation.gd`
 (`ACTION_STATES` gains `SMOTHER_DIVE`, doc comment updated),
-`scripts/dev/animation_viewer.gd` (rewritten — `ViewMode`/`TACKLE_
+`scripts/dev/animation_viewer.gd` (rewritten â€” `ViewMode`/`TACKLE_
 SANDBOX`/`BroadcastCameraScene`/`FieldScene` all removed; new `ContestKind`/
 `CONTESTS`/`ContestBrain`/`_launch_contest()`/`_step_contest()`/
 `_build_contest_floor()`; `ACTIONS` list drops the four tackle-family
 entries; `_show_single_subject()`/`_show_contest()` replace the old
 `_set_mode()`). Not touched: `_resolve_tackle_contact`, `_try_tackle`,
 `_try_lunge_tackle`, `InputManager.flick_vector()`/`_flick_world_
-direction()`, `Action.TACKLED`/`TACKLE_GRAB`/`SMOTHERED`'s own clips — this
+direction()`, `Action.TACKLED`/`TACKLE_GRAB`/`SMOTHERED`'s own clips â€” this
 pass retuned Bump's numbers and rebuilt Smother's trigger/movement, it
 didn't touch either tackle variant's resolution logic or any existing clip
 data.
 
 
-## Handover — Smother dive rebuilt to actually reach ground, Bump's fall direction/momentum fixed, Tackle split into a standing hug (Slide) vs. a ground takedown (Lunge) (Agent: mechanics/engine)
+## Handover â€” Smother dive rebuilt to actually reach ground, Bump's fall direction/momentum fixed, Tackle split into a standing hug (Slide) vs. a ground takedown (Lunge) (Agent: mechanics/engine)
 
 Direct follow-up to the pass above, again driven by real playtest feedback
 rather than a written brief: the Smother dive from the previous pass never
-actually went to ground, Bump's clean-hit target was spinning 180° before
-falling and the miss kept sliding well past where it resolved, and — the
-biggest ask — Slide and Lunge tackles both just knocked the target flat,
+actually went to ground, Bump's clean-hit target was spinning 180Â° before
+falling and the miss kept sliding well past where it resolved, and â€” the
+biggest ask â€” Slide and Lunge tackles both just knocked the target flat,
 when the brief now wants them to read as two distinct real tackle types.
 
 ### 1. Tackle split: Slide holds them up, Lunge takes them down
 
-`_get_tackled(by, is_slide)` — new `is_slide` parameter, the single fork
+`_get_tackled(by, is_slide)` â€” new `is_slide` parameter, the single fork
 this whole feature hangs off:
 - **Slide connect**: the target no longer falls. New `Action.TACKLE_HELD`
-  (target) plays instead of `Action.TACKLED` — standing, wrapped up, ball
+  (target) plays instead of `Action.TACKLED` â€” standing, wrapped up, ball
   stripped, a `TACKLE_HELD_STUN_DURATION` (0.55s) window instead of
   `TACKLE_STUN_DURATION`'s 1.3s since nobody's getting up off the ground.
-  `Action.TACKLE_GRAB` (tackler, unchanged trigger site — still plays
+  `Action.TACKLE_GRAB` (tackler, unchanged trigger site â€” still plays
   alongside on every Slide connect) was itself softened to match: the
   previous version's forward-driving pose is replaced with arms pulling in
   close (shoulder spread down near zero, elbows bent deep) so it reads as
   wrapping around someone who stays standing, not driving them down.
-- **Lunge connect**: unchanged for the target — still `Action.TACKLED` via
+- **Lunge connect**: unchanged for the target â€” still `Action.TACKLED` via
   `_knockdown()`, still falls all the way down. What's new is the
   tackler: `_try_lunge_tackle()` now also plays `Action.TACKLE_TAKEDOWN`
   on a connect, a driving crouch that ends low/kneeling near the felled
   target before rising back up, synced to `TACKLED`'s own 1.3s length.
-  The tackler themselves is still not stunned and doesn't actually fall —
+  The tackler themselves is still not stunned and doesn't actually fall â€”
   `_lunge_tap_cooldown`/`_stun_timer` are untouched either way, this is a
   cosmetic beat layered on the same "stays on feet" physical outcome Lunge
   has always had, not a second real knockdown.
 
 `Tuning.Action`'s own doc comment (and the stale "Lunge deliberately
 doesn't get one, a grab beat would undercut the stays-on-feet distinction"
-line specifically) is rewritten — that reasoning was correct for the
+line specifically) is rewritten â€” that reasoning was correct for the
 previous pass's design and is now actively wrong, left in place it would
 have contradicted the code sitting right next to it.
 
 ### 2. Bump: fall direction and miss-momentum both fixed
 
-**Direction** — a clean connect was calling `_knockdown()` with the
+**Direction** â€” a clean connect was calling `_knockdown()` with the
 default `snap_facing = true`, which invokes `_fall_toward()` and rotates
-the target to face the direction of the hit — the same convention
+the target to face the direction of the hit â€” the same convention
 `Action.TACKLED` wants (topple forward, in the direction of travel) but
 wrong for a bump: a hit from the front should send the target straight
-down onto their back, not spin them 180° to face away first. `_knockdown()`
-gained two new parameters — `action` (which clip to play) and
-`snap_facing` (bool) — and a clean bump connect now passes `Action.
+down onto their back, not spin them 180Â° to face away first. `_knockdown()`
+gained two new parameters â€” `action` (which clip to play) and
+`snap_facing` (bool) â€” and a clean bump connect now passes `Action.
 KNOCKED_BACK` with `snap_facing = false`: a new clip
 (`HumanoidAnimations._build_knocked_back`) that mirrors `_build_tackled()`
 exactly (identical hip_y/shoulder/elbow/leg keys) except "hips"/"torso"/
-"neck" are sign-flipped positive instead of negative — the body arches
+"neck" are sign-flipped positive instead of negative â€” the body arches
 *backward* instead of crumpling forward, and because facing was never
 touched, it does so while still facing wherever it already was (roughly
 toward the bumper, since a clean connect requires the carrier to have
 been closing on them).
 
-**Miss momentum** — `_resolve_bump_miss()` now zeroes `velocity.x`/`z`
+**Miss momentum** â€” `_resolve_bump_miss()` now zeroes `velocity.x`/`z`
 before calling `_knockdown()`. The bug: `_update_locomotion`'s dash-
 override branch stops applying itself the instant `_bump_dash_timer` hits
 zero, but nothing had ever reset the *velocity that branch had already
-set* — normal locomotion's own braking curve (`Tuning.BRAKING`, 14 m/s²)
+set* â€” normal locomotion's own braking curve (`Tuning.BRAKING`, 14 m/sÂ²)
 took over from wherever that left off, which at `BUMP_DASH_SPEED` (9.5
 m/s) is a good half-second of continued sliding after the whiff was
 already decided. Now the fall starts from a dead stop exactly where the
@@ -4599,21 +4599,21 @@ animation from where the player is... and then they hit the ground."
 ### 3. Smother dive reworked to actually reach the ground
 
 The previous pass's dive clip pitched the torso forward but never dropped
-`hip_y` more than -0.20 or used the root "hips" bone at all — it stayed a
+`hip_y` more than -0.20 or used the root "hips" bone at all â€” it stayed a
 standing lunge, never a real dive, which is exactly what was reported
 ("doesn't make the player dive at the ground towards oppositions player
 feet"). Rebuilt `_build_smother_dive()` using the same technique
 `_build_tackled()`'s own fix established: the big forward pitch belongs on
 "hips" (the root bone every other bone hangs off), with "torso" only
-adding a small hunch on top, not the whole rotation — plus `hip_y` now
+adding a small hunch on top, not the whole rotation â€” plus `hip_y` now
 drops to -0.65 at ground contact (comparable to `TACKLED`'s own -0.80),
-arms reaching flat and low (minimal elbow bend, low shoulder angle — boot
+arms reaching flat and low (minimal elbow bend, low shoulder angle â€” boot
 height, not overhead), legs trailing extended behind in an asymmetric
 dive silhouette. `SMOTHER_DIVE_DURATION`/`ACTION_DURATION[SMOTHER_DIVE]`
-both raised 0.4s→0.55s together (kept in sync, as they always have to be)
+both raised 0.4sâ†’0.55s together (kept in sync, as they always have to be)
 to give the dive room to actually travel and land before snapping back to
 standing. Framed in the design brief itself as "more of an advanced
-feature that not many players use" — this pass fixed the read (a real
+feature that not many players use" â€” this pass fixed the read (a real
 ground dive) without adding new mechanics (stun, homing beyond what
 already existed, etc.) on top.
 
@@ -4621,8 +4621,8 @@ already existed, etc.) on top.
 
 Plain headless boot re-verified clean on `full_game.tscn`,
 `kick_to_kick.tscn`, `animation_viewer.tscn`, and the main menu (confirms
-every new/edited clip — `tackle_held`, `tackle_takedown`, `knocked_back`,
-the reworked `tackle_grab`/`smother_dive` — builds without error, since
+every new/edited clip â€” `tackle_held`, `tackle_takedown`, `knocked_back`,
+the reworked `tackle_grab`/`smother_dive` â€” builds without error, since
 `player.tscn` builds the whole `AnimationLibrary` on `_ready()`).
 
 A new scratch physics scene (deleted after its run, not part of the diff)
@@ -4633,7 +4633,7 @@ the tackler plays `TACKLE_GRAB`, the ball spills, and the stun matches
 plays `TACKLED` and the tackler now plays `TACKLE_TAKEDOWN`; a clean bump
 connect confirmed the target plays `KNOCKED_BACK` (not `TACKLED`) and,
 measuring `rotation.y` immediately before and after, that the body's
-facing changed by only ~0.21 rad (~12°) — not the ~180° spin the old
+facing changed by only ~0.21 rad (~12Â°) â€” not the ~180Â° spin the old
 version produced; a bump miss confirmed the bumper's own position barely
 moved (~0.18m) in the 0.3s immediately after the whiff resolved, versus
 sliding at the full 9.5 m/s dash speed the old version would have. 11/11
@@ -4646,7 +4646,7 @@ checked each one's *new* resolution signal specifically (`TACKLE_HELD`
 for Slide, `TACKLED` for Lunge, `KNOCKED_BACK` for a clean bump, `TACKLED`
 for a bump miss, `SMOTHERED`/ball-dropped for Smother) rather than the
 previous pass's now-superseded checks. 10/10 checks passed on the first
-run — no new bugs surfaced in the viewer's own orchestration logic this
+run â€” no new bugs surfaced in the viewer's own orchestration logic this
 time, since `_step_contest()`'s resolution-signal list was updated
 alongside the mechanics themselves rather than after the fact. Removed
 before this pass was considered done, per the project's own scratch-test
@@ -4657,21 +4657,21 @@ convention.
 Everything from the previous two handover entries still applies. This
 pass adds:
 
-1. Open the Animation Viewer's CONTESTS group and check **TACKLE — SLIDE**:
+1. Open the Animation Viewer's CONTESTS group and check **TACKLE â€” SLIDE**:
    does the wrap/hug now read as two bodies embracing while both stay
-   standing, not a knockdown? Does **TACKLE — LUNGE** still read as a real
+   standing, not a knockdown? Does **TACKLE â€” LUNGE** still read as a real
    takedown, with the tackler visibly driving down and ending low near the
    fallen target rather than standing over them untouched?
-2. **BUMP — CLEAN HIT**: does the target now fall straight backward
+2. **BUMP â€” CLEAN HIT**: does the target now fall straight backward
    without spinning around first? Does it genuinely read as "hit from the
    front, knocked onto their back" rather than an ambiguous topple?
-3. **BUMP — MISS**: does the bumper now visibly collapse right where they
+3. **BUMP â€” MISS**: does the bumper now visibly collapse right where they
    overextended, rather than sliding several more metres first?
 4. **SMOTHER**: does the dive now clearly reach the ground and stretch
    toward the kicker's feet, rather than staying an upright lunge?
 5. Camera framing for the CONTESTS view is still the one number in this
    whole area with no scratch-physics check behind it (framing can only be
-   judged by eye) — worth a look now that Slide's outcome in particular
+   judged by eye) â€” worth a look now that Slide's outcome in particular
    keeps both bodies standing closer together rather than one prone on the
    ground, which changes what the shot actually needs to frame.
 
@@ -4682,7 +4682,7 @@ appended; `ACTION_DURATION`/`ACTION_CONTACT` extended and `TACKLE_GRAB`/
 `SMOTHER_DIVE`'s own entries lengthened; new `TACKLE_HELD_STUN_DURATION`;
 `BUMP_KNOCKDOWN_STUN_DURATION` now its own literal instead of aliased to
 `TACKLE_STUN_DURATION`, comment updated to name `KNOCKED_BACK`; `SMOTHER_
-DIVE_DURATION` 0.4→0.55), `scripts/player/player_controller.gd`
+DIVE_DURATION` 0.4â†’0.55), `scripts/player/player_controller.gd`
 (`_get_tackled()` gains `is_slide`; `_try_tackle()`/`_try_lunge_tackle()`
 updated for the split; `_knockdown()` gains `action`/`snap_facing`
 parameters; `_resolve_bump_contact()`'s clean branch passes `Action.
@@ -4696,37 +4696,37 @@ comment updated), `scripts/dev/animation_viewer.gd` (`_step_contest()`'s
 resolution-signal list updated for the new actions, class doc comment's
 tackle-family clip list updated). Not touched: `_resolve_tackle_contact`,
 `_apply_bump_assist`, `_apply_knockdown_hop`, `InputManager.flick_
-vector()` — this pass changed which clip plays and how facing/momentum
+vector()` â€” this pass changed which clip plays and how facing/momentum
 are handled around each knockdown, not how any contest decides success in
 the first place or the assist/gravity work from the previous pass.
 
 
-## Handover — BUMP — MISS contest vignette kept inside the floor grid (Agent: mechanics/engine)
+## Handover â€” BUMP â€” MISS contest vignette kept inside the floor grid (Agent: mechanics/engine)
 
 Small, scoped follow-up, explicitly requested viewer-only: the user had
 made their own UI-polish edits to `animation_viewer.gd` (styled buttons,
-eased camera moves between the single-subject and contest framings — see
+eased camera moves between the single-subject and contest framings â€” see
 that file's own `_make_button()`/`_move_camera_to()`) between passes and
 asked for this fix without touching anything else, mechanics included.
 
 `ContestKind.BUMP_MISS`'s scripted vignette put A at `z=-2.0` dashing
 along a fixed `(1,0,0)` direction for the *full* `Tuning.BUMP_DASH_
 DURATION`/`BUMP_DASH_SPEED` (~4.6m of travel) while B stood at `(3.0, 0,
--2.0)` — well outside the small (±1.6m) decorative floor grid
+-2.0)` â€” well outside the small (Â±1.6m) decorative floor grid
 `_build_studio_floor()` draws, and the dash direction happened to run
 almost directly at B's own position despite the code comment claiming it
 was "off to the side, out of the swing." New `BUMP_MISS_CONTEST_DASH_
-SCALE` (0.5, viewer-only — does not touch `Tuning.BUMP_DASH_DURATION` or
+SCALE` (0.5, viewer-only â€” does not touch `Tuning.BUMP_DASH_DURATION` or
 anything a real match uses) halves the dash's travel window for this
 scenario specifically, and both bodies were repositioned (A at `z=-1.0`,
-B at `(0.85, 0, 0.5)`) so the ~1.9m halved dash runs close past B — B sits
+B at `(0.85, 0, 0.5)`) so the ~1.9m halved dash runs close past B â€” B sits
 0.85m off the dash's straight line, just past the 0.7m two `CapsuleShape3D`
 collision shapes (radius 0.35 each) would need to actually touch, so A
 visibly closes in, misses narrowly, and its own follow-through carries it
-just past B's position — all of it inside the grid's ±1.6m extent. B still
+just past B's position â€” all of it inside the grid's Â±1.6m extent. B still
 never carries the ball for this scenario (unchanged from before), so
 there's no valid target for `_try_bump_contact()` regardless of how close
-the geometry runs — a genuine whiff, not a swing that was never close.
+the geometry runs â€” a genuine whiff, not a swing that was never close.
 
 ### How it was verified
 
@@ -4734,8 +4734,8 @@ Plain headless boot re-verified clean on `animation_viewer.tscn` and the
 main menu. A temporary self-test hook (`ANIM_VIEWER_SELFTEST=1`, same
 pattern as previous passes, removed before this was done) ran the
 BUMP_MISS scenario and measured, every physics frame the dash was active:
-minimum A-to-B distance (0.85m — never dropped low enough to suggest a
-capsule collision), total distance A actually travelled (2.05m — in the
+minimum A-to-B distance (0.85m â€” never dropped low enough to suggest a
+capsule collision), total distance A actually travelled (2.05m â€” in the
 expected ~1.9-2.1m range for a halved dash plus its own settle), and the
 furthest either coordinate ever got from the origin (1.05m, inside the
 1.6m grid bound). All 5 checks passed.
@@ -4747,19 +4747,19 @@ new; `ContestKind.BUMP_MISS`'s own case in `_launch_contest()`
 repositioned; its dash-trigger branch in `_step_contest()` scales the
 injected `_bump_dash_timer` and fixes the direction comment). Not touched:
 every other CONTESTS scenario (Slide/Lunge/clean-bump/Smother all still
-run outside the ±1.6m grid too — only BUMP_MISS was flagged this pass, so
+run outside the Â±1.6m grid too â€” only BUMP_MISS was flagged this pass, so
 only it was fixed), `scripts/tuning.gd`, `scripts/player/player_
 controller.gd`, and every other mechanics file from the previous two
-passes — this was scoped to the viewer's own scripted vignette only, per
+passes â€” this was scoped to the viewer's own scripted vignette only, per
 direct instruction.
 
 
-## Handover — TACKLE_HELD no longer spills the ball (Agent: mechanics/engine)
+## Handover â€” TACKLE_HELD no longer spills the ball (Agent: mechanics/engine)
 
 One-line playtest report: "on Tackle-Slide the B player is tackle-held
 which is good, but the animation drops the ball, the ball typically would
 not spill out if the tackle is held." `_get_tackled()` applied the same
-`TACKLE_SPILL_SPEED` scatter impulse regardless of `is_slide` — correct
+`TACKLE_SPILL_SPEED` scatter impulse regardless of `is_slide` â€” correct
 for a Lunge connect (a real loose-ball contest, the ball launched away
 from a body hitting the ground) but wrong for a Slide connect, where
 nobody goes to ground at all; a held-up strip should just drop the ball
@@ -4767,10 +4767,10 @@ straight down at the target's feet.
 
 Fixed by moving the `ball.apply_central_impulse(...)` call inside the
 `else` (Lunge) branch only. `drop_ball()` itself (`Ball.detach()`) already
-does the right thing with no impulse — the ball simply stops being carried
+does the right thing with no impulse â€” the ball simply stops being carried
 and falls under its own physics from wherever it was held, which is
 exactly "drops rather than spills." Holding-the-ball adjudication
-(`holding_the_ball_called`/`field_ball_up_called`) is untouched — that's
+(`holding_the_ball_called`/`field_ball_up_called`) is untouched â€” that's
 about whether the tackle draws a free kick, not about how the ball
 physically leaves the carrier's hands, so it still fires the same way for
 both tackle types.
@@ -4780,7 +4780,7 @@ both tackle types.
 Plain headless boot re-verified clean on `full_game.tscn`. A scratch
 physics scene (deleted after the run) drove a Slide connect and a Lunge
 connect back to back and read `Ball.linear_velocity` immediately after
-each: Slide left the ball at ~0.00 m/s horizontal (no scatter — it's
+each: Slide left the ball at ~0.00 m/s horizontal (no scatter â€” it's
 falling under gravity, not flying anywhere), Lunge still measured ~3.00
 m/s (`Tuning.TACKLE_SPILL_SPEED`, unchanged). 4/4 checks passed.
 
@@ -4793,12 +4793,12 @@ Nothing else touched.
 
 ---
 
-## Handover — Core rulebook v1 merged into RULES_REFERENCE, and its two confirmed bugs plus three of its conflicts fixed
+## Handover â€” Core rulebook v1 merged into RULES_REFERENCE, and its two confirmed bugs plus three of its conflicts fixed
 
 A gameplay rulebook (objective, scoring, match structure, ball movement,
 marking, tackling, out of bounds, ball physics, infringements, officials,
 control modes) was specified for the project. It was merged into
-`docs/RULES_REFERENCE.md` rather than into a new file — that document was
+`docs/RULES_REFERENCE.md` rather than into a new file â€” that document was
 already the gameplay-rules knowledge file per the README's project layout.
 It now has two halves under one intro: the original Prototype 1 -> Prototype
 2 translation record, unchanged, and `# Core rulebook v1`, the rule set
@@ -4809,10 +4809,10 @@ anything was written down, and the places where the rulebook and the
 implementation disagreed were flagged in the document rather than silently
 resolved either way. This pass then fixed the tractable ones.
 
-### Marking prompt appearing in general play (rulebook §5) — fixed
+### Marking prompt appearing in general play (rulebook Â§5) â€” fixed
 
 Reported: the marking contest icon shows up when the opposition handballs,
-and when an AI teammate handballs past the player. Confirmed in code —
+and when an AI teammate handballs past the player. Confirmed in code â€”
 `PlayerController.live_mark_prompt()` gated on `ball.is_airborne()`, which
 is true of any ball off the ground, handballs included.
 
@@ -4823,15 +4823,15 @@ question by the out-of-bounds check. The flag clears on landing and on
 
 Deliberately gated in `live_mark_prompt()` and not in the shared
 `_mark_attempt_blocked()`: catching a teammate's handball out of the air is
-still a legitimate catch, it just isn't a marking contest — which is
+still a legitimate catch, it just isn't a marking contest â€” which is
 already the position `Ball.is_mark_eligible()` takes when it decides
 whether a take earns real mark protection. `MarkPrompt` derives entirely
 from `live_mark_prompt()`, so the one change covers the UI.
 
-### Out of bounds only firing on obvious kicks (rulebook §7) — fixed
+### Out of bounds only firing on obvious kicks (rulebook Â§7) â€” fixed
 
 Reported: works for clear out-of-bounds kicks, fails when the ball rolls
-out in general play or after a bounce. Confirmed in code — the rolled-out
+out in general play or after a bounce. Confirmed in code â€” the rolled-out
 branch of `FullGame._check_out_of_bounds()` was gated on
 `_ball.is_settled()`, so a ball crossing the line kept playing until it
 came to a complete stop somewhere outside.
@@ -4847,10 +4847,10 @@ radius (so a ball still fractionally touching the line is in play) and is
 used by the crossing test and the bisection alike, so the two can't
 disagree about where the line is. `is_settled()` survives only as a
 fallback for a ball that is somehow already out with no crossing ever
-observed — otherwise it could sit out of bounds indefinitely. The
+observed â€” otherwise it could sit out of bounds indefinitely. The
 pause/`is_held` re-entry guards are unchanged.
 
-### Tackle hold (rulebook §6) — done, both halves
+### Tackle hold (rulebook Â§6) â€” done, both halves
 
 Asked for: hold both players physically together for 1-2s on a successful
 tackle, visibly grabbed and hugged rather than snapping to a resolved
@@ -4860,43 +4860,43 @@ Durations: the Slide connect pair (`TACKLE_GRAB`/`TACKLE_HELD`, and
 `TACKLE_HELD_STUN_DURATION` with them) went 0.55s -> 1.0s. That is inside
 the asked-for range and still clearly under Lunge's 1.3s takedown, so the
 earlier playtest decision that the two tackle types should read differently
-survives — it was the gap that carried that read, not the absolute value.
+survives â€” it was the gap that carried that read, not the absolute value.
 The clips stretch by themselves, since `HumanoidAnimations` builds them
 from `ACTION_DURATION`/`ACTION_CONTACT`.
 
 Physical hold: new `_begin_tackle_hold()`/`_end_tackle_hold()` on
 `PlayerController`. For the window, the tackler is pinned at
-`Tuning.TACKLE_HOLD_DISTANCE` (0.72 m — two 0.35 m capsules, just clear of
+`Tuning.TACKLE_HOLD_DISTANCE` (0.72 m â€” two 0.35 m capsules, just clear of
 interpenetrating) and both players turn to face each other. Only the
 tackler drives the pair, so the two can never fight over the same offset.
 It runs as a branch in `_update_locomotion`, the same "something external
 owns the body for a window" shape `_knockback` and the Slide/bump/smother
 dives already use, and it works through velocity rather than by writing
-`global_position` — so it still passes through `move_and_slide()` and can't
+`global_position` â€” so it still passes through `move_and_slide()` and can't
 shove either body into geometry. The closing velocity is capped at
 `TACKLE_SLIDE_DIVE_SPEED` so a pathological frame drags rather than
 teleports. The lock releases on its own timer, on `_complete_gather()` (a
 free kick or kick-in placement, or the tackler simply picking up what they
-stripped) and on `set_ruck_contestant()` (a ball-up) — both reposition
+stripped) and on `set_ruck_contestant()` (a ball-up) â€” both reposition
 players outright, and a stale lock would drag them back off the spot.
 
-### Goal restart too rushed (rulebook §3) — done
+### Goal restart too rushed (rulebook Â§3) â€” done
 
 The rushed beat is the one after the teams have reset, not the celebration
-before it, so `SCORE_PAUSE_DURATION` was left alone — it is shared with the
+before it, so `SCORE_PAUSE_DURATION` was left alone â€” it is shared with the
 behind kick-in and is also the scoreboard flash length, and adding 2s to it
 would have lengthened both. `FullGame._prepare_centre_bounce()` now takes
 the delay as a parameter, and the goal restart passes the new
 `Tuning.GOAL_RESTART_BOUNCE_DELAY` (`CENTRE_BOUNCE_DELAY + 2.0`). A quarter
 start and a field ball-up keep the standard, snappier value.
 
-### Ball bounce (rulebook §8) — done, tuned together
+### Ball bounce (rulebook Â§8) â€” done, tuned together
 
 `BALL_BOUNCE` 0.45 -> 0.55 and `BOUNCE_SPEED` 8.0 -> 10.0 m/s, with
 `BOUNCE_ANGLE` deliberately untouched so the up-versus-ahead split that
 makes a running player run onto the rebound is unchanged and only the scale
-grew. These interact — the manual bounce rebounds off the same restitution
-the kick landing does — which is why they moved together. The manual bounce
+grew. These interact â€” the manual bounce rebounds off the same restitution
+the kick landing does â€” which is why they moved together. The manual bounce
 now comes back at ~4.3 m/s for a ~0.95 m apex before drag, against ~0.4 m
 before. Feel targets, not rule numbers; they want a real playtest.
 
@@ -4905,31 +4905,31 @@ before. Feel targets, not rule numbers; they want a real playtest.
 Recorded in `docs/RULES_REFERENCE.md` next to the rules they belong to, not
 quietly dropped:
 
-- **§2 "untouched" goals.** Scoring is pure trigger-volume geometry; there
+- **Â§2 "untouched" goals.** Scoring is pure trigger-volume geometry; there
   is no last-touched tracking and no post colliders, so a deflected ball or
   one off a post still scores a goal. Needs a real touch flag on `Ball` and
   colliders on the posts.
-- **§5 tier naming.** The rulebook's Standard/Strong/Aggressive is a pure
+- **Â§5 tier naming.** The rulebook's Standard/Strong/Aggressive is a pure
   risk ladder; the code's middle tier `MARK_RUNNING` is a gait distinction.
-  Unresolved, and the `Action` enum must not be renamed meanwhile — it is
+  Unresolved, and the `Action` enum must not be renamed meanwhile â€” it is
   positionally indexed by `ACTION_DURATION`/`ACTION_CONTACT`.
-- **§7 "embedded in the rules -> action system".** The check is now one
+- **Â§7 "embedded in the rules -> action system".** The check is now one
   decision tree, but still a per-frame poll in `full_game.gd`; there is no
   separate action system here to embed it in. Whether to build one is a
   project-wide question.
-- **§9 dangerous contact and deliberate rushed behinds**, and **§10 boundary
-  and goal umpires** — the first is the item `FEATURE_AUDIT.md` already
+- **Â§9 dangerous contact and deliberate rushed behinds**, and **Â§10 boundary
+  and goal umpires** â€” the first is the item `FEATURE_AUDIT.md` already
   records as blocked on a design decision rather than an invented default;
   the second is new work with no entities in the project at all.
 
 ### How it was verified
 
 `--headless --editor --quit` for a class-cache rescan, then plain headless
-boots of `full_game.tscn`, `kick_to_kick.tscn` and `main_menu.tscn` — all
+boots of `full_game.tscn`, `kick_to_kick.tscn` and `main_menu.tscn` â€” all
 exit 0 with no errors. Three scratch physics scenes (all deleted after the
 run) against the real `full_game.tscn` and real scenes:
 
-- **Out of bounds.** A ball rolling out in general play — no kick flight —
+- **Out of bounds.** A ball rolling out in general play â€” no kick flight â€”
   is now called after 23 frames (0.38s), while still moving
   (`is_settled()` false), 0.65 m past the line. Before, nothing fired until
   it stopped. A live kick crossing the line in the air still resolves as
@@ -4953,24 +4953,24 @@ delay, bounce values).
 
 ---
 
-## Handover — Backpedal could be parked in permanently, match officials built, Slide tackle now visibly holds, stoppages lengthened
+## Handover â€” Backpedal could be parked in permanently, match officials built, Slide tackle now visibly holds, stoppages lengthened
 
 Follow-on pass to the rulebook merge above, all from direct playtest
 feedback.
 
-### Backpedal got stuck (playtest report) — fixed
+### Backpedal got stuck (playtest report) â€” fixed
 
 Reported: "sometimes I look the other way and it gets stuck in the
 backpedal and I have to do a small turn forwards and around."
 
 Root cause, confirmed by reproduction: `_update_facing()` deliberately
-leaves facing alone while `_backpedaling` is true — that freeze is the
+leaves facing alone while `_backpedaling` is true â€” that freeze is the
 whole mechanic, eyes on the play while the feet answer the stick. But the
 only exit was `facing_alignment >= BACKPEDAL_EXIT_DOT`, and
 `facing_alignment` is facing versus stick. With facing frozen, holding the
 stick behind the body left that value pinned at roughly -1 forever. The
 only way out was to swing the stick back around to where the body already
-looked — exactly the "small turn forwards and around" in the report.
+looked â€” exactly the "small turn forwards and around" in the report.
 Reproduced by spawning a player facing -Z and holding +Z without ever
 moving the stick: still backpedalling after 5 s, body never turned, speed
 stuck at the 3.0 m/s shuffle cap.
@@ -4979,7 +4979,7 @@ Fixed with `Tuning.BACKPEDAL_MAX_DURATION` (1.0 s): a continuous shuffle
 that long stops being a defender reading the play and becomes a request to
 go that way, so the backpedal drops out and the normal branch turns the
 body toward the stick at the usual turn rate. That is the "-to-turn" half
-of the design brief's own "backpedal-to-turn transitions" — a shuffle is a
+of the design brief's own "backpedal-to-turn transitions" â€” a shuffle is a
 transition, not a mode you can be parked in. No turn burst on this exit:
 the burst belongs to the `EXIT_DOT` case, where facing has already come
 around and only the drive-off is left.
@@ -4991,7 +4991,7 @@ facing has caught up past `BACKPEDAL_EXIT_DOT`, or the stick is released.
 Every exit now goes through one `_end_backpedal(locked_out)` so the timer
 can never be left running into the next one.
 
-### Match officials (rulebook §10) — built
+### Match officials (rulebook Â§10) â€” built
 
 `scripts/field/umpire.gd` (`Umpire`), spawned by `Field._build_umpires()`
 with the rest of the ground furniture: a boundary umpire either side on
@@ -5000,7 +5000,7 @@ back down the ground.
 
 Built from the same procedural `HumanoidRig` the players use, through new
 `kit_torso` / `kit_shorts` / `kit_stripes` / `kit_stripe_colour` overrides
-on it. Those are additive — alpha 0 and 0 stripes mean "unset", which is
+on it. Those are additive â€” alpha 0 and 0 stripes mean "unset", which is
 every player, so the on-field kit is untouched. Boundary umpire: five
 black vertical stripes over white, each one thin box slightly deeper than
 the chest so a single mesh reads front and back. Goal umpire: white
@@ -5011,7 +5011,7 @@ connects its own `scored` signal, so it fires wherever the field is used
 rather than needing each mode to remember: on a goal, the umpire at that
 team's attacking end poses both upper-arm bones up over 0.28 s, holds 4 s
 (past `SCORE_PAUSE_DURATION`, so it's still up while the teams walk back),
-then eases down over 0.45 s. Bones are posed directly — an umpire has one
+then eases down over 0.45 s. Bones are posed directly â€” an umpire has one
 moving part, and a whole `AnimationTree` for a single lerp is machinery
 for its own sake.
 
@@ -5019,7 +5019,7 @@ for its own sake.
 and the ball is never deflected. Rulings are made by `FullGame` and
 `PlayerController` as they always have been; an official with a body that
 could interfere with play would be a class of physics bug for no rules
-benefit. A behind is one flag waved in the real game — not modelled, same
+benefit. A behind is one flag waved in the real game â€” not modelled, same
 reasoning.
 
 ### Slide tackle reading as one wrestle, and the Animation Viewer
@@ -5027,7 +5027,7 @@ reasoning.
 The physical hold added in the previous pass
 (`PlayerController._begin_tackle_hold`) is what makes the tackler visibly
 wrapped around the carrier rather than two clips playing side by side, and
-the Animation Viewer's TACKLE — SLIDE vignette already runs the real
+the Animation Viewer's TACKLE â€” SLIDE vignette already runs the real
 `_try_tackle` path, so it picks that up with no special-casing. Two things
 did need doing:
 
@@ -5035,17 +5035,17 @@ did need doing:
   other private field it resets. Re-running a scenario while a hold was
   still live would have had the new setup's teleported positions dragged
   straight back toward the old contest.
-- `_build_tackle_held()`'s doc comment said "no facing change — the target
+- `_build_tackle_held()`'s doc comment said "no facing change â€” the target
   keeps whatever way they were already facing." That is no longer true:
   the hold points both players at each other, which is what makes the clip
   read as being wrapped up by someone rather than staggering on the spot.
 
-### Stoppages were too quick (playtest report) — lengthened
+### Stoppages were too quick (playtest report) â€” lengthened
 
 The post-goal delay added in the previous pass was reported as not being
-applied. It was — measured at 3.02 s from the teams resetting to the ball
+applied. It was â€” measured at 3.02 s from the teams resetting to the ball
 going up, against 1.0 s before. The real note was that it still wasn't
-enough, so `CENTRE_BOUNCE_DELAY` itself doubled, 1.0 s → 2.0 s. It is
+enough, so `CENTRE_BOUNCE_DELAY` itself doubled, 1.0 s â†’ 2.0 s. It is
 shared by the quarter start, a field ball-up and the holding-the-ball free
 kick (and is the scoreboard flash length for the latter two), so every
 stoppage got the same extra beat, and `GOAL_RESTART_BOUNCE_DELAY` follows
@@ -5055,7 +5055,7 @@ it to 4.0 s since it is derived from it. Re-measured: 4.02 s after a goal.
 
 `--headless --editor --quit` for a class-cache rescan, then headless boots
 of `full_game.tscn`, `kick_to_kick.tscn`, `animation_viewer.tscn`,
-`main_menu.tscn` and `character_screen.tscn` — all clean, zero errors.
+`main_menu.tscn` and `character_screen.tscn` â€” all clean, zero errors.
 Scratch physics scenes (all deleted after the run):
 
 - **Backpedal.** Stick held straight behind the body and never moved:
@@ -5066,8 +5066,8 @@ Scratch physics scenes (all deleted after the run):
   the original bug exactly: still backpedalling after 5 s, facing dot
   -1.00, speed 3.00.
 - **Officials.** Four umpires built at the expected positions and facings
-  (goal umpires at x = ±83.5 looking back down the ground, boundary
-  umpires at z = ±68.1 looking in), with the stripe and flag meshes
+  (goal umpires at x = Â±83.5 looking back down the ground, boundary
+  umpires at z = Â±68.1 looking in), with the stripe and flag meshes
   present. A HOME goal raises only the +X umpire's flags (HOME attacks
   +X), fully up within 40 frames and back down after the hold.
 - **Restart timing.** Measured before and after the change: 3.02 s, then
@@ -5082,16 +5082,16 @@ Scratch physics scenes (all deleted after the run):
 `scripts/player/humanoid_rig.gd` (additive kit overrides),
 `scripts/player/humanoid_animations.gd` (stale TACKLE_HELD comment),
 `scripts/dev/animation_viewer.gd` (hold reset, doc note),
-`docs/RULES_REFERENCE.md` (§3 and §10 updated to match).
+`docs/RULES_REFERENCE.md` (Â§3 and Â§10 updated to match).
 
 
 ---
 
-## Handover — Field umpire throws the ball up, mark retreat, Slide tackle wrap rebuilt, goal umpire flag pose
+## Handover â€” Field umpire throws the ball up, mark retreat, Slide tackle wrap rebuilt, goal umpire flag pose
 
 All from direct playtest feedback on the previous pass.
 
-### The Slide tackle wrap wasn't reading — rebuilt
+### The Slide tackle wrap wasn't reading â€” rebuilt
 
 Feedback: "the player animation for the Slide tackle visibly holding is not
 visible, they just collide and the arms move a bit; the player should wrap
@@ -5101,7 +5101,7 @@ fixed.
 **They were too far apart to wrap.** `TACKLE_HOLD_DISTANCE` was 0.72 m,
 chosen so the two 0.35 m capsules wouldn't fight `move_and_slide()` by
 overlapping. But an arm only reaches 0.57 m from the shoulder, so at that
-range the hands can never get around the other body — it can only ever
+range the hands can never get around the other body â€” it can only ever
 look like two players colliding. `_begin_tackle_hold()` now adds a mutual
 collision exception for the length of the hold and removes it in
 `_end_tackle_hold()`, which lets the pin come in to 0.55 m with no
@@ -5109,11 +5109,11 @@ shoving. The exception is only between those two bodies; everyone else
 still collides with both.
 
 **The clip was a reach, not a wrap.** `_build_tackle_grab` moved the
-shoulders about 0.7 rad — a reach forward with the elbows half bent.
+shoulders about 0.7 rad â€” a reach forward with the elbows half bent.
 Rebuilt around an actual clamp: shoulders swing to ~1.4 rad (straight out
-in front) and *past each other* — the Z sign flips relative to
+in front) and *past each other* â€” the Z sign flips relative to
 `_base_pose`'s own outward rest spread, so the arms cross around the far
-side of the body being held — with the elbows folded to ~1.95 rad so the
+side of the body being held â€” with the elbows folded to ~1.95 rad so the
 forearms come back in rather than pointing off into space, the torso
 folded over the hold, hips dropped and both legs braced. The clamp now
 holds through the whole 1.0s with two opposing torso-twist beats in it, so
@@ -5122,21 +5122,21 @@ last tenth. `_build_tackle_held` got the matching treatment on the other
 side: arched back, arms pinned in and folded shut, struggling against the
 hold on the same two beats.
 
-The Animation Viewer's TACKLE — SLIDE vignette shows all of this with no
+The Animation Viewer's TACKLE â€” SLIDE vignette shows all of this with no
 special-casing: it already runs the real `_try_tackle` path.
 
-### Field umpire, and a real throw-up (rulebook §10 / §3)
+### Field umpire, and a real throw-up (rulebook Â§10 / Â§3)
 
 Feedback: the striped black-and-white official wasn't there, and it's the
 one who should throw the ball up.
 
-`Umpire.Role.FIELD` added — same black-and-white vertical stripes as the
+`Umpire.Role.FIELD` added â€” same black-and-white vertical stripes as the
 boundary umpires, which is a field umpire's uniform in the real game.
 `Field` builds him and exposes `field_umpire()`.
 
 `FullGame._begin_ruck_contest()` now splits in two. The first half sends
-the umpire to the stoppage — standing to the side of the two contestants
-rather than between them, facing the contest — and starts his throw-up
+the umpire to the stoppage â€” standing to the side of the two contestants
+rather than between them, facing the contest â€” and starts his throw-up
 performance; play is dead and the ball parked for
 `Tuning.BALL_UP_THROW_DURATION` (1.4s). The second half,
 `_release_ruck_contest()`, is the ball actually going up: the same
@@ -5144,8 +5144,8 @@ physical launch this always used. The two contestants are nominated there
 rather than at the top of the throw, so `RUCK_CONTEST_WINDOW` starts when
 the ball does instead of burning down through the wind-up.
 
-The throw itself is four beats over that duration — crouch over the ball,
-hold, fast sweep up to the release, settle back — posing the two upper
+The throw itself is four beats over that duration â€” crouch over the ball,
+hold, fast sweep up to the release, settle back â€” posing the two upper
 arms and the spine directly. `Umpire` has no `AnimationPlayer`: one moving
 part at a time, nothing to blend against, so a whole `AnimationTree` would
 be machinery for a pair of lerps.
@@ -5153,24 +5153,24 @@ be machinery for a pair of lerps.
 Note for later: a real boundary throw-in is the *boundary* umpire's, thrown
 over their head from off the ground. This project resolves the centre
 bounce, a field ball-up and a throw-in through one shared contest, so the
-field umpire performs all three. Recorded in `RULES_REFERENCE.md` §7
+field umpire performs all three. Recorded in `RULES_REFERENCE.md` Â§7
 rather than quietly fudged.
 
 ### Goal umpire flag pose
 
 Was arms up and slightly forward, which read as tucked back over the
-shoulders. Now dead straight, out in front and up — about 35° above
-horizontal — in a shallow V (`ARM_RAISED_SPREAD` 0.42 rad) so the two
+shoulders. Now dead straight, out in front and up â€” about 35Â° above
+horizontal â€” in a shallow V (`ARM_RAISED_SPREAD` 0.42 rad) so the two
 flags read as two flags rather than overlapping into one.
 
-### Walking back off the mark (rulebook §5)
+### Walking back off the mark (rulebook Â§5)
 
 Request: "when a player takes the mark, the player catching the ball
 pushes back on the mark, so they basically have to move backwards about 5m
 then they can do the rest of the kicking animation or play on."
 
 `PlayerController._begin_mark_retreat()`, started from `_finish_mark_catch`
-only on a *legal* mark — the same `MARK_STAND_MIN_DISTANCE` test that
+only on a *legal* mark â€” the same `MARK_STAND_MIN_DISTANCE` test that
 already grants protection and stand-the-mark, so a scrambled catch in
 general play gets none of this. It drives the body back
 `Tuning.MARK_RETREAT_DISTANCE` (5 m) along the team's own defensive
@@ -5180,7 +5180,7 @@ the dives and the tackle hold already use.
 
 Deliberately does **not** touch `_heading`: facing is driven from it, so
 leaving it alone keeps the player looking downfield while their feet carry
-them backwards — both what a real kicker does, and what makes
+them backwards â€” both what a real kicker does, and what makes
 `locomotion_blend()` pick the backward run clip instead of spinning them
 around to jog at their own goal. `_update_charge()` refuses to charge a
 kick while it runs; handball and running are untouched, so "play on" stays
@@ -5200,7 +5200,7 @@ resetting.
 
 Class-cache rescan, then headless boots of `full_game.tscn`,
 `kick_to_kick.tscn`, `animation_viewer.tscn`, `main_menu.tscn` and
-`character_screen.tscn` — all zero errors. Scratch physics scenes (deleted
+`character_screen.tscn` â€” all zero errors. Scratch physics scenes (deleted
 after the run):
 
 - **Mark retreat.** A real 22 m kick marked by a player holding the kick
@@ -5209,10 +5209,10 @@ after the run):
   refuses to charge for the whole retreat, and charges normally 30 frames
   after it ends.
 - **Field umpire and throw-up.** Present, role FIELD, 5 stripes, 31 meshes.
-  At a real ball-up he is at the stoppage (x −45.0, z −8.5, not the
+  At a real ball-up he is at the stoppage (x âˆ’45.0, z âˆ’8.5, not the
   centre), the ball sits at 0.00 m/s through the whole performance, and it
-  is released 1.38s in — one frame short of `BALL_UP_THROW_DURATION`'s 1.4s
-  — leaving at 6.85 m/s.
+  is released 1.38s in â€” one frame short of `BALL_UP_THROW_DURATION`'s 1.4s
+  â€” leaving at 6.85 m/s.
 - **Tackle pin.** A real AI tackle in the same match held at exactly
   0.55 m, so the closer distance holds with the collision exception in
   place and nothing shoves the pair apart.
@@ -5230,14 +5230,14 @@ throw), `scripts/player/player_controller.gd` (mark retreat, tackle-hold
 collision exception), `scripts/player/humanoid_animations.gd`
 (TACKLE_GRAB/TACKLE_HELD rebuilt), `scripts/tuning.gd`
 (`BALL_UP_THROW_DURATION`, `MARK_RETREAT_*`, `TACKLE_HOLD_DISTANCE`),
-`docs/RULES_REFERENCE.md` (§3, §5, §7, §10).
+`docs/RULES_REFERENCE.md` (Â§3, Â§5, Â§7, Â§10).
 
 ---
 
-## Handover — Ball locked for the whole dead-ball window
+## Handover â€” Ball locked for the whole dead-ball window
 
 Playtest report on the previous pass: "the players are grabbing the ball
-before the umpire can throw it up." Correct — the throw-up parked the ball
+before the umpire can throw it up." Correct â€” the throw-up parked the ball
 at the stoppage spot as a settled rigid body, and a settled rigid body is
 still a ball. `PlayerController._try_gather()` only skips a ball that is
 `is_held`, and nothing was holding it, so whoever got there first simply
@@ -5246,15 +5246,15 @@ picked it up mid-ceremony.
 `Ball.lock_at(position)` / `Ball.unlock()`. Locked, the body is frozen
 kinematic (a rigid body resting on the turf can still be nudged by a
 player running over it) and `is_held` reports true. That property was
-already the single question every consumer asks — gathering, marking,
-hit-outs, `is_airborne()`, the out-of-bounds settle test — so widening its
+already the single question every consumer asks â€” gathering, marking,
+hit-outs, `is_airborne()`, the out-of-bounds settle test â€” so widening its
 meaning from "in a player's hands" to "not available to be played" fixes
 all of them at once rather than adding a second flag each would have had
 to learn about. `reset_at()` and `launch()` both unlock, so a lock can
 never outlive the next thing that puts the ball somewhere and no call site
 has to remember to release it.
 
-Applied to every dead-ball path in `full_game.gd`, not just the throw-up —
+Applied to every dead-ball path in `full_game.gd`, not just the throw-up â€”
 they all had the same hole, and the walk-back delays got longer in the
 previous pass, which widened it:
 
@@ -5262,7 +5262,7 @@ previous pass, which widened it:
 - the throw-up itself (`_begin_ruck_contest`)
 - a field ball-up (`_on_field_ball_up`)
 - out on the full (`_trigger_out_on_the_full`)
-- a boundary throw-in (`_trigger_out_of_bounds`) — which also now brings
+- a boundary throw-in (`_trigger_out_of_bounds`) â€” which also now brings
   the ball back to the line at the whistle instead of letting it roll on
   into the fence for the whole pause, matching what out-on-the-full
   already did
@@ -5287,11 +5287,11 @@ the lock flag and every player's `is_carrying()` every frame:
 
 `scripts/ball/ball.gd` (`lock_at()`/`unlock()`, `is_held` widened),
 `scripts/modes/full_game.gd` (six dead-ball paths lock the ball),
-`docs/RULES_REFERENCE.md` (§3).
+`docs/RULES_REFERENCE.md` (Â§3).
 
 ---
 
-## Handover — Ball actually held in the umpire's hands, AI no longer swarms him, tackler's forearms turned the right way
+## Handover â€” Ball actually held in the umpire's hands, AI no longer swarms him, tackler's forearms turned the right way
 
 Two playtest reports, and one real bug found while verifying the first.
 
@@ -5302,7 +5302,7 @@ the throw-up beside it, so it hung in mid-air a metre or so in front of
 him. `Ball.lock_to(point)` added: the same "not available to be played"
 lock, but riding a node every frame. `Umpire` builds a `BallGrip`
 `BoneAttachment3D` on the left hand with the hold point offset half a hand
-span toward the other one, so it sits on the centreline between them —
+span toward the other one, so it sits on the centreline between them â€”
 and that offset survives the whole throw because the throw only rotates
 the arms about their own X axis, which leaves the local X axis alone.
 
@@ -5311,14 +5311,14 @@ the plain projectile for the horizontal speed that carries the ball from
 wherever his hands actually are to the contest spot in the time the toss
 spends in the air, rather than launching straight up from the spot. And it
 fires at `Umpire.THROW_RELEASE_END` (78% of the beat) rather than at the
-end — the last stretch of the clip is the follow-through, which happens
+end â€” the last stretch of the clip is the follow-through, which happens
 after the ball has gone.
 
 **The lock stopped freezing the body.** `lock_at()` froze it kinematic;
 coming out of that in the same frame the launch velocity is assigned loses
 the velocity, because the body is still kinematic when the assignment
 lands. It now pins position and zeroes velocity every physics frame
-instead — same effect (any nudge is undone the same frame), no freeze
+instead â€” same effect (any nudge is undone the same frame), no freeze
 transition to get wrong.
 
 ### The AI swarmed the umpire, and plucked the throw-up out of his hands
@@ -5326,35 +5326,35 @@ transition to get wrong.
 Found while verifying the above: the ball was being taken 0.02s after
 release, one frame, every time. `Ball.holder()` returns the *carrying
 player*, so while the umpire has it `is_held` is true but `holder()` is
-null — and `AIBrain` read that combination as a loose ball and sent the
+null â€” and `AIBrain` read that combination as a loose ball and sent the
 whole side sprinting at the umpire's hands. By the release they were
 standing on top of him, inside their own gather reach.
 
 `AIBrain` now holds position for a ball that is held with no player
 holding it: nobody can play a ball the umpire has. Measured before and
 after, same scenario: apex 1.31 m and taken in one frame, versus apex
-6.83 m and not taken within two seconds of release — an actual ball-up,
-contested on the way down. `Field.UMPIRE_CENTRE_OFFSET` also went 1.6 m →
+6.83 m and not taken within two seconds of release â€” an actual ball-up,
+contested on the way down. `Field.UMPIRE_CENTRE_OFFSET` also went 1.6 m â†’
 2.4 m so the release point is clear of a contestant's reach
 (`GATHER_RADIUS + GATHER_LUNGE_MAX` = 1.70 m) even without the AI fix.
 
 ### Tackler's forearms pointed backwards
 
 Report: "the player's arms point the opposite direction, behind the
-player, not in front." The upper arms were right — 1.42 rad is just past
+player, not in front." The upper arms were right â€” 1.42 rad is just past
 horizontal forward, and the file's own convention is confirmed by the
-handball clip, whose punching arm swings from −0.55 (drawn back) to +0.95
+handball clip, whose punching arm swings from âˆ’0.55 (drawn back) to +0.95
 (punched through). The elbows were the problem: folded ~1.95 rad, which
 puts the hands back at the tackler's own chest with the forearms pointing
 behind the upper arms. Both `_build_tackle_grab` and `_build_tackle_held`
-now use a shallow bend (0.62–0.74 rad on the grab) so the forearms carry
+now use a shallow bend (0.62â€“0.74 rad on the grab) so the forearms carry
 on forward around the target, with a little more shoulder crossing to
 bring them together in front.
 
 ### How it was verified
 
 Headless boots of `full_game.tscn`, `kick_to_kick.tscn`,
-`animation_viewer.tscn`, `main_menu.tscn` — all clean. A scratch scene
+`animation_viewer.tscn`, `main_menu.tscn` â€” all clean. A scratch scene
 (deleted) watched a real throw-up frame by frame: the ball tracks the grip
 point to within 0.000 m for all 186 frames of the hold, travels with the
 hands from y 0.80 in the crouch up to y 2.05 at release, then tosses to a
@@ -5372,38 +5372,38 @@ release at the top of the sweep), `scripts/mechanics/ai_brain.gd` (hold
 position while an official has the ball),
 `scripts/player/humanoid_animations.gd` (elbow fold on both tackle clips).
 
-## Handover — AI disposal target selection, 15m run rule, CommandBrain reflex fix (Agent: AI brain)
+## Handover â€” AI disposal target selection, 15m run rule, CommandBrain reflex fix (Agent: AI brain)
 
 A directed pass on the AI brain only. The `docs/FEATURE_AUDIT.md` "leave
 the AI baseline alone" priority call was consciously overridden for this
-one — the doc's AI section and dev-order note were updated to match rather
+one â€” the doc's AI section and dev-order note were updated to match rather
 than left to diverge.
 
 ### AI disposal now picks a teammate
 
 Before: a carrying `AIBrain` fired every disposal straight down its own run
-line at goal — a "handball under pressure" launched goal-ward, not at
+line at goal â€” a "handball under pressure" launched goal-ward, not at
 anyone. `request_handball_to()` (the human call-for-ball) was the only path
 that ever aimed a disposal at a specific player.
 
 Now `_think_carrying()`, when a runnable unpressured shot at goal isn't on,
-calls `_best_disposal_target()` — scores every teammate on the three things
+calls `_best_disposal_target()` â€” scores every teammate on the three things
 the brief named:
 
-- **forward** — `dot(dir-to-mate, dir-to-goal)`; a backward option is a
+- **forward** â€” `dot(dir-to-mate, dir-to-goal)`; a backward option is a
   hard reject unless pressured leaves nothing else,
-- **open** — nearest opponent to *that teammate*, so of two mates level the
+- **open** â€” nearest opponent to *that teammate*, so of two mates level the
   one without a man on him wins,
-- **dist** — shorter is safer,
+- **dist** â€” shorter is safer,
 
 plus a cheap `_lane_blocked()` reject (perpendicular distance from each
 opponent to the pass segment). Nothing clearing `AI_DISPOSAL_SCORE_FLOOR`
-→ returns null and the old blind fallback runs unchanged. A pick inside
+â†’ returns null and the old blind fallback runs unchanged. A pick inside
 `AI_HANDBALL_MAX` handballs; past it, kicks.
 
 Aiming reuses `request_handball_to`'s trick, now factored into `_pass_to()`
 and shared: point the body at the receiver for a few physics frames
-(`AI_AIM_TURN_FRAMES_HANDBALL` = 2, `_KICK` = 6 — a kick needs the longer
+(`AI_AIM_TURN_FRAMES_HANDBALL` = 2, `_KICK` = 6 â€” a kick needs the longer
 wind-up because an AI kick's aim locks to body facing the instant stance
 begins and can't be nudged after) before releasing. `_commit_kick()` grew
 an `aim_point` + `hold_gait` so a pass-kick tracks the receiver at a low
@@ -5412,42 +5412,42 @@ a distant goal runs on.
 
 All new numbers are in `tuning.gd`'s AI block, commented as feel-tuned AI
 judgement (same standing as `AI_SUPPORT_PULL` / `AI_KICK_RANGE`), **not
-AFL rule numbers — they want a real playtest.**
+Aussie Rules rule numbers â€” they want a real playtest.**
 
 ### 15m run rule enforced
 
-`docs/RULES_REFERENCE.md` §1 had it as "tracked but the free kick waits for
-match rules" — `PlayerController.carry_distance()` / `bounce_overdue()`
+`docs/RULES_REFERENCE.md` Â§1 had it as "tracked but the free kick waits for
+match rules" â€” `PlayerController.carry_distance()` / `bounce_overdue()`
 existed with no consumer, and nothing made a player bounce.
 
 - `PlayerController._track_carry_distance()` now emits a new
   `run_too_far_called(carrier)` the frame a carry passes
-  `Tuning.BOUNCE_INTERVAL` (15 m) with no bounce — gated out while
+  `Tuning.BOUNCE_INTERVAL` (15 m) with no bounce â€” gated out while
   mid-disposal (`_action != NONE`) or stunned, latched (`_run_too_far_
   latched`) so it fires once per overrun, latch cleared wherever
   `_carry_distance` resets.
-- `FullGame._on_run_too_far()` (modelled on `_on_holding_the_ball`) →
+- `FullGame._on_run_too_far()` (modelled on `_on_holding_the_ball`) â†’
   whistle, `GameState.Phase.STOPPAGE`, scoreboard flash, then
   `_award_possession_at(spot, nearest_opponent)` after `CENTRE_BOUNCE_
-  DELAY` — the same possession+protection restart every other free kick
+  DELAY` â€” the same possession+protection restart every other free kick
   uses. Free kick to the nearest opponent (user's call).
 - `AIBrain._think_carrying()` sets `wants_bounce()` (was inherited base
   `false`) once `carry_distance()` passes `BOUNCE_INTERVAL *
-  AI_BOUNCE_AT_FRACTION` (0.75 → ~11.25 m), so an AI carrier bounces on
+  AI_BOUNCE_AT_FRACTION` (0.75 â†’ ~11.25 m), so an AI carrier bounces on
   the run and never actually concedes the free kick. Verified: AI bounced
-  5× in a scripted straight-line sprint, max carry 12.8 m, never tripped
+  5Ã— in a scripted straight-line sprint, max carry 12.8 m, never tripped
   the ruling; a non-bouncing runner tripped it at 15.1 m.
 
 ### CommandBrain contradicted its own docstring
 
 `command_brain.gd`'s class doc promised a commanded player "should still
 gather a loose ball at its feet, still contest a mark it's already running
-under" — but `update()` did `_move_toward(commanded_target); return` while
+under" â€” but `update()` did `_move_toward(commanded_target); return` while
 an order was active, so `super.update()` (AIBrain's think) never ran and
 none of that happened until the point was reached or the order cleared.
 
 Fixed: `update()` now always runs `super.update()` first, then the order
-overrides movement **only** where AIBrain's decision was idle drift —
+overrides movement **only** where AIBrain's decision was idle drift â€”
 tracked by a new `AIBrain._decision_committed` flag (set true in
 `_think_carrying` / the loose-ball chaser branch / the carrier-press
 branch, left false for drift-home and generic support). A live contest
@@ -5456,12 +5456,12 @@ always outranks a lead order now. Verified: a commanded player ordered
 
 ### Audit points 4 & 5 (minimal)
 
-- **Off-ball spacing** — `_spacing_push()` adds a light shove off the
+- **Off-ball spacing** â€” `_spacing_push()` adds a light shove off the
   nearest teammate inside `AI_SPACING_RADIUS`, folded into `_think_support`
   and the two drift-home branches so support runners stop stacking.
-- **Tackle commit** — `_think_defend()` now gates `wants_tackle` on also
+- **Tackle commit** â€” `_think_defend()` now gates `wants_tackle` on also
   keeping up with the carrier (`speed() + AI_TACKLE_CLOSING_MARGIN >=
-  holder.speed()`) — no more committing a standing tackle to someone
+  holder.speed()`) â€” no more committing a standing tackle to someone
   outrunning you. Loose-ball chase eases to a contain gait (0.7) when an
   opponent is clearly closer to the drop zone (`AI_LOOSE_BALL_CEDE_MARGIN`).
 
@@ -5469,11 +5469,11 @@ always outranks a lead order now. Verified: a commanded player ordered
 
 Scratch scene (`_scratch_ai_test.tscn`/`.gd`, deleted) ran four scripted
 scenarios headless at `--fixed-fps 60`: disposal picks the open teammate
-over a shadowed one (dir·open 0.71 vs dir·shadow 0.39); 15 m ruling fires
+over a shadowed one (dirÂ·open 0.71 vs dirÂ·shadow 0.39); 15 m ruling fires
 at 15.1 m; AI bounces and never concedes; CommandBrain gathers a loose
 ball against its order. Plus `full_game.tscn` headless for 20 000 frames
-(~330 s, multiple quarters + restarts) — clean, no errors. Editor class
-rescan clean. **Not playtested — every new AI number is a first guess.**
+(~330 s, multiple quarters + restarts) â€” clean, no errors. Editor class
+rescan clean. **Not playtested â€” every new AI number is a first guess.**
 
 ### Files changed
 
@@ -5486,7 +5486,7 @@ connect), `scripts/tuning.gd` (new `AI_*` constants),
 `docs/RULES_REFERENCE.md` / `docs/FEATURE_AUDIT.md` (15 m rule now
 enforced, AI section updated).
 
-## Handover — ruck no-crowd, FULL_TEAM proximity switch + auto-carrier + camera snap (Agent: AI brain)
+## Handover â€” ruck no-crowd, FULL_TEAM proximity switch + auto-carrier + camera snap (Agent: AI brain)
 
 Two areas, both verified headless (scratch `_scratch_ruck_cam_test.*`,
 deleted): a standalone ruck setup for Area 1, a real `full_game.tscn`
@@ -5527,7 +5527,7 @@ index round-robin. Verified: switch landed on the player 1.5 m from the
 ball, not the index-next one 12 m away.
 
 **Auto-carrier.** New `FullGame._on_home_gained_possession()` off
-`ball_gathered` (covers marks — `_finish_mark_catch` routes through
+`ball_gathered` (covers marks â€” `_finish_mark_catch` routes through
 `_complete_gather`): in FULL_TEAM + SINGLE_PLAYER scheme + open play, the
 HumanBrain is moved straight onto whoever HOME wins the ball. Suppressed
 for `Tuning.AUTO_CARRIER_SWITCH_GRACE` (1.5 s) after a manual switch so it
@@ -5554,14 +5554,14 @@ onto the new player, ending 0.1 m from them in XZ.
 6->4.5, `CAM_FOV_BASE` 72->64; `CAM_FULL_SIDE_SIDE_OFFSET` 60->35,
 `CAM_FULL_SIDE_HEIGHT` 18->11, `CAM_FULL_SIDE_FOV` 68->55. At SIDE_OFFSET 35
 (vs `FIELD_HALF_WIDTH` 67.5) the full-side rig now sits *inside* the
-boundary — an elevated infield vantage rather than an outside-the-fence
+boundary â€” an elevated infield vantage rather than an outside-the-fence
 mount; push back toward ~50 if it should clear the line. All feel numbers,
 unplayed.
 
 ### Not done
 
 The optional SINGLE_PLAYER pregame position pick (let the human choose a
-non-index-0 roster slot, index 0 stays the AI ruck) — needs a new pregame
+non-index-0 roster slot, index 0 stays the AI ruck) â€” needs a new pregame
 card + `Settings` field + `_spawn_teams` wiring, which is UI-agent scope.
 Flagged, not built.
 
@@ -5577,70 +5577,70 @@ possession`, proximity switch, `_manual_switch_grace`),
 constants), `docs/FEATURE_AUDIT.md`.
 
 
-## Handover — Full Game goes 18-a-side + SINGLE_PLAYER pregame position pick
+## Handover â€” Full Game goes 18-a-side + SINGLE_PLAYER pregame position pick
 
 Two changes to Full Game. Both verified headless with scripted physics
 scenarios (scratch scenes, deleted).
 
 ### 1. Real 18-a-side
 
-`Tuning.TEAM_SIZE` 4 → 18. Everything in `full_game.gd` already keyed off
+`Tuning.TEAM_SIZE` 4 â†’ 18. Everything in `full_game.gd` already keyed off
 that constant or `_home_players.size()`; three spots needed real work.
 
-**Roster → formation slot.** New `TeamFormation.ROSTER_ORDER` (+ a
+**Roster â†’ formation slot.** New `TeamFormation.ROSTER_ORDER` (+ a
 `roster_slot(i)` accessor): the 18 `SLOTS` reindexed so the on-ball unit
-— **RUCK, CENTRE, RUCK_ROVER, ROVER** — is roster indices 0-3, then the
+â€” **RUCK, CENTRE, RUCK_ROVER, ROVER** â€” is roster indices 0-3, then the
 other 14 in `SLOTS` order (back line first). This makes roster index 0 the
 actual ruckman (the one `_bounce_off` has always nominated) and roster
-indices 0-3 exactly the four players AFL's centre-square law allows inside
-the 50 m square at a bounce — so no separate "clamp the 5th player out of
+indices 0-3 exactly the four players Aussie Rules's centre-square law allows inside
+the 50 m square at a bounce â€” so no separate "clamp the 5th player out of
 the square" logic is needed. A sub-18 roster is still a strict prefix.
 `_kickoff_slot`'s full-roster branch maps both teams straight through
 `roster_slot` (`world_position` folds in `attack_direction`, so AWAY
-mirrors HOME — AWAY was a flat 30 m even-spread before). The 4-slot
+mirrors HOME â€” AWAY was a flat 30 m even-spread before). The 4-slot
 `Settings.FORMATION_PRESETS` path is kept only for `TEAM_SIZE < 18`
 testing; at the real 18 it would collide two HOME players on shared slots.
 
 **Team stagger.** `TeamFormation` is one mirrored layout, so HOME's back
 line resolves to the *exact* world points of AWAY's forward line
-(full-back on full-forward, CHB on CHF, both wings on the centre line) —
+(full-back on full-forward, CHB on CHF, both wings on the centre line) â€”
 two coincident capsules blow the Jolt solver up on the first tick
 (`|pos|` hit 2800 m in the first failing run). `_kickoff_slot` now shifts
-each side ±`FORMATION_TEAM_STAGGER` (2 m) along the ground line, so paired
+each side Â±`FORMATION_TEAM_STAGGER` (2 m) along the ground line, so paired
 opponents spawn ~4 m apart (defender goal-side of their opponent). Not an
-AFL number — just enough clearance that nothing spawns on one point.
+Aussie Rules number â€” just enough clearance that nothing spawns on one point.
 
 **Centre bounce.** `_centre_bounce_slot` gains a `team` param: indices 0-3
 keep the ruck + on-baller ring (unchanged math), indices 4+ return their
 `_kickoff_slot` (formation, staggered, outside the square). `_reposition_
 kickoff` passes `team` through. `_spawn_team` now positions each fresh
 instance at its `_centre_bounce_slot` (not the raw formation slot) before
-`add_child` — at 18-a-side roster index 1 is the Centre, which resolves to
+`add_child` â€” at 18-a-side roster index 1 is the Centre, which resolves to
 world origin, and origin is where the ball sits: the exact overlap the
 existing block comment warns about. `_bounce_off`'s `_home_players[0]` /
 `_away_players[0]` ruck wire is untouched (comment expanded).
 
 **Perf.** `ai_brain.gd` does ~5 `get_nodes_in_group("players")` scans per
-carrying brain per frame; the concern was O(n²) at 36 bodies. Measured
+carrying brain per frame; the concern was O(nÂ²) at 36 bodies. Measured
 wall/sim ratio over a 150-200 s headless match: **0.38-0.44** (headless
-runs 2.3× faster than real time). No cache needed — the sketched `_players`
+runs 2.3Ã— faster than real time). No cache needed â€” the sketched `_players`
 per-frame snapshot was not applied.
 
 ### 2. SINGLE_PLAYER position pick
 
 `_spawn_teams` hardwired the `HumanBrain` to `_home_players[0]`. Now:
 
-- `Settings.home_human_slot` — persisted `int`, default **1** (= Centre
+- `Settings.home_human_slot` â€” persisted `int`, default **1** (= Centre
   under `ROSTER_ORDER`, so a fresh single-player match doesn't hand the
   human the ruck, which `HumanBrain` can't actively palm), clamped
   `0..TEAM_SIZE-1`. Same `_load`/`save` wiring as `home_formation_index`.
-- `full_game_pregame_screen.gd` — a real (non-locked) **YOUR POSITION**
+- `full_game_pregame_screen.gd` â€” a real (non-locked) **YOUR POSITION**
   card, 6th functional card, built on the existing `SettingsScreen.Row` /
   `_formation_options` / `_set_formation` pattern. Static options, one per
   roster slot: `"<n> <label>"` (1-based index + `TeamFormation` short
   label, so the repeated FB/BP/W/HFF/FP labels stay distinct). All 18
   offered (slot 0 = the ruck is a legal if odd pick). A 4th readout row,
-  `POSITION`, echoes it; `READOUT_HEIGHT` 52 → 66, `READOUT_BOTTOM` 8 → 6.
+  `POSITION`, echoes it; `READOUT_HEIGHT` 52 â†’ 66, `READOUT_BOTTOM` 8 â†’ 6.
   Card row is now 10 wide: `10*90 + 9*18 = 1062 < 1200` usable.
 - `_spawn_teams` puts the `HumanBrain` + `ControlMode.set_controlled_
   player` on `_home_players[clampi(Settings.home_human_slot, 0, size-1)]`.
@@ -5663,9 +5663,9 @@ boot, `--fixed-fps 60`:
 - **Geometry** (sampled off a forced `_reposition_kickoff` at every centre
   bounce): 18 per side; **exactly 4 per team** within the ring; the other
   14 match an independent `roster_slot` recompute and sit outside the 50 m
-  square; closest HOME↔AWAY pair **2.60 m** (the two rucks) — no coincident
+  square; closest HOMEâ†”AWAY pair **2.60 m** (the two rucks) â€” no coincident
   spawn; no player `|pos|` over ~80 m (the corner forward on its spot); one
-  quarter rollover exercised (`_end_quarter → _next_quarter →
+  quarter rollover exercised (`_end_quarter â†’ _next_quarter â†’
   _prepare_centre_bounce`); 9 000 frames, zero errors.
 - **Position pick** (`home_human_slot = 7`): `ControlMode.controlled_
   player(HOME)` is `_home_players[7]`, that body has a `HumanBrain`, every
@@ -5673,9 +5673,9 @@ boot, `--fixed-fps 60`:
   contestant at the opening bounce and slot 7 is *not*; a non-ruck AI (a
   wing) holds its spot to **0.008 m** through the whole pre-bounce hold.
 - Sub-case `home_human_slot = 0`: human is on slot 0, has the `HumanBrain`,
-  and is itself the nominated ruck contestant — no error.
+  and is itself the nominated ruck contestant â€” no error.
 
-Not verified: the pregame screen is GUI and there is no screenshot tool —
+Not verified: the pregame screen is GUI and there is no screenshot tool â€”
 the 10-card row width, the 4-row readout vertical fit, and the two-level
 cursor over the new card are parse/boot-verified only plus a code read.
 
@@ -5684,32 +5684,32 @@ cursor over the new card are parse/boot-verified only plus a code read.
 Three small fixes off the first play of the 18-a-side build:
 
 1. **Ball froze on the goal line at a score.** `_on_scored` hard-locked the
-   ball (`lock_at(global_position)` — zeroes velocity, pins the transform)
+   ball (`lock_at(global_position)` â€” zeroes velocity, pins the transform)
    the instant the score trigger fired, so a goal/behind snapped to a dead
-   stop mid-flight on the line. Added `Ball.set_unplayable(bool)` — a soft
+   stop mid-flight on the line. Added `Ball.set_unplayable(bool)` â€” a soft
    dead-ball state that makes `is_held` true (no gather/mark; `_check_out_
    of_bounds` already ignores a held ball) *without* pinning the transform.
    `_on_scored` uses it instead, so the ball flies on through the posts
    under its own physics. Cleared by `unlock()` / `lock_at()` / `attach_
    to()`, so the restart (`_rest_ball_at` or a kick-in's `reset_at`) resets
-   it like before. Verified: forced a goal in a scripted match — post-score
+   it like before. Verified: forced a goal in a scripted match â€” post-score
    the ball travelled **5.7 m** in 40 frames and kept its speed, vs frozen.
 
 2. **On-baller walked into the ruck contest.** The followers-first roster
    order puts the CENTRE (and the two rovers) at roster indices 1-3, and
-   their *formation* slots sit on/beside the exact centre spot — so
-   `AIBrain`'s hold-the-line step (`_move_toward(home_position, …)`) during
+   their *formation* slots sit on/beside the exact centre spot â€” so
+   `AIBrain`'s hold-the-line step (`_move_toward(home_position, â€¦)`) during
    a contest walked them straight into the middle / centre circle. New
    `FullGame._kickoff_home_position()`: for roster indices 1-3 the AI drift
    anchor set by `_reposition_kickoff` is their **ring** position
    (`_centre_bounce_slot`), not the formation slot. Everyone else is
    unchanged. Verified: through the whole opening contest the closest any
-   roster-1-3 player got to the centre was **7.00 m** (the ring radius) —
+   roster-1-3 player got to the centre was **7.00 m** (the ring radius) â€”
    they hold, they don't drift in.
 
 3. **Man-on-the-mark dragged across the ground.** `PlayerController`'s
    frozen block slid the player onto `_frozen_anchor` via a direct
-   `global_position` write at `MARK_STAND_SNAP_SPEED` (24 m/s) — fine for a
+   `global_position` write at `MARK_STAND_SNAP_SPEED` (24 m/s) â€” fine for a
    2 m nudge, but at 18-a-side the "nearest opponent" is often 15-20 m away
    and got hauled there. Now: while still short of the mark the player
    *jogs* to it under real movement (`velocity` + `move_and_slide`, so it
@@ -5721,7 +5721,7 @@ Three small fixes off the first play of the 18-a-side build:
 4. **`switch_player` (FULL_TEAM) walked the roster instead of going to the
    ball.** `ControlMode.next_in_roster` with a reference returned the
    nearest body *that isn't `current`*, so once you were on the nearest a
-   press stepped you to the second-nearest — away from the ball. It now
+   press stepped you to the second-nearest â€” away from the ball. It now
    returns the nearest, period; `_switch_human_player`'s `next == previous`
    guard makes "already there" a no-op. TEAM_COMMAND's reference-less
    round-robin is untouched. Verified: from the farthest HOME player one
@@ -5729,7 +5729,7 @@ Three small fixes off the first play of the 18-a-side build:
 
 5. **Auto-carrier stopped firing after a manual switch.** `_switch_human_
    player` armed `_manual_switch_grace` (`AUTO_CARRIER_SWITCH_GRACE`, 1.5 s)
-   and `_on_home_gained_possession` bailed while it was up — so for 1.5 s
+   and `_on_home_gained_possession` bailed while it was up â€” so for 1.5 s
    after every switch, HOME winning the ball did *not* move the human onto
    the winner. With the switch now meaning "get me to the ball" (fix 4),
    that grace only fought the identical intent. Removed entirely
@@ -5738,20 +5738,20 @@ Three small fixes off the first play of the 18-a-side build:
    different HOME player gathering jumps the human onto the gatherer.
 
 6. **No indicator for which player you're driving in the wide view.** New
-   `ControlledPlayerRing` (`scripts/ui/controlled_player_ring.gd`) — a
+   `ControlledPlayerRing` (`scripts/ui/controlled_player_ring.gd`) â€” a
    CanvasLayer overlay in the same instantiate-and-assign-fields family as
    `KickCrosshair` / `MarkPrompt`. It projects a 0.62 m world circle at the
    controlled HOME player's feet (each vertex unprojected individually, so
    it foreshortens into a proper ground ellipse) and draws it with the
    kick-aim accent. `FullGame` binds `.player` in `_on_focus_changed` and
-   toggles `.active` from `_apply_camera_mode` — **FULL_SIDE camera only**
+   toggles `.active` from `_apply_camera_mode` â€” **FULL_SIDE camera only**
    (in CHASE the camera already sits behind your player). Verified: wired,
    active in FULL_SIDE, bound to the controlled player. Not visually
-   confirmed — no screenshot tool.
+   confirmed â€” no screenshot tool.
 
 ### Files changed
 
-`scripts/tuning.gd` (`TEAM_SIZE` 4 → 18; `MARK_STAND_SNAP_SPEED` →
+`scripts/tuning.gd` (`TEAM_SIZE` 4 â†’ 18; `MARK_STAND_SNAP_SPEED` â†’
 `MARK_STAND_JOG_SPEED` + `MARK_STAND_ARRIVE_RADIUS`),
 `scripts/ai/team_formation.gd` (`ROSTER_ORDER`, `roster_slot`),
 `scripts/modes/full_game.gd` (`FORMATION_TEAM_STAGGER`, `_kickoff_slot`
@@ -5761,25 +5761,25 @@ position, `_spawn_teams` human-slot wiring, `_bounce_off` comment,
 `_on_scored` soft dead-ball, `_switch_human_player` comment),
 `scripts/ball/ball.gd` (`set_unplayable` / `_unplayable`),
 `scripts/player/player_controller.gd` (frozen-block jog),
-`scripts/autoload/control_mode.gd` (`next_in_roster` → nearest, not
+`scripts/autoload/control_mode.gd` (`next_in_roster` â†’ nearest, not
 nearest-non-current), `scripts/modes/full_game.gd` also (drop
 `_manual_switch_grace`; `_controlled_ring` wiring),
 `scripts/tuning.gd` also (drop `AUTO_CARRIER_SWITCH_GRACE`),
-`scripts/ui/controlled_player_ring.gd` (new — foot ring overlay),
+`scripts/ui/controlled_player_ring.gd` (new â€” foot ring overlay),
 `scripts/autoload/settings.gd` (`home_human_slot` + load/save),
 `scripts/ui/full_game_pregame_screen.gd` (YOUR POSITION card,
 `_your_position_options`, `_set_your_position`, 4th readout row, layout
-comments, subtitle), `scripts/ui/main_menu.gd` (FULL GAME subtitle 4 →
+comments, subtitle), `scripts/ui/main_menu.gd` (FULL GAME subtitle 4 â†’
 18), `docs/FEATURE_AUDIT.md`, `docs/RULES_REFERENCE.md`.
 
 
-## Handover — Tackling coach reworked into a guided tutorial + tackle-bag scenery
+## Handover â€” Tackling coach reworked into a guided tutorial + tackle-bag scenery
 
 The kick-to-kick tackling coach ran `TackleChallenge`: 5 timed attempts,
 rival handed the ball and running *away*, player chasing from behind. It
 taught nothing about *which* tackle to use. Replaced entirely (user brief)
-with `TackleTutorial` — a guided, freeze-and-teach walk through the tackle
-kit — and dressed that corner of the field with padded tackle bags.
+with `TackleTutorial` â€” a guided, freeze-and-teach walk through the tackle
+kit â€” and dressed that corner of the field with padded tackle bags.
 
 ### `TackleTutorial` (`scripts/mechanics/tackle_tutorial.gd`, was `tackle_challenge.gd`)
 
@@ -5788,21 +5788,21 @@ Still a `CoachChallenge` subclass (reuses `challenge_started` /
 timer). 5 steps in a `const STEPS` table, each carrying its card text plus
 both control schemes as `KeyHintBar`-shaped `{keys,label}` dicts:
 
-1. **Close the gap** — sprint (Shift / RT). Dummy stands still 16 m ahead;
+1. **Close the gap** â€” sprint (Shift / RT). Dummy stands still 16 m ahead;
    cleared when the player closes within
    `TACKLE_TUTORIAL_SPRINT_CLEAR_RANGE` (3 m).
-2. **Slide dive-in** — hold E / B from just outside reach. Dummy jogs in
-   and holds at `TACKLE_TUTORIAL_DIVE_HOLD_DISTANCE` (2.2 m — past
+2. **Slide dive-in** â€” hold E / B from just outside reach. Dummy jogs in
+   and holds at `TACKLE_TUTORIAL_DIVE_HOLD_DISTANCE` (2.2 m â€” past
    `TACKLE_RADIUS`, inside `TACKLE_SLIDE_DIVE_RANGE`).
-3. **Standing slide** — hold E / B at point-blank. Dummy runs into contact.
-4. **Lunge** — tap Q / X at point-blank.
-5. **Hit stick** — hold L / LB + flick toward them.
+3. **Standing slide** â€” hold E / B at point-blank. Dummy runs into contact.
+4. **Lunge** â€” tap Q / X at point-blank.
+5. **Hit stick** â€” hold L / LB + flick toward them.
 
-Per-step flow: `step_changed` → mode shows the card + freezes input;
-player `confirm` → `begin_rep()` positions the dummy and hands it the ball;
-player applies the control → an outcome signal clears the step →
-`TACKLE_TUTORIAL_STEP_GAP` beat → next card. `decline` skips a step. No
-score, no fail — a rep that produces nothing within
+Per-step flow: `step_changed` â†’ mode shows the card + freezes input;
+player `confirm` â†’ `begin_rep()` positions the dummy and hands it the ball;
+player applies the control â†’ an outcome signal clears the step â†’
+`TACKLE_TUTORIAL_STEP_GAP` beat â†’ next card. `decline` skips a step. No
+score, no fail â€” a rep that produces nothing within
 `TACKLE_TUTORIAL_STALE_REP_TIME` (4 s) silently repositions and re-runs.
 Success detection: the **player's** new `PlayerController.tackle_committed(is_slide)`
 tells a slide rep from a lunge rep (steps 2/3 want `is_slide`, step 4 wants
@@ -5811,7 +5811,7 @@ once at the end as the "tutorial complete" event.
 
 ### `TutorialDummyBrain` (`scripts/mechanics/tutorial_dummy_brain.gd`)
 
-The rival needs to run *at* the player and never dispose — the opposite of
+The rival needs to run *at* the player and never dispose â€” the opposite of
 `AIBrain`. `TackleTutorial.begin()` stashes `rival.brain()`, swaps in a
 `TutorialDummyBrain`, and restores the real brain in `_finish()`/`force_miss()`.
 Extends `PlayerBrain` directly (all `wants_*` stay the base false), overrides
@@ -5819,7 +5819,7 @@ only `wish_direction()` (flat vector toward `target`, zero inside
 `stop_distance`) and `gait()` (flat `run_gait`; 0 for the sprint step so the
 player does the running). PlayerController's own
 `wish.length_squared() > 0` locomotion gate is what parks it at
-`stop_distance` — no need to also zero the gait.
+`stop_distance` â€” no need to also zero the gait.
 
 ### Freeze-and-teach card (`kick_to_kick.gd`)
 
@@ -5838,7 +5838,7 @@ dismissed.
 Procedural like everything else (mirrors `field.gd`'s goal-post idiom):
 red `CylinderMesh` body + squashed hemisphere cap + dark foot collar,
 player-sized (`TACKLE_BAG_HEIGHT` 1.8 m), origin at the feet. A
-`StaticBody3D` + `CylinderShape3D` on the **world** layer only — solid to
+`StaticBody3D` + `CylinderShape3D` on the **world** layer only â€” solid to
 run into, but no `PlayerController` and not on the "players" layer, so every
 contest proximity query is blind to it. Three of them, spawned in
 `_setup_tackle_ground()` at `TACKLE_BAG_OFFSETS` from the tackling coach.
@@ -5847,33 +5847,33 @@ contest proximity query is blind to it. Three of them, spawned in
 
 Class-cache rescan (new `class_name`s `TackleTutorial` / `TutorialDummyBrain`
 / `TackleBag`), then headless boot of `res://scenes/modes/kick_to_kick.tscn`
-(`--fixed-fps 60 --quit-after 240`) — clean exit, bags spawn without physics
+(`--fixed-fps 60 --quit-after 240`) â€” clean exit, bags spawn without physics
 warnings. Scripted-brain physics scenario: TODO fill in after running.
 
 ### Files changed
 
-`scripts/mechanics/tackle_challenge.gd` → `tackle_tutorial.gd` (rewritten),
-`scenes/mechanics/tackle_challenge.tscn` → `tackle_tutorial.tscn`,
+`scripts/mechanics/tackle_challenge.gd` â†’ `tackle_tutorial.gd` (rewritten),
+`scenes/mechanics/tackle_challenge.tscn` â†’ `tackle_tutorial.tscn`,
 `scripts/mechanics/tutorial_dummy_brain.gd` (new),
 `scripts/props/tackle_bag.gd` + `scenes/props/tackle_bag.tscn` (new),
 `scripts/player/player_controller.gd` (`tackle_committed` signal + 2 emits),
 `scripts/modes/kick_to_kick.gd` (tutorial wiring, step card, bag spawn,
-rival-freeze gate), `scripts/tuning.gd` (`TACKLE_CHALLENGE_*` block →
+rival-freeze gate), `scripts/tuning.gd` (`TACKLE_CHALLENGE_*` block â†’
 `TACKLE_TUTORIAL_*` + `TACKLE_BAG_*`), `scripts/mechanics/ai_brain.gd`
 (`carry_gait_scale` doc comment), `docs/FEATURE_AUDIT.md`.
 
 
-## Handover — Backpedal turn-out sped up + Agility stat + lean apply-all/start-player profile (2026-08-30)
+## Handover â€” Backpedal turn-out sped up + Agility stat + lean apply-all/start-player profile (2026-08-30)
 
 Playtest: "still get stuck backpedalling 2-3 too many steps before it turns
 the player around". The only turn-out path was the fixed
 `Tuning.BACKPEDAL_MAX_DURATION = 1.0 s` timeout in
-`player_controller.gd:_update_locomotion` — too long, and identical for every
+`player_controller.gd:_update_locomotion` â€” too long, and identical for every
 player.
 
 ### Backpedal timing
 
-- `BACKPEDAL_MAX_DURATION` 1.0 → **0.55 s** (baseline, agility 1.0).
+- `BACKPEDAL_MAX_DURATION` 1.0 â†’ **0.55 s** (baseline, agility 1.0).
 - New `BACKPEDAL_TURNOUT_MIN_DURATION` (0.28 s) floor, and
   `AGILITY_TURN_RATE_MIN/MAX_MULT` (0.85 / 1.25) bracket.
 - New static helpers in `tuning.gd`:
@@ -5883,15 +5883,15 @@ player.
   (so agility 1.0 leaves turn rates exactly as tuned).
 - `PlayerController` gains `var agility_scale := 1.0`. It feeds three spots:
   the backpedal turn-out check (line ~628), the plant-and-pivot `turn_rate`
-  (line ~696), and `_update_facing`'s `FACING_TURN_RATE` — so a nimble player
+  (line ~696), and `_update_facing`'s `FACING_TURN_RATE` â€” so a nimble player
   both drops the shuffle sooner and physically rotates out of it faster.
 
 ### Agility stat + lean apply-mode
 
-- `Tuning.CHARACTER_AGILITY_MIN/MAX/STEP/DEFAULT` (0.6 / 1.5 / 0.05 / 1.0) —
+- `Tuning.CHARACTER_AGILITY_MIN/MAX/STEP/DEFAULT` (0.6 / 1.5 / 0.05 / 1.0) â€”
   a unitless multiplier, not an SI quantity.
 - `CharacterProfile` (`autoload/character_profile.gd`) rewritten: adds
-  `agility` + `agility_scale()`, an `apply_all` bool, and — new — its own
+  `agility` + `agility_scale()`, an `apply_all` bool, and â€” new â€” its own
   persistence to `user://character_profile.cfg` (`save()` / `_load()`, every
   numeric field re-clamped on load). Its own ConfigFile rather than through
   `Settings` because `Settings` loads *after* this autoload.
@@ -5900,8 +5900,8 @@ player.
   TO** toggle row (ALL PLAYERS / START PLAYER) between the stats and PLAY.
   `_row_count()` now `ATTRIBUTE_ROWS.size() + 2`; `_apply_index()` /
   `_play_index()` name the two trailing rows. PLAY *and* backing out via Esc
-  now both `_commit_draft()` → `CharacterProfile.save()` (lean screen has no
-  separate SAVE row). Layout: `STAT_TOP` 184→160, `ROW_SEPARATION` 13→8 to
+  now both `_commit_draft()` â†’ `CharacterProfile.save()` (lean screen has no
+  separate SAVE row). Layout: `STAT_TOP` 184â†’160, `ROW_SEPARATION` 13â†’8 to
   fit the extra row.
 - This is the **lean** port of P1's `character_state.py` roster: keeps the
   apply-all-vs-one toggle + persistence, drops the named-player list, the
@@ -5912,7 +5912,7 @@ player.
 - `full_game.gd._apply_character_profile(start_idx)` (called from
   `_spawn_teams` right after the HumanBrain is assigned): pushes
   speed/agility/kick_power/kick_accuracy/height-scale onto HOME. Scope from
-  `CharacterProfile.apply_all` — every HOME player, or (false) only
+  `CharacterProfile.apply_all` â€” every HOME player, or (false) only
   `_home_players[start_idx]` (the pregame `Settings.home_human_slot`).
   AWAY untouched. Mirrors `kick_to_kick.gd`'s per-field assignment, which
   also gained the `agility_scale` line.
@@ -5922,9 +5922,9 @@ player.
 
 ### How it was verified
 
-- Class-cache rescan + headless boot of main menu — clean exit 0.
+- Class-cache rescan + headless boot of main menu â€” clean exit 0.
 - Headless boot of `full_game.tscn`, `kick_to_kick.tscn`,
-  `character_screen.tscn` (`--fixed-fps 60`) — all clean exit 0.
+  `character_screen.tscn` (`--fixed-fps 60`) â€” all clean exit 0.
 - Scripted-brain physics scratch scene (deleted): two players holding the
   stick straight back, `agility_scale` 0.6 vs 1.5. Turn-out measured 0.900 s
   vs 0.367 s, each within a frame of `Tuning.backpedal_turnout_duration()`
@@ -5943,12 +5943,12 @@ TO toggle, commit-on-exit, layout nudge), `scripts/modes/kick_to_kick.gd`
 (`_apply_character_profile` + `_assign_human_to` note), `docs/FEATURE_AUDIT.md`.
 
 
-## Handover — Mechanics audit A1/A2/A6: PlayerRegistry + SpatialQuery, Action dicts (2026-08-30)
+## Handover â€” Mechanics audit A1/A2/A6: PlayerRegistry + SpatialQuery, Action dicts (2026-08-30)
 
 First pass through `docs/MECHANICS_AUDIT.md` Part A. No behaviour change
-intended — pure structure/perf.
+intended â€” pure structure/perf.
 
-### A1 — PlayerRegistry (`scripts/ai/player_registry.gd`, new)
+### A1 â€” PlayerRegistry (`scripts/ai/player_registry.gd`, new)
 
 Flat `static var _all: Array[PlayerController]`. `PlayerController._ready()`
 calls `PlayerRegistry.add(self)` (was `add_to_group(&"players")`),
@@ -5956,14 +5956,14 @@ calls `PlayerRegistry.add(self)` (was `add_to_group(&"players")`),
 on the spawn path so reads stay branchless. Mode-agnostic (node lifecycle,
 not `ControlMode.register_team`, which kick_to_kick never calls).
 
-The `&"players"` group is now unused and no longer joined — every consumer
+The `&"players"` group is now unused and no longer joined â€” every consumer
 moved to the registry / SpatialQuery.
 
-### A2 — SpatialQuery (`scripts/ai/spatial_query.gd`, new)
+### A2 â€” SpatialQuery (`scripts/ai/spatial_query.gd`, new)
 
 One home for the ~10 hand-rolled "iterate players, filter by team/carrying/
 self, keep nearest" loops that were spread across player_controller.gd,
-ai_brain.gd and ball.gd — each of which called
+ai_brain.gd and ball.gd â€” each of which called
 `get_tree().get_nodes_in_group(&"players")` (fresh Array alloc + fill every
 call), several per physics frame per AI brain at 18-a-side
 (`ai_brain._best_disposal_target` nested one inside its own loop).
@@ -5971,7 +5971,7 @@ call), several per physics frame per AI brain at 18-a-side
 API: `nearest_opponent` / `nearest_opposing_carrier` / `nearest_teammate` /
 `nearest_where(predicate)` / `nearest_opponent_distance` /
 `is_closest_on_team` / `lane_blocked` / `opponents_within` /
-`any_other_ruck_contestant`. All XZ-plane (documented) — the one caller that
+`any_other_ruck_contestant`. All XZ-plane (documented) â€” the one caller that
 needs true 3D distance, `ball.gd._nearest_uncontested_catcher` (ball
 airborne, spherical reach), keeps its own math and just iterates
 `PlayerRegistry.all()` directly.
@@ -5991,7 +5991,7 @@ players; ~2-3% shorter read for a teammate mid-jump when scoring pass
 openness. Judged the more correct metric for a ground game; flagged here in
 case a feel pass ever disagrees.
 
-### A6 — Action timing as Dictionaries (`tuning.gd`)
+### A6 â€” Action timing as Dictionaries (`tuning.gd`)
 
 `ACTION_DURATION` / `ACTION_CONTACT` were flat arrays indexed positionally
 by the `Action` enum with a "never reorder" warning. Now `Dictionary`
@@ -6005,19 +6005,19 @@ arrays.
 
 - Class-cache rescan clean.
 - Headless `full_game` (3000 frames earlier, 1500 here), `kick_to_kick`,
-  `animation_viewer`, `main.tscn`, `character_screen` — all exit 0, no
+  `animation_viewer`, `main.tscn`, `character_screen` â€” all exit 0, no
   script errors.
 - Scratch scene (deleted): spawned HOME/AWAY players at known positions,
   asserted `PlayerRegistry` size + add/remove-on-free and all SpatialQuery
   helpers (nearest opponent/teammate, range cutoff, is_closest, lane
-  blocked/clear, opponents_within, distance) — 12/12.
+  blocked/clear, opponents_within, distance) â€” 12/12.
 - Scratch `SceneTree` script (deleted): action-timing parity 0/17
   mismatches.
 
 ### Also fixed
 
 A latent bug in `full_game._apply_character_profile` (from the 2026-08-30
-agility change): `var targets: Array[PlayerController] = a if c else [b]` —
+agility change): `var targets: Array[PlayerController] = a if c else [b]` â€”
 the ternary types as plain `Array`, so the typed-var assignment threw at
 runtime. Rewritten as an index loop, no intermediate array.
 
@@ -6029,3 +6029,4 @@ SpatialQuery), `scripts/mechanics/ai_brain.gd` (5 helpers via SpatialQuery),
 `scripts/ball/ball.gd` (catcher scan), `scripts/tuning.gd` (Action dicts +
 accessors + header comments), `scripts/modes/full_game.gd`
 (`_apply_character_profile` ternary fix), `docs/MECHANICS_AUDIT.md`.
+

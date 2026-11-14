@@ -1,17 +1,17 @@
-@tool
+﻿@tool
 class_name UIIcon
 extends Control
 
 ## Single-colour line icons, drawn rather than imported.
 ##
-## The project has no icon assets and no art pipeline yet (design doc §9,
+## The project has no icon assets and no art pipeline yet (design doc Â§9,
 ## same reason `turf.gdshader` computes the ground analytically and
 ## `humanoid_rig.gd` builds a figure out of boxes). Eight glyphs at one
 ## size did not justify starting one: these are stroked from a shape table
 ## in `_draw()`, so they cost no import step, stay sharp at any UI scale,
 ## and recolour by setting `line_colour` instead of shipping a second set.
 ##
-## Swap for real assets by replacing this node with a TextureRect — the
+## Swap for real assets by replacing this node with a TextureRect â€” the
 ## only thing anything outside here uses is `icon_name` and `line_colour`.
 
 ## Every shape below is authored on this square, then scaled to `size`.
@@ -33,12 +33,12 @@ const SHAPES := {
 		["poly", 12.0, 15.5, 16.8, 10.2],
 		["dot", 12.0, 15.5, 1.1],
 	],
-	# Lightning bolt — quickness/nimbleness, the AGILITY row.
+	# Lightning bolt â€” quickness/nimbleness, the AGILITY row.
 	&"agility": [
 		["loop", 13.0, 2.5, 6.5, 13.0, 10.5, 13.0, 10.5, 21.5,
 			17.5, 9.5, 13.5, 9.5],
 	],
-	# Two stacked chevrons over a baseline — "up", without reusing the
+	# Two stacked chevrons over a baseline â€” "up", without reusing the
 	# HEIGHT row's arrow.
 	&"jump": [
 		["poly", 4.5, 11.0, 12.0, 3.5, 19.5, 11.0],
@@ -59,7 +59,7 @@ const SHAPES := {
 		["poly", 18.8, 12.0, 21.8, 12.0],
 	],
 	# Dumbbell, seen side on: bar, inner plates, outer plates. No end caps
-	# — at 24px they close up against the outer plates and the whole thing
+	# â€” at 24px they close up against the outer plates and the whole thing
 	# reads as one blob.
 	&"strength": [
 		["poly", 8.0, 12.0, 16.0, 12.0],
@@ -92,16 +92,16 @@ const SHAPES := {
 		["poly", 12.5, 12.2, 13.6, 9.8],
 		["poly", 15.6, 13.2, 16.7, 11.2],
 	],
-	# Solid play triangle — the one filled glyph, on the action button.
+	# Solid play triangle â€” the one filled glyph, on the action button.
 	&"play": [
 		["fill", 7.5, 4.0, 19.0, 12.0, 7.5, 20.0],
 	],
-	# AFL ball, stood on its end: a pointed oval with a seam and four
-	# laces across it — main_menu.gd's FULL GAME card badge.
+	# Aussie Rules ball, stood on its end: a pointed oval with a seam and four
+	# laces across it â€” main_menu.gd's FULL GAME card badge.
 	#
 	# Upright and pointed, not the wide flat ellipse this was. Lying on
 	# its side with a single horizontal line through the middle, the glyph
-	# read as an eye at badge size — the long axis and the seam ran the
+	# read as an eye at badge size â€” the long axis and the seam ran the
 	# same way, which is the shape of an iris, not of a football.
 	&"football": [
 		["loop", 12.0, 2.8, 15.3, 5.4, 17.2, 8.8, 17.6, 12.0, 17.2, 15.2,
@@ -113,14 +113,14 @@ const SHAPES := {
 		["poly", 9.7, 13.6, 14.3, 13.6],
 		["poly", 9.9, 16.0, 14.1, 16.0],
 	],
-	# Witches-hat training cone — main_menu.gd's SCENARIO card badge.
+	# Witches-hat training cone â€” main_menu.gd's SCENARIO card badge.
 	&"cone": [
 		["loop", 12.0, 3.0, 8.0, 19.0, 16.0, 19.0],
 		["poly", 6.0, 20.0, 18.0, 20.0],
 		["poly", 9.0, 13.0, 15.0, 13.0],
 	],
-	# AFL goalposts: two tall goal posts flanked by two shorter behind
-	# posts on a baseline — main_menu.gd's GOAL KICKING card badge.
+	# Aussie Rules goalposts: two tall goal posts flanked by two shorter behind
+	# posts on a baseline â€” main_menu.gd's GOAL KICKING card badge.
 	&"goalpost": [
 		["poly", 4.0, 10.0, 4.0, 21.0],
 		["poly", 9.0, 3.0, 9.0, 21.0],
@@ -128,7 +128,7 @@ const SHAPES := {
 		["poly", 20.0, 10.0, 20.0, 21.0],
 		["poly", 2.0, 21.0, 22.0, 21.0],
 	],
-	# Simple right-pointing chevron-arrow — the "open this" glyph in the
+	# Simple right-pointing chevron-arrow â€” the "open this" glyph in the
 	# corner of a main_menu.gd card.
 	&"arrow_right": [
 		["poly", 5.0, 12.0, 19.0, 12.0],
@@ -152,7 +152,7 @@ const SHAPES := {
 		["poly", 10.5, 12.0, 20.0, 12.0],
 		["poly", 17.0, 8.8, 20.2, 12.0, 17.0, 15.2],
 	],
-	# Padlock — the "· LOCKED" tag glyph.
+	# Padlock â€” the "Â· LOCKED" tag glyph.
 	&"lock": [
 		["arc", 12.0, 9.0, 4.0, 200.0, 340.0],
 		["loop", 6.5, 9.0, 17.5, 9.0, 17.5, 20.0, 6.5, 20.0],
@@ -218,3 +218,4 @@ func _draw_shape(shape: Array, origin: Vector2, scale: float, width: float) -> v
 		"dot":
 			draw_circle(origin + Vector2(shape[1], shape[2]) * scale, shape[3] * scale,
 				line_colour)
+

@@ -1,4 +1,4 @@
-class_name DebugHud
+﻿class_name DebugHud
 extends CanvasLayer
 
 ## Numbers on screen, because "does this feel weighty?" is not a question
@@ -6,19 +6,19 @@ extends CanvasLayer
 ##
 ## Speed in real m/s against the named gaits, the live blend-space
 ## coordinate, the current animation state, and the carry distance
-## against AFL's 15m bounce rule. If the blend position is not moving
-## when the player turns hard, the strafe axis is not being fed — that is
+## against Aussie Rules's 15m bounce rule. If the blend position is not moving
+## when the player turns hard, the strafe axis is not being fed â€” that is
 ## the kind of thing this exists to catch. F3 / D-pad up toggles it.
 ##
-## Reset-ball hint: "debug_reset" (R / Back-View — see project.godot's
+## Reset-ball hint: "debug_reset" (R / Back-View â€” see project.godot's
 ## [input] section) is a real player-facing convenience in kick_to_kick's
 ## practice loop, not only a dev tool, despite the action's debug-flavoured
-## name — the only place it was previously surfaced at all was as one row
+## name â€” the only place it was previously surfaced at all was as one row
 ## of this file's own CONTROLS table below, which only exists while this
 ## whole debug overlay is toggled on (F3), and even then reads as one line
 ## of dense reference text among many rather than a real prompt. _reset_hint
 ## is a small always-on KeyHintBar chip (same [chip] label pattern
-## character_screen.gd's own control legend already uses — see
+## character_screen.gd's own control legend already uses â€” see
 ## key_hint_bar.gd) that stays visible independently of the F3 toggle
 ## below, which now only hides/shows _panel and _label rather than this
 ## whole CanvasLayer, so a persistent child can opt out of that toggle
@@ -29,13 +29,13 @@ extends CanvasLayer
 
 const BAR_WIDTH := 14
 
-## Controls reference table — one row per action, [action label, keyboard,
+## Controls reference table â€” one row per action, [action label, keyboard,
 ## gamepad]. Static (matches project.godot's actual input map, verified
 ## against it directly rather than guessed), so it's built once into
 ## _controls_text in _ready() instead of re-formatted every frame like the
 ## live state below it. Several actions deliberately share one physical
 ## button (Q/X: handball, running mark, smother; LT: kick stance, spoil;
-## B: bounce, tackle) — that's this project's own "ball state + player
+## B: bounce, tackle) â€” that's this project's own "ball state + player
 ## state decides, not just the button" design (see player_controller.gd's
 ## Marking section header comment), not a conflict, so rows are grouped to
 ## read that way rather than hidden.
@@ -61,10 +61,10 @@ const CONTROLS := [
 	["Toggle this HUD", "F3", "D-Pad Up"],
 ]
 
-## Where the persistent Reset Ball chip sits — bottom-left, clear of
+## Where the persistent Reset Ball chip sits â€” bottom-left, clear of
 ## _panel's own top-left ~640x400 box (see debug_hud.tscn) and of the
 ## centred crosshair/mark-prompt overlays. Fixed pixel position, same as
-## character_screen.gd's own KeyHintBar placement — the project's viewport
+## character_screen.gd's own KeyHintBar placement â€” the project's viewport
 ## is a fixed 1280x720 canvas under "canvas_items" stretch (project.godot's
 ## [display] section), so an absolute position scales correctly with the
 ## window instead of needing anchor math.
@@ -78,7 +78,7 @@ var _debug_info_visible := true
 
 ## Keyed by InputManager.Device, same {"keys", "label"} shape KeyHintBar
 ## already expects everywhere else it's used (character_screen.gd's
-## _hint_sets) — built once in _ready() since the keyboard entry has to
+## _hint_sets) â€” built once in _ready() since the keyboard entry has to
 ## read the live (possibly player-remapped) binding, not a hardcoded one.
 var _reset_hint_sets := {}
 var _reset_hint: KeyHintBar
@@ -89,10 +89,10 @@ var _reset_hint: KeyHintBar
 
 func _ready() -> void:
 	## Single card panel behind the existing text block (see soft_brutalist.gd)
-	## — this is a debug overlay, not a screen, so it doesn't warrant themed
+	## â€” this is a debug overlay, not a screen, so it doesn't warrant themed
 	## per-row layout, just legibility over any field background. Kept
 	## translucent (not the opaque panel_style() fill) so it reads as an
-	## overlay rather than a solid card blocking the 3D view behind it —
+	## overlay rather than a solid card blocking the 3D view behind it â€”
 	## and deliberately faint (0.14, down from an earlier 0.35) so it stays
 	## an overlay even over a bright field, not a card sitting on top of one.
 	_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -109,7 +109,7 @@ func _ready() -> void:
 	_label.add_theme_color_override(&"font_color", SoftBrutalist.INK)
 	# A light outline on the dark ink text is what keeps it legible now
 	# that the panel behind it is faint enough to show grass/sky/players
-	# through — the panel alone no longer guarantees enough contrast on
+	# through â€” the panel alone no longer guarantees enough contrast on
 	# its own the way the old, denser fill did.
 	_label.add_theme_color_override(&"font_outline_color", Color(SoftBrutalist.PANEL, 0.9))
 	_label.add_theme_constant_override(&"outline_size", 3)
@@ -120,7 +120,7 @@ func _ready() -> void:
 
 	_reset_hint_sets = {
 		InputManager.Device.KEYBOARD: [{"keys": _reset_key_label(), "label": "Reset Ball"}],
-		# Wording matches this file's own CONTROLS table above (button 4 —
+		# Wording matches this file's own CONTROLS table above (button 4 â€”
 		# see project.godot's debug_reset binding) so the two don't drift
 		# into disagreeing labels for the same physical button.
 		InputManager.Device.GAMEPAD: [{"keys": "Back / View", "label": "Reset Ball"}],
@@ -151,13 +151,13 @@ func _apply_reset_hint() -> void:
 	_reset_hint.set_hints(_reset_hint_sets.get(InputManager.device, keyboard))
 
 
-## Live off Settings, not a hardcoded "R" — mirrors remap_screen.gd's own
+## Live off Settings, not a hardcoded "R" â€” mirrors remap_screen.gd's own
 ## _key_display_name() so a rebound key shows correctly here too rather
 ## than silently going stale the moment a player remaps Reset Ball.
 func _reset_key_label() -> String:
 	var keycode := Settings.keyboard_keycode(&"debug_reset")
 	if keycode == KEY_NONE:
-		return "—"
+		return "â€”"
 	return OS.get_keycode_string(keycode).to_upper()
 
 
@@ -190,7 +190,7 @@ func _compose() -> String:
 			mark_bits.append("STANDING THE MARK")
 		lines.append("mark     %s" % (" / ".join(mark_bits) if not mark_bits.is_empty() else "-"))
 		if player.is_ruck_contestant():
-			lines.append("ruck     CONTESTING — RB to hit out")
+			lines.append("ruck     CONTESTING â€” RB to hit out")
 		if player.is_carrying():
 			var overdue := "  BOUNCE NOW" if player.bounce_overdue() else ""
 			lines.append("carry    %5.1f m / %0.0f m%s" % [
@@ -243,3 +243,4 @@ func _gait_label(speed: float) -> String:
 func _bar(fraction: float) -> String:
 	var filled := int(round(clampf(fraction, 0.0, 1.0) * BAR_WIDTH))
 	return "[%s%s]" % ["#".repeat(filled), ".".repeat(BAR_WIDTH - filled)]
+

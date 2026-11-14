@@ -1,7 +1,7 @@
-class_name Ball
+﻿class_name Ball
 extends RigidBody3D
 
-## The football, simulated for real (design doc §5).
+## The football, simulated for real (design doc Â§5).
 ##
 ## Prototype 1's ball was a scripted lerp along a flight path with a
 ## cosmetic two-hop bounce bolted onto the landing, and every outcome was
@@ -15,7 +15,7 @@ extends RigidBody3D
 ##      off a pointed end is the single most recognisable thing a footy
 ##      does, and it falls straight out of the collision shape.
 ##   2. Quadratic air drag. Linear damping makes a kick look like it is
-##      moving through syrup; v^2 drag gives the real asymmetric arc —
+##      moving through syrup; v^2 drag gives the real asymmetric arc â€”
 ##      lazy up, steep down.
 ##   3. Magnus force, so spin actually curves the flight.
 
@@ -32,7 +32,7 @@ const HULL_SEGMENTS := 14
 @onready var _mesh: MeshInstance3D = $MeshInstance3D
 
 ## "Not available to be played" rather than literally "in a player's
-## hands" — a carrier is holding it, and so is the umpire before a
+## hands" â€” a carrier is holding it, and so is the umpire before a
 ## throw-up (see lock_at()). Every reader of this wants the same answer in
 ## both cases: no gathering it, not airborne, not settled out of bounds,
 ## not markable.
@@ -49,12 +49,12 @@ var _locked := false
 var _lock_point: Node3D = null
 var _lock_position := Vector3.ZERO
 
-## "Dead, but let it finish travelling" — set after a goal/behind so the
+## "Dead, but let it finish travelling" â€” set after a goal/behind so the
 ## ball flies through the posts under its own physics (real, not frozen
 ## on the line) while still counting as is_held: nobody gathers or marks
 ## it, and FullGame's out-of-bounds watch ignores it, during the
 ## celebration. Unlike _locked it does NOT pin the transform. Cleared by
-## the next thing that puts the ball anywhere — unlock()/lock_at()/
+## the next thing that puts the ball anywhere â€” unlock()/lock_at()/
 ## attach_to() all reset it.
 var _unplayable := false
 
@@ -64,37 +64,37 @@ var _release_grace := 0.0
 var _was_airborne := false
 
 ## Set true only by a launch() that came off a KICK disposal, and cleared
-## the instant the ball touches down or is gathered — the live "is this
+## the instant the ball touches down or is gathered â€” the live "is this
 ## still an uninterrupted kick flight" state is_mark_eligible() reads.
 ## Handballs/bounces/hit-outs never set this, so they can never be marked,
-## same as real AFL.
+## same as real Aussie Rules.
 var _is_kick_flight := false
 var _flight_origin := Vector3.ZERO
 
 ## Set true only by a launch() from a manual BOUNCE disposal (see
 ## PlayerController._dispose). While true, _physics_process scripts one
 ## clean rebound off the turf instead of trusting the prolate hull, which
-## scrubs a steep nose-first strike to near-nothing at random — fine for a
+## scrubs a steep nose-first strike to near-nothing at random â€” fine for a
 ## loose ball, wrong for a bounce the carrier is meant to run onto.
 ## Cleared the instant that rebound is applied (or on gather/reset).
 var _is_bounce_flight := false
 var _bounce_rebounded := false
 
-## Who launched the current flight — separate from `_carrier` above, which
+## Who launched the current flight â€” separate from `_carrier` above, which
 ## exists for a different purpose (the collision-exception the launcher
 ## needs so the ball doesn't immediately foul their own body) and is
 ## deliberately wiped to null once _release_grace elapses (see
 ## _physics_process). `_last_disposer` is set the same moment but never
 ## auto-clears, so last_disposer() below still answers correctly for the
-## rest of the flight — this used to just read _carrier directly, which
+## rest of the flight â€” this used to just read _carrier directly, which
 ## meant it silently went back to "nobody" a fraction of a second into
 ## every kick, right when Tuning.MARK_SELF_CLEAR_DISTANCE/self-catch-
 ## gravity-exclusion actually needed to know.
 var _last_disposer: Node3D = null
 
-## Which team kicked the ball currently in flight — set alongside
+## Which team kicked the ball currently in flight â€” set alongside
 ## _is_kick_flight, read by whoever adjudicates "out on the full"
-## (RULES_REFERENCE.md §4: a free kick to the *other* side). Meaningless
+## (RULES_REFERENCE.md Â§4: a free kick to the *other* side). Meaningless
 ## whenever _is_kick_flight is false; not eagerly read in that case.
 var _kick_team: Tuning.Team = Tuning.Team.NONE
 
@@ -134,14 +134,14 @@ func _physics_process(delta: float) -> void:
 		global_transform = _carry_point.global_transform
 		return
 
-	# Held by an official rather than carried by a player — see lock_at()/
+	# Held by an official rather than carried by a player â€” see lock_at()/
 	# lock_to(). Pinned by hand every frame rather than by freezing the
 	# body: freezing works, but coming *out* of it in the same frame the
 	# launch velocity is assigned loses that velocity (the body is still
 	# kinematic when the assignment lands), which is exactly what a
 	# throw-up does. Re-pinning position and zeroing velocity has the same
-	# effect — nothing can nudge it, since any nudge is undone the same
-	# frame — with no freeze transition to get wrong.
+	# effect â€” nothing can nudge it, since any nudge is undone the same
+	# frame â€” with no freeze transition to get wrong.
 	if _locked:
 		if is_instance_valid(_lock_point):
 			_lock_position = _lock_point.global_position
@@ -161,7 +161,7 @@ func _physics_process(delta: float) -> void:
 			and global_position.y <= Tuning.BOUNCE_REBOUND_HEIGHT:
 		_bounce_rebounded = true
 		_is_bounce_flight = false
-		# Keep a cut of the forward speed, then cap it outright — momentum
+		# Keep a cut of the forward speed, then cap it outright â€” momentum
 		# transfer from a sprint (DISPOSAL_MOMENTUM_TRANSFER) otherwise sent
 		# the rebound further ahead the faster you were going, which
 		# overran the carrier. The cap makes "how far in front it lands"
@@ -175,8 +175,8 @@ func _physics_process(delta: float) -> void:
 	var airborne := is_airborne()
 	if _was_airborne and not airborne:
 		landed.emit(linear_velocity.length())
-		# Touched down without being marked — no longer a live mark chance,
-		# same as a kick that bounces before anyone takes it in real AFL.
+		# Touched down without being marked â€” no longer a live mark chance,
+		# same as a kick that bounces before anyone takes it in real Aussie Rules.
 		_is_kick_flight = false
 		_kick_team = Tuning.Team.NONE
 	_was_airborne = airborne
@@ -203,7 +203,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 
 ## "Catch gravity" (user-requested marking assist): a genuine small
 ## attractive force toward whichever uncontested player is nearest while
-## this is still in flight — a real force through the same integration
+## this is still in flight â€” a real force through the same integration
 ## drag/Magnus above already use, not a scripted snap onto a player.
 ## Strongest at point-blank range, zero at CATCH_GRAVITY_RADIUS, so it
 ## nudges a near-miss into a catch without visibly bending a kick's arc
@@ -224,18 +224,18 @@ func _apply_catch_gravity(state: PhysicsDirectBodyState3D) -> void:
 
 ## Excludes the disposer of THIS flight while it's still within
 ## Tuning.MARK_SELF_CLEAR_DISTANCE of where they let it go (same window
-## PlayerController._mark_attempt_blocked() gates the prompt/attempt on —
+## PlayerController._mark_attempt_blocked() gates the prompt/attempt on â€”
 ## see its own comment). Without this, a kicker is trivially the nearest
 ## uncontested player to their own kick for the first instant of its
 ## flight, so this force was actively pulling their own ball straight back
-## toward them — not just a UI/prompt bug, a genuine physical drift back
+## toward them â€” not just a UI/prompt bug, a genuine physical drift back
 ## into the kicker's hands that the distance/time gates elsewhere couldn't
 ## fix on their own, since the ball never actually got anywhere for those
 ## gates to measure.
 func _nearest_uncontested_catcher() -> PlayerController:
 	var best: PlayerController = null
 	var best_dist := Tuning.CATCH_GRAVITY_RADIUS
-	# PlayerRegistry, not a per-frame get_nodes_in_group scan — this runs
+	# PlayerRegistry, not a per-frame get_nodes_in_group scan â€” this runs
 	# every physics tick the ball is airborne (docs/MECHANICS_AUDIT.md A1).
 	# Keeps its own 3D distance: the ball has real height here and catch
 	# reach is a sphere, unlike SpatialQuery's ground-plane queries.
@@ -252,7 +252,7 @@ func _nearest_uncontested_catcher() -> PlayerController:
 
 
 ## Send the ball. `direction` need not be normalised. `is_kick_disposal` marks
-## this flight as mark-eligible (see is_mark_eligible()) — only
+## this flight as mark-eligible (see is_mark_eligible()) â€” only
 ## PlayerController._dispose()'s KICK branch should ever pass true; every
 ## other caller (handball, bounce, hit-out, the centre bounce) leaves it
 ## false, since none of those can ever be marked.
@@ -285,7 +285,7 @@ func launch(direction: Vector3, speed: float, spin: Vector3, from: Node3D = null
 
 ## Carry the ball at `point`, following it exactly. Kept as a kinematic
 ## frozen body rather than reparented so it never leaves the physics
-## world — the moment it is released it is already where it looks like it
+## world â€” the moment it is released it is already where it looks like it
 ## is, with no transform hand-off to get wrong.
 func attach_to(point: Node3D, holder: Node3D) -> void:
 	if _carry_point == point:
@@ -318,7 +318,7 @@ func detach() -> void:
 
 ## The current carrier, or null if the ball is loose. Distinct from
 ## `_carrier` staying set through the release-grace window after a
-## disposal — this only reports a live hold.
+## disposal â€” this only reports a live hold.
 func holder() -> Node3D:
 	return _carrier if is_held else null
 
@@ -328,7 +328,7 @@ func is_airborne() -> bool:
 
 
 ## Where this ball would land if gravity were the only force acting on it
-## from here — ignores drag/Magnus (both real forces on the actual flight,
+## from here â€” ignores drag/Magnus (both real forces on the actual flight,
 ## see this file's own header) since this exists to steer AIBrain's
 ## receivers toward a sensible spot in real time, not to reproduce the
 ## exact physics trajectory. Standard projectile time-to-ground: solves
@@ -356,7 +356,7 @@ func is_settled() -> bool:
 
 
 ## True while this is still an uninterrupted kick flight that has covered
-## Tuning.MARK_STAND_MIN_DISTANCE — the real AFL test for a legal mark, as
+## Tuning.MARK_STAND_MIN_DISTANCE â€” the real Aussie Rules test for a legal mark, as
 ## opposed to just a good take (see PlayerController._complete_mark, which
 ## reads this to decide whether to grant mark protection). Distance is
 ## straight-line from where it left the boot: that's what a kick's
@@ -367,16 +367,16 @@ func is_mark_eligible() -> bool:
 
 
 ## True while this is still an uninterrupted kick flight, with no minimum-
-## distance requirement — unlike is_mark_eligible() above, which layers
+## distance requirement â€” unlike is_mark_eligible() above, which layers
 ## MARK_STAND_MIN_DISTANCE on top of the same _is_kick_flight flag. "Out on
-## the full" (RULES_REFERENCE.md §4) has no such distance floor: a short
+## the full" (RULES_REFERENCE.md Â§4) has no such distance floor: a short
 ## kick that clears the boundary is out on the full exactly the same as a
 ## long one.
 func is_kick_flight() -> bool:
 	return _is_kick_flight and not is_held
 
 
-## Straight-line distance from wherever this flight was launched — set by
+## Straight-line distance from wherever this flight was launched â€” set by
 ## launch() on every disposal, not just a kick, so this reads sensibly for
 ## a handball/bounce too. Used by PlayerController to gate an Aggressive
 ## mark attempt on the ball actually having gone somewhere yet (see
@@ -400,14 +400,14 @@ func last_disposer() -> Node3D:
 	return _last_disposer
 
 
-## Which team's kick is currently in flight — Tuning.Team.NONE if this
+## Which team's kick is currently in flight â€” Tuning.Team.NONE if this
 ## isn't a live, uninterrupted kick flight. Only meaningful while
 ## is_kick_flight() is true.
 func kick_team() -> Tuning.Team:
 	return _kick_team
 
 
-## An external hit that doesn't control the ball — a spoil, later a bump.
+## An external hit that doesn't control the ball â€” a spoil, later a bump.
 ## Clears mark eligibility the same way landing does (see
 ## is_mark_eligible()): a touched ball is no longer a clean, uninterrupted
 ## kick, even if it's still in the air afterward. Kept here rather than
@@ -419,7 +419,7 @@ func knock(impulse: Vector3) -> void:
 	apply_central_impulse(impulse)
 
 
-## Held out of play at `position` until unlock() — the umpire has it. The
+## Held out of play at `position` until unlock() â€” the umpire has it. The
 ## ball is pinned there every physics frame (see _physics_process) rather
 ## than left as a settled rigid body, because a rigid body sitting on the
 ## turf can still be nudged by a player running over it, and is_held above
@@ -446,12 +446,12 @@ func lock_at(position: Vector3) -> void:
 	_lock_position = position
 
 
-## Held out of play in `point`'s hands, riding it every frame — the
+## Held out of play in `point`'s hands, riding it every frame â€” the
 ## umpire's grip through a throw-up. Same "not available to be played"
 ## state lock_at() gives, just following something instead of sitting
 ## still. Deliberately not attach_to(): that one is for a PLAYER carrying
 ## the ball and adds a collision exception with the carrier's own body,
-## which an umpire hasn't got (see Umpire's class doc — officials have no
+## which an umpire hasn't got (see Umpire's class doc â€” officials have no
 ## collision at all).
 func lock_to(point: Node3D) -> void:
 	lock_at(point.global_position)
@@ -459,7 +459,7 @@ func lock_to(point: Node3D) -> void:
 
 
 ## Back into play. Both reset_at() and launch() call this themselves, so a
-## lock can never outlive the next thing that puts the ball anywhere —
+## lock can never outlive the next thing that puts the ball anywhere â€”
 ## there is no call site that has to remember to unlock.
 func unlock() -> void:
 	_locked = false
@@ -512,8 +512,9 @@ func _build_hull() -> ConvexPolygonShape3D:
 	return hull
 
 
-## The visual is a plain sphere stretched on Z — non-uniform scale is
+## The visual is a plain sphere stretched on Z â€” non-uniform scale is
 ## fine on a MeshInstance3D, and it keeps the mesh resource trivial.
 func _shape_mesh() -> void:
 	var stretch := Tuning.BALL_SEMI_MAJOR / Tuning.BALL_SEMI_MINOR
 	_mesh.scale = Vector3(1.0, 1.0, stretch)
+

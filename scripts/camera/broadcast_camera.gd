@@ -55,6 +55,15 @@ var _switch_timer := 0.0
 var _dialogue_left: Node3D = null
 var _dialogue_right: Node3D = null
 
+## A short, intentional move from the match view to the normal behind-player
+## kick view. It does not own aiming or ball flight: once it lands, the
+## existing chase camera and PlayerController kick stance take over.
+var _goal_kick_sweep := 0.0
+var _goal_kick_start_yaw := 0.0
+var _goal_kick_start_pitch := 0.0
+var _goal_kick_saved_mode: Mode = Mode.CHASE
+var _goal_kick_active := false
+
 
 func _ready() -> void:
 	_arm.spring_length = distance
@@ -68,6 +77,8 @@ func _process(delta: float) -> void:
 	_switch_timer = maxf(0.0, _switch_timer - delta)
 	if is_instance_valid(_dialogue_left) and is_instance_valid(_dialogue_right):
 		_update_dialogue_framing(delta)
+	elif _goal_kick_sweep > 0.0:
+		_update_goal_kick_sweep(delta)
 	elif mode == Mode.FULL_SIDE:
 		_update_full_side(delta)
 	else:
@@ -174,6 +185,42 @@ func punch(amount: float) -> void:
 
 func camera() -> Camera3D:
 	return _camera
+
+
+func begin_goal_kick() -> void:
+	if not is_instance_valid(target):
+		return
+	_goal_kick_saved_mode = mode
+	_goal_kick_active = true
+	_goal_kick_sweep = Tuning.GOAL_KICK_CAMERA_SWEEP_DURATION
+	_goal_kick_start_yaw = _yaw_pivot.rotation.y
+	_goal_kick_start_pitch = _pitch_pivot.rotation.x
+	mode = Mode.CHASE
+	_ball_weight = 0.0
+
+
+func end_goal_kick() -> void:
+	if not _goal_kick_active:
+		return
+	_goal_kick_active = false
+	_goal_kick_sweep = 0.0
+	set_mode(_goal_kick_saved_mode)
+
+
+func _update_goal_kick_sweep(delta: float) -> void:
+	_goal_kick_sweep = maxf(0.0, _goal_kick_sweep - delta)
+	var progress := 1.0 - _goal_kick_sweep / Tuning.GOAL_KICK_CAMERA_SWEEP_DURATION
+	progress = progress * progress * (3.0 - 2.0 * progress)
+	var forward := -target.global_transform.basis.z
+	var desired_yaw := atan2(-forward.x, -forward.z)
+	_yaw = lerp_angle(_goal_kick_start_yaw, desired_yaw, progress)
+	_pitch = lerpf(_goal_kick_start_pitch, deg_to_rad(Tuning.CAM_PITCH_DEFAULT), progress)
+	_yaw_pivot.rotation.y = _yaw
+	_pitch_pivot.rotation.x = _pitch
+	_focus = _focus.lerp(_target_focus(), progress)
+	global_position = _focus
+	_arm.spring_length = lerpf(_arm.spring_length, distance, progress)
+	_camera.fov = lerpf(_camera.fov, Tuning.CAM_FOV_BASE, progress)
 
 
 func _update_rotation(delta: float) -> void:

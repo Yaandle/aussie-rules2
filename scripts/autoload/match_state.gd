@@ -1,11 +1,11 @@
-extends Node
+﻿extends Node
 
 ## Score, clock and possession.
 ##
 ## Kept separate from GameState on purpose: a scenario or a practice range
 ## has a phase machine but no meaningful scoreboard, and Full Game has
 ## both. Prototype 1's audit found its scoreboard silently hardwired the
-## opponent's score to zero — one team's score living somewhere different
+## opponent's score to zero â€” one team's score living somewhere different
 ## from the other's is exactly how that happens. Here both sides go
 ## through the same call.
 ##
@@ -18,20 +18,20 @@ signal clock_changed(seconds_remaining: float)
 signal possession_changed(team: Tuning.Team)
 signal quarter_changed(quarter: int)
 
-## AFL scoring: a goal is 6 points, a behind is 1.
+## Aussie Rules scoring: a goal is 6 points, a behind is 1.
 const GOAL_POINTS := 6
 const BEHIND_POINTS := 1
 
 var goals := {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
 var behinds := {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
 
-## Basic AFL box-score stats (design brief: "tally disposals/marks/tackles
-## per team by counting the same signals already used for audio" — see
+## Basic Aussie Rules box-score stats (design brief: "tally disposals/marks/tackles
+## per team by counting the same signals already used for audio" â€” see
 ## docs/HANDOVER.md). Recorded by full_game.gd only (Kick-to-Kick has no
 ## clock/scoring either, and never calls reset(), so it never touches
 ## these) via record_disposal/record_mark/record_tackle, read fresh by
 ## MatchEndScreen the same way it already reads goals/behinds through
-## scoreline(). Bounces aren't tracked — not a real AFL box-score stat.
+## scoreline(). Bounces aren't tracked â€” not a real Aussie Rules box-score stat.
 var kicks := {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
 var handballs := {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
 var marks := {Tuning.Team.HOME: 0, Tuning.Team.AWAY: 0}
@@ -127,7 +127,7 @@ func reset() -> void:
 	quarter_changed.emit(quarter)
 
 
-## Starts `number` with a fresh clock. Does not touch scores — only
+## Starts `number` with a fresh clock. Does not touch scores â€” only
 ## `reset()` (a whole new match) does that.
 func start_quarter(number: int) -> void:
 	quarter = number
@@ -139,3 +139,4 @@ func start_quarter(number: int) -> void:
 
 func is_full_time() -> bool:
 	return quarter >= Tuning.QUARTERS_PER_MATCH and seconds_remaining <= 0.0
+

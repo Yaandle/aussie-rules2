@@ -1,10 +1,10 @@
-class_name PlayerController
+﻿class_name PlayerController
 extends CharacterBody3D
 
-## Velocity-based movement with real momentum (design doc §5).
+## Velocity-based movement with real momentum (design doc Â§5).
 ##
 ## Prototype 1 moved a player by adding `speed * dt` to a position every
-## frame — instant starts, instant stops, instant reversals. Everything
+## frame â€” instant starts, instant stops, instant reversals. Everything
 ## here exists to take that away:
 ##
 ##   - speed changes through an acceleration, and braking is faster than
@@ -16,13 +16,13 @@ extends CharacterBody3D
 ##     round and lets you go again
 ##
 ## That last one is the whole plant-and-pivot move, and it is not a
-## special case anywhere in this file — it falls out of the first two
+## special case anywhere in this file â€” it falls out of the first two
 ## rules being coupled. Which is the point: weight should be a property
 ## of the simulation, not an animation played on top of a teleport.
 ##
 ## The rig's facing turns faster than the velocity heading does, so the
 ## body leads and the velocity lags. That lag is the strafe axis the
-## blend space reads (see player_animation.gd) — the animation system is
+## blend space reads (see player_animation.gd) â€” the animation system is
 ## being driven by the physical state, not running alongside it.
 
 signal action_started(action: Tuning.Action)
@@ -32,50 +32,50 @@ signal mark_caught(tier: Tuning.Action, legal_mark: bool)
 signal mark_missed(tier: Tuning.Action)
 
 ## Fired from _get_tackled only when the tackled player had already had
-## Tuning.PRIOR_OPPORTUNITY_GRACE seconds of personal possession — a real
-## holding-the-ball ruling (RULES_REFERENCE.md §4), as opposed to the
+## Tuning.PRIOR_OPPORTUNITY_GRACE seconds of personal possession â€” a real
+## holding-the-ball ruling (RULES_REFERENCE.md Â§4), as opposed to the
 ## neutral case (tackled inside the grace window), which stays silent since
 ## nothing about it differs from a plain tackle today. Nothing consumes
 ## this yet: awarding the actual free kick needs a set-shot/free-kick
-## apparatus this project doesn't have — the ruling is decided correctly,
+## apparatus this project doesn't have â€” the ruling is decided correctly,
 ## the consequence is the next piece.
 signal holding_the_ball_called(tackler: PlayerController)
 
-## Fired from _get_tackled only in the *neutral* case — tackled inside
+## Fired from _get_tackled only in the *neutral* case â€” tackled inside
 ## Tuning.PRIOR_OPPORTUNITY_GRACE, the mirror image of
-## holding_the_ball_called above (RULES_REFERENCE.md §4: "tackled inside
+## holding_the_ball_called above (RULES_REFERENCE.md Â§4: "tackled inside
 ## the grace window is neutral, a ball-up"). Whoever owns match flow
-## resolves the actual ball-up through the shared ruck contest — see
+## resolves the actual ball-up through the shared ruck contest â€” see
 ## FullGame._begin_ruck_contest.
 signal field_ball_up_called(tackler: PlayerController, tackled: PlayerController)
 
 ## Fired from _track_carry_distance the instant a carry passes
-## Tuning.BOUNCE_INTERVAL (15 m — the real AFL run-without-bouncing limit,
-## RULES_REFERENCE.md §1) with no bounce. Latched so it fires once per
+## Tuning.BOUNCE_INTERVAL (15 m â€” the real Aussie Rules run-without-bouncing limit,
+## RULES_REFERENCE.md Â§1) with no bounce. Latched so it fires once per
 ## overrun, not every frame past 15 m; the latch clears on the next
 ## gather / bounce / disposal / drop. FullGame turns it into a free kick to
-## the nearest opponent at the spot — the same restart shape
+## the nearest opponent at the spot â€” the same restart shape
 ## holding_the_ball_called already uses. An AIBrain carrier bounces well
 ## before this (Tuning.AI_BOUNCE_AT_FRACTION), so in practice it only ever
 ## catches a human who didn't bounce.
 signal run_too_far_called(carrier: PlayerController)
 
-## Fired when a ruck contest's Hit-Out resolves — see _resolve_hit_out.
+## Fired when a ruck contest's Hit-Out resolves â€” see _resolve_hit_out.
 ## `connected` is false on a clean miss (nothing about the ball changes).
 signal hit_out_resolved(player: PlayerController, connected: bool)
 
-## Fired on the TACKLER the frame a tackle connects — `is_slide` true for a
+## Fired on the TACKLER the frame a tackle connects â€” `is_slide` true for a
 ## standing/dive-in Slide (_try_tackle), false for a Lunge (_try_lunge_tackle).
 ## The tackled-side outcome is already covered by holding_the_ball_called /
 ## field_ball_up_called; this exists so something watching the tackler can tell
 ## *which* commitment landed (the tackling tutorial keys its per-step success on
-## it). Inert outside that — nothing else consumes it.
+## it). Inert outside that â€” nothing else consumes it.
 signal tackle_committed(is_slide: bool)
 
 ## Fired on the bumper when a Bump connects (design brief priority 7).
-## `clean` reflects timing (Tuning.BUMP_APPROACH_DOT_MIN), not legality —
+## `clean` reflects timing (Tuning.BUMP_APPROACH_DOT_MIN), not legality â€”
 ## whether contact was *dangerous* enough to warrant a free kick is a real
-## AFL rule this project has no numbers for yet (RULES_REFERENCE.md has no
+## Aussie Rules rule this project has no numbers for yet (RULES_REFERENCE.md has no
 ## distance/angle/force/timing threshold for "high contact"), so nothing
 ## here judges that. This signal exists so a future pass that *does* have
 ## real numbers has an event to hook rather than needing to re-derive one.
@@ -83,13 +83,13 @@ signal bump_landed(bumper: PlayerController, carrier: PlayerController, clean: b
 
 @export var team: Tuning.Team = Tuning.Team.HOME
 
-## Uniform multiplier over WALK/JOG/SPRINT_SPEED — 1.0 leaves Full Game
+## Uniform multiplier over WALK/JOG/SPRINT_SPEED â€” 1.0 leaves Full Game
 ## and the sandbox exactly as tuned. The character screen's SPEED stat
 ## (CharacterProfile.speed_scale()) is the only thing that sets this to
 ## anything else, on whichever player it hands off to.
 var speed_scale := 1.0
 
-## Multiplier on KICK_MIN/MAX_SPEED — see _kick_parameters(). 1.0 leaves
+## Multiplier on KICK_MIN/MAX_SPEED â€” see _kick_parameters(). 1.0 leaves
 ## Full Game/the sandbox exactly as tuned, same as speed_scale above.
 var kick_power_scale := 1.0
 
@@ -101,11 +101,11 @@ var kick_power_scale := 1.0
 var agility_scale := 1.0
 
 ## 0..1, where 1.0 is pinpoint and 0.0 is KICK_ACCURACY_MAX_SPREAD_DEG of
-## random aim error — see _dispose()'s KICK branch, the only place this
+## random aim error â€” see _dispose()'s KICK branch, the only place this
 ## is actually rolled.
 var kick_accuracy := 1.0
 
-## Set by whatever owns the view — movement is camera-relative, as every
+## Set by whatever owns the view â€” movement is camera-relative, as every
 ## third-person game's is. Left null the player still works, just in
 ## world axes, which keeps this node testable headless.
 var camera: Node3D = null
@@ -131,28 +131,28 @@ var _stun_timer := 0.0
 ## slide read as floaty. While positive, _physics_process's floor-snap bite
 ## is suspended so a small upward hop (BUMP_KNOCKDOWN_HOP_SPEED) can
 ## actually arc under real gravity instead of being cancelled the very next
-## frame — see _resolve_bump_contact()/_resolve_bump_miss().
+## frame â€” see _resolve_bump_contact()/_resolve_bump_miss().
 var _knockdown_hop_timer := 0.0
 
-## Seconds left immune to _try_tackle() after taking a legal mark — the
+## Seconds left immune to _try_tackle() after taking a legal mark â€” the
 ## stand-the-mark protection window (Tuning.MARK_HOLD_DURATION). Cleared
 ## early the instant this player disposes of the ball; also doubles as the
 ## protection mechanism a future kick-in's goal square will use.
 var _protected_timer := 0.0
 
-## Seconds left frozen in place — the *other* half of stand-the-mark
+## Seconds left frozen in place â€” the *other* half of stand-the-mark
 ## (RULES_REFERENCE.md's MARK_STAND_MIN_DISTANCE entry): a legal mark
 ## doesn't just protect the taker from being tackled, it obliges the
-## nearest opponent onto the mark (see _frozen_anchor) — or, for the wider
-## retreat crowd, to stand where they are — until the mark-taker plays on.
-## Purely a movement freeze (see _update_locomotion) — unlike _stun_timer,
+## nearest opponent onto the mark (see _frozen_anchor) â€” or, for the wider
+## retreat crowd, to stand where they are â€” until the mark-taker plays on.
+## Purely a movement freeze (see _update_locomotion) â€” unlike _stun_timer,
 ## a frozen player can still act, they just can't reposition. Set on the
 ## OPPONENT by _apply_stand_the_mark(), not on the mark-taker themselves.
 var _frozen_timer := 0.0
 
 ## World-space spot the frozen player is being held on, or Vector3.INF for
 ## "just hold wherever you already are". Only the one direct opponent named
-## by _apply_stand_the_mark() gets a real spot — the mark itself — so the
+## by _apply_stand_the_mark() gets a real spot â€” the mark itself â€” so the
 ## man on the mark ends up standing *on the mark* instead of frozen
 ## wherever they happened to be when it was taken. The 10m retreat crowd
 ## (_apply_retreat_freeze) passes no spot and just stops where they are.
@@ -160,10 +160,10 @@ var _frozen_timer := 0.0
 var _frozen_anchor := Vector3.INF
 
 ## Every opponent this player is currently obliging to hold position, for
-## whatever reason — the one direct opponent standing the mark exactly
+## whatever reason â€” the one direct opponent standing the mark exactly
 ## (_apply_stand_the_mark) plus anyone else caught inside the 10m retreat
-## radius (grant_protection's own _apply_retreat_freeze) — kept so a
-## disposal can release all of them early (real AFL: everyone's free to
+## radius (grant_protection's own _apply_retreat_freeze) â€” kept so a
+## disposal can release all of them early (real Aussie Rules: everyone's free to
 ## move the instant the kick is taken or the mark-taker plays on, not just
 ## once the full 5s window lapses). Cleared alongside _protected_timer in
 ## _dispose()/drop_ball().
@@ -180,37 +180,37 @@ var _frozen_opponents: Array[PlayerController] = []
 var _pending_jump_speed := 0.0
 
 ## Held-stance flag for a Safe Mark, exactly parallel to _charging for a
-## kick — true only while the ball is airborne, in reach range hasn't
+## kick â€” true only while the ball is airborne, in reach range hasn't
 ## resolved yet, and the brain still wants it. Read by _update_locomotion
 ## for MARK_SAFE_SPEED_SCALE, same mechanism KICK_STANCE_SPEED_SCALE uses.
 var _mark_readying := false
 
-## Seconds left before another Punch/Spoil attempt can connect — a tap
+## Seconds left before another Punch/Spoil attempt can connect â€” a tap
 ## action with no windup, so this is the only thing stopping it being held
 ## down for a continuous battering (see _try_spoil).
 var _spoil_cooldown := 0.0
 
 ## True while nominated into a live ruck contest (centre bounce / field
-## ball-up / boundary throw-in — see FullGame._begin_ruck_contest and
-## set_ruck_contestant below) — the only context RB reads as a Hit-Out.
+## ball-up / boundary throw-in â€” see FullGame._begin_ruck_contest and
+## set_ruck_contestant below) â€” the only context RB reads as a Hit-Out.
 ## Self-expires via _ruck_contest_timer so it can never linger past the
 ## one contest it was armed for.
 var _is_ruck_contestant := false
 var _ruck_contest_timer := 0.0
 
-## Seconds left before another Bump attempt can commit — a real hit-stick
+## Seconds left before another Bump attempt can commit â€” a real hit-stick
 ## commitment, not spammable (see _update_bump).
 var _bump_cooldown := 0.0
 
 ## Bump's hit-stick dash (see _update_bump/_try_bump_contact): while
 ## _bump_dash_active is true, _update_locomotion overrides normal
 ## input-driven movement with a committed dash toward _bump_dash_direction
-## — the same "external velocity owns the body for a window" shape Slide's
+## â€” the same "external velocity owns the body for a window" shape Slide's
 ## dive-in (_slide_dive_timer, just below) already uses. Direction comes
-## straight from the flick gesture, not a locked target — a bump never
+## straight from the flick gesture, not a locked target â€” a bump never
 ## picks a target ahead of time, it swings at a spot and physics decides
 ## whether anyone was there. _bump_dash_active outlives the last frame
-## _bump_dash_timer is positive by exactly one frame — that final frame is
+## _bump_dash_timer is positive by exactly one frame â€” that final frame is
 ## when _try_bump_contact() (running after move_and_slide, like every
 ## other contest resolution in this file) gets to check "did the dash's
 ## own clock run out with nobody found," which is the whiff case.
@@ -218,7 +218,7 @@ var _bump_dash_timer := 0.0
 var _bump_dash_direction := Vector3.FORWARD
 var _bump_dash_active := false
 
-## Seconds left before another Smother attempt can launch — see
+## Seconds left before another Smother attempt can launch â€” see
 ## _update_smother.
 var _smother_dive_cooldown := 0.0
 
@@ -226,7 +226,7 @@ var _smother_dive_cooldown := 0.0
 ## while _smother_dive_timer is positive, _update_locomotion overrides
 ## normal movement with a dive toward _smother_dive_direction, the same
 ## "external velocity owns the body for a window" shape every other
-## committed movement in this file uses — except this one re-aims every
+## committed movement in this file uses â€” except this one re-aims every
 ## frame at _smother_dive_target's live position rather than a direction
 ## frozen at launch, since smother (unlike Bump) already has a specific,
 ## known target the instant it's triggered.
@@ -243,23 +243,23 @@ var _slide_dive_cooldown := 0.0
 var _slide_dive_direction := Vector3.FORWARD
 var _slide_was_pressed := false
 
-## Seconds left before another Lunge tackle attempt can fire — see
+## Seconds left before another Lunge tackle attempt can fire â€” see
 ## _try_lunge_tackle. Unlike a missed Slide (which sets _stun_timer, a real
 ## off-balance penalty), a missed Lunge only pays this short cooldown: it
 ## never leaves the ground, so nothing else about the player is affected.
 var _lunge_tap_cooldown := 0.0
 
 ## Residual horizontal knockback velocity from being bumped, decaying via
-## BRAKING each frame — see _update_locomotion's early branch and
+## BRAKING each frame â€” see _update_locomotion's early branch and
 ## receive_bump(). While nonzero this overrides normal input-driven
 ## movement entirely: the hit is what's moving the body, not the stick.
 var _knockback := Vector3.ZERO
 
-## Rulebook §6's "hold both players physically together": while
+## Rulebook Â§6's "hold both players physically together": while
 ## _tackle_hold_timer is positive these two bodies are locked to each
 ## other, the same "something external owns the body for a window" shape
 ## _knockback and the various dives already use. Only the tackler drives
-## the pair (_tackle_hold_is_tackler) — the target simply stands — so the
+## the pair (_tackle_hold_is_tackler) â€” the target simply stands â€” so the
 ## two can never fight each other over the same offset. Both face each
 ## other for the duration. See _begin_tackle_hold/_end_tackle_hold.
 var _tackle_hold_timer := 0.0
@@ -269,20 +269,20 @@ var _tackle_hold_is_tackler := false
 ## Seconds this player personally has held the ball since their own last
 ## gather/mark. Distinct from MatchState.possession_seconds(), which
 ## tracks the whole TEAM's unbroken hold and does not reset on a same-team
-## handball — holding-the-ball's "prior opportunity" (RULES_REFERENCE.md
-## §4) is about this individual player's own chance to dispose, so
+## handball â€” holding-the-ball's "prior opportunity" (RULES_REFERENCE.md
+## Â§4) is about this individual player's own chance to dispose, so
 ## _get_tackled reads this instead.
 var _possession_held_seconds := 0.0
 
 ## Unit XZ direction the body is actually travelling. Kept as state
 ## rather than re-derived from velocity every frame so it survives a
-## complete stop — you keep facing where you were going.
+## complete stop â€” you keep facing where you were going.
 var _heading := Vector3.FORWARD
 var _wish_dir := Vector3.ZERO
 var _speed := 0.0
 var _facing_yaw := 0.0
 
-## True while reading the play backward — see the Backpedal section of
+## True while reading the play backward â€” see the Backpedal section of
 ## Tuning. Feet answer the stick directly (heading = wish_dir, no turn-rate
 ## sweep); facing is deliberately left alone by _update_facing while this
 ## is true, which is the whole mechanic: eyes stay on the play, only the
@@ -292,7 +292,7 @@ var _backpedaling := false
 ## How long the current backpedal has been running, and whether one just
 ## timed out. Facing is frozen while backpedalling, so nothing about
 ## holding the stick behind you can ever bring facing_alignment back up to
-## BACKPEDAL_EXIT_DOT on its own — without a cap the shuffle is a state you
+## BACKPEDAL_EXIT_DOT on its own â€” without a cap the shuffle is a state you
 ## can be parked in indefinitely. The lockout is what stops the timeout
 ## from immediately re-entering on the very next frame, when the body has
 ## only turned a few degrees and is still well inside BACKPEDAL_ENTER_DOT;
@@ -301,7 +301,7 @@ var _backpedaling := false
 var _backpedal_seconds := 0.0
 var _backpedal_locked_out := false
 
-## Walking back from a legal mark (Tuning.MARK_RETREAT_DISTANCE) — metres
+## Walking back from a legal mark (Tuning.MARK_RETREAT_DISTANCE) â€” metres
 ## still to cover, and which way "back" is. While this is running the body
 ## is driven by it rather than by the stick or the AI, and the kick is
 ## blocked: the player has to get off the mark before they can go at goal
@@ -309,9 +309,10 @@ var _backpedal_locked_out := false
 ## looking downfield, the way a real kicker does.
 var _mark_retreat_remaining := 0.0
 var _mark_retreat_dir := Vector3.ZERO
+var _legal_mark_set_shot := false
 
 ## Seconds left of the acceleration spike that fires the instant a
-## backpedal resolves into a real direction (Tuning.TURN_BURST_*) — see
+## backpedal resolves into a real direction (Tuning.TURN_BURST_*) â€” see
 ## _update_locomotion.
 var _turn_burst_timer := 0.0
 
@@ -319,7 +320,7 @@ var _carried_ball: Ball = null
 var _gather_cooldown := 0.0
 var _carry_distance := 0.0
 ## Whether run_too_far_called has already fired for the current unbroken
-## carry — so FullGame gets one call, not one per frame past 15 m. Reset
+## carry â€” so FullGame gets one call, not one per frame past 15 m. Reset
 ## wherever _carry_distance is (see _track_carry_distance / _complete_gather
 ## / drop_ball).
 var _run_too_far_latched := false
@@ -334,19 +335,19 @@ var _charging := false
 ## facing (design brief's CONTROLS section: "aim is fully decoupled from
 ## movement/facing"). Snapped to _facing_yaw when stance begins, then
 ## nudged by the right stick/mouse for a human for as long as stance
-## holds — see _update_kick_aim(). Frozen the instant the swing begins,
+## holds â€” see _update_kick_aim(). Frozen the instant the swing begins,
 ## same as _kick_charge, so waggling the stick after committing can't
 ## retroactively change where an already-struck kick goes.
 var _kick_aim_yaw := 0.0
 
 ## Where a HANDBALL launches, captured once in _begin() at the moment the
-## button is pressed — not read fresh in _dispose(), which fires later at
+## button is pressed â€” not read fresh in _dispose(), which fires later at
 ## the animation's contact time and would otherwise pick up wherever the
 ## stick had drifted to by then.
 var _handball_aim_dir := Vector3.FORWARD
 
 ## Where a HIT_OUT palms the ball, captured in _begin() on the RB press the
-## same way _handball_aim_dir is — a ruck tap is aimed with Left stick
+## same way _handball_aim_dir is â€” a ruck tap is aimed with Left stick
 ## ("tap direction = pass direction", user brief), not just punched
 ## straight ahead off the body. Falls back to body-forward if the stick is
 ## neutral at the instant of the press (see _resolve_hit_out).
@@ -354,7 +355,7 @@ var _hit_out_aim_dir := Vector3.ZERO
 
 ## True for exactly the one KICK currently in flight through _action, set
 ## when it was fired as a hip-fire (RT with no prior LT) rather than an
-## aimed one — _dispose() reads this once to decide whether the extra
+## aimed one â€” _dispose() reads this once to decide whether the extra
 ## hip-fire scatter applies, then clears it.
 var _hip_fire_kick := false
 
@@ -374,7 +375,7 @@ func _ready() -> void:
 	# GATHER_RADIUS stays single-sourced in Tuning and instances of this
 	# scene do not share a mutated resource. Sized to the largest reach a
 	# sprinting player could ever get (GATHER_LUNGE_MAX) rather than the
-	# base radius — the physics shape only has to generate candidates, the
+	# base radius â€” the physics shape only has to generate candidates, the
 	# real speed-scaled cutoff is an explicit distance test in
 	# _try_gather(), same pattern _update_ground_pickup already uses. That
 	# avoids resizing a live Area3D shape and querying its (one-physics-
@@ -397,7 +398,7 @@ func brain() -> PlayerBrain:
 
 
 ## Every cooldown/timer field on this controller follows this same
-## "subtract delta, clamp at zero" shape — shared here so they can't drift
+## "subtract delta, clamp at zero" shape â€” shared here so they can't drift
 ## out of sync with each other (see _update_slide_dive, the one timer
 ## that used to decrement without the clamp).
 func _tick_down(value: float, delta: float) -> float:
@@ -435,7 +436,7 @@ func _physics_process(delta: float) -> void:
 
 	if _knockdown_hop_timer > 0.0:
 		# A bump knockdown's hop (BUMP_KNOCKDOWN_HOP_SPEED) is already sitting
-		# in velocity.y — let it arc under real gravity instead of the
+		# in velocity.y â€” let it arc under real gravity instead of the
 		# floor-snap bite below instantly cancelling it back to -0.5 the very
 		# next frame. See _resolve_bump_contact()/_resolve_bump_miss().
 		_knockdown_hop_timer = _tick_down(_knockdown_hop_timer, delta)
@@ -445,7 +446,7 @@ func _physics_process(delta: float) -> void:
 	else:
 		velocity.y -= Tuning.GRAVITY * delta
 	if _pending_jump_speed > 0.0:
-		# Applied after the floor-snap above, not before — is_on_floor() is
+		# Applied after the floor-snap above, not before â€” is_on_floor() is
 		# still true for one more frame at the instant a jump is triggered
 		# (the physics server hasn't seen us leave the ground yet), so
 		# setting this any earlier would just get overwritten by the -0.5
@@ -471,11 +472,11 @@ func _physics_process(delta: float) -> void:
 	_animation.drive(locomotion_blend(), delta)
 
 
-# ── Locomotion ───────────────────────────────────────────────────────
+# â”€â”€ Locomotion â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func _update_locomotion(delta: float) -> void:
 	# A bump's knockback overrides normal input-driven movement entirely
-	# while it's still decaying — the hit is what's moving this body right
+	# while it's still decaying â€” the hit is what's moving this body right
 	# now, not the stick (see receive_bump()). Applied here, before
 	# anything reads velocity for _speed/_heading, so the knocked-back
 	# motion is what the rest of this frame (animation blend included)
@@ -490,7 +491,7 @@ func _update_locomotion(delta: float) -> void:
 			_heading = horizontal_kb / _speed
 		return
 
-	# A tackle hold owns both bodies the same way — the tackler closes and
+	# A tackle hold owns both bodies the same way â€” the tackler closes and
 	# stays welded to the target, the target simply can't go anywhere.
 	# Driven through velocity rather than by writing global_position so it
 	# still goes through move_and_slide's own collision response on the
@@ -511,7 +512,7 @@ func _update_locomotion(delta: float) -> void:
 			var correction := hold_spot - global_position
 			correction.y = 0.0
 			# Closed in one frame, but never faster than the dive that got
-			# here could have travelled — if the target is ever moved a
+			# here could have travelled â€” if the target is ever moved a
 			# long way while the lock is live (it shouldn't be; see
 			# _end_tackle_hold's callers) this drags rather than teleports.
 			var closing := correction / delta
@@ -527,7 +528,7 @@ func _update_locomotion(delta: float) -> void:
 	# Walking back off a legal mark (Tuning.MARK_RETREAT_DISTANCE) owns the
 	# body the same way. Deliberately does NOT touch _heading: facing is
 	# driven from it, so leaving it alone keeps the player looking downfield
-	# while their feet carry them backwards — which is both what a real
+	# while their feet carry them backwards â€” which is both what a real
 	# kicker does walking back, and what makes locomotion_blend() pick the
 	# backward run clip rather than spinning them around to jog at their own
 	# goal. Distance is retired at the intended rate rather than by measured
@@ -536,13 +537,23 @@ func _update_locomotion(delta: float) -> void:
 	if _mark_retreat_remaining > 0.0:
 		_mark_retreat_remaining = maxf(0.0,
 			_mark_retreat_remaining - Tuning.MARK_RETREAT_SPEED * delta)
+		# The retreat begins as a true backpedal, then squares the body to the
+		# attacking goals just before the mark is reached. It keeps the set-shot
+		# readable without changing the distance or the movement lock.
+		if _mark_retreat_remaining <= Tuning.MARK_RETREAT_TURN_START_DISTANCE:
+			# A catch made while manually backpedalling leaves that state live;
+			# release it here or _update_facing() intentionally freezes the body
+			# looking the old way for the whole final metre.
+			_end_backpedal(false)
+			var attack_x := 1.0 if team == Tuning.Team.HOME else -1.0
+			_heading = Vector3(attack_x, 0.0, 0.0)
 		_speed = Tuning.MARK_RETREAT_SPEED
 		velocity.x = _mark_retreat_dir.x * _speed
 		velocity.z = _mark_retreat_dir.z * _speed
 		return
 
 	# Slide's dive-in owns the body the same way knockback does above, just
-	# driving forward at a fixed speed instead of decaying — a committed
+	# driving forward at a fixed speed instead of decaying â€” a committed
 	# dash, not a bounce being absorbed. See _update_slide_dive.
 	if _slide_dive_timer > 0.0:
 		_heading = _slide_dive_direction
@@ -552,7 +563,7 @@ func _update_locomotion(delta: float) -> void:
 		return
 
 	# Bump's hit-stick dash owns the body the same way Slide's dive-in does
-	# just above — a committed lunge toward _bump_dash_direction, not the
+	# just above â€” a committed lunge toward _bump_dash_direction, not the
 	# stick. See _update_bump/_try_bump_contact.
 	if _bump_dash_timer > 0.0:
 		_heading = _bump_dash_direction
@@ -561,7 +572,7 @@ func _update_locomotion(delta: float) -> void:
 		velocity.z = _heading.z * _speed
 		return
 
-	# Smother's own committed dive owns the body the same way — a lunge
+	# Smother's own committed dive owns the body the same way â€” a lunge
 	# toward _smother_dive_direction, re-aimed at the live target every
 	# frame in _update_smother rather than frozen at launch. See
 	# _update_smother/_try_smother_contact.
@@ -574,13 +585,13 @@ func _update_locomotion(delta: float) -> void:
 
 	# Stand-the-mark: this player has been obliged to hold their ground by
 	# an opponent's legal mark (see _apply_stand_the_mark). Input is simply
-	# ignored for movement purposes — facing/actions are untouched, only
+	# ignored for movement purposes â€” facing/actions are untouched, only
 	# repositioning is blocked, same as the real rule.
 	if _frozen_timer > 0.0:
 		# The man on the mark stands *on the mark*, not wherever they were
 		# when it was taken. While still short of it, jog there under real
-		# movement — a capped velocity, so the body collides and the run
-		# clip plays — rather than being slid across the ground. Once within
+		# movement â€” a capped velocity, so the body collides and the run
+		# clip plays â€” rather than being slid across the ground. Once within
 		# MARK_STAND_ARRIVE_RADIUS, snap the last few centimetres and hold
 		# exactly. The 10m retreat crowd has no anchor and just stops where
 		# they are, so all of this is skipped for them.
@@ -608,7 +619,7 @@ func _update_locomotion(delta: float) -> void:
 	# resting contact every physics frame, and each contact's slide
 	# resolution can nudge velocity by a hair). That residue is otherwise
 	# read straight into _speed/_heading, which locomotion_blend() then
-	# reports to the AnimationTree as genuine motion — a standing player
+	# reports to the AnimationTree as genuine motion â€” a standing player
 	# would visibly twitch toward whatever clip that phantom direction
 	# blends in. Snapping it to exact zero below the threshold nothing
 	# gameplay-relevant ever needs kills the feedback loop at its source,
@@ -641,7 +652,7 @@ func _update_locomotion(delta: float) -> void:
 				# Dropping out here hands this frame to the normal branch
 				# below, which turns the body toward _heading (already the
 				# stick direction, tracked every frame of the shuffle) at
-				# the usual turn rate — so it reads as planting and running
+				# the usual turn rate â€” so it reads as planting and running
 				# out of the backpedal, not as a snap. No turn burst: that
 				# belongs to the EXIT_DOT case, where facing has already
 				# come around and there is only the drive-off left.
@@ -653,27 +664,27 @@ func _update_locomotion(delta: float) -> void:
 		elif facing_alignment >= Tuning.BACKPEDAL_EXIT_DOT:
 			# Facing has caught up with the stick, whether it got here by
 			# the player swinging it around or by the body turning after a
-			# timeout — either way there is nothing left to lock out.
+			# timeout â€” either way there is nothing left to lock out.
 			_backpedal_locked_out = false
 			if _backpedaling:
 				# _heading was tracking the *old* (backward) wish_dir every
-				# frame of the backpedal, not this frame's new one — left
+				# frame of the backpedal, not this frame's new one â€” left
 				# stale it would read as a full reversal against the new
 				# wish_dir below (alignment -1, REVERSE_SPEED_SCALE braking,
 				# exactly the plant-and-pivot's brake instead of a drive-off).
 				# Snap it to the new direction now: facing is already there
 				# (that is what just triggered the exit), so there is
-				# nothing left to turn through, only to drive off from —
+				# nothing left to turn through, only to drive off from â€”
 				# that drive-off is the burst.
 				_heading = _wish_dir
 				_turn_burst_timer = Tuning.TURN_BURST_DURATION
 			_end_backpedal(false)
-		# Else: inside the hysteresis band — hold whatever state we're already in.
+		# Else: inside the hysteresis band â€” hold whatever state we're already in.
 
 		if _backpedaling:
 			# A defensive shuffle, not a sprint commitment: feet answer the
 			# stick directly every frame, capped at BACKPEDAL_SPEED
-			# regardless of gait input — you cannot backpedal at a sprint
+			# regardless of gait input â€” you cannot backpedal at a sprint
 			# with any control. _update_facing() leaves facing alone while
 			# this is true.
 			_heading = _wish_dir
@@ -692,7 +703,7 @@ func _update_locomotion(delta: float) -> void:
 
 			# How much of your requested speed you get, given how far off
 			# your current momentum it is. Dead ahead is full, square
-			# across is half, straight back is REVERSE_SPEED_SCALE — this
+			# across is half, straight back is REVERSE_SPEED_SCALE â€” this
 			# is the plant-and-pivot case, a full-speed reversal, distinct
 			# from the backpedal shuffle above.
 			var alignment := _heading.dot(_wish_dir)
@@ -713,7 +724,7 @@ func _update_locomotion(delta: float) -> void:
 	# Planting to kick or handball costs you your legs for a moment; the
 	# kick stance ahead of that (LT held, still aiming/repositioning) costs
 	# less, same relationship as ADS-walk vs. firing in a shooter. Each mark
-	# tier costs its own amount — see Tuning.action_speed_scale — and
+	# tier costs its own amount â€” see Tuning.action_speed_scale â€” and
 	# readying a Safe Mark (held, not yet resolved) costs the same as the
 	# mark itself will, so there's no free lunch in holding it early.
 	if _action != Tuning.Action.NONE:
@@ -741,7 +752,7 @@ func _update_locomotion(delta: float) -> void:
 func _update_facing(delta: float) -> void:
 	# The whole backpedal mechanic: the body keeps reading the play instead
 	# of chasing the direction the feet are shuffling in. Facing simply
-	# doesn't move — see _update_locomotion for where the feet do.
+	# doesn't move â€” see _update_locomotion for where the feet do.
 	if _backpedaling:
 		return
 	var desired := _heading
@@ -756,13 +767,13 @@ func _update_facing(delta: float) -> void:
 
 ## (strafe, forward) in -1..1, relative to where the body is facing.
 ## Non-zero on the strafe axis exactly when the velocity has fallen
-## behind the facing — i.e. mid-turn — which is what makes the blend
+## behind the facing â€” i.e. mid-turn â€” which is what makes the blend
 ## space earn its keep even in a game where you mostly run forwards.
 func locomotion_blend() -> Vector2:
 	var horizontal := Vector3(velocity.x, 0.0, velocity.z)
 	# This is called after move_and_slide() has already run for the frame
 	# (see _physics_process), so `velocity` here is move_and_slide's own
-	# collision-response output, not the value _update_locomotion() set —
+	# collision-response output, not the value _update_locomotion() set â€”
 	# a standing player's velocity can pick up sub-millimetre horizontal
 	# noise from the floor-contact slide resolution even when nothing is
 	# actually moving. The deadzone in _update_locomotion() guards a
@@ -803,7 +814,7 @@ func _push_rigid_bodies() -> void:
 
 
 ## Nothing about CharacterBody3D's collision stops it walking off the
-## ground slab's edge into the void — the slab is finite (Field.SURROUND_
+## ground slab's edge into the void â€” the slab is finite (Field.SURROUND_
 ## MARGIN past the oval boundary) but there is no wall there. Keep every
 ## player (human or AI) inside that slab, a small buffer short of its
 ## true edge. AI never deliberately paths past the boundary, but a chase
@@ -823,7 +834,7 @@ func _contain_to_field() -> void:
 		global_position.z = pos.z / radial
 
 
-# ── Possession ───────────────────────────────────────────────────────
+# â”€â”€ Possession â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func is_carrying() -> bool:
 	return is_instance_valid(_carried_ball) and _carried_ball.is_held
@@ -834,19 +845,19 @@ func carried_ball() -> Ball:
 
 
 ## True while a stand-the-mark protection window (Tuning.MARK_HOLD_DURATION)
-## from a legal mark is still running — _try_tackle() skips a protected
+## from a legal mark is still running â€” _try_tackle() skips a protected
 ## carrier entirely. Also the hook a future protected kick-in state reuses
 ## for goal-square immunity (see docs' Priority 5).
 func is_protected() -> bool:
 	return _protected_timer > 0.0
 
 
-## Grants tackle immunity for `duration` seconds — the exact same
+## Grants tackle immunity for `duration` seconds â€” the exact same
 ## _protected_timer a legal mark already uses (design brief priority 5:
 ## "do not build a new protection system... reuse _protected_timer/
 ## is_protected() directly"), for a protected kick-in's goal-square
 ## immunity. Already clears itself early the moment this player disposes
-## (_dispose()'s existing "playing on forfeits protection" line) — a
+## (_dispose()'s existing "playing on forfeits protection" line) â€” a
 ## kick-in that plays on loses its immunity exactly like a mark that does,
 ## with no extra code needed here for that.
 func grant_protection(duration: float) -> void:
@@ -854,14 +865,14 @@ func grant_protection(duration: float) -> void:
 	_apply_retreat_freeze(duration)
 
 
-## True while obliged to stand the mark — see _frozen_timer.
+## True while obliged to stand the mark â€” see _frozen_timer.
 func is_standing_the_mark() -> bool:
 	return _frozen_timer > 0.0
 
 
 ## Called on the opponent by whoever just took a legal mark
 ## (_apply_stand_the_mark) or granted a free-kick retreat
-## (_apply_retreat_freeze) — freezes movement for `duration` seconds. When
+## (_apply_retreat_freeze) â€” freezes movement for `duration` seconds. When
 ## `hold_at` is a real point (the mark itself), the player is also slid
 ## onto it and held there; the default Vector3.INF means "hold your current
 ## ground", which is what the 10m retreat crowd gets.
@@ -871,9 +882,9 @@ func stand_the_mark(duration: float, hold_at := Vector3.INF) -> void:
 		_frozen_anchor = hold_at
 
 
-## Releases early — called on every entry in _frozen_opponents the instant
+## Releases early â€” called on every entry in _frozen_opponents the instant
 ## the mark-taker/free-kick-taker disposes, so a frozen player isn't held
-## past the moment the rule actually requires (real AFL: free to move once
+## past the moment the rule actually requires (real Aussie Rules: free to move once
 ## the kick is taken or the mark-taker plays on, not just once the full
 ## window lapses).
 func release_stand_the_mark() -> void:
@@ -883,28 +894,29 @@ func release_stand_the_mark() -> void:
 
 ## Public entry point onto the same shared attach/possession/signal path
 ## every other way of gaining the ball already goes through
-## (_complete_gather) — for placements that hand a player the ball outright
+## (_complete_gather) â€” for placements that hand a player the ball outright
 ## rather than having them reach for it, like a protected kick-in.
 func give_possession(ball: Ball) -> void:
 	_complete_gather(ball)
 
 
-## Let go without disposing — for resets and, later, for a tackle
+## Let go without disposing â€” for resets and, later, for a tackle
 ## stripping the ball.
 func drop_ball() -> void:
 	if is_instance_valid(_carried_ball):
 		_carried_ball.detach()
 	_carried_ball = null
+	_legal_mark_set_shot = false
 	_carry_distance = 0.0
 	_run_too_far_latched = false
 	_kick_charge = 0.0
 	_charging = false
 	# Otherwise a hip-fire windup broken by a tackle before it reaches
-	# _dispose() would leave this stuck true — the next kick to actually
+	# _dispose() would leave this stuck true â€” the next kick to actually
 	# fire, possibly a properly-aimed one with a fresh ball, would wrongly
 	# inherit hip-fire's extra scatter.
 	_hip_fire_kick = false
-	# No ball, no mark to walk back off — covers disposing early, being
+	# No ball, no mark to walk back off â€” covers disposing early, being
 	# stripped, and every stoppage reset, all of which come through here.
 	_end_mark_retreat()
 	_gather_cooldown = Tuning.GATHER_COOLDOWN
@@ -914,7 +926,7 @@ func drop_ball() -> void:
 		MatchState.possession = Tuning.Team.NONE
 
 
-## Metres run since the last bounce. AFL requires a bounce every 15m
+## Metres run since the last bounce. Aussie Rules requires a bounce every 15m
 ## (Tuning.BOUNCE_INTERVAL, unchanged from Prototype 1's already-correct
 ## BOUNCE_INTERVAL). Tracked now because it shapes how running with the
 ## ball feels; the free kick for running too far is a match rule and
@@ -931,7 +943,7 @@ func speed() -> float:
 	return _speed
 
 
-## Diagnostic — see DebugHud. True while reading the play backward (see the
+## Diagnostic â€” see DebugHud. True while reading the play backward (see the
 ## Backpedal section of Tuning / _update_locomotion).
 func is_backpedaling() -> bool:
 	return _backpedaling
@@ -940,7 +952,7 @@ func is_backpedaling() -> bool:
 ## The one place a backpedal ends, so its timer can never be left running
 ## into the next one. `locked_out` is true only for the
 ## BACKPEDAL_MAX_DURATION timeout, where the stick is still behind the
-## body and re-entry has to be held off until facing catches up — every
+## body and re-entry has to be held off until facing catches up â€” every
 ## other exit (facing came around, stick released) is already clear.
 func _end_backpedal(locked_out: bool) -> void:
 	_backpedaling = false
@@ -964,8 +976,8 @@ func _track_carry_distance(previous_position: Vector3) -> void:
 	var moved := global_position - previous_position
 	moved.y = 0.0
 	_carry_distance += moved.length()
-	# 15 m run rule (RULES_REFERENCE.md §1). Only while genuinely running
-	# with it — a disposal already underway (_action) means the run's over,
+	# 15 m run rule (RULES_REFERENCE.md Â§1). Only while genuinely running
+	# with it â€” a disposal already underway (_action) means the run's over,
 	# and a stunned player isn't running anywhere. Latched so FullGame gets
 	# one call, not one per frame past the line.
 	if not _run_too_far_latched and _carry_distance >= Tuning.BOUNCE_INTERVAL \
@@ -979,7 +991,7 @@ func _track_carry_distance(previous_position: Vector3) -> void:
 ## independent of movement). The Area3D shape is sized generously (see
 ## _ready()); the real cutoff is this explicit distance test against the
 ## current speed-scaled reach, so a player running through a bounce
-## genuinely gets more reach than one standing still over it — not by much,
+## genuinely gets more reach than one standing still over it â€” not by much,
 ## GATHER_LUNGE_MAX keeps it well short of the deliberate GROUND_PICKUP
 ## reach, but real.
 func _try_gather() -> void:
@@ -1004,12 +1016,15 @@ func _try_gather() -> void:
 		return
 
 
-## Shared attach/possession/signal path for every way of gaining the ball —
+## Shared attach/possession/signal path for every way of gaining the ball â€”
 ## the passive walk-over gather just above, an explicit ground pickup and
-## every mark tier (see the Marking section below) — so none of them can
+## every mark tier (see the Marking section below) â€” so none of them can
 ## drift out of sync about what "gained possession" actually does.
 func _complete_gather(ball: Ball) -> void:
-	# Whoever has the ball is no longer wrestling for it — covers both a
+	# A new possession is an ordinary gather until _finish_mark_catch()
+	# explicitly proves it was a legal mark.
+	_legal_mark_set_shot = false
+	# Whoever has the ball is no longer wrestling for it â€” covers both a
 	# free kick/kick-in placement (give_possession) and the tackler simply
 	# picking up what they just stripped while the grab is still playing.
 	_end_tackle_hold()
@@ -1023,26 +1038,26 @@ func _complete_gather(ball: Ball) -> void:
 	ball_gathered.emit(ball)
 
 
-# ── Contests ─────────────────────────────────────────────────────────
+# â”€â”€ Contests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Tackling splits into two commitments sharing one physical resolver
 # (_resolve_tackle_contact): Slide (held tackle button, this section) and
-# Lunge (a tap, see _try_lunge_tackle further down). Design doc §5: decided
+# Lunge (a tap, see _try_lunge_tackle further down). Design doc Â§5: decided
 # by real closing speed / approach angle / carrier speed at contact, never a
-# dice roll (RULES_REFERENCE.md §3 notes Prototype 1's old flat
+# dice roll (RULES_REFERENCE.md Â§3 notes Prototype 1's old flat
 # TACKLE_BREAK_CHANCE=0.45 coin-flip was deliberately dropped for exactly
 # this reason). No holding-the-ball adjudication yet (free kick vs ball-up)
-# — see RULES_REFERENCE.md §4 — a successful tackle, of either kind, always
+# â€” see RULES_REFERENCE.md Â§4 â€” a successful tackle, of either kind, always
 # spills the ball loose for a fresh contest.
 
 ## Shared physical gate for both tackle commitments. closing_speed is the
-## tackler-minus-target relative velocity dotted along the tackler→target
-## line — positive means the gap is shrinking; a stationary tackler standing
+## tackler-minus-target relative velocity dotted along the tacklerâ†’target
+## line â€” positive means the gap is shrinking; a stationary tackler standing
 ## square in a sprinting carrier's path reads a HIGH closing_speed here
 ## because the carrier's own momentum is doing the work, which is exactly
 ## why a well-placed stand should almost always win. approach_angle is the
-## angle between "target→tackler" and the target's own heading — 0° means
-## the tackler is sitting in the carrier's path, 180° means chasing from
-## directly behind — and falls back to the most favourable 0° when the
+## angle between "targetâ†’tackler" and the target's own heading â€” 0Â° means
+## the tackler is sitting in the carrier's path, 180Â° means chasing from
+## directly behind â€” and falls back to the most favourable 0Â° when the
 ## target is below PIVOT_SPEED_THRESHOLD, since a near-stationary carrier
 ## has no meaningful heading to be "ahead of." carrier_speed stands in for
 ## carrier momentum: CharacterProfile has no weight stat, every
@@ -1082,10 +1097,10 @@ func _resolve_tackle_contact(tackler: PlayerController, target: PlayerController
 ## TACKLE_RADIUS, so a defender closing at normal run speed rarely gets
 ## there in time) and why this is a speed burst rather than a radius/chance
 ## change. Triggers on the tackle button's rising edge, not the held state
-## _try_tackle() reads directly — holding tackle at standing range still
+## _try_tackle() reads directly â€” holding tackle at standing range still
 ## works exactly as it always has; this only adds a commit option the one
 ## time it's actually needed, just out of that reach. Purely a movement-
-## closing mechanic — once it lands, _try_tackle() below still has to pass
+## closing mechanic â€” once it lands, _try_tackle() below still has to pass
 ## _resolve_tackle_contact like any other Slide attempt; a miss here just
 ## means the dive didn't land, TACKLE_SLIDE_MISS_STUN_DURATION is what
 ## actually makes a bad Slide costly.
@@ -1101,12 +1116,12 @@ func _update_slide_dive(delta: float) -> void:
 		return
 
 	# A press landing a frame or two before the guards above actually
-	# cleared shouldn't just vanish (fundamentals-pass input buffering) —
+	# cleared shouldn't just vanish (fundamentals-pass input buffering) â€”
 	# fall back to InputManager's short buffer window before giving up on
 	# this frame. Checked only after every other blocking guard, so a
 	# buffered press is never consumed on a frame it wouldn't actually
 	# fire on. Human only: AI's wants_tackle() is a fresh proximity
-	# decision every physics frame, not a real button press — there's
+	# decision every physics frame, not a real button press â€” there's
 	# nothing to buffer for it.
 	if not just_pressed \
 			and not (_brain is HumanBrain and InputManager.consume_buffered_press(&"tackle")):
@@ -1122,14 +1137,14 @@ func _update_slide_dive(delta: float) -> void:
 		return   # already close enough for a standing tackle, or too far to commit to
 	var direction := to_carrier / dist
 	if (-global_transform.basis.z).dot(direction) < Tuning.TACKLE_SLIDE_DIVE_MIN_DOT:
-		return   # not roughly facing them — no diving sideways or backward
+		return   # not roughly facing them â€” no diving sideways or backward
 
 	_slide_dive_direction = direction
 	_slide_dive_timer = Tuning.TACKLE_SLIDE_DIVE_DURATION
 	_slide_dive_cooldown = Tuning.TACKLE_SLIDE_DIVE_COOLDOWN
 
 
-## Slide connect: the target is held up, not knocked down — playtest
+## Slide connect: the target is held up, not knocked down â€” playtest
 ## feedback wanted the two tackle types to read differently (see Tuning.
 ## Action.TACKLE_HELD's own comment). TACKLE_GRAB (tackler) and TACKLE_HELD
 ## (target) are a synced pair, the same "two bodies meeting" relationship
@@ -1137,7 +1152,7 @@ func _update_slide_dive(delta: float) -> void:
 func _try_tackle() -> void:
 	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE or _mark_readying:
 		return
-	# A dive in progress is a commitment — it still has to land the same
+	# A dive in progress is a commitment â€” it still has to land the same
 	# proximity test below, but it doesn't need the button held throughout,
 	# same as an aggressive mark's jump or a bump's flick don't need theirs
 	# held either once launched.
@@ -1159,25 +1174,25 @@ func _try_tackle() -> void:
 	else:
 		# A whiffed Slide used to be the single costliest miss in the kit;
 		# the hit-stick bump rework gave that title to a whiffed bump instead
-		# — see TACKLE_SLIDE_MISS_STUN_DURATION's own updated comment. maxf,
+		# â€” see TACKLE_SLIDE_MISS_STUN_DURATION's own updated comment. maxf,
 		# not overwrite, matches receive_bump's pattern of never shortening a
 		# stun already in progress.
 		_stun_timer = maxf(_stun_timer, Tuning.TACKLE_SLIDE_MISS_STUN_DURATION)
 
 
 ## Lunge tackle (Q/X tap, not carrying): a quick strip attempt at whatever's
-## already within TACKLE_RADIUS right now — never dashes, unlike Slide's own
+## already within TACKLE_RADIUS right now â€” never dashes, unlike Slide's own
 ## dive-in (_update_slide_dive). Playtest feedback: "the lunge tackle can
-## take both players to the ground" — the target still goes all the way
+## take both players to the ground" â€” the target still goes all the way
 ## down (Action.TACKLED, unchanged), and now the tackler gets their own
 ## synced Action.TACKLE_TAKEDOWN beat too, driving down and ending low
 ## rather than standing untouched. The tackler themselves still isn't
 ## stunned and stays on their feet physically (no _stun_timer change, no
-## collision/capsule change, `_lunge_tap_cooldown` unaffected either way) —
+## collision/capsule change, `_lunge_tap_cooldown` unaffected either way) â€”
 ## TACKLE_TAKEDOWN is a cosmetic crouch layered on top of that, not a
 ## second real knockdown; a whiffed Lunge still only pays the short tap
 ## cooldown below, same as always. Shares its physical binding with wants_
-## handball()/wants_mark_running()/wants_smother() — excludes anyone
+## handball()/wants_mark_running()/wants_smother() â€” excludes anyone
 ## _update_smother() would also claim (kick-aiming/mid-swing: a kick
 ## already being blocked at the boot is smother's job, not this one's) so
 ## the two never actually compete for the same target on the same press.
@@ -1201,24 +1216,24 @@ func _try_lunge_tackle() -> void:
 
 
 ## Called on the tackled player, by the tackler. `is_slide` picks which
-## reaction plays — a Slide connect holds the target up (Action.TACKLE_
+## reaction plays â€” a Slide connect holds the target up (Action.TACKLE_
 ## HELD, standing, no fall); a Lunge connect still takes them all the way
 ## down (Action.TACKLED via _knockdown(), falling facing away from the
-## hit — the same scatter direction the ball spills in, design brief: a
+## hit â€” the same scatter direction the ball spills in, design brief: a
 ## tackled player goes down "in the direction it is coming from"). The
 ## ball's own drop differs too, on purpose: a Lunge connecting is a real
 ## loose-ball spill (TACKLE_SPILL_SPEED scatter impulse, the same physical
-## contest a knockdown always has); a Slide connect is a held-up strip —
+## contest a knockdown always has); a Slide connect is a held-up strip â€”
 ## playtest feedback: "the animation drops the ball, the ball typically
-## would not spill out if the tackle is held" — so it just falls straight
+## would not spill out if the tackle is held" â€” so it just falls straight
 ## down from wherever it was carried (drop_ball()'s own detach(), no
 ## impulse at all), landing at the target's feet rather than scattering
 ## away from them.
 func _get_tackled(by: PlayerController, is_slide: bool) -> void:
 	var ball := _carried_ball
 	# Captured before drop_ball() resets anything, though drop_ball() itself
-	# doesn't touch this timer — is_carrying() going false next frame is what
-	# actually zeroes it (see _physics_process) — read now regardless, so
+	# doesn't touch this timer â€” is_carrying() going false next frame is what
+	# actually zeroes it (see _physics_process) â€” read now regardless, so
 	# there's no dependency on exactly when that reset happens to land.
 	var holding_the_ball := _possession_held_seconds >= Tuning.PRIOR_OPPORTUNITY_GRACE
 	var scatter := _scatter_from(by, 0.0)
@@ -1237,12 +1252,12 @@ func _get_tackled(by: PlayerController, is_slide: bool) -> void:
 		field_ball_up_called.emit(by, self)
 
 
-## Rulebook §6: a Slide connect should read as one wrestle, not two clips
+## Rulebook Â§6: a Slide connect should read as one wrestle, not two clips
 ## that happen to play at the same time. For as long as the synced
 ## TACKLE_GRAB/TACKLE_HELD pair runs, the tackler is pinned at
 ## Tuning.TACKLE_HOLD_DISTANCE from the target and both are turned to face
 ## each other (see _update_locomotion's own branch, which is where the
-## actual movement override lives — this only sets the state it reads).
+## actual movement override lives â€” this only sets the state it reads).
 ##
 ## Called on both players from _try_tackle, so the two windows start on the
 ## same frame and can't drift. Duration is the grab clip's own length
@@ -1253,20 +1268,20 @@ func _begin_tackle_hold(partner: PlayerController, is_tackler: bool) -> void:
 	_tackle_hold_partner = partner
 	_tackle_hold_is_tackler = is_tackler
 	_tackle_hold_timer = Tuning.action_duration(Tuning.Action.TACKLE_GRAB)
-	# The two capsules would otherwise hold each other 0.70m apart — far
+	# The two capsules would otherwise hold each other 0.70m apart â€” far
 	# enough that the wrap can't reach and the pair reads as two bodies
 	# bumping. Lifted only for the length of the hold, and only between
 	# these two; everyone else still collides with both of them normally.
 	if is_instance_valid(partner):
 		add_collision_exception_with(partner)
-	# The dive that got here has landed — it must not keep driving the body
+	# The dive that got here has landed â€” it must not keep driving the body
 	# forward through the player it just caught.
 	_slide_dive_timer = 0.0
 
 
 ## Released the moment the hold's window ends, the partner goes away, or a
 ## stoppage takes over (give_possession/set_ruck_contestant both call this
-## — a free kick or a ball-up repositions players outright, and a lock
+## â€” a free kick or a ball-up repositions players outright, and a lock
 ## still pulling toward an old partner would drag them straight back off
 ## the spot they were just placed on).
 func _end_tackle_hold() -> void:
@@ -1286,14 +1301,14 @@ func _update_tackle_hold(delta: float) -> void:
 
 
 ## Shared "play the fall/recover clip" beat behind every hard knockdown in
-## the kit — a Lunge tackle connecting (_get_tackled above, is_slide=false)
+## the kit â€” a Lunge tackle connecting (_get_tackled above, is_slide=false)
 ## and, since the hit-stick bump rework, a clean bump connect or a whiffed
 ## bump dash landing on the bumper themselves (_resolve_bump_contact/
-## _resolve_bump_miss below). Never touches the ball or possession —
+## _resolve_bump_miss below). Never touches the ball or possession â€”
 ## callers that need that (a Lunge tackle strips it; a clean bump now
 ## spills it too) do it themselves before calling this. `action` defaults to
 ## Action.TACKLED (fall forward, in the direction of travel); Bump's clean
-## connect passes Action.KNOCKED_BACK instead (falls backward — see that
+## connect passes Action.KNOCKED_BACK instead (falls backward â€” see that
 ## Action's own comment) along with `snap_facing = false`, since a backward
 ## fall should NOT spin the body around to face the direction it's
 ## travelling the way TACKLED's own forward crumple wants to.
@@ -1307,7 +1322,7 @@ func _knockdown(direction: Vector3, stun_duration: float,
 
 
 ## Snaps facing to `direction` immediately, bypassing _update_facing()'s
-## normal rotate_toward easing — a tackle puts the body down facing away
+## normal rotate_toward easing â€” a tackle puts the body down facing away
 ## from the hit on the very frame it connects, not several frames later.
 ## Also updates _heading so every subsequent frame's _update_facing() call
 ## agrees with this rather than trying to rotate back toward wherever the
@@ -1323,13 +1338,13 @@ func _fall_toward(direction: Vector3) -> void:
 ## Smother (X tap, not carrying): a real committed dive at a kicker (design
 ## brief, after playtest feedback the old instant-radius version never
 ## actually moved: "does not dive the player onto the ground to smother the
-## kick"). Targets anyone still carrying whose kick hasn't fired yet —
+## kick"). Targets anyone still carrying whose kick hasn't fired yet â€”
 ## either still in stance (is_kick_aiming()) or mid-swing but before
-## contact (is_mid_kick_swing()) — since a kick already gone is nothing a
+## contact (is_mid_kick_swing()) â€” since a kick already gone is nothing a
 ## smother can do anything about. Unlike Bump, this locks the target at
 ## launch (the filter below already has to find exactly one to trigger at
 ## all) and re-aims _smother_dive_direction at their live position every
-## frame while the dive is active — see the block below and Tuning's own
+## frame while the dive is active â€” see the block below and Tuning's own
 ## Smother section. Resolution (did the dive actually reach them in time)
 ## happens post-move in _try_smother_contact(), the same split every other
 ## contest in this file follows.
@@ -1366,11 +1381,11 @@ func _update_smother(delta: float) -> void:
 ## Runs every physics frame a smother dive is live, after the body has
 ## actually moved this frame (same ordering _try_tackle()/_try_bump_
 ## contact() use). The dive's own clip (Action.SMOTHER_DIVE) plays out
-## regardless of outcome — this only decides the game effect: did it
+## regardless of outcome â€” this only decides the game effect: did it
 ## actually reach SMOTHER_RADIUS of the target while their kick was still
 ## blockable. If the target disposed, got tackled, or their kick already
 ## fired before the dive got there, this just quietly does nothing and the
-## dive's own timer runs out on its own — no separate miss penalty, the
+## dive's own timer runs out on its own â€” no separate miss penalty, the
 ## same "stays on feet, minimal cost" precedent Lunge tackle already set
 ## for a low-commitment miss.
 func _try_smother_contact() -> void:
@@ -1396,16 +1411,16 @@ func _scatter_from(attacker: PlayerController, up_bias: float) -> Vector3:
 
 
 ## Called on the smothered player, by the smotherer. Cancels the kick
-## outright — whatever stage the swing was at, it doesn't complete — and
+## outright â€” whatever stage the swing was at, it doesn't complete â€” and
 ## the ball drops right at their feet rather than spilling like a tackle:
 ## blocked at the boot means it barely moves. Plays the Action.SMOTHERED
 ## recoil/stumble (design brief: "should visibly react/stumble, not just
-## silently lose the ball") — a reaction, not a knockdown, so unlike
+## silently lose the ball") â€” a reaction, not a knockdown, so unlike
 ## _get_tackled/_knockdown this never touches facing or _stun_timer, just
 ## the usual _action != NONE gate for its own short duration. `_action` is
 ## force-reset to NONE first (same as _knockdown) since the player is very
-## likely mid-KICK right now — that's the whole reason they were a valid
-## smother target (is_kick_aiming()/is_mid_kick_swing()) — and _begin()
+## likely mid-KICK right now â€” that's the whole reason they were a valid
+## smother target (is_kick_aiming()/is_mid_kick_swing()) â€” and _begin()
 ## would otherwise refuse to start a new action over an active one.
 func _get_smothered(by: PlayerController) -> void:
 	var ball := _carried_ball
@@ -1416,7 +1431,7 @@ func _get_smothered(by: PlayerController) -> void:
 		ball.knock(_scatter_from(by, 0.3) * Tuning.SMOTHER_SPILL_SPEED * ball.mass)
 
 
-# ── Bump ─────────────────────────────────────────────────────────────
+# â”€â”€ Bump â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Design brief priority 7: LB hold + Right Stick flick, Madden's hit-stick
 # model. Out-of-possession only, same as tackle/spoil/smother. The flick
 # gesture itself lives in InputManager (a raw device primitive that didn't
@@ -1427,13 +1442,13 @@ func _get_smothered(by: PlayerController) -> void:
 # dive-in (_update_slide_dive) already uses: a completed flick launches
 # _bump_dash_timer/_bump_dash_direction (see _update_locomotion's own
 # dash branch for the movement side), and resolution happens after the
-# body has actually moved — _try_bump_contact(), called alongside
+# body has actually moved â€” _try_bump_contact(), called alongside
 # _try_tackle()/_try_smother_contact() post-move in _physics_process, the
 # same "physics decides after the body moves" split every other contest
 # here follows. Unlike Slide's dive-in, which never locks onto a target ahead
 # of time either but just fizzles for free if it never reaches anyone, a
 # bump dash that reaches the end of its own clock with nobody found is a
-# genuine whiff (design brief: full commitment, full consequence) — see
+# genuine whiff (design brief: full commitment, full consequence) â€” see
 # _resolve_bump_miss.
 
 func _update_bump(delta: float) -> void:
@@ -1456,7 +1471,7 @@ func _update_bump(delta: float) -> void:
 
 
 ## `flick_raw` is the stick's raw (x, y) at the instant the gesture
-## completed — converted to a world-space direction the same camera-
+## completed â€” converted to a world-space direction the same camera-
 ## relative way HumanBrain.wish_direction() already converts movement
 ## input, so "flick right" means the same thing on screen a bump does as
 ## it does for running.
@@ -1473,7 +1488,7 @@ func _flick_world_direction(flick_raw: Vector2) -> Vector3:
 	return dir.normalized() if dir.length_squared() > 0.0001 else forward
 
 
-## Gentle homing correction while a bump dash is live — the same "nudge
+## Gentle homing correction while a bump dash is live â€” the same "nudge
 ## toward the play, don't lock onto it" spirit _apply_aim_assist() already
 ## uses for kicks (KICK_AIM_ASSIST_*). Added directly off real playtesting:
 ## a dash frozen at the flick's exact instant direction almost never
@@ -1481,7 +1496,7 @@ func _flick_world_direction(flick_raw: Vector2) -> Vector3:
 ## there ("I cannot hit the other player over with the hit stick"). Only
 ## pulls toward a carrier already roughly in front of the swing (BUMP_
 ## ASSIST_CONE_DEG, wider than the contact cone BUMP_CONE_DEG itself) and
-## within plausible reach (BUMP_ASSIST_RANGE) — a correction on top of a
+## within plausible reach (BUMP_ASSIST_RANGE) â€” a correction on top of a
 ## real flick, not a substitute for aiming one.
 func _apply_bump_assist(delta: float) -> void:
 	var carrier := _nearest_opposing_carrier()
@@ -1501,16 +1516,16 @@ func _apply_bump_assist(delta: float) -> void:
 
 ## Runs every physics frame a bump dash is live, after the body has
 ## actually moved this frame (same ordering _try_tackle()/_try_smother_
-## contact() use). No target to lock onto ahead of time — a bump is a physical
-## swing, not a selection — so this just keeps asking "is anyone in range
+## contact() use). No target to lock onto ahead of time â€” a bump is a physical
+## swing, not a selection â€” so this just keeps asking "is anyone in range
 ## and roughly in front of the swing right now," the same "physically
 ## doing the right thing is what resolves it" stance every other contest
 ## here takes. The instant that's true, it connects (_resolve_bump_
 ## contact); if the dash's own clock runs out first, it's a whiff
 ## (_resolve_bump_miss). _bump_dash_active (not _bump_dash_timer) gates
 ## this so the one frame the timer reaches exactly zero still gets
-## evaluated — see that field's own doc comment. Both resolution branches
-## also zero _bump_dash_timer itself, not just _bump_dash_active — a
+## evaluated â€” see that field's own doc comment. Both resolution branches
+## also zero _bump_dash_timer itself, not just _bump_dash_active â€” a
 ## connect can land well before the dash's own clock runs out (unlike
 ## Slide's dive-in, a bump dash has no launch-range gate, so it can
 ## connect on its very first frame), and _update_locomotion's dash-override
@@ -1536,20 +1551,20 @@ func _try_bump_contact() -> void:
 		_bump_dash_active = false
 
 
-## A bump dash connecting — clean or mistimed exactly as the old
+## A bump dash connecting â€” clean or mistimed exactly as the old
 ## instant-resolve version already decided it (design brief: "timing
-## relative to the ball carrier's approach determines the outcome" —
+## relative to the ball carrier's approach determines the outcome" â€”
 ## BUMP_APPROACH_DOT_MIN/BUMP_MISTIMED_SCALE, unchanged). A clean connect
 ## now goes further than a knockback: the carrier goes all the way down,
-## Action.KNOCKED_BACK, not Action.TACKLED — a clean hit from the front
+## Action.KNOCKED_BACK, not Action.TACKLED â€” a clean hit from the front
 ## should send them straight down onto their back, still facing roughly
-## where they already were, not spin them 180° to face away first the way
+## where they already were, not spin them 180Â° to face away first the way
 ## TACKLED's own "face the fall direction" convention would (playtest
 ## feedback caught exactly that spin). `snap_facing = false` is what skips
-## it — see _knockdown()'s own doc comment. The bumper stays on their feet
+## it â€” see _knockdown()'s own doc comment. The bumper stays on their feet
 ## either way, the whole point of a hit-stick over a tackle. A clean
 ## connect also spills the ball loose on the instant of the hit
-## (BUMP_SPILL_SPEED, forward in the hit direction) — playtest request, so
+## (BUMP_SPILL_SPEED, forward in the hit direction) â€” playtest request, so
 ## a bump is now a genuine turnover, not just a knock that leaves the
 ## carrier holding on. A mistimed/glancing connect stays the original
 ## lighter physics-only reaction with no clip of its own and no strip.
@@ -1567,7 +1582,7 @@ func _resolve_bump_contact(carrier: PlayerController) -> void:
 		Tuning.BUMP_STUN_DURATION * scale, self)
 	if clean:
 		# The ball comes loose on the hit, synced with the KNOCKED_BACK fall
-		# — a clean hit-stick jolts it out of the carrier's hands, spilling
+		# â€” a clean hit-stick jolts it out of the carrier's hands, spilling
 		# forward in the hit direction. Grabbed before drop_ball() clears the
 		# reference, same shape as _get_tackled's Lunge spill.
 		var spilled_ball := carrier.carried_ball()
@@ -1581,20 +1596,20 @@ func _resolve_bump_contact(carrier: PlayerController) -> void:
 	bump_landed.emit(self, carrier, clean)
 
 
-## The dash ran its full course without ever finding a target — a genuine
+## The dash ran its full course without ever finding a target â€” a genuine
 ## whiff. Overcommitting a hit-stick swing at nobody sends the bumper down
 ## too, tumbling forward in the direction they were already committed to
-## (Action.TACKLED, unchanged — an overextending whiff reads as toppling
+## (Action.TACKLED, unchanged â€” an overextending whiff reads as toppling
 ## forward past the swing, not backward, so this keeps the default action/
 ## facing-snap _knockdown() already has), with real extra recovery on top
-## of Action.TACKLED's own clip length — see BUMP_MISS_STUN_DURATION's own
+## of Action.TACKLED's own clip length â€” see BUMP_MISS_STUN_DURATION's own
 ## comment on why this is deliberately the single biggest miss penalty in
 ## the kit. Playtest feedback: this used to keep sliding at the dash's own
 ## full speed for a good half-second after the miss was already decided
 ## (_update_locomotion's dash-override branch stops as soon as _bump_dash_
 ## timer hits zero, but nothing had ever reset the velocity IT had already
 ## set, so normal locomotion's own braking curve took over from wherever
-## that left off) — zeroing horizontal velocity here means the fall starts
+## that left off) â€” zeroing horizontal velocity here means the fall starts
 ## from a dead stop exactly where the whiff happened, not several metres
 ## further on.
 func _resolve_bump_miss() -> void:
@@ -1605,12 +1620,12 @@ func _resolve_bump_miss() -> void:
 
 
 ## The vertical half of "add a bit of gravity" (playtest feedback on the
-## bump rework — an all-horizontal slide read as floaty). A small upward
+## bump rework â€” an all-horizontal slide read as floaty). A small upward
 ## pop, then real gravity pulls it back down over BUMP_KNOCKDOWN_HOP_
 ## DURATION (see _knockdown_hop_timer's own doc comment for why the
 ## floor-snap bite in _physics_process has to be suspended for this to
 ## actually arc rather than being cancelled the next frame). Scoped to
-## bump's two knockdown call sites only — tackle's own knockdown feel
+## bump's two knockdown call sites only â€” tackle's own knockdown feel
 ## wasn't part of this report.
 func _apply_knockdown_hop() -> void:
 	velocity.y = Tuning.BUMP_KNOCKDOWN_HOP_SPEED
@@ -1618,9 +1633,9 @@ func _apply_knockdown_hop() -> void:
 
 
 ## Stand-the-mark (RULES_REFERENCE.md's MARK_STAND_MIN_DISTANCE entry): a
-## legal mark obliges the nearest opponent — no player-marking assignment
+## legal mark obliges the nearest opponent â€” no player-marking assignment
 ## exists in this project, so "nearest at the moment of the mark" stands in
-## for "whoever the umpire would call the mark against" — to hold their
+## for "whoever the umpire would call the mark against" â€” to hold their
 ## ground until this player disposes. Scoped to marks only, not free kicks/
 ## kick-ins: those already reuse _protected_timer for the taker's own
 ## immunity, but the broader "every other opponent retreats 10m" rule is a
@@ -1630,7 +1645,7 @@ func _apply_stand_the_mark() -> void:
 	var opponent := _nearest_opponent()
 	if opponent == null:
 		return
-	# The mark itself is where this player is standing right now — the catch
+	# The mark itself is where this player is standing right now â€” the catch
 	# spot, captured before _begin_mark_retreat() walks them back off it.
 	# Put the man on the mark a metre goal-side of that (this player's
 	# attacking direction) so the two capsules don't overlap as the taker
@@ -1645,7 +1660,7 @@ func _apply_stand_the_mark() -> void:
 
 
 ## The general "get back 10 metres" rule (Tuning.FREE_KICK_RETREAT_
-## DISTANCE) — every opponent within range of THIS player's current
+## DISTANCE) â€” every opponent within range of THIS player's current
 ## position, not just the one _apply_stand_the_mark() names. Called from
 ## grant_protection() itself so all four moments that grant it (a legal
 ## mark, a protected kick-in, a holding-the-ball free kick, an out-on-the-
@@ -1666,7 +1681,7 @@ func _release_frozen_opponents() -> void:
 
 
 ## Shared "closest player matching a filter" search behind every tackle/
-## smother/bump/stand-the-mark lookup — one place to change if the filter
+## smother/bump/stand-the-mark lookup â€” one place to change if the filter
 ## itself ever needs to (e.g. excluding stunned players), instead of six
 ## separately-maintained copies of the same loop.
 ## `max_dist` is INF for callers that want the nearest regardless of range
@@ -1686,9 +1701,9 @@ func _nearest_opposing_carrier() -> PlayerController:
 
 
 ## Called on the bumped player, by the bumper, on every connect (clean or
-## mistimed) — a knockback that overrides normal movement until it decays
+## mistimed) â€” a knockback that overrides normal movement until it decays
 ## (see _update_locomotion) plus a stun. Never strips the ball, distinct
-## from a tackle (real AFL: dispossession is a tackle's job) — the ball
+## from a tackle (real Aussie Rules: dispossession is a tackle's job) â€” the ball
 ## stays carried even through a clean connect's full knockdown. A clean
 ## connect layers _knockdown() on top of this from _resolve_bump_contact
 ## (the carrier goes all the way down, not just knocked off balance); this
@@ -1698,22 +1713,22 @@ func receive_bump(impulse: Vector3, stun_duration: float, _by: PlayerController)
 	_stun_timer = maxf(_stun_timer, stun_duration)
 
 
-# ── Marking ──────────────────────────────────────────────────────────
+# â”€â”€ Marking â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Design brief priority 2: a three-tier contextual catch, resolved by a
 # reach-radius/timing test against the ball's live position rather than a
-# probability roll (RULES_REFERENCE.md §3, same physical-not-scripted
+# probability roll (RULES_REFERENCE.md Â§3, same physical-not-scripted
 # stance tackling already follows). Safe (A, held) plants and waits for the
 # ball to arrive; Running (X, tapped) snap-grabs at pace with a tighter
 # margin; Aggressive (Y, tapped) commits to a real jump. The same A button
-# becomes a ground pickup once the ball isn't airborne — the brief's "ball
+# becomes a ground pickup once the ball isn't airborne â€” the brief's "ball
 # state + player state + proximity + input, not just the button" framing.
 
 ## Every condition that makes a mark attempt a non-starter regardless of
-## ball state — shared between _update_marking (the real resolution path)
+## ball state â€” shared between _update_marking (the real resolution path)
 ## and live_mark_prompt (the UI hint) so the two can't silently disagree
 ## about when a mark is actually live. They used to: live_mark_prompt had
 ## its own, incomplete copy of this that never checked _gather_cooldown
-## (0.45s "before you can regather your own kick," set on every disposal —
+## (0.45s "before you can regather your own kick," set on every disposal â€”
 ## see _dispose()), so the badge/ring briefly read as live for a player
 ## standing right where they just kicked from, before the ball had gone
 ## anywhere. _update_marking already enforced this correctly; the prompt
@@ -1721,13 +1736,13 @@ func receive_bump(impulse: Vector3, stun_duration: float, _by: PlayerController)
 ##
 ## `ball` is optional (live_mark_prompt/_update_marking both already have
 ## it in hand) so this extends beyond the flat GATHER_COOLDOWN timer: user
-## report — "I still see the flash on kick, it happens half a second after
-## I've kicked it" — GATHER_COOLDOWN alone only guarantees the block lifts
+## report â€” "I still see the flash on kick, it happens half a second after
+## I've kicked it" â€” GATHER_COOLDOWN alone only guarantees the block lifts
 ## after a fixed 0.45s, with no guarantee the ball has actually gone
 ## anywhere by then (a short or blocked kick can still be sitting well
 ## inside every tier's reach at that exact instant). This project only
 ## ever has one ball in play, and Ball.last_disposer() tracks who most
-## recently launched it — so while it's still this same player's own
+## recently launched it â€” so while it's still this same player's own
 ## disposal *and* it hasn't covered Tuning.MARK_SELF_CLEAR_DISTANCE yet,
 ## the block holds regardless of how much time has passed. A teammate (or
 ## the coach, in a training drill) is a different `last_disposer()`, so
@@ -1759,11 +1774,11 @@ func _update_marking(delta: float) -> void:
 	else:
 		# The one Safe-miss detection point: this player was genuinely
 		# holding (readying) a Safe attempt and the ball has now touched
-		# down uncaught — a real drop, worth the same feedback trio a
+		# down uncaught â€” a real drop, worth the same feedback trio a
 		# failed Running/Aggressive attempt gets. Deliberately scoped to
 		# just this common case, not every theoretical way a held Safe
 		# attempt can end (stunned mid-hold, an opponent beats them to a
-		# loose ball first) — those stay silent, same as they already are
+		# loose ball first) â€” those stay silent, same as they already are
 		# today, rather than chasing every exit path for a tier whose whole
 		# point is staying simple.
 		if _mark_readying and _brain is HumanBrain:
@@ -1771,14 +1786,14 @@ func _update_marking(delta: float) -> void:
 			mark_missed.emit(Tuning.Action.MARK_SAFE)
 			_begin(Tuning.Action.MARK_SAFE_MISS)
 			_mark_readying = false
-			return   # whiff reaction owns this frame — don't also attempt a ground pickup under it
+			return   # whiff reaction owns this frame â€” don't also attempt a ground pickup under it
 		_mark_readying = false
 		_update_ground_pickup(ball, delta)
 
 
 ## Punch/Spoil (LT tap, not carrying, near an aerial contest): knocks a
 ## contestable ball off its line rather than controlling it. No target
-## player to name — physically deflecting the ball is enough on its own to
+## player to name â€” physically deflecting the ball is enough on its own to
 ## spoil whoever else was about to mark it, since their own reach test
 ## (_ball_in_catch_reach) reads the ball's real position/velocity, which
 ## this has just changed. wants_spoil() is already edge-triggered (one tap,
@@ -1797,9 +1812,9 @@ func _try_spoil(ball: Ball) -> void:
 	ball.knock(away * Tuning.SPOIL_IMPULSE_SPEED * ball.mass)
 
 
-## Safe branch splits on brain type — a HumanBrain gets the graded timing
+## Safe branch splits on brain type â€” a HumanBrain gets the graded timing
 ## treatment (press rumble on the rising edge of the hold, reach narrowed
-## by how well the hold's timing lines up — see mark_timing_offset), an
+## by how well the hold's timing lines up â€” see mark_timing_offset), an
 ## AIBrain gets the exact original unconditional-reach check, byte for
 ## byte. Deliberate, not an oversight: AI marking is a documented, minimal
 ## stub (docs/FEATURE_AUDIT.md) that this feature isn't meant to touch, and
@@ -1809,7 +1824,7 @@ func _try_spoil(ball: Ball) -> void:
 func _update_aerial_contest(ball: Ball, _delta: float) -> void:
 	if _brain.wants_mark_safe():
 		if _brain is HumanBrain:
-			# _mark_readying still holds *last* frame's value here — reading
+			# _mark_readying still holds *last* frame's value here â€” reading
 			# it before the unconditional assignment below is what makes
 			# this a rising-edge check with no extra state of its own.
 			if not _mark_readying:
@@ -1830,17 +1845,17 @@ func _update_aerial_contest(ball: Ball, _delta: float) -> void:
 		_attempt_running_mark(ball)
 		return
 
-	# Gate on distance/flight-distance *before* consulting the brain —
+	# Gate on distance/flight-distance *before* consulting the brain â€”
 	# consume_buffered_press() (what wants_mark_aggressive() calls under the
 	# hood) erases the buffered press the instant it's read, per its own
 	# doc comment: "callers must only call this at the point they are
 	# actually about to act on it." With the brain check first (short-
 	# circuit `and`), a press read on a frame where the ball was still a
 	# hair outside MARK_CONTEST_RANGE or MIN_FLIGHT_DISTANCE got silently
-	# eaten — _begin_aggressive_mark() never fired, but the buffer was
+	# eaten â€” _begin_aggressive_mark() never fired, but the buffer was
 	# already gone, so a later frame (ball now genuinely in range) saw
 	# nothing left to consume. That reads to the player as "I timed it
-	# right and nothing happened" — issue 2's exact symptom, since the ring
+	# right and nothing happened" â€” issue 2's exact symptom, since the ring
 	# cue's own "press now" instant is timed off mark_timing_offset() (see
 	# MarkPrompt._press_target_offset), not off this distance gate, so the
 	# two can legitimately disagree by a frame or two on a fast/steep
@@ -1854,10 +1869,10 @@ func _update_aerial_contest(ball: Ball, _delta: float) -> void:
 
 
 ## Running's tap and its resolution are the same instant (unlike Aggressive,
-## whose jump defers resolution to a later contact frame — see
+## whose jump defers resolution to a later contact frame â€” see
 ## _resolve_aggressive_mark), so timing is graded right here, once. A tap
 ## that fails outside MARK_CONTEST_RANGE is treated as no attempt at all
-## (silent, matching today) rather than a graded miss — the range gate is
+## (silent, matching today) rather than a graded miss â€” the range gate is
 ## the same "is this even live" test _update_aerial_contest's own
 ## Aggressive branch already uses, not a new number.
 func _attempt_running_mark(ball: Ball) -> void:
@@ -1873,7 +1888,7 @@ func _attempt_running_mark(ball: Ball) -> void:
 		_begin(Tuning.Action.MARK_RUNNING_MISS)
 
 
-## A — Ground Pickup once the ball is loose rather than in flight (design
+## A â€” Ground Pickup once the ball is loose rather than in flight (design
 ## brief): a deliberate reach, wider and speed-responsive versus the
 ## passive walk-over _try_gather() above, not an instant snap onto the ball.
 func _update_ground_pickup(ball: Ball, _delta: float) -> void:
@@ -1898,14 +1913,14 @@ func _complete_mark(ball: Ball, tier: Tuning.Action) -> void:
 	_finish_mark_catch(ball, tier)
 	_mark_readying = false
 	if tier == Tuning.Action.MARK_SAFE:
-		# A small reactive hop on the catch itself — see Tuning.MARK_SAFE_
+		# A small reactive hop on the catch itself â€” see Tuning.MARK_SAFE_
 		# HOP_SPEED's own comment for why Safe gets this and not a real jump.
 		_pending_jump_speed = Tuning.MARK_SAFE_HOP_SPEED
 	_begin(tier)
 
 
 ## Shared tail for a legal-or-not catch once the gather itself has already
-## happened — protection + stand-the-mark (only on a legal mark), rumble,
+## happened â€” protection + stand-the-mark (only on a legal mark), rumble,
 ## and the outcome signal. _complete_mark (Safe/Running) and
 ## _resolve_aggressive_mark differ only in what leads up to the catch: the
 ## former already knows it connects before calling this, the latter is
@@ -1914,6 +1929,7 @@ func _finish_mark_catch(ball: Ball, tier: Tuning.Action) -> void:
 	var legal_mark := ball.is_mark_eligible()
 	_complete_gather(ball)
 	if legal_mark:
+		_legal_mark_set_shot = true
 		grant_protection(Tuning.MARK_HOLD_DURATION)
 		_apply_stand_the_mark()
 		_begin_mark_retreat()
@@ -1923,7 +1939,7 @@ func _finish_mark_catch(ball: Ball, tier: Tuning.Action) -> void:
 
 
 ## Walking back off the mark (Tuning.MARK_RETREAT_DISTANCE). "Back" is the
-## team's own defensive direction — away from the goal being attacked —
+## team's own defensive direction â€” away from the goal being attacked â€”
 ## which is what backwards means from a kicker's point of view regardless
 ## of which way they happened to be facing when they took the grab. HOME
 ## attacks +X (Tuning's axis convention), so HOME retreats toward -X.
@@ -1937,7 +1953,7 @@ func _begin_mark_retreat() -> void:
 
 
 ## Public entry to the walk-back, for the free-kick / turnover restarts that
-## should read the same as a mark — holding the ball, run too far, out on
+## should read the same as a mark â€” holding the ball, run too far, out on
 ## the full (see FullGame._award_possession_at). A goal-square kick-in
 ## deliberately does NOT call this: the kicker is already on the line with
 ## nowhere to back up to.
@@ -1954,11 +1970,23 @@ func is_retreating_from_mark() -> bool:
 	return _mark_retreat_remaining > 0.0
 
 
+## A set-shot is only offered from a real legal mark, never from an ordinary
+## gather or a free kick. The underlying kick remains the normal physical
+## kick, with its existing manual aim, charge and accuracy.
+func can_take_goal_kick(max_range: float) -> bool:
+	if not _legal_mark_set_shot or not is_carrying():
+		return false
+	var goal_x := Tuning.FIELD_HALF_LENGTH if team == Tuning.Team.HOME else -Tuning.FIELD_HALF_LENGTH
+	var to_goal := Vector3(goal_x, 0.0, 0.0) - global_position
+	to_goal.y = 0.0
+	return to_goal.length() <= max_range
+
+
 ## Y commits to the jump the instant it's pressed, whether or not it will
-## actually connect — that commitment is the entire risk of an aggressive
+## actually connect â€” that commitment is the entire risk of an aggressive
 ## attempt. The vertical impulse goes through _pending_jump_speed so it survives
 ## this frame's floor-snap (see _physics_process); everything after that is
-## the same gravity integration every other airborne frame already uses —
+## the same gravity integration every other airborne frame already uses â€”
 ## no separate jump-arc code, the arc just falls out of it.
 func _begin_aggressive_mark() -> void:
 	if _brain is HumanBrain:
@@ -1968,12 +1996,12 @@ func _begin_aggressive_mark() -> void:
 
 
 ## Fires at the jump's contact instant (Tuning.ACTION_CONTACT), timed to
-## land near its peak reach — see _update_action's dispatch. A clean miss
+## land near its peak reach â€” see _update_action's dispatch. A clean miss
 ## leaves the ball untouched: no contact happened, so nothing about its
 ## flight changes.
 ##
 ## Timing is graded *here*, fresh, rather than captured back at the tap in
-## _begin_aggressive_mark — the jump always takes the same fixed
+## _begin_aggressive_mark â€” the jump always takes the same fixed
 ## ACTION_CONTACT[MARK_AGGRESSIVE] seconds to reach this instant, so "good
 ## timing" for this tier really means "the ball's offset is near zero by
 ## the time the jump peaks," which is exactly what re-reading
@@ -1995,7 +2023,7 @@ func _resolve_aggressive_mark() -> void:
 		mark_missed.emit(Tuning.Action.MARK_AGGRESSIVE)
 
 
-## MARK_ASSIST_RADIUS_BONUS is added after the per-tier scale, not before —
+## MARK_ASSIST_RADIUS_BONUS is added after the per-tier scale, not before â€”
 ## a flat metres bonus applied uniformly to Safe/Running/Aggressive keeps
 ## their relative difficulty spread intact rather than compressing it.
 func _ball_in_catch_reach(ball: Ball, reach_scale: float) -> bool:
@@ -2005,7 +2033,7 @@ func _ball_in_catch_reach(ball: Ball, reach_scale: float) -> bool:
 	return ball.global_position.distance_to(_carry_point.global_position) <= reach
 
 
-## Live estimate of seconds until the ball reaches this player's hands —
+## Live estimate of seconds until the ball reaches this player's hands â€”
 ## negative while it's still closing (counting up to zero), or the flat
 ## Tuning.MARK_TIMING_PAST_PEAK_OFFSET sentinel once it no longer is
 ## (already arrived, or drifting past/away). Recomputed fresh from the
@@ -2014,18 +2042,18 @@ func _ball_in_catch_reach(ball: Ball, reach_scale: float) -> bool:
 ## independent hand-rolled forward-simulation copies for three different
 ## purposes (Ball._integrate_forces itself, KickTrajectory._simulate's
 ## preview stepper, MarkChallenge._predicted_range's inverse-ballistics
-## guess) and a fourth wasn't worth adding here — a live reactive estimate
+## guess) and a fourth wasn't worth adding here â€” a live reactive estimate
 ## is simpler and self-corrects every physics frame if the ball's flight is
 ## perturbed after launch (catch gravity, a spoil), which a one-shot
 ## prediction committed to in advance wouldn't.
 ##
 ## Public (no leading underscore) because MarkPrompt needs the same number
-## the resolution logic uses to draw an honest countdown — same convention
+## the resolution logic uses to draw an honest countdown â€” same convention
 ## as live_mark_prompt()/catch_point_position() below, both also written
 ## for an outside caller.
 ##
 ## `tier` scopes the "basically here" arrived-radius check below to the
-## reach the *caller* actually cares about — MARK_SAFE/MARK_RUNNING/
+## reach the *caller* actually cares about â€” MARK_SAFE/MARK_RUNNING/
 ## MARK_AGGRESSIVE, or NONE (the default) for a generic/tier-agnostic read
 ## (e.g. a ruck contest). Multi-trial scripted verification caught a real
 ## bug from treating every caller alike here: a single shared radius wide
@@ -2033,7 +2061,7 @@ func _ball_in_catch_reach(ball: Ball, reach_scale: float) -> bool:
 ## enough to read as "arrived" well before the ball was actually inside
 ## Running's much tighter reach, so Running's same-frame resolution (no
 ## forward delay to self-correct on, unlike Aggressive) was grading a press
-## as ideal-timed while still genuinely out of reach — the ring cue itself
+## as ideal-timed while still genuinely out of reach â€” the ring cue itself
 ## would tell a real player to press before the ball had actually arrived.
 func mark_timing_offset(ball: Ball, tier: Tuning.Action = Tuning.Action.NONE) -> float:
 	var to_catch := ball.global_position - _carry_point.global_position
@@ -2041,13 +2069,13 @@ func mark_timing_offset(ball: Ball, tier: Tuning.Action = Tuning.Action.NONE) ->
 	if dist < 0.001:
 		return 0.0
 	# "Basically here" (relative to *this tier's own* reach) beats any
-	# velocity-based read, checked first and unconditionally — not just
+	# velocity-based read, checked first and unconditionally â€” not just
 	# when closing speed happens to be low. A fast crossing (both ball and
 	# Running-tier player can easily be moving at several m/s) can swing
 	# the radial closing speed from clearly closing to clearly departing
 	# within a single 60Hz physics step, so a check gated on "closing speed
 	# is currently low" can miss the ball's true closest approach entirely
-	# — it can legitimately never sample a frame where closing speed reads
+	# â€” it can legitimately never sample a frame where closing speed reads
 	# inside any narrow band, however wide, right as the two paths cross.
 	# Multi-trial scripted verification (many geometries, a real
 	# Running-tier player actually moving) caught exactly this: carry-point
@@ -2065,7 +2093,7 @@ func mark_timing_offset(ball: Ball, tier: Tuning.Action = Tuning.Action.NONE) ->
 			pass   # the wide, Aggressive-scoped default above already fits
 	if dist <= arrived_radius:
 		return 0.0
-	# Relative to this player's own motion, not just the ball's — matters
+	# Relative to this player's own motion, not just the ball's â€” matters
 	# for a Running mark taken at pace, where closing the gap is a joint
 	# effort between the ball's flight and the player's own sprint toward
 	# it, not the ball's velocity alone.
@@ -2074,15 +2102,15 @@ func mark_timing_offset(ball: Ball, tier: Tuning.Action = Tuning.Action.NONE) ->
 	if closing_speed <= Tuning.MARK_TIMING_MIN_CLOSING_SPEED:
 		return Tuning.MARK_TIMING_PAST_PEAK_OFFSET
 	# A falling ball's closing speed keeps rising under gravity right up to
-	# the catch — a real, physical acceleration, not sensor noise — so a
+	# the catch â€” a real, physical acceleration, not sensor noise â€” so a
 	# plain dist/closing_speed (constant-velocity) ETA is a systematic
 	# under-estimate of urgency: it reads the *slowest* closing speed of
 	# the remaining approach (now) and assumes that rate the whole way in.
 	# Safe/Running never notice, because they grade the very instant the
-	# button is pressed — this is only ever asked "is it here right now,"
+	# button is pressed â€” this is only ever asked "is it here right now,"
 	# never "how long until." Aggressive is the one tier that *commits*
 	# ACTION_CONTACT[MARK_AGGRESSIVE] (0.4s) ahead of its own resolution
-	# (the jump has to physically rise first — see _resolve_aggressive_
+	# (the jump has to physically rise first â€” see _resolve_aggressive_
 	# mark's own comment), so it's the one tier actually relying on this
 	# number as a forward prediction, and the bias bit exactly there:
 	# scripted verification (a real Ball/PlayerController physics run, not
@@ -2090,10 +2118,10 @@ func mark_timing_offset(ball: Ball, tier: Tuning.Action = Tuning.Action.NONE) ->
 	# closest approach landing roughly twice as soon as the plain linear
 	# estimate promised, so a jump committed off "offset == -0.4s" was
 	# still mid-air, arm still rising, after the ball had already passed
-	# and moved on — a real, reproducible cause of "aggressive mark misses
+	# and moved on â€” a real, reproducible cause of "aggressive mark misses
 	# on seemingly correct timing," not player error. Folding in gravity's
 	# contribution to closing acceleration (constant-acceleration ETA,
-	# solved the same way a real trajectory would be — drag omitted, same
+	# solved the same way a real trajectory would be â€” drag omitted, same
 	# simplification Ball.predicted_landing_position() already makes for a
 	# live in-the-loop estimate) corrects for exactly that rise.
 	var closing_accel := -to_catch_dir.dot(Vector3(0.0, -Tuning.GRAVITY, 0.0))
@@ -2106,7 +2134,7 @@ func mark_timing_offset(ball: Ball, tier: Tuning.Action = Tuning.Action.NONE) ->
 	return -dist / closing_speed
 
 
-## The physical (never probabilistic — RULES_REFERENCE.md §3) consequence
+## The physical (never probabilistic â€” RULES_REFERENCE.md Â§3) consequence
 ## of timing accuracy: full reach inside the ideal band, a narrowed one
 ## inside the wider "contested" band, none at all outside it. One shared
 ## step function behind all three tiers' timing grading, so they can't
@@ -2121,18 +2149,18 @@ func _timing_reach_mult(offset: float, ideal_window: float, ok_window: float) ->
 
 
 ## World position of this player's catch point (their hands, for marking
-## purposes) — the same Marker3D carrying already uses. Exposed so Ball's
+## purposes) â€” the same Marker3D carrying already uses. Exposed so Ball's
 ## catch-gravity assist (_apply_catch_gravity) can find the nearest live
 ## target without needing its own copy of where "the hands" are.
 func catch_point_position() -> Vector3:
 	return _carry_point.global_position
 
 
-## Madden-style contest prompt (polish-pass brief) — the single tier
+## Madden-style contest prompt (polish-pass brief) â€” the single tier
 ## actually relevant right now, not every tier that would technically
 ## connect (an early version of this showed all three simultaneously,
 ## since Safe's reach always covers Running's narrower one and Aggressive's
-## MARK_CONTEST_RANGE is wider again — nearly every live moment had all
+## MARK_CONTEST_RANGE is wider again â€” nearly every live moment had all
 ## three "live" at once, which is correct but not useful as a prompt).
 ##
 ## Reuses the exact reach tests _update_aerial_contest itself resolves
@@ -2141,13 +2169,13 @@ func catch_point_position() -> Vector3:
 ## plants you properly; Running barely interrupts your stride" comment):
 ## Running is only the natural read while actually moving at pace: Safe is
 ## the default the instant you're not; Aggressive is only ever the one
-## live option while the ball hasn't reached normal catching reach yet —
+## live option while the ball hasn't reached normal catching reach yet â€”
 ## once it has, a leap stops being the natural action even though it
 ## would still technically connect, so it stops being recommended.
 func live_mark_prompt(ball: Ball) -> Tuning.Action:
-	# Rulebook §5: the contest prompt is for a ball *kicked* at you, and
+	# Rulebook Â§5: the contest prompt is for a ball *kicked* at you, and
 	# nothing else. This used to read is_airborne(), which is true of any
-	# ball off the ground — so an opponent's handball, or a teammate's
+	# ball off the ground â€” so an opponent's handball, or a teammate's
 	# handball going past, lit the prompt up in close general play.
 	# is_kick_flight() is the same "is this a live, untouched kick" test
 	# FullGame's out-on-the-full check already uses, and it subsumes the
@@ -2174,22 +2202,22 @@ func live_mark_prompt(ball: Ball) -> Tuning.Action:
 	return Tuning.Action.NONE
 
 
-# ── Ruck contests ────────────────────────────────────────────────────
+# â”€â”€ Ruck contests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Design brief priority 4: centre bounce, field ball-up and boundary
-# throw-in all resolve through the same contest — see Tuning's own "Ruck
+# throw-in all resolve through the same contest â€” see Tuning's own "Ruck
 # contests" section and FullGame._begin_ruck_contest, which is the one
 # place that decides *where* a contest happens and *who* contests it. This
 # section only knows how to contest one, the same way regardless of which
 # situation nominated it.
 
 ## Called by whoever is orchestrating a contest (FullGame._begin_ruck_
-## contest) on exactly the two nominated players. Self-expiring — see
-## _ruck_contest_timer in _physics_process — so a ruckman can't hold RB's
+## contest) on exactly the two nominated players. Self-expiring â€” see
+## _ruck_contest_timer in _physics_process â€” so a ruckman can't hold RB's
 ## Hit-Out meaning past the one contest they were nominated into.
 func set_ruck_contestant(value: bool) -> void:
 	if value:
 		# A ball-up nominates both players out of the tackle that caused it
-		# and places them at the contest — nothing may still be pulling
+		# and places them at the contest â€” nothing may still be pulling
 		# them back toward where the wrestle happened.
 		_end_tackle_hold()
 	_is_ruck_contestant = value
@@ -2208,7 +2236,7 @@ func is_ruck_contestant() -> bool:
 ## those same non-ruckmen on their positions instead of crashing the pack
 ## the frame the throw-up is released. The two contestants get first use of
 ## it; everyone else waits for the tap (FullGame clears the flags early on
-## a connected hit-out — see _on_hit_out_resolved) or for the contest
+## a connected hit-out â€” see _on_hit_out_resolved) or for the contest
 ## window to lapse (RUCK_CONTEST_WINDOW, self-expiring). No-op in modes
 ## with no ruck contests, since nobody is ever a contestant there.
 func ruck_contest_locked() -> bool:
@@ -2229,7 +2257,7 @@ func _update_ruck_contest(_delta: float) -> void:
 	_begin_hit_out()
 
 
-## Commits to the leap immediately, exactly like _begin_aggressive_mark —
+## Commits to the leap immediately, exactly like _begin_aggressive_mark â€”
 ## same _pending_jump_speed hand-off into the existing gravity integration, no
 ## separate arc code (design brief: "reuse the existing aggressive-mark
 ## jump impulse pattern... let the existing gravity integration handle the
@@ -2240,12 +2268,12 @@ func _begin_hit_out() -> void:
 
 
 ## Fires at the jump's contact instant, same timing as an aggressive mark's
-## own resolution (Tuning.ACTION_CONTACT — HIT_OUT copies MARK_AGGRESSIVE's
+## own resolution (Tuning.ACTION_CONTACT â€” HIT_OUT copies MARK_AGGRESSIVE's
 ## row verbatim, see Tuning's comment there). A palm, not a catch: knocks
 ## the ball away rather than gathering it, same knock() primitive spoil/
 ## smother already use for "an external hit that doesn't take control".
-## Directed by _hit_out_aim_dir — where Left stick was held on the RB press
-## (see _begin) — so a ruckman taps to a runner, not just straight off the
+## Directed by _hit_out_aim_dir â€” where Left stick was held on the RB press
+## (see _begin) â€” so a ruckman taps to a runner, not just straight off the
 ## body; a neutral stick at the press falls back to body-forward.
 func _resolve_hit_out() -> void:
 	var ball := _live_ball()
@@ -2259,7 +2287,7 @@ func _resolve_hit_out() -> void:
 	hit_out_resolved.emit(self, connected)
 
 
-## The one ball in the scene, found by group rather than a wired reference —
+## The one ball in the scene, found by group rather than a wired reference â€”
 ## every mode's Ball adds itself to the "ball" group (see Ball._ready()), so
 ## this needs no per-mode setup the way AIBrain.ball does.
 func _live_ball() -> Ball:
@@ -2267,23 +2295,23 @@ func _live_ball() -> Ball:
 	return nodes[0] as Ball if not nodes.is_empty() else null
 
 
-# ── Disposal ─────────────────────────────────────────────────────────
+# â”€â”€ Disposal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 ## LT-hold-stance / RT-tap-execute (design brief's CONTROLS section), not
 ## the old single-button hold-then-release-to-fire: wants_kick() (LT) only
 ## ever charges and aims; wants_kick_execute() (RT) is the one thing that
-## actually fires the kick. Releasing LT without ever tapping RT cancels —
-## no kick, charge discarded — where the old model would have fired on
+## actually fires the kick. Releasing LT without ever tapping RT cancels â€”
+## no kick, charge discarded â€” where the old model would have fired on
 ## release regardless.
 ##
 ## RT on its own (never having held LT this attempt) doesn't no-op any
-## more — it hip-fires: whatever the body's facing, fixed power, extra
+## more â€” it hip-fires: whatever the body's facing, fixed power, extra
 ## scatter. Matches P1's actual structure for the aimed case (LT/enter_
-## aim_mode gates the aim cursor there too, confirmed by re-reading it —
+## aim_mode gates the aim cursor there too, confirmed by re-reading it â€”
 ## this was never meant to lose that gate); the hip-fire option itself has
 ## no P1 equivalent, it's this project's own ADS-vs-hip-fire addition.
 func _update_charge(delta: float) -> void:
-	# Still walking back off the mark — get off it before going at goal.
+	# Still walking back off the mark â€” get off it before going at goal.
 	# Handball and simply running are untouched, so "play on" stays
 	# available the moment the retreat finishes; it's the set shot that has
 	# to wait for it (Tuning.MARK_RETREAT_DISTANCE).
@@ -2296,21 +2324,21 @@ func _update_charge(delta: float) -> void:
 		if not _charging:
 			_charging = true
 			# Wherever the camera/crosshair is currently pointing, not body
-			# facing — see _current_look_yaw(). Camera turned toward goals
+			# facing â€” see _current_look_yaw(). Camera turned toward goals
 			# while still running a different line, then pull the trigger:
 			# the kick starts aimed at goals, not wherever your legs
 			# happened to be carrying you.
 			_kick_aim_yaw = _current_look_yaw()
 		var override := _brain.kick_charge_override()
 		if override >= 0.0:
-			# Power is wherever the trajectory line currently reaches to —
+			# Power is wherever the trajectory line currently reaches to â€”
 			# a gamepad's right stick sets it directly and live, not a
 			# value that only ever ramps up with no way back down.
 			_kick_charge = override
 		elif not (_brain is HumanBrain):
 			# AI has no stick/mouse to read a live position from, so it
 			# keeps the original hold-duration ramp. A human on keyboard/
-			# mouse gets a live, reversible read too now — see
+			# mouse gets a live, reversible read too now â€” see
 			# _update_kick_aim(), just below, not a ramp at all any more.
 			_kick_charge = minf(1.0, _kick_charge + delta / Tuning.KICK_CHARGE_TIME)
 		_update_kick_aim(delta)
@@ -2318,18 +2346,18 @@ func _update_charge(delta: float) -> void:
 			_charging = false
 			_begin(Tuning.Action.KICK)
 	elif _charging:
-		# LT released without RT — cancel, no kick.
+		# LT released without RT â€” cancel, no kick.
 		_charging = false
 		_kick_charge = 0.0
 	elif _brain.wants_kick_execute() and is_carrying():
 		_hip_fire_kick = true
 		_kick_charge = Tuning.KICK_HIP_FIRE_CHARGE
-		# Fresh body-facing every time — deliberately _facing_yaw, not
+		# Fresh body-facing every time â€” deliberately _facing_yaw, not
 		# _current_look_yaw(): hip-fire is specifically "didn't aim down
 		# sights," so it stays tied to the body the way it always has,
 		# not wherever the camera happens to be pointed. Also not whatever
 		# _kick_aim_yaw was last left at by an earlier cancelled ADS
-		# attempt — _kick_parameters() reads _kick_aim_yaw unconditionally,
+		# attempt â€” _kick_parameters() reads _kick_aim_yaw unconditionally,
 		# so this is what actually makes a hip-fire go "wherever the
 		# body's facing" rather than some stale aim.
 		_kick_aim_yaw = _facing_yaw
@@ -2340,7 +2368,7 @@ func _update_charge(delta: float) -> void:
 	elif _brain.wants_bounce() and is_carrying():
 		_begin(Tuning.Action.BOUNCE)
 
-	# Only the human player gets the on-screen cue — an AI doesn't need to
+	# Only the human player gets the on-screen cue â€” an AI doesn't need to
 	# see its own aim, and it'd be a lot of idle preview updates for
 	# nothing on every AI-controlled player every frame.
 	if _charging and _brain is HumanBrain:
@@ -2351,11 +2379,11 @@ func _update_charge(delta: float) -> void:
 
 
 ## Right stick (or mouse, off the same look input the camera would
-## otherwise be reading — see BroadcastCamera._is_target_aiming) swings
+## otherwise be reading â€” see BroadcastCamera._is_target_aiming) swings
 ## the aim yaw independently of where the body is facing or heading. AI
 ## has nothing to feed this, and no camera assigned either (see
 ## _current_look_yaw()'s fallback), so it simply never moves past the
-## body-forward snapshot _update_charge took when stance began — exactly
+## body-forward snapshot _update_charge took when stance began â€” exactly
 ## its old always-body-forward kick, unchanged by any of this.
 func _update_kick_aim(delta: float) -> void:
 	if not (_brain is HumanBrain):
@@ -2366,12 +2394,12 @@ func _update_kick_aim(delta: float) -> void:
 		+ deg_to_rad(mouse.x)
 	if InputManager.device != InputManager.Device.GAMEPAD:
 		# No stick position for kick_charge_override() to read on keyboard
-		# (see that function) — power comes from here instead, the same
+		# (see that function) â€” power comes from here instead, the same
 		# per-axis split as aim yaw just above: arrow up/down is a held
 		# rate (stick.y, the same vector's other axis, paced the same as
 		# the hold-ramp everyone else still uses), mouse is a raw
 		# per-frame delta. Both push the reach up AND down live, same
-		# spirit as a gamepad's stick position — replaces holding K alone
+		# spirit as a gamepad's stick position â€” replaces holding K alone
 		# auto-ramping power up with no way back down.
 		_kick_charge = clampf(_kick_charge
 			+ stick.y * delta / Tuning.KICK_CHARGE_TIME
@@ -2379,11 +2407,11 @@ func _update_kick_aim(delta: float) -> void:
 	_apply_aim_assist(delta)
 
 
-## Where the camera (and the on-screen crosshair — see KickCrosshair,
+## Where the camera (and the on-screen crosshair â€” see KickCrosshair,
 ## instantiated by whichever mode owns this scene) is currently pointing,
 ## flattened to yaw. What a freshly-entered aim stance snaps to instead of
-## body facing — see _update_charge. Falls back to _facing_yaw with no
-## camera assigned (AI, and this node under test headless — same reasoning
+## body facing â€” see _update_charge. Falls back to _facing_yaw with no
+## camera assigned (AI, and this node under test headless â€” same reasoning
 ## HumanBrain.wish_direction's own camera fallback documents) or if the
 ## camera happens to be looking close enough to straight down/up that a
 ## flattened forward has nothing meaningful left to point along.
@@ -2397,12 +2425,12 @@ func _current_look_yaw() -> float:
 	return atan2(-forward.x, -forward.z)
 
 
-## Soft pull toward the nearest teammate roughly in the aim direction — a
+## Soft pull toward the nearest teammate roughly in the aim direction â€” a
 ## per-frame blend toward their angle, not a snap-to (design brief: "not
 ## lock on but a small aim assist"). Ported from P1's apply_aim_assist:
 ## same k = min(1, STRENGTH * dt) blend fraction: dimensionless, so it
 ## carries over even though P1 blends a 2D screen cursor and this blends
-## a yaw angle. Gamepad only, matching P1's controller-only gate — a
+## a yaw angle. Gamepad only, matching P1's controller-only gate â€” a
 ## mouse already points exactly where aimed, so assist would only fight
 ## it, and it's the stick's indirection this is actually compensating for.
 func _apply_aim_assist(delta: float) -> void:
@@ -2421,7 +2449,7 @@ func _apply_aim_assist(delta: float) -> void:
 
 
 ## Nearest teammate within KICK_AIM_ASSIST_RANGE and KICK_AIM_ASSIST_CONE_
-## DEG of the *current* aim direction — cone gates it to "roughly where
+## DEG of the *current* aim direction â€” cone gates it to "roughly where
 ## you're already pointing", same spirit as P1's radius gate around the
 ## cursor, adapted from screen-space pixels to a world-space angle since
 ## there's no 2D cursor here to measure a pixel radius around.
@@ -2450,7 +2478,7 @@ func is_kick_aiming() -> bool:
 
 
 ## True from the moment a KICK's swing begins until the ball actually
-## leaves at its contact instant — see _update_smother, which reads this
+## leaves at its contact instant â€” see _update_smother, which reads this
 ## alongside is_kick_aiming() to find a target whose kick can still be
 ## blocked.
 func is_mid_kick_swing() -> bool:
@@ -2494,7 +2522,7 @@ func _begin(action: Tuning.Action) -> void:
 
 
 ## Disposal fires partway through its animation, not at the start and not
-## at the end — the boot meets the ball when the boot meets the ball.
+## at the end â€” the boot meets the ball when the boot meets the ball.
 ## Right now the contact instant is a constant that the placeholder
 ## animation is generated to match; once real Mixamo animations land, it
 ## becomes a call track on the animation itself and these constants go
@@ -2531,7 +2559,7 @@ func _update_action(delta: float) -> void:
 ## quietly diverge in how "how hard, how high" becomes a velocity.
 ## `horizontal_dir` is the caller's aim source made explicit (kick: the
 ## free-aim yaw; handball: wherever the stick was held; bounce: body
-## facing) — this function no longer assumes body-forward itself, so it
+## facing) â€” this function no longer assumes body-forward itself, so it
 ## can't quietly default to the wrong source for whichever action is
 ## calling it.
 func _launch_from(origin: Vector3, horizontal_dir: Vector3, elevation_deg: float,
@@ -2540,7 +2568,7 @@ func _launch_from(origin: Vector3, horizontal_dir: Vector3, elevation_deg: float
 	var direction := (horizontal_dir * cos(elevation) + Vector3.UP * sin(elevation)).normalized()
 
 	# Carry the player's own momentum into the ball, the way it actually
-	# works — a kick on the run goes further than the same kick standing.
+	# works â€” a kick on the run goes further than the same kick standing.
 	var carried_momentum := Vector3(velocity.x, 0.0, velocity.z) \
 		* Tuning.DISPOSAL_MOMENTUM_TRANSFER
 	return {
@@ -2550,11 +2578,11 @@ func _launch_from(origin: Vector3, horizontal_dir: Vector3, elevation_deg: float
 
 
 ## The exact KICK launch a release at `charge` (0..1) would produce, sans
-## accuracy error — the aimed path, not the executed one. Called both by
+## accuracy error â€” the aimed path, not the executed one. Called both by
 ## the on-screen trajectory cue (every frame while charging, see
 ## _update_charge) and by _dispose() (once, at execute) so the two can
 ## never disagree about what "the aim" actually is. Direction comes from
-## _kick_aim_yaw, not body facing — see _update_kick_aim.
+## _kick_aim_yaw, not body facing â€” see _update_kick_aim.
 func _kick_parameters(charge: float) -> Dictionary:
 	var elevation_deg := lerpf(Tuning.KICK_MIN_ANGLE, Tuning.KICK_MAX_ANGLE, charge)
 	var speed_out := lerpf(Tuning.KICK_MIN_SPEED, Tuning.KICK_MAX_SPEED, charge) * kick_power_scale
@@ -2565,9 +2593,9 @@ func _kick_parameters(charge: float) -> Dictionary:
 ## Rotates the whole resultant launch vector (aim + carried momentum
 ## together) by a random amount rather than re-deriving it, so a spread
 ## kick goes off-line, not further or shorter. Shared by the two things
-## that make a kick less than pinpoint — skill (_apply_kick_accuracy) and
+## that make a kick less than pinpoint â€” skill (_apply_kick_accuracy) and
 ## not having aimed down sights at all (the hip-fire spread in
-## _dispose()) — so neither can quietly drift out of sync with the other
+## _dispose()) â€” so neither can quietly drift out of sync with the other
 ## about what "how far off" actually means.
 func _apply_spread(launch: Dictionary, right: Vector3, spread_deg: float) -> Dictionary:
 	if spread_deg <= 0.0:
@@ -2580,7 +2608,7 @@ func _apply_spread(launch: Dictionary, right: Vector3, spread_deg: float) -> Dic
 
 
 ## Random aim error from the character's own skill, rolled fresh here
-## rather than while charging — the trajectory cue can't show it because
+## rather than while charging â€” the trajectory cue can't show it because
 ## it isn't knowable ahead of the actual kick. Zero at kick_accuracy ==
 ## 1.0, up to KICK_ACCURACY_MAX_SPREAD_DEG at 0.0.
 func _apply_kick_accuracy(launch: Dictionary, right: Vector3) -> Dictionary:
@@ -2625,7 +2653,7 @@ func _dispose() -> void:
 	var launch_velocity: Vector3 = launch.launch_velocity
 	var flight := launch_velocity.normalized()
 
-	# Placed while the ball is still frozen, then launched — a rigid body
+	# Placed while the ball is still frozen, then launched â€” a rigid body
 	# should not be teleported once it is awake. Pointing the long axis
 	# along the flight path matters because the hull is a spheroid: how
 	# the ball is oriented on the way down changes how it lands.
@@ -2635,6 +2663,7 @@ func _dispose() -> void:
 		_action == Tuning.Action.KICK, _action == Tuning.Action.BOUNCE)
 
 	_carried_ball = null
+	_legal_mark_set_shot = false
 	_carry_distance = 0.0
 	_gather_cooldown = Tuning.GATHER_COOLDOWN
 	_protected_timer = 0.0   # playing on forfeits stand-the-mark protection
@@ -2645,3 +2674,4 @@ func _dispose() -> void:
 		InputManager.rumble(Tuning.RUMBLE_KICK)
 	ball_disposed.emit(_action)
 	_kick_charge = 0.0
+
