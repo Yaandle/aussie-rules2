@@ -60,7 +60,6 @@ var boot_color := ""
 var socks_color := ""
 
 
-
 func _ready() -> void:
 	_load()
 

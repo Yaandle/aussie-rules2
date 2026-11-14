@@ -591,7 +591,6 @@ func _build() -> void:
 	_build_footer(bands)
 
 
-
 func _build_header(parent: Control) -> void:
 	var column := VBoxContainer.new()
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -952,7 +951,6 @@ func _build_card_row(parent: Control) -> void:
 		row.add_child(_cards[i].frame)
 
 
-
 func _build_card(card: Card, index: int) -> void:
 	var frame := Control.new()
 	frame.custom_minimum_size = Vector2(CARD_WIDTH, CARD_HEIGHT)
@@ -1113,8 +1111,6 @@ func _build_footer(parent: Control) -> void:
 	_hints = DeviceHintBar.new()
 	_hints.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(_hints)
-
-
 
 
 ## The legend reflects the mode the cursor is actually in — an open card,
