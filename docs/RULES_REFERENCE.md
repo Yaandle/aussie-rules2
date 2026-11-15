@@ -1,4 +1,4 @@
-# AFL rules reference
+# Aussie Rules rules reference
 
 Two halves. **Prototype 1 → Prototype 2** (below) records where each
 number came from and how it was translated to real metres. **Core rulebook
@@ -9,7 +9,7 @@ implementation and the rulebook disagree.
 # Prototype 1 → Prototype 2
 
 Design doc §8: Prototype 1's `settings.py` / `mechanics.py` / `outcomes.py`
-are the canonical rules spec. The rule *definitions* are correct AFL-derived
+are the canonical rules spec. The rule *definitions* are correct Aussie Rules-derived
 design intent and carry over unchanged; only the *resolution mechanism*
 changes, from probability math to physical simulation.
 
@@ -41,7 +41,7 @@ before it moves. Three categories below.
 
 ## 1. Rules that carry over exactly
 
-Real AFL numbers that were already correct.
+Real Aussie Rules numbers that were already correct.
 
 | Rule | Prototype 1 | Prototype 2 | Status |
 |---|---|---|---|
@@ -163,7 +163,7 @@ themselves.
   the mode was proven out.
 - Centre bounce / throw-up starts each quarter —
   `FullGame._prepare_centre_bounce` → `_begin_ruck_contest`.
-- **Centre square (4-player rule).** Real AFL: at a centre bounce only 4
+- **Centre square (4-player rule).** Real Aussie Rules: at a centre bounce only 4
   players per team (the ruck plus 3 on-ballers) may start inside the 50 m
   centre square; the rest start outside it. `FullGame._centre_bounce_slot`
   — roster indices 0-3 take the ruck-contest ring, indices 4+ hold their
@@ -416,7 +416,7 @@ standing caveat on everything in this project.
 - Out on the full (§7) — **implemented**.
 - High contact or in-the-back during a tackle or bump — **not
   implemented**. This is the same open item `FEATURE_AUDIT.md (archived)`
-  records as deliberately blocked: there is no AFL rule *number* to judge
+  records as deliberately blocked: there is no Aussie Rules rule *number* to judge
   dangerous contact by, so it stays unbuilt pending a real design decision
   rather than getting an invented default.
 - Deliberately rushing a behind — **not implemented**, and it depends on
@@ -473,10 +473,11 @@ the same reason. The rest of the officiating stays implicit
   probability-based, not guaranteed —
   `FullGame._call_for_ball_success_chance()`, tuned by
   `Tuning.CALL_FOR_BALL_*` (base chance modified by pressure, openness and
-  range). Explicitly not an AFL rule; `tuning.gd` says so.
+  range). Explicitly not an Aussie Rules rule; `tuning.gd` says so.
 - **Full Team**: direct control switches between teammates; AI runs
   everyone else — `ControlMode` (`SINGLE_PLAYER` / `TEAM_COMMAND`),
   `CommandBrain` for the non-selected teammates.
 
 Both modes are implemented and route through the same `PlayerBrain`
 interface.
+

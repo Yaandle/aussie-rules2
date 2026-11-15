@@ -96,7 +96,7 @@ const SHAPES := {
 	&"play": [
 		["fill", 7.5, 4.0, 19.0, 12.0, 7.5, 20.0],
 	],
-	# AFL ball, stood on its end: a pointed oval with a seam and four
+	# Aussie Rules ball, stood on its end: a pointed oval with a seam and four
 	# laces across it — main_menu.gd's FULL GAME card badge.
 	#
 	# Upright and pointed, not the wide flat ellipse this was. Lying on
@@ -119,7 +119,7 @@ const SHAPES := {
 		["poly", 6.0, 20.0, 18.0, 20.0],
 		["poly", 9.0, 13.0, 15.0, 13.0],
 	],
-	# AFL goalposts: two tall goal posts flanked by two shorter behind
+	# Aussie Rules goalposts: two tall goal posts flanked by two shorter behind
 	# posts on a baseline — main_menu.gd's GOAL KICKING card badge.
 	&"goalpost": [
 		["poly", 4.0, 10.0, 4.0, 21.0],
@@ -236,3 +236,4 @@ func _draw_shape(shape: Array, origin: Vector2, scale: float, width: float) -> v
 		"dot":
 			draw_circle(origin + Vector2(shape[1], shape[2]) * scale, shape[3] * scale,
 				line_colour)
+

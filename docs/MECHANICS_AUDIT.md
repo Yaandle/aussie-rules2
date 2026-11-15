@@ -198,7 +198,7 @@ Leads out of B1 (know the bone/anim budget first).
     contextual first touch) — the direction set in the earliest sessions.
 - Prior context: *"Tackle and bump animations"* (`local_5acfb635`),
   *"Player model and locomotion animation quality"* (`local_8933d3bf`),
-  *"Tackle-split input mechanics"* (`local_85ab740b` — documents how AFL 23 /
+  *"Tackle-split input mechanics"* (`local_85ab740b` — documents how Aussie Rules 23 /
   FIFA / Madden handle the input models).
 
 ### B3. New control — B = Evade / fend, double-tap = spin
@@ -372,5 +372,6 @@ Stage 1's intent to wire in a probability model, a re-audit of
 by non-ML heuristics since that audit was written), and a Stage 2
 (genetic algorithm) readiness check. Audit only — no gameplay/mechanics
 files were changed.
-- **AI structure (relevant to A1/A2):** *"Godot AFL AI brain audit and ML
+- **AI structure (relevant to A1/A2):** *"Godot Aussie Rules AI brain audit and ML
   primer"* `local_a3037e42` (2026-08-29).
+

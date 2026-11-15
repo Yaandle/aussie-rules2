@@ -2,7 +2,7 @@ class_name FormationWhiteboard
 extends Control
 
 ## Top-down tactics board: a schematic oval plus one marker per HOME
-## player — all 18 AFL slots from TeamFormation.SLOTS, always drawn, each
+## player — all 18 Aussie Rules slots from TeamFormation.SLOTS, always drawn, each
 ## displaced by the three Team Edit tactics dials. A full position chart
 ## that also breathes with the tactics dials, rather than either extreme
 ## on its own: the previous design only drew whichever 4 slots a formation
@@ -13,7 +13,7 @@ extends Control
 ## Drawn vertically — attack direction points toward the top of the panel
 ## — with world.x (the length/attack axis) mapped to screen Y (inverted)
 ## and world.z (width) mapped to screen X, so the oval reads as a real
-## portrait-oriented AFL ground rather than the landscape 3D-world layout.
+## portrait-oriented Aussie Rules ground rather than the landscape 3D-world layout.
 ##
 ## Drawn with plain Control._draw() calls rather than a 3D scene reused
 ## from Field — Field's geometry generator builds real meshes sized in
@@ -676,3 +676,4 @@ func _draw_label(point: Vector2, text: String, muted := false,
 		else Vector2(-text_size.x * 0.5, text_size.y * 0.5)
 	draw_string(_font, point + offset, text, HORIZONTAL_ALIGNMENT_LEFT, -1.0,
 		LABEL_FONT_SIZE, colour)
+

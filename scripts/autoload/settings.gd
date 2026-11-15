@@ -79,7 +79,7 @@ var mouse_kick_swapped := false:
 		mouse_kick_binding_changed.emit(value)
 
 ## Matchday formation (Team Edit expansion, polish-pass brief): which 4 of
-## TeamFormation's 18 named AFL slots the HOME side actually lines up in
+## TeamFormation's 18 named Aussie Rules slots the HOME side actually lines up in
 ## for Full Game, replacing the flat even-spread _kickoff_slot() used
 ## unconditionally before this. Indices into TeamFormation.SLOTS — each
 ## preset a plausible, curated 4-a-side shape (one from the back/centre/

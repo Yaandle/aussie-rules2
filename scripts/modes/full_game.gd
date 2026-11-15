@@ -8,7 +8,7 @@ extends Node3D
 ## (ai_brain.gd) everywhere the human isn't, contests resolved physically
 ## via PlayerController's tackle handling, goals/behinds detected by
 ## Field's trigger zones. See docs/RULES_REFERENCE.md for what's a real
-## AFL rule here and what's a deliberate MVP simplification.
+## Aussie Rules rule here and what's a deliberate MVP simplification.
 ##
 ## Owns the whole match state machine: kickoff formation -> centre bounce
 ## -> play -> (score -> pause -> re-bounce) | (quarter ends -> next
@@ -28,7 +28,7 @@ const KICKOFF_DEPTH := 30.0     ## m from centre each team lines up at
 ## full-forward, CHB on CHF, …) and the two coincident capsules blow the
 ## solver up on the first physics tick. Shifting each side ±this along the
 ## ground line puts paired opponents ~2x this apart — a defender goal-side
-## of their opponent, not standing in them. Not an AFL number; just enough
+## of their opponent, not standing in them. Not an Aussie Rules number; just enough
 ## clearance that no two bodies ever spawn on one point.
 const FORMATION_TEAM_STAGGER := 2.0
 
@@ -60,6 +60,9 @@ var _mark_prompt: MarkPrompt
 var _controlled_ring: ControlledPlayerRing
 ## The "/ | \" under a player who calls for the ball (6V).
 var _call_cue: CallForBallCue
+var _goal_kick_prompt: GoalKickPrompt
+var _goal_kick_player: PlayerController = null
+var _goal_kick_pending := false
 
 ## The two ruckmen in the current live ruck contest (set in _release_ruck_
 ## contest). Cleared the instant a hit-out connects so the on-ballers are
@@ -131,6 +134,9 @@ func _ready() -> void:
 	_mark_prompt.ball = _ball
 	add_child(_mark_prompt)
 
+	_goal_kick_prompt = GoalKickPrompt.new()
+	add_child(_goal_kick_prompt)
+
 	_controlled_ring = ControlledPlayerRing.new()
 	# _apply_camera_mode() ran above, before this existed — seed the state
 	# it would have set, then it keeps it live on any mid-match change.
@@ -147,6 +153,7 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	_check_out_of_bounds()
 	_update_kick_switch(delta)
+	_update_goal_kick()
 	# Ticked ahead of the pause gate below, not inside the live-play branch:
 	# a call made just before a goal/ball-up shouldn't stay on cooldown for
 	# the whole stoppage as well.
@@ -262,6 +269,10 @@ func _apply_camera_mode(setting: Settings.FullGameCameraMode) -> void:
 ## teams stay registered as ControlMode.Scheme.SINGLE_PLAYER regardless,
 ## exactly as before this pass.
 func _unhandled_input(event: InputEvent) -> void:
+	# Y is only meaningful here after a legal marked catch in range. Outside
+	# that context it retains its existing aggressive-mark meaning.
+	if event.is_action_pressed(&"goal_kick") and _request_goal_kick():
+		return
 	if event.is_action(&"switch_player_defence") and not event.is_echo():
 		_on_defence_switch_event(event.is_pressed())
 	if event.is_action_pressed(&"switch_player"):
@@ -317,6 +328,7 @@ func _on_focus_changed(team: Tuning.Team, previous: PlayerController, next: Play
 	_hud.player = next
 	_crosshair.player = next
 	_mark_prompt.player = next
+	_goal_kick_prompt.player = next
 	_controlled_ring.player = next
 
 
@@ -563,7 +575,7 @@ func _kickoff_slot(index: int, attack_direction: float, team: Tuning.Team) -> Ve
 	return Vector3(x, 0.0, z)
 
 
-## Real AFL centre-square law: at a centre bounce a maximum of four players
+## Real Aussie Rules centre-square law: at a centre bounce a maximum of four players
 ## per team — the ruck plus three midfielders ("on-ballers") — may be
 ## inside the 50 m centre square until the ball is bounced; everyone else
 ## must start outside it. So roster indices 0-3 go on the ruck-contest
@@ -837,6 +849,8 @@ func _on_player_disposed(action: Tuning.Action, player: PlayerController) -> voi
 		_last_kicker[player.team] = player
 	if action == Tuning.Action.KICK:
 		_on_home_kick_disposed(player)
+	if player == _goal_kick_player:
+		_end_goal_kick()
 
 
 ## FULL_TEAM: once the human's own kick has left the boot there is nothing
@@ -922,6 +936,43 @@ func _on_player_tackle_landed(_is_slide: bool, player: PlayerController) -> void
 	MatchState.record_player_stat(player.roster_id, player.roster_name, "tackles")
 
 
+## B can be pressed as soon as a legal mark is taken. If the player is
+## still completing their automatic walk-back, the request waits for that
+## movement rather than interrupting it, then performs the short camera
+## sweep into the existing LT/RT kick controls.
+func _request_goal_kick() -> bool:
+	if GameState.phase != GameState.Phase.PLAY or _goal_kick_player != null:
+		return false
+	var player := ControlMode.controlled_player(Tuning.Team.HOME)
+	if not is_instance_valid(player) or not player.can_take_goal_kick(Tuning.GOAL_KICK_MAX_RANGE):
+		return false
+	_goal_kick_player = player
+	_goal_kick_pending = true
+	return true
+
+
+func _update_goal_kick() -> void:
+	if not is_instance_valid(_goal_kick_player):
+		_end_goal_kick()
+		return
+	if not _goal_kick_player.can_take_goal_kick(Tuning.GOAL_KICK_MAX_RANGE):
+		_end_goal_kick()
+		return
+	if _goal_kick_pending and not _goal_kick_player.is_retreating_from_mark():
+		_goal_kick_pending = false
+		_camera.begin_goal_kick()
+		_goal_kick_prompt.active = true
+
+
+func _end_goal_kick() -> void:
+	_goal_kick_pending = false
+	_goal_kick_player = null
+	if is_instance_valid(_goal_kick_prompt):
+		_goal_kick_prompt.active = false
+	if is_instance_valid(_camera):
+		_camera.end_goal_kick()
+
+
 func _on_field_ball_up(tackler: PlayerController, tackled: PlayerController) -> void:
 	if GameState.phase != GameState.Phase.PLAY:
 		return
@@ -990,7 +1041,7 @@ func _award_free_kick(spot: Vector3, tackler: PlayerController) -> void:
 
 
 ## The 15 m run rule (RULES_REFERENCE.md §1: "Bounce every 15m while
-## running" — BOUNCE_INTERVAL, a real AFL law, not a P1 feel number).
+## running" — BOUNCE_INTERVAL, a real Aussie Rules law, not a P1 feel number).
 ## PlayerController tracks the carry distance and fires run_too_far_called
 ## the instant it passes 15 m with no bounce. Same handling as
 ## _on_holding_the_ball: whistle, brief stoppage, free kick to the nearest
@@ -1138,7 +1189,7 @@ func _on_scored(team: Tuning.Team, is_goal: bool) -> void:
 		_after_siren_kicker = null
 		_start_pause(Tuning.SCORE_PAUSE_DURATION, _end_quarter)
 		return
-	# AFL restarts a GOAL with a centre bounce; a BEHIND restarts with a
+	# Aussie Rules restarts a GOAL with a centre bounce; a BEHIND restarts with a
 	# protected kick-in by the team that conceded it (design brief
 	# priority 5) — not another centre bounce, which is what every score
 	# used to get here regardless of which it was.
@@ -1553,7 +1604,7 @@ func _on_home_gained_possession(_ball_ref: Ball, carrier: PlayerController) -> v
 # teammate has the footy there is otherwise nothing at all the human can do
 # to influence what happens to it. This is that mode's replacement — lead
 # into space, shout for it, and the carrier may or may not give it to you.
-# Not an AFL rule (see Tuning's CALL_FOR_BALL_* block), and deliberately a
+# Not an Aussie Rules rule (see Tuning's CALL_FOR_BALL_* block), and deliberately a
 # request rather than a command: a guaranteed handball would make the AI a
 # ball-delivery service and every contest optional.
 
@@ -1747,3 +1798,4 @@ func _nearest_commandable_teammate(from: PlayerController) -> PlayerController:
 			best_dist = dist
 			best = player
 	return best
+

@@ -110,7 +110,7 @@ enum Action { NONE, KICK, HANDBALL, BOUNCE, MARK_SAFE, MARK_RUNNING, MARK_AGGRES
 
 
 # ── Ground geometry (metres) ─────────────────────────────────────────
-# A real AFL oval varies ground to ground; 165 x 135 is a mid-size
+# A real Aussie Rules oval varies ground to ground; 165 x 135 is a mid-size
 # ground (the MCG is ~160 x 141). Prototype 1's 166 x 88 grid was a
 # 16:9-framing compromise for its fixed diorama camera, not a real
 # aspect ratio — a 3D camera has no such constraint, so the oval is
@@ -120,10 +120,10 @@ const FIELD_WIDTH := 135.0             # wing to wing, along Z
 const FIELD_HALF_LENGTH := FIELD_LENGTH * 0.5
 const FIELD_HALF_WIDTH := FIELD_WIDTH * 0.5
 
-const GOAL_POST_SEPARATION := 6.4      # AFL: 6.4m between the goal posts
+const GOAL_POST_SEPARATION := 6.4      # Aussie Rules: 6.4m between the goal posts
 const BEHIND_POST_OFFSET := 6.4        # and 6.4m again out to each behind post
-const GOAL_POST_HEIGHT := 10.0         # AFL minimum is 6m; AFL-level grounds use ~10m
-const BEHIND_POST_HEIGHT := 6.0        # AFL minimum is 3m
+const GOAL_POST_HEIGHT := 10.0         # Aussie Rules minimum is 6m; Aussie Rules-level grounds use ~10m
+const BEHIND_POST_HEIGHT := 6.0        # Aussie Rules minimum is 3m
 const GOAL_SQUARE_DEPTH := 9.0
 const CENTRE_SQUARE_SIZE := 50.0
 const CENTRE_CIRCLE_OUTER := 5.0       # 10m diameter
@@ -135,7 +135,7 @@ const LINE_WIDTH := 0.1
 
 
 # ── Player locomotion ────────────────────────────────────────────────
-# Real AFL running speeds. An elite midfielder tops out around 8.5-9 m/s
+# Real Aussie Rules running speeds. An elite midfielder tops out around 8.5-9 m/s
 # over a short burst and cruises at 4-5. Prototype 1's PLAYER_SPEED (28
 # logical units/s on a 166-unit field) was an arcade abstraction; a 3D
 # game in real metres has to use real numbers or nothing else reads right.
@@ -315,7 +315,7 @@ const BALL_SLEEP_SPEED := 0.12         # m/s below which a resting ball is allow
 # not hand-estimated: 24 m/s at 40 degrees carries ~46m in the air
 # standing, ~55m kicking on the run, which lands the *total* travelled
 # distance (including bounce/roll-out) around 60-70m once it's down —
-# a real long AFL punt, not a 100m bomb. The first tuned value (30 m/s)
+# a real long Aussie Rules punt, not a 100m bomb. The first tuned value (30 m/s)
 # measured out to ~65m flight / ~100m+ total once roll-out was included,
 # confirmed too far by playtesting.
 # (P1: KICK_MAX_RANGE = 88 logical units, BALL_FLIGHT_SPEED = 95 — both
@@ -558,7 +558,7 @@ const ACTION_CONTACT := {
 	Action.KNOCKED_BACK: 0.30, Action.TACKLE_SLING: 0.12,
 }
 
-# AFL rule: a player running with the ball must bounce or touch it to
+# Aussie Rules rule: a player running with the ball must bounce or touch it to
 # ground every 15 metres (Prototype 1's BOUNCE_INTERVAL, which matched the
 # real rule). Raised to 20 here on playtest feel — the call was landing
 # early. Two reasons it reads short at 15: _carry_distance accumulates
@@ -783,16 +783,16 @@ const RUMBLE_GATHER := Vector3(0.12, 0.0, 0.08)
 
 
 # ── Match structure ──────────────────────────────────────────────────
-# Full Game mode (design doc §7 priority 1). Real AFL 18-a-side. Each
+# Full Game mode (design doc §7 priority 1). Real Aussie Rules 18-a-side. Each
 # roster index maps 1:1 onto a TeamFormation slot via
 # TeamFormation.ROSTER_ORDER (on-ball unit first, then back-to-forward),
 # so a smaller value here still spawns a valid formation that is a strict
 # prefix of the full 18 — shrinking the roster never reshuffles who
 # remains. Values above 18 are unsupported: ROSTER_ORDER wraps and two
 # players would double up on one slot.
-const TEAM_SIZE := 18                  # players per side (real AFL)
+const TEAM_SIZE := 18                  # players per side (real Aussie Rules)
 
-# A real AFL quarter is 20 minutes plus time-on. 120s is a deliberately
+# A real Aussie Rules quarter is 20 minutes plus time-on. 120s is a deliberately
 # short default so a full 4-quarter match is playable in one sitting while
 # this is being tuned by feel; QUARTERS_PER_MATCH stays at the real 4.
 const QUARTER_LENGTH := 120.0          # s
@@ -1442,7 +1442,7 @@ const SPOIL_COOLDOWN := 0.6            # s between attempts — a tap, not a bat
 # consumes the signal today — a known, tracked gap, not a silent one.
 const PRIOR_OPPORTUNITY_GRACE := 0.5   # s
 
-# Free-kick/mark retreat distance — real AFL's "get back 10 metres" rule,
+# Free-kick/mark retreat distance — real Aussie Rules's "get back 10 metres" rule,
 # distinct from stand-the-mark (MARK_STAND_MIN_DISTANCE above): the ONE
 # nearest opponent stands exactly still (PlayerController.stand_the_mark),
 # while every OTHER opponent within this radius of wherever protection was
@@ -1502,11 +1502,11 @@ const SMOTHER_DIVE_COOLDOWN := 0.6     # s between attempts — matches SPOIL_CO
 # LB hold + Right Stick flick (design brief priority 7): Madden's hit-stick
 # model. A bump disrupts balance — knockback plus a short stun, or on a
 # clean connect a full knockdown — it does not itself strip the ball the
-# way a tackle does (real AFL: a legal bump can put a carrier off their
+# way a tackle does (real Aussie Rules: a legal bump can put a carrier off their
 # line or to ground; dispossessing them is a tackle's job, not a bump's).
 # Every number below is a physics-simulation parameter (impulse speed,
 # cooldown, a detection cone/window), the same category SPOIL_IMPULSE_
-# SPEED/TACKLE_SPILL_SPEED already are — none of them are AFL rule
+# SPEED/TACKLE_SPILL_SPEED already are — none of them are Aussie Rules rule
 # thresholds.
 #
 # CRITICAL, per the brief: dangerous/high contact needs a free-kick
@@ -1675,7 +1675,7 @@ const FLICK_NEUTRAL_MAGNITUDE := 0.30  # deflection below this counts as "was ne
 # moment of resolution, matching RULES_REFERENCE.md §3's "physical, not a
 # probability table" stance, the same one tackling already follows.
 
-# Real AFL rule: a kick has to travel this far, uninterrupted (not touching
+# Real Aussie Rules rule: a kick has to travel this far, uninterrupted (not touching
 # the ground or another player), before a catch counts as a legal mark
 # rather than just a possession. The same number is also the real trigger
 # distance for stand-the-mark (RULES_REFERENCE.md's existing entry for this
@@ -1694,7 +1694,7 @@ const MARK_HOLD_DURATION := 5.0         # s
 # move backwards about 5m then they can do the rest of the kicking
 # animation or play on."
 #
-# Not an AFL rule with a number attached — the real rule is that the mark
+# Not an Aussie Rules rule with a number attached — the real rule is that the mark
 # is *taken* where it was caught and the kicker may retreat as far as they
 # like; 5m is the requested feel value for how far that retreat carries.
 # Retreat is along the team's own defensive direction (away from the goal
@@ -1743,6 +1743,13 @@ const SET_SHOT_CLOCK := 20.0   # s
 # lands, scores, goes out nor gets caught (a ball stuck on someone).
 # Comfortably longer than any kick's flight.
 const AFTER_SIREN_MAX_FLIGHT := 6.0   # s
+
+# A legal mark inside this range may be turned into a set-shot presentation.
+# 60m is the requested maximum and is within the measured full-charge range
+# of the physical kick model above; it is a presentation gate, never a
+# scripted scoring or range rule.
+const GOAL_KICK_MAX_RANGE := 60.0       # m from the attacking goal line
+const GOAL_KICK_CAMERA_SWEEP_DURATION := 0.55  # s, wide/match view -> behind-kicker view
 
 # The man on the mark (PlayerController._apply_stand_the_mark) is the
 # nearest opponent when the mark is taken, placed a metre goal-side of the
@@ -2393,7 +2400,7 @@ const AI_LOOSE_BALL_REACTION_MAX := 0.40   # s
 
 # ── AI disposal target selection (ai_brain.gd _best_disposal_target / _think_carrying) ──
 # Feel-tuned AI judgement, the same standing as AI_KICK_RANGE / AI_SUPPORT_
-# PULL above — NOT AFL rule numbers. They decide which teammate a carrying
+# PULL above — NOT Aussie Rules rule numbers. They decide which teammate a carrying
 # AI gives it to when a shot at goal isn't on; before this pass there was
 # nothing here at all (the AI fired every disposal down its own run line).
 const AI_DISPOSAL_MIN := 6.0            # m — nearer than this isn't a real disposal option
@@ -2421,14 +2428,14 @@ const AI_LOOSE_BALL_CEDE_MARGIN := 2.0  # m — an opponent this much nearer the
 
 # ControlMode.Scheme.TEAM_COMMAND (control-mode pass): how far ahead of the
 # selected player an issued "lead here" order's target point sits. Not an
-# AFL number — there's nothing to cite — just a placeholder distance long
+# Aussie Rules number — there's nothing to cite — just a placeholder distance long
 # enough to look like a real lead run and short enough to stay on-screen
 # from the follow cam. Expect this to move once someone actually plays the
 # mode; see HANDOVER.md (archived, see docs/LESSONS.md)'s control-mode entry.
 const COMMAND_LEAD_DISTANCE := 12.0     # m
 
 # Call for the ball (Settings.PlayerControlMode.SINGLE_PLAYER — see
-# FullGame._call_for_ball). Not an AFL rule: there is no "calling" mechanic
+# FullGame._call_for_ball). Not an Aussie Rules rule: there is no "calling" mechanic
 # in the laws of the game, so nothing here has a rule number to cite. It
 # exists because SINGLE_PLAYER locks the human to one body for the whole
 # match, which removes switch_player's escape hatch and leaves them with no
@@ -2685,3 +2692,4 @@ static func action_speed_scale(action: Action) -> float:
 			return 0.0
 		_:
 			return ACTION_SPEED_SCALE
+

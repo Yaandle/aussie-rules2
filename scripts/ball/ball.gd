@@ -67,7 +67,7 @@ var _was_airborne := false
 ## the instant the ball touches down or is gathered — the live "is this
 ## still an uninterrupted kick flight" state is_mark_eligible() reads.
 ## Handballs/bounces/hit-outs never set this, so they can never be marked,
-## same as real AFL.
+## same as real Aussie Rules.
 var _is_kick_flight := false
 var _flight_origin := Vector3.ZERO
 
@@ -191,7 +191,7 @@ func _physics_process(delta: float) -> void:
 	if _was_airborne and not airborne:
 		landed.emit(linear_velocity.length())
 		# Touched down without being marked — no longer a live mark chance,
-		# same as a kick that bounces before anyone takes it in real AFL.
+		# same as a kick that bounces before anyone takes it in real Aussie Rules.
 		_is_kick_flight = false
 		_is_handball_flight = false
 		# A rebounded bounce that comes back down untaken is just a loose
@@ -401,7 +401,7 @@ func is_settled() -> bool:
 
 
 ## True while this is still an uninterrupted kick flight that has covered
-## Tuning.MARK_STAND_MIN_DISTANCE — the real AFL test for a legal mark, as
+## Tuning.MARK_STAND_MIN_DISTANCE — the real Aussie Rules test for a legal mark, as
 ## opposed to just a good take (see PlayerController._complete_mark, which
 ## reads this to decide whether to grant mark protection). Distance is
 ## straight-line from where it left the boot: that's what a kick's
@@ -589,3 +589,4 @@ func _build_hull() -> ConvexPolygonShape3D:
 func _shape_mesh() -> void:
 	var stretch := Tuning.BALL_SEMI_MAJOR / Tuning.BALL_SEMI_MINOR
 	_mesh.scale = Vector3(1.0, 1.0, stretch)
+

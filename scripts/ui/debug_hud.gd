@@ -6,7 +6,7 @@ extends CanvasLayer
 ##
 ## Speed in real m/s against the named gaits, the live blend-space
 ## coordinate, the current animation state and action, the carry distance
-## against AFL's 15m bounce rule, the last tackle's numbers off the tackle
+## against Aussie Rules's 15m bounce rule, the last tackle's numbers off the tackle
 ## model, and the match and ball state. If the blend position is not
 ## moving when the player turns hard, the strafe axis is not being fed —
 ## that is the kind of thing this exists to catch.
@@ -364,3 +364,4 @@ func _gait_label(speed: float) -> String:
 func _bar(fraction: float) -> String:
 	var filled := int(round(clampf(fraction, 0.0, 1.0) * BAR_WIDTH))
 	return "[%s%s]" % ["#".repeat(filled), ".".repeat(BAR_WIDTH - filled)]
+

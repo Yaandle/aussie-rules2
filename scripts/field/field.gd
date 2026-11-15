@@ -12,7 +12,7 @@ extends Node3D
 ##
 ## Prototype 1 drew its field at 166 x 88 logical units to suit a fixed
 ## 16:9 diorama camera. A 3D camera has no such constraint, so these are
-## real AFL proportions and real metres.
+## real Aussie Rules proportions and real metres.
 
 ## Emitted when the ball enters a goal or behind zone (see
 ## _build_score_zones). The scoring team is whichever side attacks this
@@ -725,3 +725,4 @@ func _tree_multimesh(node_name: String, mesh: PrimitiveMesh, albedo: Color,
 	# ground no camera dwells on.
 	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(node)
+

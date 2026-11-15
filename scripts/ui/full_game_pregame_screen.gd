@@ -126,7 +126,7 @@ const CARD_CHEVRON_GAP := 6
 const PREVIEW_HEIGHT := DESIGN_HEIGHT - SCREEN_MARGIN_Y * 2.0 - HEADER_HEIGHT \
 	- CARD_HEIGHT - ActionButton.HEIGHT - FOOTER_HEIGHT - float(BAND_GAP) * 4.0
 
-## FormationWhiteboard draws itself to a portrait AFL aspect (Tuning's
+## FormationWhiteboard draws itself to a portrait Aussie Rules aspect (Tuning's
 ## half-width over half-length) fitted to the height it is given, plus its
 ## own MARGIN inset on every side — so this is the panel width at which
 ## the board exactly fills the window rather than sitting in a band of
@@ -1357,3 +1357,4 @@ func _sync_preview() -> void:
 	# ONE PLAYER mode, but shown regardless — the card is too.
 	_readout_values[3].text = "%d %s" % [Settings.home_human_slot + 1,
 		String(TeamFormation.roster_slot(Settings.home_human_slot)["label"])]
+

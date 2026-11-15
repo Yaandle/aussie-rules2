@@ -50,7 +50,7 @@ signal holding_the_ball_called(tackler: PlayerController)
 signal field_ball_up_called(tackler: PlayerController, tackled: PlayerController)
 
 ## Fired from _track_carry_distance the instant a carry passes
-## Tuning.BOUNCE_INTERVAL (15 m — the real AFL run-without-bouncing limit,
+## Tuning.BOUNCE_INTERVAL (15 m — the real Aussie Rules run-without-bouncing limit,
 ## RULES_REFERENCE.md §1) with no bounce. Latched so it fires once per
 ## overrun, not every frame past 15 m; the latch clears on the next
 ## gather / bounce / disposal / drop. FullGame turns it into a free kick to
@@ -79,7 +79,7 @@ signal tackle_committed(is_slide: bool)
 ## Fired on the bumper when a Bump connects (design brief priority 7).
 ## `clean` reflects timing (Tuning.BUMP_APPROACH_DOT_MIN), not legality —
 ## whether contact was *dangerous* enough to warrant a free kick is a real
-## AFL rule this project has no numbers for yet (RULES_REFERENCE.md has no
+## Aussie Rules rule this project has no numbers for yet (RULES_REFERENCE.md has no
 ## distance/angle/force/timing threshold for "high contact"), so nothing
 ## here judges that. This signal exists so a future pass that *does* have
 ## real numbers has an event to hook rather than needing to re-derive one.
@@ -228,7 +228,7 @@ var _frozen_face_target: Node3D = null
 ## whatever reason — the one direct opponent standing the mark exactly
 ## (_apply_stand_the_mark) plus anyone else caught inside the 10m retreat
 ## radius (grant_protection's own _apply_retreat_freeze) — kept so a
-## disposal can release all of them early (real AFL: everyone's free to
+## disposal can release all of them early (real Aussie Rules: everyone's free to
 ## move the instant the kick is taken or the mark-taker plays on, not just
 ## once the full 5s window lapses). Cleared alongside _protected_timer in
 ## _dispose()/drop_ball().
@@ -457,6 +457,7 @@ var _backpedal_locked_out := false
 ## kicker's look, not whichever way they happened to be facing on the take.
 var _mark_retreat_remaining := 0.0
 var _mark_retreat_dir := Vector3.ZERO
+var _legal_mark_set_shot := false
 
 ## True from the instant goal_set_shot is pressed (in range, still under
 ## mark/free-kick protection) until the kick actually fires or is lost —
@@ -1489,7 +1490,7 @@ func stand_the_mark(duration: float, hold_at := Vector3.INF, facing := Vector3.Z
 
 ## Releases early — called on every entry in _frozen_opponents the instant
 ## the mark-taker/free-kick-taker disposes, so a frozen player isn't held
-## past the moment the rule actually requires (real AFL: free to move once
+## past the moment the rule actually requires (real Aussie Rules: free to move once
 ## the kick is taken or the mark-taker plays on, not just once the full
 ## window lapses).
 func release_stand_the_mark() -> void:
@@ -1513,6 +1514,7 @@ func drop_ball() -> void:
 	if is_instance_valid(_carried_ball):
 		_carried_ball.detach()
 	_carried_ball = null
+	_legal_mark_set_shot = false
 	_carry_distance = 0.0
 	_run_too_far_latched = false
 	_kick_charge = 0.0
@@ -1536,7 +1538,7 @@ func drop_ball() -> void:
 		MatchState.possession = Tuning.Team.NONE
 
 
-## Metres run since the last bounce. AFL requires a bounce every 15m
+## Metres run since the last bounce. Aussie Rules requires a bounce every 15m
 ## (Tuning.BOUNCE_INTERVAL, unchanged from Prototype 1's already-correct
 ## BOUNCE_INTERVAL). Tracked now because it shapes how running with the
 ## ball feels; the free kick for running too far is a match rule and
@@ -1635,6 +1637,9 @@ func _try_gather() -> void:
 ## every mark tier (see the Marking section below) — so none of them can
 ## drift out of sync about what "gained possession" actually does.
 func _complete_gather(ball: Ball) -> void:
+	# A new possession is an ordinary gather until _finish_mark_catch()
+	# explicitly proves it was a legal mark.
+	_legal_mark_set_shot = false
 	# Whoever has the ball is no longer wrestling for it — covers both a
 	# free kick/kick-in placement (give_possession) and the tackler simply
 	# picking up what they just stripped while the grab is still playing.
@@ -3168,7 +3173,7 @@ func _resolve_contest_hit(target: PlayerController) -> void:
 ## Called on the bumped player, by the bumper, on every connect (clean or
 ## mistimed) — a knockback that overrides normal movement until it decays
 ## (see _update_locomotion) plus a stun. Never strips the ball, distinct
-## from a tackle (real AFL: dispossession is a tackle's job) — the ball
+## from a tackle (real Aussie Rules: dispossession is a tackle's job) — the ball
 ## stays carried even through a clean connect's full knockdown. A clean
 ## connect layers _knockdown() on top of this from _resolve_bump_contact
 ## (the carrier goes all the way down, not just knocked off balance); this
@@ -3514,6 +3519,7 @@ func _finish_mark_catch(ball: Ball, tier: Tuning.Action) -> void:
 	_animation.note_catch(ball.global_position)
 	_complete_gather(ball)
 	if legal_mark:
+		_legal_mark_set_shot = true
 		grant_protection(Tuning.MARK_HOLD_DURATION)
 		_apply_stand_the_mark()
 		_begin_mark_retreat()
@@ -3651,6 +3657,16 @@ func _goal_aim_direction() -> Vector3:
 	if to_goal.length_squared() < 0.0001:
 		return _heading
 	return to_goal.normalized()
+## A set-shot is only offered from a real legal mark, never from an ordinary
+## gather or a free kick. The underlying kick remains the normal physical
+## kick, with its existing manual aim, charge and accuracy.
+func can_take_goal_kick(max_range: float) -> bool:
+	if not _legal_mark_set_shot or not is_carrying():
+		return false
+	var goal_x := Tuning.FIELD_HALF_LENGTH if team == Tuning.Team.HOME else -Tuning.FIELD_HALF_LENGTH
+	var to_goal := Vector3(goal_x, 0.0, 0.0) - global_position
+	to_goal.y = 0.0
+	return to_goal.length() <= max_range
 
 
 ## Y commits to the jump the instant it's pressed, whether or not it will
@@ -4735,6 +4751,7 @@ func _dispose() -> void:
 		_action == Tuning.Action.HANDBALL)
 
 	_carried_ball = null
+	_legal_mark_set_shot = false
 	_carry_distance = 0.0
 	# Your own bounce is gated by the ball instead — it's yours again once
 	# it's back up (Ball.awaiting_own_bounce), not after a fixed wait.
