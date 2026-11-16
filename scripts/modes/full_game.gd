@@ -936,7 +936,7 @@ func _on_player_tackle_landed(_is_slide: bool, player: PlayerController) -> void
 	MatchState.record_player_stat(player.roster_id, player.roster_name, "tackles")
 
 
-## B can be pressed as soon as a legal mark is taken. If the player is
+## Y (the goal_kick action) can be pressed as soon as a legal mark is taken. If the player is
 ## still completing their automatic walk-back, the request waits for that
 ## movement rather than interrupting it, then performs the short camera
 ## sweep into the existing LT/RT kick controls.

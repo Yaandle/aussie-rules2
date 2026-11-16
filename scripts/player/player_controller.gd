@@ -531,6 +531,8 @@ var _fist_landed := false
 ## next. See _update_fend and Tuning's "Fend-off".
 var _fend_timer := 0.0
 var _fend_cooldown := 0.0
+## This fend has already shoved someone (_update_fend_contact): one per press.
+var _fend_shoved := false
 
 ## Kicking foot (6Z): which way a snap or banana bends. No player has a
 ## stored foot yet (no attribute, no UI), so everyone kicks right-footed
@@ -4775,12 +4777,59 @@ func _update_fend() -> void:
 	if not is_carrying() or _stun_timer > 0.0 or is_ragdolled():
 		_fend_timer = 0.0
 		return
+	if _fend_timer > 0.0:
+		_update_fend_contact()
+		return
 	if _fend_cooldown > 0.0 or not _brain.wants_fend():
 		return
 	_fend_timer = Tuning.FEND_DURATION
 	_fend_cooldown = Tuning.FEND_COOLDOWN
+	_fend_shoved = false
+	_update_fend_contact()
+
+
+## Every frame of a fend: the arm goes to whoever is nearest now (a tackler
+## closing in, not just whoever was near at the press), and the first
+## opponent inside Tuning.FEND_CONTACT_REACH in front of the carrier is
+## shoved back (receive_fend). That's the palm in the chest you can see; a
+## tackle already landing is still the tackle model's (fend_impact).
+func _update_fend_contact() -> void:
+	var other := _nearest_opponent_within(Tuning.FEND_TARGET_RANGE)
 	if _animation != null:
-		_animation.set_fend_target(_nearest_opponent_within(Tuning.FEND_TARGET_RANGE))
+		_animation.set_fend_target(other)
+	if _fend_shoved or other == null or not other.can_be_fended():
+		return
+	var to_other := other.global_position - global_position
+	to_other.y = 0.0
+	var facing := -global_transform.basis.z
+	facing.y = 0.0
+	if to_other.length() > Tuning.FEND_CONTACT_REACH or to_other.length_squared() < 0.0001 			or facing.length_squared() < 0.0001:
+		return
+	if rad_to_deg(facing.normalized().angle_to(to_other.normalized())) > Tuning.FEND_ARC_DEG:
+		return
+	_fend_shoved = true
+	other.receive_fend(to_other.normalized(), self)
+
+
+## A fend can only move a body nothing else owns: not one on the ground, in
+## a tackle hold or wrestle, already knocked back, or committed to a dive
+## or lunge (that tackle lands and fend_impact judges it).
+func can_be_fended() -> bool:
+	return _shove_free() and _slide_dive_timer <= 0.0 and _lunge_dash_timer <= 0.0
+
+
+## The fended player's side: driven back along `direction` (from the fender
+## to them) at FEND_SHOVE_SPEED, scaled by the masses, the trunk knocked the
+## same way at the chest the palm met, and off balance for FEND_SHOVE_STUN.
+## Same "knockback owns the body for a moment" shape as receive_bump.
+func receive_fend(direction: Vector3, by: PlayerController) -> void:
+	var ratio := clampf(by.body_mass / maxf(body_mass, 1.0),
+		Tuning.FEND_SHOVE_MASS_RATIO.x, Tuning.FEND_SHOVE_MASS_RATIO.y)
+	var shove := direction * Tuning.FEND_SHOVE_SPEED * ratio
+	take_knock(shove, TackleBalance.balance_loss(shove.length(), 0.0, 1.0), false,
+		Vector3.INF, -direction)
+	_knockback = shove
+	_stun_timer = maxf(_stun_timer, Tuning.FEND_SHOVE_STUN)
 
 
 func is_fending() -> bool:

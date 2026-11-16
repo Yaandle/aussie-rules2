@@ -1628,6 +1628,19 @@ const FEND_ARC_DEG := 100.0
 const FEND_B_CUT := 0.35
 const FEND_PUSH_SPEED := 2.0
 const FEND_TARGET_RANGE := 2.2        # m: the arm goes to an opponent this close
+# The palm in the chest (playtest 2026-11-16: "I want to see my player put
+# a hand in the opponent's chest and push them back"). While the fend is
+# out, the first opponent inside FEND_CONTACT_REACH (centre to centre,
+# inside FEND_ARC_DEG of the facing) who isn't already diving, held or
+# knocked is pushed back at FEND_SHOVE_SPEED times the fender's mass over
+# theirs (clamped to FEND_SHOVE_MASS_RATIO) and is off balance for
+# FEND_SHOVE_STUN, long enough that they can't tackle straight back. One
+# per press. Physical and deterministic, never a roll. All unplaytested
+# feel guesses.
+const FEND_CONTACT_REACH := 1.25      # m: an arm's length plus two half-bodies
+const FEND_SHOVE_SPEED := 3.0         # m/s back, at even mass
+const FEND_SHOVE_MASS_RATIO := Vector2(0.7, 1.35)
+const FEND_SHOVE_STUN := 0.4          # s
 
 # Fist the ball away (6Y: "RB in a mark contest you might not win is a
 # fist-away, like the ruck tap"). The ruck tap's own leap (HIT_OUT, with its

@@ -718,10 +718,20 @@ func contact_reaction_active() -> bool:
 	return _sway.length() > 0.05 or _sway_rate.length() > 0.5 or _brace > 0.01
 
 
+## The trunk's sway and brace, then the fend arm on top of whatever pose
+## that left. The fend runs on its own: it used to sit inside the sway pass
+## and so was skipped whenever no contact was moving the pose, which is
+## almost every fend (playtest 2026-11-16: "still can't see the fend off").
 func _apply_contact_reaction(delta: float) -> void:
 	if ragdoll_active:
 		clear_contact_reaction()
+		_fend = 0.0
 		return
+	_apply_contact_sway(delta)
+	_apply_fend(delta)
+
+
+func _apply_contact_sway(delta: float) -> void:
 	if not contact_reaction_active() and _brace_hold <= 0.0:
 		return
 	# Semi-implicit spring: steady at physics and render rates alike.
@@ -746,11 +756,6 @@ func _apply_contact_reaction(delta: float) -> void:
 	if _lean_bone >= 0:
 		_turn_bone(skeleton, _lean_bone, Quaternion(right, -deg_to_rad(_sway.y))
 			* Quaternion(forward, deg_to_rad(_sway.x)))
-	var fending := body is PlayerController and (body as PlayerController).is_fending()
-	_fend = lerpf(_fend, 1.0 if fending else 0.0,
-		1.0 - exp(-(CONTACT_HANDS_RISE if fending else CONTACT_HANDS_FALL) * delta))
-	if _fend > 0.01:
-		_fend_arm(skeleton, body, right)
 	if _brace > 0.01:
 		var controller := body as PlayerController
 		if controller != null and controller.is_carrying():
@@ -777,6 +782,26 @@ const FEND_REACH := 0.75   ## m ahead of the shoulder when there's nobody to pus
 
 func set_fend_target(other: Node3D) -> void:
 	_fend_target = other
+
+
+## The fend arm's blend in and out, and the arm itself (_fend_arm).
+func _apply_fend(delta: float) -> void:
+	var body := get_parent() as Node3D
+	var fending := body is PlayerController and (body as PlayerController).is_fending()
+	_fend = lerpf(_fend, 1.0 if fending else 0.0,
+		1.0 - exp(-(CONTACT_HANDS_RISE if fending else CONTACT_HANDS_FALL) * delta))
+	if _fend <= 0.01 or _rig == null:
+		return
+	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
+	if skeleton == null:
+		return
+	var right := (skeleton.global_basis.orthonormalized().inverse() * body.global_basis.x).normalized()
+	_fend_arm(skeleton, body, right)
+
+
+## True while the fend arm is out at all (for checks).
+func fend_blend() -> float:
+	return _fend
 
 
 ## The fend's straight left arm (ArmIK): onto the nearest opponent's chest

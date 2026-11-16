@@ -7,6 +7,12 @@ own docs: `ANIMATION_RAGDOLL_AUDIT.md` (kick, carry, phase lock, bank,
 tackles), `MECHANICS_AUDIT.md` (ragdoll stages 2-5) and the 2026-10-30
 playtest commit (HUD, park turf, ruck, training).
 
+## Fend you can see, goal kick (2026-11-16, branch `update`)
+
+- [ ] Fend arm: run with the ball and tap RB with nobody near. The left arm should go out straight for about half a second while the ball stays in the right hand. Before this fix the arm only showed if you were already being hit.
+- [ ] Fend push: tap RB as a defender runs at you from the front. Your palm should land on their chest and they should be driven back about a metre, off balance for 0.4 s, and you keep the ball. Does it read as a fend? Does it make breaking a tackle too easy? A defender already diving or lunging at you isn't shoved: that tackle lands and the old fend rule (balance loss cut 35%) decides it. `Tuning.FEND_CONTACT_REACH`, `FEND_SHOVE_*`.
+- [ ] Goal kick (merged 2026-11-15, `1cc2b39`): take a legal mark within 60 m of goal and a "Y · GOALS" chip shows bottom right. Press Y: the camera swings behind you in about half a second and the chip reads "LT AIM · RT KICK". Does the shot clock (the older set-shot system) still behave alongside it? Y without a mark in range should still be the aggressive mark. `Tuning.GOAL_KICK_*`.
+
 ## README demos re-recorded on a real ground (2026-11-13, branch `update`)
 
 - [ ] Watch the four `docs/media/video/*.mp4` (and the README GIFs). Do they look like the game: lighting, turf, framing close enough, camera smooth? Nobody has watched them in motion; only stills were checked.
