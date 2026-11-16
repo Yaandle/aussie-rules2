@@ -16,6 +16,7 @@ extends Node
 ##   NN_<type>_16x9.avi, NN_<type>_9x16.avi   MJPEG, 30 fps (the shapes asked for)
 ##   NN_<type>_16x9.mp4, NN_<type>_9x16.mp4   only when ffmpeg is found
 ##   NN_<type>.replay                          the raw pose data (ReplayClip)
+##   match.replay, match.json                  the whole match, when recorded
 ## plus moments.json describing them all (docs/HIGHLIGHTS.md has the schema).
 ##
 ## A cancelled export keeps the clip it was part-way through, and its row says
@@ -150,6 +151,14 @@ func export_moments(moments: Array[Dictionary], match_info: Dictionary, options 
 		},
 		"moments": rows,
 	}
+	var full: Dictionary = options.get("full_match", Highlights.full_match)
+	if not full.is_empty() and FileAccess.file_exists(String(full.replay)):
+		progress.emit("Copying the full-match recording", 1.0)
+		await get_tree().process_frame
+		var ok := DirAccess.copy_absolute(String(full.replay), folder.path_join(HighlightPaths.MATCH_REPLAY)) == OK 			and DirAccess.copy_absolute(String(full.json), folder.path_join(HighlightPaths.MATCH_JSON)) == OK
+		if ok:
+			doc["full_match"] = {"replay": HighlightPaths.MATCH_REPLAY, "json": HighlightPaths.MATCH_JSON,
+				"frames": int(full.frames), "fps": int(full.fps)}
 	var json := FileAccess.open(folder.path_join("moments.json"), FileAccess.WRITE)
 	if json != null:
 		json.store_string(JSON.stringify(doc, "  ", false))
@@ -189,6 +198,11 @@ static func _row(moment: Dictionary, rank: int, files: Dictionary, camera: Strin
 		"complete": written >= clip.frame_count(),
 		"events": moment.get("events", []),
 	}
+	if moment.has("match_from"):
+		# Where the clip sits in match.replay (full-match frames).
+		row["match_from"] = moment.match_from
+		row["match_to"] = moment.match_to
+		row["match_frame"] = moment.match_frame
 	if moment.type == "goal" or moment.type == "behind":
 		row["kick_frame"] = moment.get("kick_frame")
 		row["kicker"] = moment.get("kicker")

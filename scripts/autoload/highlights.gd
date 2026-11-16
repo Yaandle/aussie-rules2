@@ -27,6 +27,9 @@ var footage := "match"
 ## Where the Highlights screen's Back goes: the full-time screen that
 ## opened it (quick play or Career). Set by that screen.
 var return_scene := ""
+## The last match's full-match recording (HighlightRecorder.full_match_closed):
+## {replay, json, frames, fps}, or empty when it wasn't recorded.
+var full_match := {}
 
 var _recorder: HighlightRecorder
 
@@ -77,6 +80,7 @@ func set_type_on(type: String, on: bool) -> void:
 func clear() -> void:
 	moments.clear()
 	match_info = {}
+	full_match = {}
 	footage = "match"
 
 
@@ -91,6 +95,7 @@ func _attach(game: Node) -> void:
 	_recorder.name = "HighlightRecorder"
 	_recorder.setup(game)
 	_recorder.moment_detected.connect(_add)
+	_recorder.full_match_closed.connect(func(info: Dictionary) -> void: full_match = info)
 	_recorder.tree_exiting.connect(_on_match_left.bind(_recorder))
 	match_info = {
 		"home": _recorder.team_name(Tuning.Team.HOME),

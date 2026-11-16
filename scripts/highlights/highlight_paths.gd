@@ -13,6 +13,12 @@ extends RefCounted
 ## really used.
 
 const FOLDER := "highlights"
+## Where the match being played records its full-match file (one at a time:
+## the next match overwrites it). The exporter copies it into the match's
+## export folder.
+const RECORDING := "_recording"
+const MATCH_REPLAY := "match.replay"
+const MATCH_JSON := "match.json"
 
 
 static func root() -> String:
@@ -24,6 +30,12 @@ static func root() -> String:
 	var fallback := ProjectSettings.globalize_path("user://").path_join(FOLDER)
 	_writable(fallback)
 	return fallback
+
+
+static func recording_dir() -> String:
+	var dir := root().path_join(RECORDING)
+	DirAccess.make_dir_recursive_absolute(dir)
+	return dir
 
 
 ## A fresh per-match folder under root(): `<date>_<time>_<HOME>-v-<AWAY>`.

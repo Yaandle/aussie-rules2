@@ -61,8 +61,14 @@ static func load_file(path: String) -> ReplayClip:
 		return null
 	var clip := ReplayClip.new()
 	clip.meta = file.get_var()
-	for i in int(clip.meta.get("frame_count", 0)):
-		clip.frames.append(file.get_buffer(file.get_32()))
+	var count := int(clip.meta.get("frame_count", 0))
+	if count < 0:
+		# A full-match recording, written as it played: frames to the end.
+		while file.get_position() + 4 <= file.get_length():
+			clip.frames.append(file.get_buffer(file.get_32()))
+	else:
+		for i in count:
+			clip.frames.append(file.get_buffer(file.get_32()))
 	file.close()
 	return clip
 

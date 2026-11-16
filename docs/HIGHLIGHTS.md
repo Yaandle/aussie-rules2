@@ -30,6 +30,7 @@ ranking number is in `highlight_table.gd`; they are unplaytested feel guesses.
 
     NN_<type>_16x9.avi / _9x16.avi   MJPEG, 30 fps (only the shapes asked for)
     NN_<type>.replay                 raw poses (ReplayClip), always whole
+    match.replay, match.json         the whole match (see "Full match")
     moments.json
 
 ## moments.json (version 2)
@@ -70,6 +71,28 @@ Per moment (v1 fields: `id`, `rank`, `type`, `label`, `caption`, `quarter`,
 
 Frame numbers are clip frames at 30 fps; the video and the `.replay` line up
 one to one.
+
+## Full match
+
+Since 2026-11-16 (`docs/HIGHLIGHTS_FULLGAME_PLAN.md`, phase 1) the recorder
+also writes every frame of the match to `highlights/_recording/match.replay`
+as it plays (pref `full_match` in `user://highlights.cfg`, on by default;
+~9 KB a frame, ~130 MB a match). The next match overwrites it; an export
+copies it into the match folder. It's a ReplayClip with `frame_count` -1
+in its header (frames run to the end of the file), so the video side's
+`replay.py` reads it as is.
+
+`match.json` (`format` "aussie-rules-2-match", `version` 1): `fps`,
+`frame_count`, `duration_s`, `frame_times` (each frame's recorder time, s:
+frames are sampled on a timer and a hitch spaces them unevenly), `segments`
+(`{quarter, from, to, t_from, t_to}`, a new one at each quarter or pause),
+and `events` (every `kick`, `handball`, `mark`, `tackle`, `bump`, `bounce`,
+`goal`, `behind`, `siren` of the match: `{frame, t, kind, player, team}`).
+
+moments.json adds (still version 2, fields only added) a top-level
+`full_match` (`replay`, `json`, `frames`, `fps`) and per moment
+`match_from`, `match_to`, `match_frame`: clip frame k is full-match frame
+`match_from + k`, byte for byte.
 
 ## Checking an export
 

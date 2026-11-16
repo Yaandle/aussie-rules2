@@ -20,6 +20,8 @@ static var _loaded := false
 static var _types := {}
 static var _cameras := {}
 static var _aspect := "both"
+## Record the whole match to disk as well as the moments (~130 MB a match).
+static var _full_match := true
 
 
 static func _ensure() -> void:
@@ -36,6 +38,8 @@ static func _ensure() -> void:
 			var preset := String(config.get_value(SECTION, "camera_" + type))
 			if ReplayStage.CAMERA_PRESETS.has(preset):
 				_cameras[type] = preset
+	if config.has_section_key(SECTION, "full_match"):
+		_full_match = bool(config.get_value(SECTION, "full_match"))
 	if config.has_section_key(SECTION, "aspect"):
 		var aspect := String(config.get_value(SECTION, "aspect"))
 		if HighlightTable.ASPECTS.has(aspect):
@@ -50,6 +54,7 @@ static func _save() -> void:
 		config.set_value(SECTION, "on_" + type, type_on(type))
 		config.set_value(SECTION, "camera_" + type, camera_for(type))
 	config.set_value(SECTION, "aspect", _aspect)
+	config.set_value(SECTION, "full_match", _full_match)
 	config.save(PATH)
 
 
@@ -75,6 +80,17 @@ static func camera_for(type: String) -> String:
 static func set_camera(type: String, preset: String) -> void:
 	_ensure()
 	_cameras[type] = preset
+	_save()
+
+
+static func full_match() -> bool:
+	_ensure()
+	return _full_match
+
+
+static func set_full_match(on: bool) -> void:
+	_ensure()
+	_full_match = on
 	_save()
 
 
