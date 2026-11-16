@@ -30,14 +30,15 @@ const KIND_COLORS := {
 }
 ## Kinds that get a tall tick.
 const TALL := ["goal", "behind", "siren"]
-const BAND_HEIGHT := 10.0
+const BAND_HEIGHT := 13.0
 
 var frames := 1
 ## [{video_from, quarter}] where each quarter starts on the bar.
 var quarters: Array = []
 ## [{frame, kind}] in video frames.
 var markers: Array = []
-## [{from, to, kept, selected}] in video frames.
+## [{from, to, kept, selected, tag}] in video frames; `tag` is the band's
+## camera, a letter drawn on it when there's room.
 var moments: Array = []
 var playhead := 0
 
@@ -71,6 +72,9 @@ func _draw() -> void:
 		draw_rect(rect, StudioStyle.LIME if m.kept else StudioStyle.PAPER_DEEP)
 		if m.selected:
 			draw_rect(rect.grow(1.0), StudioStyle.INK, false, 2.0)
+		if String(m.get("tag", "")) != "" and x1 - x0 >= 9.0:
+			draw_string(StudioStyle.mono_font(), Vector2(x0 + 2.0, BAND_HEIGHT - 2.0), String(m.tag),
+				HORIZONTAL_ALIGNMENT_LEFT, x1 - x0 - 2.0, 10, StudioStyle.INK)
 	# Event ticks under them.
 	var base := h - 4.0
 	for e: Dictionary in markers:

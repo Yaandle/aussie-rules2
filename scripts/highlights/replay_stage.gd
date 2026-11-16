@@ -87,6 +87,12 @@ var _limit_dir := 0
 ## What the cameras treat as the ball (see _followed_ball).
 var _follow_ball := Vector3.ZERO
 var _cameras := {}
+## Overrides for the clip's own meta (`type`, `focus`, `attack_dir`,
+## `event_frame`, plus `hold_until`, the last frame a goal's hold search may
+## look at): set_context. The full-match recording has none of these, so a
+## moment's stretch of it is shot by handing the stage that moment's
+## (MatchCameraPlan), and the cameras frame it as the moment's own clip would.
+var _context := {}
 
 
 func _ready() -> void:
@@ -139,7 +145,24 @@ func load_clip(new_clip: ReplayClip) -> void:
 	if not same:
 		_build_puppets()
 	_cameras.clear()
+	_context = {}
 	_hold_frame = _find_hold_frame()
+
+
+## Shoots the loaded clip as if it were the moment `context` describes (see
+## `_context`); {} goes back to the clip's own meta. The caller snaps the
+## camera after a change: a new stretch is a cut.
+func set_context(context: Dictionary) -> void:
+	if context == _context:
+		return
+	_context = context
+	_hold_frame = _find_hold_frame()
+
+
+func _meta(key: String, default: Variant) -> Variant:
+	if _context.has(key):
+		return _context[key]
+	return clip.meta.get(key, default) if clip != null else default
 
 
 func _build_puppets() -> void:
@@ -234,8 +257,8 @@ func apply(t: float) -> void:
 ## What the camera follows: the ball, except in a tackle or bump, where it's
 ## the two bodies in it (the ball's often spilled away from them).
 func _compute_focus(a: Dictionary, b: Dictionary, w: float) -> Vector3:
-	var type := String(clip.meta.get("type", ""))
-	var focus: Array = clip.meta.get("focus", [])
+	var type := String(_meta("type", ""))
+	var focus: Array = _meta("focus", [])
 	if (type == "tackle" or type == "bump") and not focus.is_empty():
 		var sum := Vector3.ZERO
 		var n := 0
@@ -264,17 +287,18 @@ func _followed_ball(a: Dictionary) -> Vector3:
 ## the goal line by FOLLOW_PAST_GOAL, or has jumped (the reset to the centre).
 ## Found once per clip, so scrubbing and exporting agree.
 func _find_hold_frame() -> int:
-	var type := String(clip.meta.get("type", ""))
+	var type := String(_meta("type", ""))
 	_limit_dir = 0
 	if (type != "goal" and type != "behind") or _field == null:
 		return -1
-	var direction := 1 if float(clip.meta.get("attack_dir", 1.0)) >= 0.0 else -1
+	var direction := 1 if float(_meta("attack_dir", 1.0)) >= 0.0 else -1
 	var limit := _field.goal_line_x(direction) + float(direction) * FOLLOW_PAST_GOAL
 	_limit_dir = direction
 	_limit_x = limit
-	var start := int(clip.meta.get("event_frame", 0))
+	var start := int(_meta("event_frame", 0))
 	var previous := clip.ball_position(start)
-	for i in range(start + 1, clip.frame_count()):
+	var until := mini(clip.frame_count(), int(_meta("hold_until", clip.frame_count() - 1)) + 1)
+	for i in range(start + 1, until):
 		var p := clip.ball_position(i)
 		if float(direction) * (p.x - limit) > 0.0 or p.distance_to(previous) > BALL_JUMP:
 			return i
@@ -284,7 +308,7 @@ func _find_hold_frame() -> int:
 
 ## The main player's point and heading for the third-person camera.
 func _update_main(f: float, a: Dictionary, b: Dictionary, w: float) -> void:
-	var focus: Array = clip.meta.get("focus", [])
+	var focus: Array = _meta("focus", [])
 	var frame := int(round(f))
 	var last := clip.frame_count() - 1
 	var from := maxi(0, frame - THIRD_HEADING_FRAMES)
@@ -319,7 +343,7 @@ func focus_point() -> Vector3:
 
 
 func event_time() -> float:
-	return float(clip.meta.get("event_frame", 0)) / clip.fps() if clip != null else 0.0
+	return float(_meta("event_frame", 0)) / clip.fps() if clip != null else 0.0
 
 
 func duration() -> float:
@@ -327,7 +351,7 @@ func duration() -> float:
 
 
 func default_preset() -> String:
-	return HighlightPrefs.camera_for(String(clip.meta.get("type", ""))) if clip != null else "broadcast"
+	return HighlightPrefs.camera_for(String(_meta("type", ""))) if clip != null else "broadcast"
 
 
 ## Points `camera` for this frame. `snap` jumps straight there (a new clip, a
@@ -345,7 +369,7 @@ func frame_camera(camera: Camera3D, preset: String, portrait: bool, t: float, de
 	var k_target := 1.0 - exp(-TARGET_SMOOTHING * delta)
 	state.target = (state.target as Vector3).lerp(_focus_point, k_target) if not snap else _focus_point
 	var target: Vector3 = state.target
-	var direction := float(clip.meta.get("attack_dir", 1.0)) if clip != null else 1.0
+	var direction := float(_meta("attack_dir", 1.0)) if clip != null else 1.0
 	var pull := PORTRAIT_PULL_IN if portrait else 1.0
 	var want := target
 	match preset:

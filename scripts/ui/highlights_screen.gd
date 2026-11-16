@@ -26,8 +26,13 @@ extends Node3D
 ## timed as the full-match video (FullMatchCut: breaks and dead time cut),
 ## with a MatchTimeline under it: every moment as a band, every event as a
 ## tick, quarters marked. Click or drag it to seek; up / down jump between
-## moments (and select them in the list); left / right change the camera. It
-## shows exactly what export_full_match will render, frame for frame.
+## moments (and select them in the list). It shows exactly what
+## export_full_match will render, frame for frame, cameras included.
+##
+## Cameras (MatchCameraPlan): inside a moment's band left / right change that
+## moment's camera (the same choice its clip export uses); outside every band
+## they change the match camera (saved). Each band carries its camera's
+## letter. A change of stretch is a cut, as in the render.
 
 const MENU_SCENE := "res://scenes/ui/main_menu.tscn"
 const COLUMN_WIDTH := 380.0
@@ -114,8 +119,9 @@ var _match_mode := false
 var _full: ReplayClip
 var _cut: FullMatchCut
 var _match_t := 0.0                 ## seconds into the full-match video
-var _match_camera := HighlightTable.FULL_MATCH_CAMERA
+var _plan: MatchCameraPlan
 var _match_range := -1              ## keep range last shown: the camera snaps on a cut
+var _match_stretch := -2            ## plan stretch last shown (-1 the match camera)
 var _moment_video := {}             ## moment index -> {from, to, frame}, video frames
 var _timeline: MatchTimeline
 var _match_hint: Label
@@ -169,7 +175,7 @@ func _show_frame(snap: bool, delta := 1.0 / 60.0) -> void:
 
 func _preset() -> String:
 	if _match_mode:
-		return _match_camera
+		return _plan.preset(_match_stretch) if _plan != null else HighlightPrefs.match_camera()
 	return String(_moments[_index].get("camera", _stage.default_preset()))
 
 
@@ -211,6 +217,7 @@ func _toggle_match() -> void:
 	_match_mode = true
 	_stage.load_clip(_full)
 	_match_range = -1
+	_rebuild_plan()
 	_overlay.visible = true
 	_view_container.visible = true
 	_empty_card.visible = false
@@ -262,8 +269,14 @@ func _show_match(snap: bool, delta := 1.0 / 60.0) -> void:
 		snap = true    # a cut: jump, don't ease across it
 		_match_range = r
 	var source := _cut.source_frame(range_, clampf(video_f - float(range_.video_from), 0.0, float(range_.video_frames) - 1.0))
+	var stretch := _plan.at(int(round(source)))
+	if stretch != _match_stretch:
+		_stage.set_context(_plan.context(stretch))
+		_match_stretch = stretch
+		snap = true    # a new stretch is a new camera: a cut
+		_refresh_match_card()
 	_stage.apply(source / _full.fps())
-	_stage.frame_camera(_camera, _match_camera, _portrait, _match_t, maxf(delta, 0.0001), snap)
+	_stage.frame_camera(_camera, _plan.preset(stretch), _portrait, _match_t, maxf(delta, 0.0001), snap)
 	_timeline.set_playhead(int(video_f))
 	var head := _full.frames[int(source)]
 	var clock := head.decode_float(0)
@@ -296,6 +309,13 @@ func _next_moment_on_timeline(step: int) -> int:
 	return best
 
 
+## The camera plan from the listed moments and the match camera; again after
+## any camera or type change. The next frame snaps to whatever it now says.
+func _rebuild_plan() -> void:
+	_plan = MatchCameraPlan.from_moments(Highlights.listed(), HighlightPrefs.match_camera())
+	_match_stretch = -2
+
+
 func _set_bar_visible(on: bool) -> void:
 	_bar_back.visible = on
 	_match_hint.visible = not on
@@ -305,8 +325,9 @@ func _refresh_timeline() -> void:
 	var bands: Array = []
 	for i: int in _moment_video:
 		if _shown(i):
+			var camera := String(_moments[i].get("camera", HighlightPrefs.camera_for(String(_moments[i].type))))
 			bands.append({"from": _moment_video[i].from, "to": _moment_video[i].to,
-				"kept": bool(_moments[i].keep), "selected": i == _index})
+				"kept": bool(_moments[i].keep), "selected": i == _index, "tag": camera.substr(0, 1).to_upper()})
 	_timeline.moments = bands
 	_timeline.queue_redraw()
 
@@ -349,6 +370,8 @@ func _apply_filter() -> void:
 	for i in _entry_panels.size():
 		_entry_panels[i].visible = _shown(i)
 	var any := _any_shown()
+	if _match_mode:
+		_rebuild_plan()
 	_overlay.visible = any or _match_mode
 	_view_container.visible = any or _match_mode
 	_empty_card.visible = not any and not _match_mode
@@ -489,7 +512,16 @@ func _cycle_camera(step: int) -> void:
 	var presets := ReplayStage.CAMERA_PRESETS
 	var i := presets.find(_preset())
 	if _match_mode:
-		_match_camera = presets[posmod(i + step, presets.size())]
+		var next: String = presets[posmod(i + step, presets.size())]
+		if _match_stretch >= 0:
+			# Inside a moment's band: that moment's camera.
+			var id: Variant = _plan.stretches[_match_stretch].id
+			for m in _moments:
+				if m.get("id") == id:
+					m["camera"] = next
+		else:
+			HighlightPrefs.set_match_camera(next)
+		_rebuild_plan()
 		_show_match(true)
 		return
 	_moments[_index].camera = presets[posmod(i + step, presets.size())]
@@ -735,7 +767,7 @@ func _build_ui() -> void:
 		_seek_match(frame)
 		_refresh())
 	_overlay.add_child(_timeline)
-	_match_hint = StudioStyle.text("↑ / ↓ moments   [ / ] step   click the bar to seek   T back to clips", 11,
+	_match_hint = StudioStyle.text("↑ / ↓ moments   ← / → camera here   [ / ] step   click the bar to seek   T back to clips", 11,
 		StudioStyle.INK, StudioStyle.mono_font())
 	_match_hint.position = Vector2(0.0, bar_y - 52.0)
 	_match_hint.visible = false
@@ -861,9 +893,11 @@ func _refresh() -> void:
 
 func _refresh_match_card() -> void:
 	_refresh_timeline()
-	_chip_label.text = "MATCH  ·  %s  ·  %s  ·  %s×%s" % [
+	var preset := _preset()
+	var whose := "match camera" if _match_stretch < 0 else "%s's camera" % String(_plan.stretches[_match_stretch].label)
+	_chip_label.text = "MATCH  ·  %s  ·  %s (%s)  ·  %s×%s" % [
 		"PLAYING" if _playing else "PAUSED",
-		String(ReplayStage.PRESET_LABELS.get(_match_camera, _match_camera)),
+		String(ReplayStage.PRESET_LABELS.get(preset, preset)), whose,
 		str(SPEEDS[_speed_index]), "  ·  9:16" if _portrait else ""]
 	var info := Highlights.match_info
 	var final: Dictionary = info.get("final", {})

@@ -142,8 +142,9 @@ const EXPORT_JPEG_QUALITY := 0.9
 const DEAD_MIN := 4.0
 const DEAD_KEEP_AFTER := 2.5
 const DEAD_KEEP_BEFORE := 2.0
-## The full match is always one camera for now (the timeline's per-stretch
-## cameras are phase 4) and always 16:9.
+## The full match's camera outside the moments, until the player picks one
+## (HighlightPrefs.match_camera); each moment's stretch uses its own camera
+## (MatchCameraPlan). Always 16:9.
 const FULL_MATCH_CAMERA := "broadcast"
 ## x264 settings for the full match: a fast preset, since a match is ~15k
 ## frames.

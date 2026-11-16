@@ -27,6 +27,9 @@ static var _full_video := true
 ## An ffmpeg.exe to use (HighlightPaths.ffmpeg); "" looks for one. Not
 ## shown anywhere: set it in the .cfg.
 static var _ffmpeg := ""
+## The camera for the full match outside every moment's stretch
+## (MatchCameraPlan): set on the Highlights screen's MATCH view.
+static var _match_camera := ""
 
 
 static func _ensure() -> void:
@@ -45,6 +48,9 @@ static func _ensure() -> void:
 				_cameras[type] = preset
 	_full_video = bool(config.get_value(SECTION, "full_video", true))
 	_ffmpeg = String(config.get_value(SECTION, "ffmpeg", ""))
+	_match_camera = String(config.get_value(SECTION, "match_camera", ""))
+	if not ReplayStage.CAMERA_PRESETS.has(_match_camera):
+		_match_camera = ""
 	if config.has_section_key(SECTION, "full_match"):
 		_full_match = bool(config.get_value(SECTION, "full_match"))
 	if config.has_section_key(SECTION, "aspect"):
@@ -64,6 +70,7 @@ static func _save() -> void:
 	config.set_value(SECTION, "full_match", _full_match)
 	config.set_value(SECTION, "full_video", _full_video)
 	config.set_value(SECTION, "ffmpeg", _ffmpeg)
+	config.set_value(SECTION, "match_camera", match_camera())
 	config.save(PATH)
 
 
@@ -111,6 +118,17 @@ static func full_video() -> bool:
 static func set_full_video(on: bool) -> void:
 	_ensure()
 	_full_video = on
+	_save()
+
+
+static func match_camera() -> String:
+	_ensure()
+	return _match_camera if _match_camera != "" else HighlightTable.FULL_MATCH_CAMERA
+
+
+static func set_match_camera(preset: String) -> void:
+	_ensure()
+	_match_camera = preset
 	_save()
 
 

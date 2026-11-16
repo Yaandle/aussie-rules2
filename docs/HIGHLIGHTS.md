@@ -32,6 +32,8 @@ ranking number is in `highlight_table.gd`; they are unplaytested feel guesses.
     NN_<type>.replay                 raw poses (ReplayClip), always whole
     match.replay, match.json         the whole match (see "Full match")
     match_16x9.mp4, match_video.json that match rendered, dead time cut
+    highlight.mp4                    the exported moments cut from it, in match
+                                     order, overlaps merged, same cameras
     match_qN_16x9.mp4                a quarter's part, only while the render
                                      is unfinished (rendering the same folder
                                      again skips finished parts); deleted once
@@ -109,8 +111,15 @@ the top (lime when kept, outlined when selected), a tick per event coloured
 by kind (goals and behinds tall), quarter dividers, the playhead. Click or
 drag the bar to seek, up / down jump between moments, left / right change
 the camera, [ / ] step (5 s playing, a frame paused), Esc or T goes back to
-the clips. The first switch loads match.replay (~100 MB). The camera picked
-here isn't saved or used by the export yet (phase 4).
+the clips. The first switch loads match.replay (~100 MB).
+
+Cameras (`MatchCameraPlan`): each listed moment's band is filmed from that
+moment's own camera (the same `camera` its clip export uses, with its framing:
+third-person player, tackle pair, goal hold), the rest from the match camera
+(pref `match_camera`, default broadcast). Left / right inside a band change
+that moment's camera, outside every band the match camera; each band shows
+its camera's letter. The export renders exactly this. Overlapping bands: the
+better-ranked moment wins.
 
 ## Full-match video
 
@@ -136,7 +145,11 @@ recording frames kept, inclusive, and where they start in the video),
 `markers` (every match.json event plus `video_frame` and `cut`: true when it
 happened in cut time, then `video_frame` is the next kept frame), `moments`
 (`{id, rank, type, label, video_from, video_to, video_frame, event_cut}` for
-each exported moment). This is the timeline the video tool reads.
+each exported moment), `cameras` (`{video_from, video_to, preset, moment}`:
+which camera is on screen for each run of the video, `moment` an id or null
+for the match camera) and `highlight` (`{file, frames, segments: [{video_from,
+video_to, highlight_from, moments}]}` for highlight.mp4, or null). This is the
+timeline the video tool reads.
 
 ## Checking an export
 

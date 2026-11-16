@@ -1,9 +1,10 @@
 # Highlights v3 plan: full-game footage with markers
 
 Status (2026-11-16): phase 1 (record the whole match), phase 2 (trimmed
-16:9 full-match render, `match_video.json`) and the Highlights page
-timeline (order step 3, the MATCH view) are built; per-stretch cameras,
-`highlight.mp4`, moments.json v3 and the video tool's reader are next.
+16:9 full-match render, `match_video.json`), the Highlights page timeline
+(order step 3, the MATCH view) and per-moment cameras with `highlight.mp4`
+(step 4) are built. Left: the video tool reading `match_video.json` (its own
+session, in the video-editor repo).
 `docs/HIGHLIGHTS.md` "Full match" and "Full-match video" have what they
 write. Read
 `docs/HIGHLIGHTS.md` first; this extends it.

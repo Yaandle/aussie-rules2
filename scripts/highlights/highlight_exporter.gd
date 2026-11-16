@@ -19,6 +19,8 @@ extends Node
 ##   match.replay, match.json                  the whole match, when recorded
 ##   match_16x9.mp4, match_video.json          that match rendered, dead time
 ##                                             cut (export_full_match)
+##   highlight.mp4                             the exported moments cut from it,
+##                                             in match order, same cameras
 ## plus moments.json describing them all (docs/HIGHLIGHTS.md has the schema).
 ##
 ## A cancelled export keeps the clip it was part-way through, and its row says
@@ -250,13 +252,21 @@ func _run_ffmpeg(args: PackedStringArray, output: String) -> bool:
 
 const MATCH_VIDEO := "match_16x9.mp4"
 const MATCH_VIDEO_JSON := "match_video.json"
+const HIGHLIGHT_VIDEO := "highlight.mp4"
 
 
 ## Renders `folder`'s match.replay to one 16:9 video with the dead time cut
 ## (FullMatchCut), and writes match_video.json: the kept ranges, every event
 ## of match.json as a marker on its video frame, and where each moment of
-## moments.json is in the video. One camera (HighlightTable.FULL_MATCH_CAMERA),
-## snapped at each cut so a cut is a clean jump.
+## moments.json is in the video. Cameras come from `plan` (MatchCameraPlan:
+## each listed moment's stretch from its own camera, the rest from the match
+## camera; default built from Highlights.listed()), snapped at each cut and
+## each change of stretch so both are clean jumps. Then highlight.mp4: the
+## exported moments' stretches cut out of the joined video, in match order,
+## overlaps merged (needs ffmpeg).
+##
+## A part left from an earlier run is reused as is, even if the cameras have
+## changed since: delete the part to re-render it.
 ##
 ## A quarter at a time, each to its own part file, then joined. A part that
 ## finished is kept when the render is cancelled and skipped when it's run
@@ -264,7 +274,7 @@ const MATCH_VIDEO_JSON := "match_video.json"
 ## frames are piped straight into an H.264 encoder: no 2.8 GB of MJPEG on
 ## disk. Without it each quarter is its own MJPEG .avi and there's no single
 ## match file (`video` null, `parts` lists them).
-func export_full_match(folder: String) -> bool:
+func export_full_match(folder: String, plan: MatchCameraPlan = null) -> bool:
 	var was_busy := busy
 	busy = true
 	var doc: Variant = JSON.parse_string(FileAccess.get_file_as_string(folder.path_join(HighlightPaths.MATCH_JSON)))
@@ -278,7 +288,8 @@ func export_full_match(folder: String) -> bool:
 	var ffmpeg := HighlightPaths.ffmpeg()
 	var size := HighlightTable.EXPORT_LANDSCAPE
 	var fps := HighlightTable.EXPORT_FPS
-	var preset := HighlightTable.FULL_MATCH_CAMERA
+	if plan == null:
+		plan = MatchCameraPlan.from_moments(Highlights.listed(), HighlightPrefs.match_camera())
 	stage.load_clip(clip)
 	var view := _viewport(size)
 
@@ -312,12 +323,19 @@ func export_full_match(folder: String) -> bool:
 			push_warning("HighlightExporter: couldn't start the full-match encoder")
 			break
 		var written := 0
+		var stretch := -2
 		for r in ranges:
 			for j in int(r.video_frames):
 				if _cancel:
 					break
-				stage.apply(cut.source_frame(r, j) / clip.fps())
-				stage.frame_camera(view.camera, preset, false, float(written) / fps, 1.0 / fps, j == 0)
+				var source := cut.source_frame(r, j)
+				var s := plan.at(int(round(source)))
+				var snap := j == 0 or s != stretch
+				if s != stretch:
+					stage.set_context(plan.context(s))
+					stretch = s
+				stage.apply(source / clip.fps())
+				stage.frame_camera(view.camera, plan.preset(s), false, float(written) / fps, 1.0 / fps, snap)
 				await RenderingServer.frame_post_draw
 				_sink_add(sink, view.viewport.get_texture().get_image())
 				written += 1
@@ -352,9 +370,56 @@ func export_full_match(folder: String) -> bool:
 				DirAccess.remove_absolute(folder.path_join(String(p.file)))
 				p["file"] = null
 		DirAccess.remove_absolute(list_path)
-	_write_match_video(folder, doc, cut, parts, video, complete)
+	var highlight := {}
+	if video != null and not _cancel:
+		highlight = await _cut_highlight(folder, cut)
+	stage.set_context({})
+	_write_match_video(folder, doc, cut, parts, video, complete, plan, highlight)
 	busy = was_busy
 	return complete
+
+
+## highlight.mp4: the exported moments (moments.json rows) cut out of the
+## full-match video by frame number, in match order, overlapping stretches
+## merged so nothing plays twice. Re-encoded (a frame-exact cut can't be a
+## stream copy). {} when there's nothing to cut or ffmpeg failed.
+func _cut_highlight(folder: String, cut: FullMatchCut) -> Dictionary:
+	var moments_doc: Variant = JSON.parse_string(FileAccess.get_file_as_string(folder.path_join("moments.json")))
+	if not (moments_doc is Dictionary):
+		return {}
+	var spans: Array = []
+	for row: Dictionary in moments_doc.get("moments", []):
+		if row.has("match_from"):
+			spans.append({"from": int(cut.video_frame(int(row.match_from)).frame),
+				"to": int(cut.video_frame(int(row.match_to)).frame), "ids": [row.id]})
+	if spans.is_empty():
+		return {}
+	spans.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a.from) < int(b.from))
+	var merged: Array = [spans[0]]
+	for k in range(1, spans.size()):
+		var last: Dictionary = merged[-1]
+		if int(spans[k].from) <= int(last.to) + 1:
+			last.to = maxi(int(last.to), int(spans[k].to))
+			(last.ids as Array).append_array(spans[k].ids)
+		else:
+			merged.append(spans[k])
+	var terms: Array[String] = []
+	var at := 0
+	var segments: Array = []
+	for span: Dictionary in merged:
+		terms.append("between(n,%d,%d)" % [int(span.from), int(span.to)])
+		segments.append({"video_from": span.from, "video_to": span.to, "highlight_from": at, "moments": span.ids})
+		at += int(span.to) - int(span.from) + 1
+	progress.emit("Cutting highlight.mp4 (%d stretches)" % merged.size(), 1.0)
+	var out := folder.path_join(HIGHLIGHT_VIDEO)
+	var ok: bool = await _run_ffmpeg(["-y", "-loglevel", "error", "-i", folder.path_join(MATCH_VIDEO),
+		"-vf", "select='%s',setpts=N/(%d*TB)" % ["+".join(terms), HighlightTable.EXPORT_FPS], "-an",
+		"-r", str(HighlightTable.EXPORT_FPS), "-fps_mode", "cfr",
+		"-c:v", "libx264", "-preset", HighlightTable.FULL_MATCH_PRESET, "-crf", str(HighlightTable.FULL_MATCH_CRF),
+		"-pix_fmt", "yuv420p", "-movflags", "+faststart", out], out)
+	if not ok:
+		return {}
+	return {"file": HIGHLIGHT_VIDEO, "frames": at, "segments": segments}
 
 
 ## The encoder for one part: ffmpeg reading raw RGB on stdin, or an MJPEG
@@ -394,7 +459,7 @@ func _close_sink(sink: Dictionary) -> void:
 
 
 func _write_match_video(folder: String, doc: Dictionary, cut: FullMatchCut, parts: Array, video: Variant,
-		complete: bool) -> void:
+		complete: bool, plan: MatchCameraPlan, highlight: Dictionary) -> void:
 	var keep: Array = []
 	for r in cut.keep:
 		keep.append({"from": int(r.from), "to": int(r.to), "quarter": int(r.quarter),
@@ -422,7 +487,9 @@ func _write_match_video(folder: String, doc: Dictionary, cut: FullMatchCut, part
 		"format": "aussie-rules-2-match-video", "version": 1,
 		"fps": HighlightTable.EXPORT_FPS,
 		"size": [HighlightTable.EXPORT_LANDSCAPE.x, HighlightTable.EXPORT_LANDSCAPE.y],
-		"camera": HighlightTable.FULL_MATCH_CAMERA,
+		"camera": plan.default_preset,
+		"cameras": plan.video_runs(cut),
+		"highlight": highlight if not highlight.is_empty() else null,
 		"video": video,
 		"parts": parts,
 		"frames": cut.video_frames,

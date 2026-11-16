@@ -140,6 +140,25 @@ func _check_match_video(folder: String) -> void:
 		var whole := _video_frames(folder.path_join(String(doc.video)))
 		if whole != n:
 			_fail(none, "%s has %d frames, json says %d" % [doc.video, whole, n])
+	var runs: Array = doc.get("cameras", [])
+	var next := 0
+	for run: Dictionary in runs:
+		if int(run.video_from) != next or not ReplayStage.CAMERA_PRESETS.has(String(run.preset)):
+			_fail(none, "camera run %s doesn't follow frame %d" % [run, next - 1])
+		next = int(run.video_to) + 1
+	if not runs.is_empty() and next != n:
+		_fail(none, "camera runs cover %d of %d frames" % [next, n])
+	var highlight: Variant = doc.get("highlight")
+	if highlight is Dictionary:
+		var hf := _video_frames(folder.path_join(String(highlight.file)))
+		var sum := 0
+		for seg: Dictionary in highlight.segments:
+			if int(seg.highlight_from) != sum:
+				_fail(none, "highlight segment %s should start at %d" % [seg, sum])
+			sum += int(seg.video_to) - int(seg.video_from) + 1
+		if hf != int(highlight.frames) or sum != hf:
+			_fail(none, "highlight.mp4 has %d frames, json says %d, segments add to %d" % [hf, int(highlight.frames), sum])
+		print("  highlight: %d frames, %d segments, %d camera runs in the match" % [hf, (highlight.segments as Array).size(), runs.size()])
 	print("  match video: %s, %d frames (%.1f s of %.1f s recorded), %d ranges, %d parts, %d markers (%d in cut time), %d moments, complete %s" % [
 		doc.video, n, float(doc.video_s), float(doc.recorded_s), (doc.keep as Array).size(), (doc.parts as Array).size(),
 		(doc.markers as Array).size(), cut, (doc.moments as Array).size(), doc.complete])
