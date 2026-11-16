@@ -99,6 +99,19 @@ moments.json adds (still version 2, fields only added) a top-level
 `match_from`, `match_to`, `match_frame`: clip frame k is full-match frame
 `match_from + k`, byte for byte.
 
+## MATCH view (the timeline)
+
+On the Highlights screen T (pad: View) switches to the MATCH view when the
+match was recorded in full: the stage plays the whole recording, timed as
+the full-match video (breaks and dead time cut, the same FullMatchCut), and a
+timeline (`scripts/ui/match_timeline.gd`) sits under it: moment bands along
+the top (lime when kept, outlined when selected), a tick per event coloured
+by kind (goals and behinds tall), quarter dividers, the playhead. Click or
+drag the bar to seek, up / down jump between moments, left / right change
+the camera, [ / ] step (5 s playing, a frame paused), Esc or T goes back to
+the clips. The first switch loads match.replay (~100 MB). The camera picked
+here isn't saved or used by the export yet (phase 4).
+
 ## Full-match video
 
 With the export window's FULL MATCH VIDEO row on (pref `full_video`, on by

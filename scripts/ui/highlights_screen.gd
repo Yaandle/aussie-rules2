@@ -20,6 +20,14 @@ extends Node3D
 ## The replay is a ReplayStage drawn through a SubViewport that fills the
 ## area right of the column, so the picture is centred in the space you can
 ## see, and the portrait preview is the same 9:16 framing the export uses.
+##
+## MATCH view (T / View; docs/HIGHLIGHTS_FULLGAME_PLAN.md phase 3): when the
+## whole match was recorded, the stage plays the full recording instead,
+## timed as the full-match video (FullMatchCut: breaks and dead time cut),
+## with a MatchTimeline under it: every moment as a band, every event as a
+## tick, quarters marked. Click or drag it to seek; up / down jump between
+## moments (and select them in the list); left / right change the camera. It
+## shows exactly what export_full_match will render, frame for frame.
 
 const MENU_SCENE := "res://scenes/ui/main_menu.tscn"
 const COLUMN_WIDTH := 380.0
@@ -100,6 +108,18 @@ var _overlay: Control
 var _ui_root: Control
 var _dialog: HighlightExportDialog
 
+# MATCH view (see the header). The full recording is loaded on first use
+# (~100 MB) and kept while the screen is open.
+var _match_mode := false
+var _full: ReplayClip
+var _cut: FullMatchCut
+var _match_t := 0.0                 ## seconds into the full-match video
+var _match_camera := HighlightTable.FULL_MATCH_CAMERA
+var _match_range := -1              ## keep range last shown: the camera snaps on a cut
+var _moment_video := {}             ## moment index -> {from, to, frame}, video frames
+var _timeline: MatchTimeline
+var _match_hint: Label
+
 
 func _ready() -> void:
 	_moments = Highlights.moments
@@ -114,7 +134,17 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	if not _any_shown() or _exporter.busy:
+	if _exporter.busy:
+		return
+	if _match_mode:
+		if _playing:
+			_match_t = minf(_match_t + delta * float(SPEEDS[_speed_index]), _match_duration())
+			if _match_t >= _match_duration():
+				_playing = false
+				_refresh()
+		_show_match(false, delta * float(SPEEDS[_speed_index]))
+		return
+	if not _any_shown():
 		return
 	if _playing:
 		if _t >= _stage.duration():
@@ -138,7 +168,147 @@ func _show_frame(snap: bool, delta := 1.0 / 60.0) -> void:
 
 
 func _preset() -> String:
+	if _match_mode:
+		return _match_camera
 	return String(_moments[_index].get("camera", _stage.default_preset()))
+
+
+# ── MATCH view ──────────────────────────────────────────────────────
+
+func _has_full_match() -> bool:
+	return not Highlights.full_match.is_empty() and FileAccess.file_exists(String(Highlights.full_match.replay))
+
+
+func _match_duration() -> float:
+	return float(maxi(_cut.video_frames - 1, 0)) / _cut.fps if _cut != null else 0.0
+
+
+## T / View: in and out of the MATCH view. Loads the recording the first time.
+func _toggle_match() -> void:
+	if _match_mode:
+		_match_mode = false
+		_timeline.visible = false
+		_set_bar_visible(true)
+		_apply_filter()
+		if _index >= 0 and _index < _moments.size() and _shown(_index):
+			_stage.load_clip(_moments[_index].clip)
+			_show_frame(true)
+		return
+	if not _has_full_match():
+		_status_label.text = "No full-match recording for this match (it's made while you play, when full-match recording is on)."
+		return
+	if _full == null:
+		_status_label.text = "Loading the full match..."
+		_busy = true
+		await get_tree().process_frame
+		await get_tree().process_frame
+		var ok := _load_full()
+		_busy = false
+		if not ok:
+			_status_label.text = "The full-match recording couldn't be read."
+			return
+		_status_label.text = ""
+	_match_mode = true
+	_stage.load_clip(_full)
+	_match_range = -1
+	_overlay.visible = true
+	_view_container.visible = true
+	_empty_card.visible = false
+	_timeline.visible = true
+	_set_bar_visible(false)
+	if _moment_video.has(_index):
+		_match_t = float(_moment_video[_index].from) / _cut.fps
+	_show_match(true)
+	_refresh()
+
+
+func _load_full() -> bool:
+	var info: Dictionary = Highlights.full_match
+	var doc: Variant = JSON.parse_string(FileAccess.get_file_as_string(String(info.json)))
+	_full = ReplayClip.load_file(String(info.replay))
+	if not (doc is Dictionary) or _full == null or _full.frame_count() == 0:
+		_full = null
+		return false
+	_cut = FullMatchCut.build(_full, doc)
+	var quarters: Array = []
+	var seen := {}
+	for r in _cut.keep:
+		if not seen.has(int(r.quarter)):
+			seen[int(r.quarter)] = true
+			quarters.append({"video_from": int(r.video_from), "quarter": int(r.quarter)})
+	var markers: Array = []
+	for ev: Dictionary in doc.get("events", []):
+		markers.append({"frame": int(_cut.video_frame(int(ev.frame)).frame), "kind": String(ev.kind)})
+	_moment_video.clear()
+	for i in _moments.size():
+		var m := _moments[i]
+		if m.has("match_from"):
+			_moment_video[i] = {"from": int(_cut.video_frame(int(m.match_from)).frame),
+				"to": int(_cut.video_frame(int(m.match_to)).frame),
+				"frame": int(_cut.video_frame(int(m.match_frame)).frame)}
+	_timeline.frames = _cut.video_frames
+	_timeline.quarters = quarters
+	_timeline.markers = markers
+	return true
+
+
+func _show_match(snap: bool, delta := 1.0 / 60.0) -> void:
+	if _cut == null or _cut.keep.is_empty():
+		return
+	var video_f := _match_t * _cut.fps
+	var r := _cut.range_at(int(video_f))
+	var range_: Dictionary = _cut.keep[r]
+	if r != _match_range:
+		snap = true    # a cut: jump, don't ease across it
+		_match_range = r
+	var source := _cut.source_frame(range_, clampf(video_f - float(range_.video_from), 0.0, float(range_.video_frames) - 1.0))
+	_stage.apply(source / _full.fps())
+	_stage.frame_camera(_camera, _match_camera, _portrait, _match_t, maxf(delta, 0.0001), snap)
+	_timeline.set_playhead(int(video_f))
+	var head := _full.frames[int(source)]
+	var clock := head.decode_float(0)
+	var elapsed := maxf(0.0, Tuning.QUARTER_LENGTH - clock)
+	_time_label.text = "Q%d %d:%02d   %d:%02d / %d:%02d" % [head.decode_u8(4), int(elapsed) / 60, int(elapsed) % 60,
+		int(_match_t) / 60, int(_match_t) % 60, int(_match_duration()) / 60, int(_match_duration()) % 60]
+
+
+func _seek_match(video_frame: int) -> void:
+	_match_t = clampf(float(video_frame) / _cut.fps, 0.0, _match_duration())
+	_show_match(true)
+
+
+## The listed moment whose band starts next after (or last before) the
+## playhead, going `step`; -1 when there's none that way.
+func _next_moment_on_timeline(step: int) -> int:
+	var here := int(_match_t * _cut.fps)
+	var best := -1
+	var best_from := -1
+	for i: int in _moment_video:
+		if not _shown(i):
+			continue
+		var from := int(_moment_video[i].from)
+		if step > 0 and from > here + 1 and (best < 0 or from < best_from):
+			best = i
+			best_from = from
+		elif step < 0 and from < here - 1 and (best < 0 or from > best_from):
+			best = i
+			best_from = from
+	return best
+
+
+func _set_bar_visible(on: bool) -> void:
+	_bar_back.visible = on
+	_match_hint.visible = not on
+
+
+func _refresh_timeline() -> void:
+	var bands: Array = []
+	for i: int in _moment_video:
+		if _shown(i):
+			bands.append({"from": _moment_video[i].from, "to": _moment_video[i].to,
+				"kept": bool(_moments[i].keep), "selected": i == _index})
+	_timeline.moments = bands
+	_timeline.queue_redraw()
 
 
 ## Whether moment `i` is listed: its type is switched on.
@@ -179,9 +349,9 @@ func _apply_filter() -> void:
 	for i in _entry_panels.size():
 		_entry_panels[i].visible = _shown(i)
 	var any := _any_shown()
-	_overlay.visible = any
-	_view_container.visible = any
-	_empty_card.visible = not any
+	_overlay.visible = any or _match_mode
+	_view_container.visible = any or _match_mode
+	_empty_card.visible = not any and not _match_mode
 	if not any:
 		_empty_text.text = "No highlights from this match yet.\nPlay a Full Game: goals, big marks, tackles and long kicks are picked out as it goes." \
 			if _moments.is_empty() else "Every moment type is switched off.\nTurn some back on above (keys 1-8)."
@@ -202,10 +372,23 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed(&"pause") or event.is_action_pressed(&"ui_cancel") \
 			or event.is_action_pressed(&"decline"):
-		_leave()
+		if _match_mode:
+			_toggle_match()
+		else:
+			_leave()
+	elif _key(event, KEY_T) or _pad_button(event, JOY_BUTTON_BACK):
+		_toggle_match()
 	elif _type_key(event) >= 0:
 		_toggle_type(_type_key(event))
-	elif not _any_shown():
+	elif _match_mode and (event.is_action_pressed(&"ui_up") or event.is_action_pressed(&"move_forward")):
+		_select(_next_moment_on_timeline(-1))
+	elif _match_mode and (event.is_action_pressed(&"ui_down") or event.is_action_pressed(&"move_back")):
+		_select(_next_moment_on_timeline(1))
+	elif _match_mode and (event.is_action_pressed(&"ui_accept") or event.is_action_pressed(&"confirm")):
+		_playing = not _playing
+		if _playing and _match_t >= _match_duration():
+			_match_t = 0.0
+	elif not _any_shown() and not _match_mode:
 		return
 	elif event.is_action_pressed(&"ui_up") or event.is_action_pressed(&"move_forward"):
 		_select(_next_shown(_index, -1))
@@ -221,7 +404,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		_playing = not _playing
 		if _playing and _t >= _stage.duration():
 			_t = 0.0
-	elif _key(event, KEY_SPACE) or _pad_button(event, JOY_BUTTON_X):
+	elif (_key(event, KEY_SPACE) or _pad_button(event, JOY_BUTTON_X)) and _index >= 0:
 		_moments[_index].keep = not bool(_moments[_index].keep)
 	elif _key(event, KEY_E) or _pad_button(event, JOY_BUTTON_Y):
 		_export()
@@ -274,6 +457,10 @@ func _trigger(event: InputEvent, axis: JoyAxis) -> bool:
 ## A second either way while playing, one frame either way while paused.
 func _step(direction: float) -> void:
 	var amount := 1.0 if _playing else 1.0 / HighlightTable.RECORD_FPS
+	if _match_mode:
+		_match_t = clampf(_match_t + direction * amount * (5.0 if _playing else 1.0), 0.0, _match_duration())
+		_show_match(true)
+		return
 	_t = clampf(_t + direction * amount, 0.0, _stage.duration())
 	_hold = 0.0
 	_show_frame(true)
@@ -281,6 +468,13 @@ func _step(direction: float) -> void:
 
 func _select(index: int) -> void:
 	if index < 0 or index >= _moments.size():
+		return
+	if _match_mode:
+		# In the MATCH view a moment is a place on the timeline.
+		_index = index
+		if _moment_video.has(index):
+			_seek_match(int(_moment_video[index].from))
+		_scroll_to(_index)
 		return
 	_index = index
 	_stage.load_clip(_moments[_index].clip)
@@ -294,6 +488,10 @@ func _select(index: int) -> void:
 func _cycle_camera(step: int) -> void:
 	var presets := ReplayStage.CAMERA_PRESETS
 	var i := presets.find(_preset())
+	if _match_mode:
+		_match_camera = presets[posmod(i + step, presets.size())]
+		_show_match(true)
+		return
 	_moments[_index].camera = presets[posmod(i + step, presets.size())]
 	_show_frame(true)
 
@@ -323,8 +521,14 @@ func _run_export(picked: Array[Dictionary]) -> void:
 	_status_label.text = text
 	if is_instance_valid(_dialog):
 		_dialog.finish(text + "\nA / Enter or B / Esc closes.")
-	# The stage was driven by the exporter: back to the selected moment.
-	_select(_index)
+	# The stage was driven by the exporter: back to the selected moment (or
+	# the full match, in the MATCH view).
+	if _match_mode:
+		_stage.load_clip(_full)
+		_match_range = -1
+		_show_match(true)
+	else:
+		_select(_index)
 	_playing = false
 	_refresh()
 
@@ -373,6 +577,7 @@ func _build_ui() -> void:
 			{"keys": "Space", "label": "Keep"},
 			{"keys": "1-8", "label": "Types"},
 			{"keys": "← / →", "label": "Camera"},
+			{"keys": "T", "label": "Match"},
 			{"keys": "E", "label": "Export"},
 			{"keys": "Esc", "label": "Back"},
 		],
@@ -381,6 +586,7 @@ func _build_ui() -> void:
 			{"keys": "A", "label": "Play / pause"},
 			{"keys": "X", "label": "Keep"},
 			{"keys": "LB / RB", "label": "Camera"},
+			{"keys": "View", "label": "Match"},
 			{"keys": "Y", "label": "Export"},
 			{"keys": "B", "label": "Back"},
 		],
@@ -521,8 +727,21 @@ func _build_ui() -> void:
 	_bar_event.position.y = -4.0
 	_bar_event.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_bar_back.add_child(_bar_event)
+	_timeline = MatchTimeline.new()
+	_timeline.position = Vector2(0.0, bar_y - 30.0)
+	_timeline.size = Vector2(_overlay.size.x - 170.0, 44.0)
+	_timeline.visible = false
+	_timeline.seek_requested.connect(func(frame: int) -> void:
+		_seek_match(frame)
+		_refresh())
+	_overlay.add_child(_timeline)
+	_match_hint = StudioStyle.text("↑ / ↓ moments   [ / ] step   click the bar to seek   T back to clips", 11,
+		StudioStyle.INK, StudioStyle.mono_font())
+	_match_hint.position = Vector2(0.0, bar_y - 52.0)
+	_match_hint.visible = false
+	_overlay.add_child(_match_hint)
 	var time_chip := _padded(StudioStyle.box(StudioStyle.WHITE, 2, StudioStyle.SHADOW), 8, 2)
-	time_chip.position = Vector2(_overlay.size.x - 118.0, bar_y - 4.0)
+	time_chip.position = Vector2(_overlay.size.x - 158.0, bar_y - 4.0)
 	_overlay.add_child(time_chip)
 	_time_label = StudioStyle.text("", 11, StudioStyle.INK, StudioStyle.mono_font())
 	time_chip.get_child(0).add_child(_time_label)
@@ -616,6 +835,9 @@ func _refresh() -> void:
 			StudioStyle.PAPER if picked else StudioStyle.INK_SOFT)
 	_moments_head.text = "MOMENTS  (%d of %d)" % [shown, _moments.size()]
 	_kept_label.text = "Kept for export: %d of %d" % [kept, shown]
+	if _match_mode:
+		_refresh_match_card()
+		return
 	if not _any_shown() or _index < 0:
 		return
 	var moment := _moments[_index]
@@ -637,6 +859,25 @@ func _refresh() -> void:
 	_bar_event.position.x = _bar_back.size.x * clampf(_stage.event_time() / duration, 0.0, 1.0) - 2.0
 
 
+func _refresh_match_card() -> void:
+	_refresh_timeline()
+	_chip_label.text = "MATCH  ·  %s  ·  %s  ·  %s×%s" % [
+		"PLAYING" if _playing else "PAUSED",
+		String(ReplayStage.PRESET_LABELS.get(_match_camera, _match_camera)),
+		str(SPEEDS[_speed_index]), "  ·  9:16" if _portrait else ""]
+	var info := Highlights.match_info
+	var final: Dictionary = info.get("final", {})
+	_card_title.text = "Full match  ·  %s v %s" % [info.get("home", "Home"), info.get("away", "Away")]
+	var summary := _cut.summary()
+	var text := "%d:%02d of video from %d:%02d recorded: breaks and dead time cut." % [
+		int(summary.video_s) / 60, int(summary.video_s) % 60, int(summary.recorded_s) / 60, int(summary.recorded_s) % 60]
+	if not final.is_empty():
+		text += "\nFinal %s  v  %s" % [final.get("home", ""), final.get("away", "")]
+	if _index >= 0 and _index < _moments.size() and _moment_video.has(_index):
+		text += "\nSelected: %s  ·  %s" % [String(_moments[_index].label), clock_text(_moments[_index])]
+	_card_body.text = text
+
+
 func _scroll_to(index: int) -> void:
 	if index < 0 or index >= _entry_panels.size():
 		return
@@ -649,7 +890,7 @@ func _on_entry_input(event: InputEvent, index: int) -> void:
 	var click := event as InputEventMouseButton
 	if click == null or not click.pressed or click.button_index != MOUSE_BUTTON_LEFT:
 		return
-	if index != _index:
+	if index != _index or _match_mode:
 		_select(index)
 	elif click.double_click:
 		_playing = not _playing

@@ -119,9 +119,10 @@ static func _clock(clip: ReplayClip, i: int) -> float:
 	return clip.frames[i].decode_float(0)
 
 
-## The (fractional) recording frame video frame `j` of keep range `r` shows.
-func source_frame(r: Dictionary, j: int) -> float:
-	var t := float(r.t_from) + float(j) / fps
+## The (fractional) recording frame video frame `j` of keep range `r` shows
+## (`j` may be fractional too: the Highlights screen plays between frames).
+func source_frame(r: Dictionary, j: float) -> float:
+	var t := float(r.t_from) + j / fps
 	var a := int(r.from)
 	var b := int(r.to)
 	if t <= times[a]:
@@ -145,6 +146,14 @@ func video_frame(frame: int) -> Dictionary:
 			var j := int(round((times[frame] - float(r.t_from)) * fps))
 			return {"frame": int(r.video_from) + clampi(j, 0, int(r.video_frames) - 1), "cut": false}
 	return {"frame": maxi(0, video_frames - 1), "cut": true}
+
+
+## Index into `keep` of the range holding video frame `frame` (clamped).
+func range_at(frame: int) -> int:
+	for i in keep.size():
+		if frame < int(keep[i].video_from) + int(keep[i].video_frames):
+			return i
+	return keep.size() - 1
 
 
 ## Seconds of recording kept and cut, for the screen and the log.
