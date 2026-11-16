@@ -53,6 +53,8 @@ func _ready() -> void:
 		await _check_row(folder, doc, row, stage)
 		if full != null:
 			_check_in_full(folder, row, full)
+	if full != null:
+		_check_match_video(folder)
 	print("CHECK: %s" % ("all good" if _failures == 0 else "%d FAILED" % _failures))
 	get_tree().quit(1 if _failures > 0 else 0)
 
@@ -97,6 +99,63 @@ func _check_full_match(folder: String, doc: Dictionary) -> ReplayClip:
 		float(meta.duration_s), (meta.segments as Array).size(), worst_gap * 1000.0,
 		FileAccess.get_file_as_bytes(folder.path_join(String(info.replay))).size() / 1048576.0, kinds])
 	return full
+
+
+## match_video.json (plan phase 2): kept ranges tile the video, every marker
+## and moment lands inside it, and each part file has the frames it claims
+## (ffprobe beside ffmpeg for an .mp4, the AVI header for an .avi).
+func _check_match_video(folder: String) -> void:
+	var path := folder.path_join("match_video.json")
+	var none := {"rank": 0, "type": "match_video"}
+	if not FileAccess.file_exists(path):
+		print("  match video: not rendered")
+		return
+	var doc: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(path))
+	var n := int(doc.frames)
+	var at := 0
+	for r: Dictionary in doc.keep:
+		if int(r.video_from) != at:
+			_fail(none, "keep range %s starts at video frame %d, not %d" % [r, int(r.video_from), at])
+		at += int(r.video_frames)
+	if at != n:
+		_fail(none, "keep ranges make %d frames, json says %d" % [at, n])
+	var cut := 0
+	for m: Dictionary in doc.markers:
+		if int(m.video_frame) < 0 or int(m.video_frame) >= n:
+			_fail(none, "marker out of range %s" % m)
+		if m.cut:
+			cut += 1
+	for m: Dictionary in doc.moments:
+		if int(m.video_frame) < int(m.video_from) or int(m.video_frame) > int(m.video_to):
+			_fail(none, "moment %s isn't inside its own range" % m)
+	var counted := 0
+	for part: Dictionary in doc.parts:
+		if part.file == null:
+			continue   # joined into `video` and deleted
+		var frames := _video_frames(folder.path_join(String(part.file)))
+		counted += frames
+		if frames != int(part.frames):
+			_fail(none, "%s has %d frames, json says %d" % [part.file, frames, int(part.frames)])
+	if doc.video != null:
+		var whole := _video_frames(folder.path_join(String(doc.video)))
+		if whole != n:
+			_fail(none, "%s has %d frames, json says %d" % [doc.video, whole, n])
+	print("  match video: %s, %d frames (%.1f s of %.1f s recorded), %d ranges, %d parts, %d markers (%d in cut time), %d moments, complete %s" % [
+		doc.video, n, float(doc.video_s), float(doc.recorded_s), (doc.keep as Array).size(), (doc.parts as Array).size(),
+		(doc.markers as Array).size(), cut, (doc.moments as Array).size(), doc.complete])
+
+
+func _video_frames(path: String) -> int:
+	if path.ends_with(".avi"):
+		return _avi_frames(path)
+	var ffmpeg := HighlightPaths.ffmpeg()
+	if ffmpeg == "":
+		return -1
+	var probe := ffmpeg.get_base_dir().path_join("ffprobe.exe") if ffmpeg != "ffmpeg" else "ffprobe"
+	var out: Array = []
+	OS.execute(probe, ["-v", "error", "-select_streams", "v:0", "-count_packets", "-show_entries",
+		"stream=nb_read_packets", "-of", "csv=p=0", path], out)
+	return int(String(out[0]).strip_edges()) if not out.is_empty() else -1
 
 
 ## A moment's clip is the full recording's frames match_from.. byte for byte.

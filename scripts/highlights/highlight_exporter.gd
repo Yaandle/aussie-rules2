@@ -17,6 +17,8 @@ extends Node
 ##   NN_<type>_16x9.mp4, NN_<type>_9x16.mp4   only when ffmpeg is found
 ##   NN_<type>.replay                          the raw pose data (ReplayClip)
 ##   match.replay, match.json                  the whole match, when recorded
+##   match_16x9.mp4, match_video.json          that match rendered, dead time
+##                                             cut (export_full_match)
 ## plus moments.json describing them all (docs/HIGHLIGHTS.md has the schema).
 ##
 ## A cancelled export keeps the clip it was part-way through, and its row says
@@ -163,6 +165,8 @@ func export_moments(moments: Array[Dictionary], match_info: Dictionary, options 
 	if json != null:
 		json.store_string(JSON.stringify(doc, "  ", false))
 		json.close()
+	if doc.has("full_match") and not _cancel and bool(options.get("full_video", HighlightPrefs.full_video())):
+		await export_full_match(folder)
 	busy = false
 	finished.emit(folder, not _cancel)
 	return folder
@@ -223,17 +227,215 @@ func _viewport(size: Vector2i) -> Dictionary:
 
 
 static func _has_ffmpeg() -> bool:
-	var out: Array = []
-	return OS.execute("ffmpeg", ["-version"], out) == 0
+	return HighlightPaths.ffmpeg() != ""
 
 
 ## Runs ffmpeg in its own process and waits for it without blocking the
 ## frame (the screen keeps drawing its progress).
 func _ffmpeg(input: String, output: String) -> bool:
-	var pid := OS.create_process("ffmpeg", ["-y", "-loglevel", "error", "-i", input,
-		"-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-movflags", "+faststart", output])
+	return await _run_ffmpeg(["-y", "-loglevel", "error", "-i", input,
+		"-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-movflags", "+faststart", output], output)
+
+
+func _run_ffmpeg(args: PackedStringArray, output: String) -> bool:
+	var pid := OS.create_process(HighlightPaths.ffmpeg(), args)
 	if pid <= 0:
 		return false
 	while OS.is_process_running(pid):
 		await get_tree().create_timer(0.2).timeout
 	return FileAccess.file_exists(output)
+
+
+# ── Full match (docs/HIGHLIGHTS_FULLGAME_PLAN.md, phase 2) ─────────────
+
+const MATCH_VIDEO := "match_16x9.mp4"
+const MATCH_VIDEO_JSON := "match_video.json"
+
+
+## Renders `folder`'s match.replay to one 16:9 video with the dead time cut
+## (FullMatchCut), and writes match_video.json: the kept ranges, every event
+## of match.json as a marker on its video frame, and where each moment of
+## moments.json is in the video. One camera (HighlightTable.FULL_MATCH_CAMERA),
+## snapped at each cut so a cut is a clean jump.
+##
+## A quarter at a time, each to its own part file, then joined. A part that
+## finished is kept when the render is cancelled and skipped when it's run
+## again, so a long render can be resumed. With ffmpeg (HighlightPaths.ffmpeg)
+## frames are piped straight into an H.264 encoder: no 2.8 GB of MJPEG on
+## disk. Without it each quarter is its own MJPEG .avi and there's no single
+## match file (`video` null, `parts` lists them).
+func export_full_match(folder: String) -> bool:
+	var was_busy := busy
+	busy = true
+	var doc: Variant = JSON.parse_string(FileAccess.get_file_as_string(folder.path_join(HighlightPaths.MATCH_JSON)))
+	var clip := ReplayClip.load_file(folder.path_join(HighlightPaths.MATCH_REPLAY))
+	if not (doc is Dictionary) or clip == null or clip.frame_count() == 0:
+		busy = was_busy
+		return false
+	progress.emit("Full match: finding the dead time", 0.0)
+	await get_tree().process_frame
+	var cut := FullMatchCut.build(clip, doc)
+	var ffmpeg := HighlightPaths.ffmpeg()
+	var size := HighlightTable.EXPORT_LANDSCAPE
+	var fps := HighlightTable.EXPORT_FPS
+	var preset := HighlightTable.FULL_MATCH_CAMERA
+	stage.load_clip(clip)
+	var view := _viewport(size)
+
+	var quarters: Array[int] = []
+	for r in cut.keep:
+		if not quarters.has(int(r.quarter)):
+			quarters.append(int(r.quarter))
+	var parts: Array = []
+	var done := 0
+	for q in quarters:
+		if _cancel:
+			break
+		var ranges: Array[Dictionary] = []
+		var frames := 0
+		for r in cut.keep:
+			if int(r.quarter) == q:
+				ranges.append(r)
+				frames += int(r.video_frames)
+		var file := "match_q%d_16x9.%s" % [q, "mp4" if ffmpeg != "" else "avi"]
+		var path := folder.path_join(file)
+		var part := {"quarter": q, "file": file, "video_from": int(ranges[0].video_from), "frames": frames}
+		if FileAccess.file_exists(path):
+			# Finished on an earlier run (unfinished parts are written under
+			# a .partial name and only renamed once complete).
+			parts.append(part)
+			done += frames
+			continue
+		var partial := path + ".partial" + ("" if ffmpeg == "" else ".mp4")
+		var sink := _open_sink(ffmpeg, partial, size, fps)
+		if sink.is_empty():
+			push_warning("HighlightExporter: couldn't start the full-match encoder")
+			break
+		var written := 0
+		for r in ranges:
+			for j in int(r.video_frames):
+				if _cancel:
+					break
+				stage.apply(cut.source_frame(r, j) / clip.fps())
+				stage.frame_camera(view.camera, preset, false, float(written) / fps, 1.0 / fps, j == 0)
+				await RenderingServer.frame_post_draw
+				_sink_add(sink, view.viewport.get_texture().get_image())
+				written += 1
+				if written % 15 == 0:
+					progress.emit("Full match: quarter %d, %d of %d frames" % [q, done + written, cut.video_frames],
+						float(done + written) / float(cut.video_frames))
+		await _close_sink(sink)
+		if _cancel or written < frames or not FileAccess.file_exists(partial):
+			DirAccess.remove_absolute(partial)
+			break
+		DirAccess.rename_absolute(partial, path)
+		parts.append(part)
+		done += frames
+	view.viewport.queue_free()
+
+	var complete := parts.size() == quarters.size()
+	var video: Variant = null
+	if complete and ffmpeg != "":
+		progress.emit("Full match: joining the quarters", 1.0)
+		var list_path := folder.path_join("match_parts.txt")
+		var list := FileAccess.open(list_path, FileAccess.WRITE)
+		for p: Dictionary in parts:
+			list.store_line("file '%s'" % String(p.file))
+		list.close()
+		var out := folder.path_join(MATCH_VIDEO)
+		if await _run_ffmpeg(["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", list_path,
+				"-c", "copy", "-movflags", "+faststart", out], out):
+			video = MATCH_VIDEO
+			# The joined file has every frame: the parts would only double
+			# the disk use.
+			for p: Dictionary in parts:
+				DirAccess.remove_absolute(folder.path_join(String(p.file)))
+				p["file"] = null
+		DirAccess.remove_absolute(list_path)
+	_write_match_video(folder, doc, cut, parts, video, complete)
+	busy = was_busy
+	return complete
+
+
+## The encoder for one part: ffmpeg reading raw RGB on stdin, or an MJPEG
+## writer. {} if neither could start.
+func _open_sink(ffmpeg: String, path: String, size: Vector2i, fps: int) -> Dictionary:
+	if ffmpeg == "":
+		var writer := MjpegAviWriter.new()
+		if writer.open(path, size, fps) != OK:
+			return {}
+		return {"avi": writer}
+	var pipe := OS.execute_with_pipe(ffmpeg, ["-y", "-loglevel", "error", "-nostats",
+		"-f", "rawvideo", "-pix_fmt", "rgb24", "-s", "%dx%d" % [size.x, size.y], "-r", str(fps), "-i", "pipe:0",
+		"-c:v", "libx264", "-preset", HighlightTable.FULL_MATCH_PRESET, "-crf", str(HighlightTable.FULL_MATCH_CRF),
+		"-pix_fmt", "yuv420p", "-movflags", "+faststart", path])
+	if pipe.is_empty():
+		return {}
+	return {"pipe": pipe}
+
+
+func _sink_add(sink: Dictionary, image: Image) -> void:
+	if sink.has("avi"):
+		(sink.avi as MjpegAviWriter).add_image(image, HighlightTable.EXPORT_JPEG_QUALITY)
+		return
+	if image.get_format() != Image.FORMAT_RGB8:
+		image.convert(Image.FORMAT_RGB8)
+	(sink.pipe.stdio as FileAccess).store_buffer(image.get_data())
+
+
+func _close_sink(sink: Dictionary) -> void:
+	if sink.has("avi"):
+		(sink.avi as MjpegAviWriter).close()
+		return
+	(sink.pipe.stdio as FileAccess).close()
+	var pid := int(sink.pipe.pid)
+	while OS.is_process_running(pid):
+		await get_tree().create_timer(0.2).timeout
+
+
+func _write_match_video(folder: String, doc: Dictionary, cut: FullMatchCut, parts: Array, video: Variant,
+		complete: bool) -> void:
+	var keep: Array = []
+	for r in cut.keep:
+		keep.append({"from": int(r.from), "to": int(r.to), "quarter": int(r.quarter),
+			"video_from": int(r.video_from), "video_frames": int(r.video_frames)})
+	var markers: Array = []
+	for ev: Dictionary in doc.get("events", []):
+		var at := cut.video_frame(int(ev.frame))
+		var marker := ev.duplicate()
+		marker["video_frame"] = at.frame
+		marker["cut"] = at.cut
+		markers.append(marker)
+	var moments: Array = []
+	var moments_doc: Variant = JSON.parse_string(FileAccess.get_file_as_string(folder.path_join("moments.json")))
+	if moments_doc is Dictionary:
+		for row: Dictionary in moments_doc.get("moments", []):
+			if not row.has("match_from"):
+				continue
+			moments.append({"id": row.id, "rank": row.rank, "type": row.type, "label": row.label,
+				"video_from": cut.video_frame(int(row.match_from)).frame,
+				"video_to": cut.video_frame(int(row.match_to)).frame,
+				"video_frame": cut.video_frame(int(row.match_frame)).frame,
+				"event_cut": cut.video_frame(int(row.match_frame)).cut})
+	var summary := cut.summary()
+	var out := {
+		"format": "aussie-rules-2-match-video", "version": 1,
+		"fps": HighlightTable.EXPORT_FPS,
+		"size": [HighlightTable.EXPORT_LANDSCAPE.x, HighlightTable.EXPORT_LANDSCAPE.y],
+		"camera": HighlightTable.FULL_MATCH_CAMERA,
+		"video": video,
+		"parts": parts,
+		"frames": cut.video_frames,
+		"complete": complete,
+		"recorded_s": snappedf(float(summary.recorded_s), 0.01),
+		"video_s": snappedf(float(summary.video_s), 0.01),
+		"trim": {"dead_min": HighlightTable.DEAD_MIN, "keep_after": HighlightTable.DEAD_KEEP_AFTER,
+			"keep_before": HighlightTable.DEAD_KEEP_BEFORE},
+		"keep": keep,
+		"markers": markers,
+		"moments": moments,
+	}
+	var file := FileAccess.open(folder.path_join(MATCH_VIDEO_JSON), FileAccess.WRITE)
+	if file != null:
+		file.store_string(JSON.stringify(out, "  ", false))
+		file.close()

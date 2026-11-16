@@ -174,3 +174,6 @@ Needs a real match (or the generator) and the Highlights screen. See `docs/HIGHL
 - [ ] **End-on camera:** stays inside the boundary fence on a goal at the far end.
 - [ ] **Cancelled export:** cancel part-way; the clip being rendered is in moments.json with `"complete": false` and a smaller `frames`.
 - [ ] **Generator** (`scenes/dev/highlight_generator.tscn`, windowed, `--fixed-fps 60`): a run exports goal / mark / tackle clips from mixed cameras into `highlights/generated/`; the footage reads as AI play, and moments.json says `"footage": "generated"`, `"mode": "ai_vs_ai"`.
+- [ ] **Full-match video** (export with FULL MATCH VIDEO on): `match_16x9.mp4` plays the whole match with breaks cut; say whether the cuts after a goal and before a bounce come too early or late (`DEAD_KEEP_AFTER` 2.5 s, `DEAD_KEEP_BEFORE` 2.0 s, `DEAD_MIN` 4 s), and whether broadcast-only reads well for a whole match.
+- [ ] **Full-match record cost:** play a full human match with full-match recording on; no new hitches (it writes ~270 KB/s to `highlights/_recording/`).
+- [ ] **Cancel the full render:** cancel during quarter 2's render; the folder keeps `match_q1_16x9.mp4`, `match_video.json` says `"complete": false`, and no `.partial` file is left.

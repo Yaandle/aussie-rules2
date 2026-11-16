@@ -31,6 +31,11 @@ ranking number is in `highlight_table.gd`; they are unplaytested feel guesses.
     NN_<type>_16x9.avi / _9x16.avi   MJPEG, 30 fps (only the shapes asked for)
     NN_<type>.replay                 raw poses (ReplayClip), always whole
     match.replay, match.json         the whole match (see "Full match")
+    match_16x9.mp4, match_video.json that match rendered, dead time cut
+    match_qN_16x9.mp4                a quarter's part, only while the render
+                                     is unfinished (rendering the same folder
+                                     again skips finished parts); deleted once
+                                     joined
     moments.json
 
 ## moments.json (version 2)
@@ -93,6 +98,32 @@ moments.json adds (still version 2, fields only added) a top-level
 `full_match` (`replay`, `json`, `frames`, `fps`) and per moment
 `match_from`, `match_to`, `match_frame`: clip frame k is full-match frame
 `match_from + k`, byte for byte.
+
+## Full-match video
+
+With the export window's FULL MATCH VIDEO row on (pref `full_video`, on by
+default) an export also renders the whole recording, 16:9 1920x1080 at
+30 fps from `HighlightTable.FULL_MATCH_CAMERA` (broadcast, following the
+ball), with breaks and dead time cut (`FullMatchCut`: a stopped match clock
+of `DEAD_MIN` s or more is cut, keeping `DEAD_KEEP_AFTER` s after it stops and
+`DEAD_KEEP_BEFORE` s before play restarts; unplaytested guesses). The camera
+snaps at each cut. Frames are resampled by `frame_times`, so the video's
+timing is even even when the recording's wasn't.
+
+ffmpeg (`HighlightPaths.ffmpeg()`: the `ffmpeg` key in highlights.cfg, the
+video tool's `tools/ffmpeg/bin/ffmpeg.exe`, then PATH) gets raw frames piped
+in, one H.264 part per quarter, joined into `match_16x9.mp4`. Without ffmpeg
+each quarter is an MJPEG `match_qN_16x9.avi` and `video` is null.
+
+`match_video.json` (`format` "aussie-rules-2-match-video", `version` 1):
+`fps`, `size`, `camera`, `video`, `parts` (`{quarter, file, video_from,
+frames}`, `file` null once joined into `video`), `frames`, `complete`, `recorded_s`, `video_s`, `trim` (the three
+numbers used), `keep` (`{from, to, quarter, video_from, video_frames}`:
+recording frames kept, inclusive, and where they start in the video),
+`markers` (every match.json event plus `video_frame` and `cut`: true when it
+happened in cut time, then `video_frame` is the next kept frame), `moments`
+(`{id, rank, type, label, video_from, video_to, video_frame, event_cut}` for
+each exported moment). This is the timeline the video tool reads.
 
 ## Checking an export
 

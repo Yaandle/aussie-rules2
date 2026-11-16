@@ -1,7 +1,9 @@
 # Highlights v3 plan: full-game footage with markers
 
-Status (2026-11-16): phase 1 (record the whole match) is built; the rest is
-plan. `docs/HIGHLIGHTS.md` "Full match" has what phase 1 writes. Read
+Status (2026-11-16): phase 1 (record the whole match) and phase 2 (trimmed
+16:9 full-match render, `match_video.json`) are built; the rest is plan.
+`docs/HIGHLIGHTS.md` "Full match" and "Full-match video" have what they
+write. Read
 `docs/HIGHLIGHTS.md` first; this extends it.
 
 ## What you asked for

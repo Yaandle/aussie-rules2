@@ -32,6 +32,37 @@ static func root() -> String:
 	return fallback
 
 
+## Where ffmpeg might be when it isn't on PATH: the video tool's own copy on
+## the dev machine (F:/dev/video-editor, studio/config.py's tools/ffmpeg/bin).
+## The `ffmpeg` key in user://highlights.cfg wins over both.
+const FFMPEG_CANDIDATES := ["F:/dev/video-editor/video-editor/tools/ffmpeg/bin/ffmpeg.exe"]
+
+static var _ffmpeg := ""
+static var _ffmpeg_checked := false
+
+
+## The ffmpeg to run, or "" when there's none: the saved path, a known copy,
+## then PATH. Checked once per run.
+static func ffmpeg() -> String:
+	if _ffmpeg_checked:
+		return _ffmpeg
+	_ffmpeg_checked = true
+	var candidates: Array[String] = []
+	var saved := HighlightPrefs.ffmpeg_path()
+	if saved != "":
+		candidates.append(saved)
+	for c: String in FFMPEG_CANDIDATES:
+		candidates.append(c)
+	for c in candidates:
+		if FileAccess.file_exists(c):
+			_ffmpeg = c
+			return _ffmpeg
+	var out: Array = []
+	if OS.execute("ffmpeg", ["-version"], out) == 0:
+		_ffmpeg = "ffmpeg"
+	return _ffmpeg
+
+
 static func recording_dir() -> String:
 	var dir := root().path_join(RECORDING)
 	DirAccess.make_dir_recursive_absolute(dir)

@@ -135,6 +135,8 @@ func _rebuild() -> void:
 	for type: String in HighlightTable.TYPE_ORDER:
 		_add_entry(_list, {"kind": "type", "type": type})
 	_add_entry(_list, {"kind": "format"})
+	if not Highlights.full_match.is_empty():
+		_add_entry(_list, {"kind": "full_video"})
 	for m in _moments:
 		if HighlightPrefs.type_on(String(m.type)):
 			_add_entry(_list, {"kind": "moment", "moment": m})
@@ -201,6 +203,10 @@ func _refresh() -> void:
 			"format":
 				_labels[i].text = "FORMAT   ◂ %s ▸      (16:9 alone is half the render)" % String(
 					HighlightTable.ASPECT_LABELS[HighlightPrefs.aspect()])
+			"full_video":
+				_labels[i].text = "%s  FULL MATCH VIDEO   16:9, breaks and dead time cut   (%d s recorded)" % [
+					"■" if HighlightPrefs.full_video() else "□",
+					int(Highlights.full_match.get("frames", 0)) / HighlightTable.RECORD_FPS]
 			"moment":
 				var m: Dictionary = entry.moment
 				var camera := String(m.get("camera", HighlightPrefs.camera_for(String(m.type))))
@@ -264,7 +270,7 @@ func handle_input(event: InputEvent) -> bool:
 
 func _move(step: int) -> void:
 	_cursor = clampi(_cursor + step, 0, _rows.size() - 1)
-	if String(_entries[_cursor].kind) in ["type", "format", "moment"]:
+	if String(_entries[_cursor].kind) in ["type", "format", "full_video", "moment"]:
 		_scroll.ensure_control_visible(_rows[_cursor])
 
 
@@ -278,6 +284,8 @@ func _sideways(step: int) -> void:
 			HighlightPrefs.set_camera(type, _cycled(ReplayStage.CAMERA_PRESETS, HighlightPrefs.camera_for(type), step))
 		"format":
 			HighlightPrefs.set_aspect(_cycled(HighlightTable.ASPECTS, HighlightPrefs.aspect(), step))
+		"full_video":
+			HighlightPrefs.set_full_video(not HighlightPrefs.full_video())
 		"moment":
 			var m: Dictionary = entry.moment
 			m["camera"] = _cycled(ReplayStage.CAMERA_PRESETS,
@@ -300,6 +308,8 @@ func _activate(index: int) -> void:
 			_rebuild()
 		"format":
 			HighlightPrefs.set_aspect(_cycled(HighlightTable.ASPECTS, HighlightPrefs.aspect(), 1))
+		"full_video":
+			HighlightPrefs.set_full_video(not HighlightPrefs.full_video())
 		"moment":
 			if not _done:
 				var m: Dictionary = entry.moment

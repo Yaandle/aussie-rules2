@@ -22,6 +22,11 @@ static var _cameras := {}
 static var _aspect := "both"
 ## Record the whole match to disk as well as the moments (~130 MB a match).
 static var _full_match := true
+## Render the full match to video when exporting (16:9, dead time cut).
+static var _full_video := true
+## An ffmpeg.exe to use (HighlightPaths.ffmpeg); "" looks for one. Not
+## shown anywhere: set it in the .cfg.
+static var _ffmpeg := ""
 
 
 static func _ensure() -> void:
@@ -38,6 +43,8 @@ static func _ensure() -> void:
 			var preset := String(config.get_value(SECTION, "camera_" + type))
 			if ReplayStage.CAMERA_PRESETS.has(preset):
 				_cameras[type] = preset
+	_full_video = bool(config.get_value(SECTION, "full_video", true))
+	_ffmpeg = String(config.get_value(SECTION, "ffmpeg", ""))
 	if config.has_section_key(SECTION, "full_match"):
 		_full_match = bool(config.get_value(SECTION, "full_match"))
 	if config.has_section_key(SECTION, "aspect"):
@@ -55,6 +62,8 @@ static func _save() -> void:
 		config.set_value(SECTION, "camera_" + type, camera_for(type))
 	config.set_value(SECTION, "aspect", _aspect)
 	config.set_value(SECTION, "full_match", _full_match)
+	config.set_value(SECTION, "full_video", _full_video)
+	config.set_value(SECTION, "ffmpeg", _ffmpeg)
 	config.save(PATH)
 
 
@@ -92,6 +101,22 @@ static func set_full_match(on: bool) -> void:
 	_ensure()
 	_full_match = on
 	_save()
+
+
+static func full_video() -> bool:
+	_ensure()
+	return _full_video
+
+
+static func set_full_video(on: bool) -> void:
+	_ensure()
+	_full_video = on
+	_save()
+
+
+static func ffmpeg_path() -> String:
+	_ensure()
+	return _ffmpeg
 
 
 static func aspect() -> String:
