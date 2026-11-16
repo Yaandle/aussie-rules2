@@ -1127,6 +1127,17 @@ func _fifty_metre_spot(from: Vector3, team: Tuning.Team) -> Vector3:
 func _award_possession_at(spot: Vector3, receiver: PlayerController, retreat := true) -> void:
 	_drop_all_balls()
 	_ball.reset_at(spot + Vector3.UP * 0.3)
+	if retreat:
+		# 6AG-c (playtest: the man on the mark "lands a little off the
+		# point"): the kick is taken FROM the spot, so the taker starts on
+		# it. Holding the ball named the tackler where he stood at the
+		# whistle, and the tackle carried on through the pause; running too
+		# far names whoever was nearest, often metres away. Either way he
+		# took the ball wherever he'd ended up and walked back from there,
+		# while the man on the mark went to the real spot, so the two were
+		# off the same line. _award_infringement and out on the full
+		# already placed theirs; this covers every free kick in one place.
+		receiver.global_position = Vector3(spot.x, receiver.global_position.y, spot.z)
 	receiver.give_possession(_ball)
 	receiver.grant_protection(Tuning.MARK_HOLD_DURATION)
 	if retreat:

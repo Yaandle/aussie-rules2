@@ -7,6 +7,10 @@ own docs: `ANIMATION_RAGDOLL_AUDIT.md` (kick, carry, phase lock, bank,
 tackles), `MECHANICS_AUDIT.md` (ragdoll stages 2-5) and the 2026-10-30
 playtest commit (HUD, park turf, ruck, training).
 
+## Pre-playtest fixes (2026-11-16, branch `update`)
+
+- [ ] Free-kick taker on the spot (6AG-c): after a holding-the-ball or running-too-far free, the player awarded it now starts on the spot and walks back along the line from there, and the man on the mark stands on that same spot facing him. Before, the taker could be 2-7 m away from the spot. A man on the mark who starts 12 m+ away can still be jogging in, facing the spot, when an AI kicker plays on.
+
 ## Fend you can see, goal kick (2026-11-16, branch `update`)
 
 - [ ] Fend arm: run with the ball and tap RB with nobody near. The left arm should go out straight for about half a second while the ball stays in the right hand. Before this fix the arm only showed if you were already being hit.
