@@ -157,8 +157,11 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	# Not while GoalKickPrompt's "Y · GOALS" is up (2026-11-17): after a mark
+	# in range both chips showed, one above the other, both naming Y.
 	_goal_shot_hint.visible = is_instance_valid(player) and player.is_carrying() \
-		and not player.is_kick_aiming() and player.can_take_goal_set_shot()
+		and not player.is_kick_aiming() and player.can_take_goal_set_shot() \
+		and not player.can_take_goal_kick(Tuning.GOAL_KICK_MAX_RANGE)
 	if Input.is_action_just_pressed(&"debug_hud"):
 		_page = ((_page + 1) % Page.size()) as Page
 		_show_page()
