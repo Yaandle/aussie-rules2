@@ -1956,6 +1956,11 @@ const MARK_CUE_SOURCE := 1
 # is above the player's own origin, not the chest-height CAM_FOCUS_HEIGHT —
 # a Madden-style prompt floats over the head, a camera frames the chest.
 const MARK_PROMPT_HEIGHT := 2.05       # m above player origin
+# MarkPrompt's "incoming" cue (pre-Day-5 W3): a dimmed badge with the ring
+# already closing, from the moment a kick's predicted drop at hand height is
+# this close to the controlled player, until live_mark_prompt() takes over.
+# Display only. Unplaytested feel guess.
+const MARK_CUE_INCOMING_RADIUS := 12.0  # m, drop to player, on the ground plane
 
 # Mark-timing assist (6AF, playtest 2026-11-11: "the timing for marking is
 # a bit hard"). A test feature, off by default (HUD STYLE > MARKING). As
@@ -2501,6 +2506,29 @@ const CALL_FOR_BALL_MAX_CHANCE := 0.95
 # is already running to the ball under its AI meanwhile. Unplaytested feel
 # guess.
 const FULL_TEAM_KICK_SWITCH_HOLD := 0.2   # s
+
+# Switching, pre-Day-5 W3 (docs/PRE_DAY5_PLAN.md). FullGame owns all of it.
+# Switch presses this close together walk down the HOME list sorted by
+# distance to the ball (frozen at the first press), so a second press gets
+# you the second nearest, a third the third. Unplaytested feel guess.
+const SWITCH_CYCLE_WINDOW := 0.6          # s between presses
+# Directional switch (right-stick flick): the teammate most nearly along the
+# flick from the controlled player, inside this cone and range. Cost is
+# distance x (1 + ANGLE_WEIGHT x radians off the line), lowest wins, so a
+# close player a little off the line beats a far one dead on it.
+# Unplaytested feel guesses.
+const SWITCH_FLICK_CONE_DEG := 55.0       # deg either side of the flick
+const SWITCH_FLICK_MAX_RANGE := 70.0      # m
+const SWITCH_FLICK_ANGLE_WEIGHT := 1.5
+# Auto-switch on a kick the human didn't take (Settings.auto_switch): after
+# this delay, control goes to the HOME player nearest the predicted drop,
+# unless the human is within CONTEST_RADIUS of it or no more than
+# KEEP_MARGIN further than that player (already contesting it). FULL hands
+# over sooner. Unplaytested feel guesses.
+const AUTO_SWITCH_DELAY := 0.35           # s after the kick (ASSISTED)
+const AUTO_SWITCH_DELAY_FULL := 0.2       # s after the kick (FULL)
+const AUTO_SWITCH_CONTEST_RADIUS := 8.0   # m from the predicted drop
+const AUTO_SWITCH_KEEP_MARGIN := 4.0      # m
 
 
 # ── Training coaches ────────────────────────────────────────────────

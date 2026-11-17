@@ -323,7 +323,9 @@ change should fit them.
 - **Knocks on the feet:** `scenes/dev/contact_sweep.tscn` (collisions,
   broken and held-up tackles, glancing bumps, contested marks, by bearing,
   pace and stamina; `-- --model=7thbuild`, `-- --cases=N`). Run mark cases
-  one at a time: `_live_ball()` reads the first ball in the scene.
+  one at a time: `_live_ball()` reads the first ball in the scene. By 2026-11-18
+  (7cd83d1) all 45 cases at once overflow Godot's message queue at spawn (signal 11 in `humanoid_rig.gd _ready`): run `--cases=` in
+  chunks of six or so.
 - **Highlights replays assume evenly spaced frames.** The recorder takes one
   frame per rendered frame at ~30 Hz and a clip plays back at 30 fps, so a
   variable-rate run plays back sped up and slowed down. Anything that records

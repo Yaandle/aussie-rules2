@@ -56,6 +56,20 @@ extends CanvasLayer
 ##   MARK_STAND_MIN_DISTANCE off the boot (live_mark_prompt()). The SMOTHER
 ##   badge that used to show there is gone (playtest: not wanted).
 
+## Pre-Day-5 W3, the "incoming" cue: the badge used to appear only once
+## live_mark_prompt() went live, which needs the ball within reach or
+## MARK_CONTEST_RANGE of the player, often with under a second left. Now,
+## from the moment a kick's predicted drop at hand height is within
+## Tuning.MARK_CUE_INCOMING_RADIUS of the player, a dimmed badge shows with
+## the ring already closing on an estimate (_incoming_estimate: the ball's
+## gravity-only fall to the hands' height, plus the tier's press target).
+## When live_mark_prompt() goes live the badge brightens and the ring
+## switches to the real countdown; until that countdown exists (mark_timing_
+## offset not yet closing) the ring keeps closing on the estimate, so it
+## doesn't vanish at the hand-over. The estimate never fires the rumble or
+## the timing assist, and nothing here feeds catch resolution: display only
+## (RULES_REFERENCE.md §3).
+
 ## 6T (playtest 2026-11-08, "the X/Y/A marking cue is too large"): every
 ## size below is scaled by CUE_SCALE, about two-thirds of the old cue. One
 ## dial so the next "smaller / bigger" note is a one-number change.
@@ -89,6 +103,14 @@ const TARGET_RING_THICKNESS := 2.0
 const TARGET_RING_ALPHA := 0.55
 ## Ink outline drawn under the closing ring so it reads over turf.
 const RING_OUTLINE_EXTRA := 3.0 * CUE_SCALE
+## How dim the incoming cue is: the badge, its target ring and the closing
+## ring all draw at this fraction of their live alpha.
+const INCOMING_ALPHA := 0.45
+## The estimate never lands the ring: "press now" only ever comes from the
+## real countdown. A (Y) estimate would otherwise land 0.4 s before the
+## ball, often before a press there would register at all (the live cue
+## comes up ~0.3 s out, at MARK_CONTEST_RANGE).
+const ESTIMATE_MAX_PROGRESS := 0.95
 
 ## Brief post-resolution flash so the result reads as clearly as the
 ## countdown did — connects directly to the player's own mark_caught/
@@ -154,6 +176,15 @@ var _screen_pos := Vector2.ZERO
 var _visible_this_frame := false
 var _ring_visible_this_frame := false
 var _ring_progress := 0.0   ## 0 = ring just started closing, 1 = on the badge — press now
+## The incoming cue is up this frame (and the live one isn't).
+var _incoming_this_frame := false
+## This frame's ring progress came from _incoming_estimate, not the real
+## countdown: no completion rumble off it.
+var _ring_from_estimate := false
+## _incoming_estimate's answer this frame: seconds to the press instant and
+## the tier it expects, or NAN / NONE when no kick is coming down near.
+var _estimate_to_press := NAN
+var _estimate_tier := Tuning.Action.NONE
 
 ## The button pressed during this ball's live window, or NONE until one is.
 ## Overrides the recommendation for display (see this file's header) and is
@@ -196,14 +227,17 @@ func _process(delta: float) -> void:
 
 	var previous_tier := _tier
 	_ring_visible_this_frame = false
+	_ring_from_estimate = false
 	_to_press = NAN
 	var live_now := false
+	var incoming_now := false
 	if is_instance_valid(player) and is_instance_valid(ball):
 		var camera := player.camera as Camera3D
 		if is_instance_valid(camera):
+			_incoming_estimate()
 			var tier := _display_tier()
+			var world := player.global_position + Vector3.UP * Tuning.MARK_PROMPT_HEIGHT
 			if tier != Tuning.Action.NONE:
-				var world := player.global_position + Vector3.UP * Tuning.MARK_PROMPT_HEIGHT
 				if not camera.is_position_behind(world):
 					# _screen_pos/_tier only update while genuinely live, so
 					# they hold their last-live values through the post-
@@ -215,12 +249,21 @@ func _process(delta: float) -> void:
 					live_now = true
 					if tier != Tuning.Action.SMOTHER_DIVE:
 						_update_ring()
+			elif _estimate_tier != Tuning.Action.NONE and _flash_sign == 0 \
+					and not camera.is_position_behind(world):
+				_screen_pos = camera.unproject_position(world)
+				_tier = _estimate_tier
+				incoming_now = true
+				_ring_from_estimate = true
+				_ring_progress = minf(_progress_for(_estimate_to_press), ESTIMATE_MAX_PROGRESS)
 	_visible_this_frame = live_now
+	_incoming_this_frame = incoming_now
 	_update_assist(delta)
 
 	if not live_now or _tier != previous_tier:
 		_ring_completed = false
-	if _ring_visible_this_frame and _ring_progress >= 1.0 and not _ring_completed:
+	if _ring_visible_this_frame and not _ring_from_estimate and _ring_progress >= 1.0 \
+			and not _ring_completed:
 		_ring_completed = true
 		_cue_timer = CUE_DURATION
 		InputManager.rumble(Tuning.RUMBLE_MARK_TIMING_CUE)
@@ -305,14 +348,71 @@ func _update_ring() -> void:
 	var to_press := MarkCueModel.cue_time_to_press(player, ball, _tier, cue_source)
 	_to_press = to_press
 	if is_nan(to_press):
-		_ring_progress = 0.0   # nothing meaningful to count down yet — ring hasn't started closing
+		# Nothing meaningful to count down yet. If the incoming estimate is
+		# running, keep closing on it so the ring doesn't drop back to empty
+		# at the hand-over from the incoming cue (no rumble off it).
+		if not is_nan(_estimate_to_press):
+			_ring_progress = minf(_progress_for(_estimate_to_press), ESTIMATE_MAX_PROGRESS)
+			_ring_from_estimate = true
+		else:
+			_ring_progress = 0.0
 		return
-	# 0 at the start of the countdown window, 1 (ring on the badge) right
-	# at the press-now instant.
-	_ring_progress = clampf(1.0 - to_press / RING_LEAD_TIME, 0.0, 1.0)
+	_ring_progress = _progress_for(to_press)
+
+
+## 0 at the start of the countdown window, 1 (ring on the badge) right at
+## the press-now instant.
+func _progress_for(to_press: float) -> float:
+	return clampf(1.0 - to_press / RING_LEAD_TIME, 0.0, 1.0)
+
+
+## The incoming cue's estimate (see this file's header): sets
+## _estimate_to_press / _estimate_tier, or NAN / NONE. A live kick (not the
+## player's own) whose gravity-only fall reaches the hands' height on the
+## way down within Tuning.MARK_CUE_INCOMING_RADIUS of the player, on the
+## ground plane. The tier is the take prompt_mark_tier() would most likely
+## settle on: (Y) with an opponent within MARK_CONTEST_RANGE of that drop,
+## else (A). An opponent's kick still within MARK_STAND_MIN_DISTANCE of the
+## boot shows nothing to the player standing by the kicker (the man on the
+## mark: same reason live_mark_prompt() holds off there).
+func _incoming_estimate() -> void:
+	_estimate_to_press = NAN
+	_estimate_tier = Tuning.Action.NONE
+	if ball.is_held or not ball.is_kick_flight() or player.is_carrying() \
+			or player.is_ragdolled() or ball.last_disposer() == player:
+		return
+	var to_player := ball.global_position - player.global_position
+	to_player.y = 0.0
+	if ball.kick_team() != player.team and ball.kick_team() != Tuning.Team.NONE \
+			and ball.distance_since_launch() < Tuning.MARK_STAND_MIN_DISTANCE \
+			and to_player.length() < Tuning.MARK_STAND_MIN_DISTANCE:
+		return
+	var hands := player.catch_point_position().y
+	var y0 := ball.global_position.y
+	var vy := ball.linear_velocity.y
+	var through := vy * vy + 2.0 * Tuning.GRAVITY * (y0 - hands)
+	if through < 0.0:
+		return
+	var t_down := (vy + sqrt(through)) / Tuning.GRAVITY
+	if t_down <= 0.0:
+		return
+	var drop := ball.global_position + Vector3(ball.linear_velocity.x, 0.0, ball.linear_velocity.z) * t_down
+	var to_drop := drop - player.global_position
+	to_drop.y = 0.0
+	if to_drop.length() > Tuning.MARK_CUE_INCOMING_RADIUS:
+		return
+	drop.y = player.global_position.y
+	var tier := Tuning.Action.MARK_SAFE
+	if SpatialQuery.nearest_opponent_distance(player, drop) <= Tuning.MARK_CONTEST_RANGE:
+		tier = Tuning.Action.MARK_AGGRESSIVE
+	_estimate_tier = tier
+	_estimate_to_press = t_down + _press_target_offset(tier)
 
 
 func _draw_badge(canvas: Control) -> void:
+	if _incoming_this_frame and not _visible_this_frame and _flash_sign == 0:
+		_draw_incoming(canvas)
+		return
 	if not _visible_this_frame and _flash_sign == 0:
 		return
 	if _flash_sign != 0:
@@ -356,6 +456,29 @@ func _draw_badge(canvas: Control) -> void:
 	canvas.draw_string(font, _screen_pos - size * 0.5 + Vector2(0.0, size.y * 0.5),
 		label, HORIZONTAL_ALIGNMENT_LEFT, -1, LABEL_SIZE, SoftBrutalist.PANEL)
 	_draw_assist(canvas)
+
+
+## The incoming cue: the live badge's drawing at INCOMING_ALPHA, the ring
+## closing on the estimate.
+func _draw_incoming(canvas: Control) -> void:
+	var colour := _badge_colour(_tier)
+	canvas.draw_arc(_screen_pos, RING_RADIUS, 0.0, TAU, RING_SEGMENTS,
+		Color(colour, TARGET_RING_ALPHA * INCOMING_ALPHA), TARGET_RING_THICKNESS, true)
+	if _ring_progress > 0.0 and _ring_progress < 1.0:
+		var radius := lerpf(RING_CLOSE_START_RADIUS, RING_RADIUS, _ring_progress)
+		var alpha := clampf(_ring_progress * 4.0, 0.0, 1.0) * INCOMING_ALPHA
+		canvas.draw_arc(_screen_pos, radius, 0.0, TAU, RING_SEGMENTS,
+			Color(SoftBrutalist.INK, alpha), RING_THICKNESS + RING_OUTLINE_EXTRA, true)
+		canvas.draw_arc(_screen_pos, radius, 0.0, TAU, RING_SEGMENTS,
+			Color(colour, alpha), RING_THICKNESS, true)
+	canvas.draw_circle(_screen_pos, BADGE_RADIUS, Color(colour, INCOMING_ALPHA))
+	canvas.draw_circle(_screen_pos, BADGE_RADIUS, Color(SoftBrutalist.INK, INCOMING_ALPHA),
+		false, 2.0, true)
+	var font := SoftBrutalist.font(SoftBrutalist.WEIGHT_HEAVY)
+	var label := _badge_label(_tier)
+	var size := font.get_string_size(label, HORIZONTAL_ALIGNMENT_CENTER, -1, LABEL_SIZE)
+	canvas.draw_string(font, _screen_pos - size * 0.5 + Vector2(0.0, size.y * 0.5),
+		label, HORIZONTAL_ALIGNMENT_LEFT, -1, LABEL_SIZE, Color(SoftBrutalist.PANEL, INCOMING_ALPHA))
 
 
 # ── Mark-timing assist (6AF) ─────────────────────────────────────────

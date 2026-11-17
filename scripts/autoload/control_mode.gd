@@ -102,11 +102,10 @@ func set_controlled_player(team: Tuning.Team, player: PlayerController) -> void:
 ## next" ordering so it isn't duplicated at each call site.
 ##
 ## With `reference` given (a world point — the ball, normally), returns the
-## roster member NEAREST to it, full stop — a FULL_TEAM switch is "give me
-## whoever's on the ball", not a walk through the roster. If that's already
-## `current` the caller (FullGame._switch_human_player) sees next == previous
-## and no-ops, so pressing switch never drags the human off the ball onto a
-## second-nearest body. Without a reference it falls back to plain
+## roster member NEAREST to it, full stop (FullGame's own-kick hand-over).
+## FullGame._switch_human_player no longer asks here: since pre-Day-5 W3 it
+## sorts HOME by distance to the ball itself so a quick second press can
+## walk on to the second nearest. Without a reference it falls back to plain
 ## roster-index round-robin (TEAM_COMMAND's selection cycle, which has no
 ## single "player who matters" to sort toward).
 func next_in_roster(team: Tuning.Team, current: PlayerController,

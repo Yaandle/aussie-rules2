@@ -111,6 +111,20 @@ var player_control_mode: PlayerControlMode = PlayerControlMode.FULL_TEAM:
 		player_control_mode = value as PlayerControlMode
 
 
+## FULL_TEAM automatic switching (pre-Day-5 W3). OFF: control only moves
+## by itself onto a HOME player who gathers the ball. ASSISTED (default):
+## also after your own kick (to whoever is nearest the drop, the old
+## behaviour) and after an opposition kick (to whoever is best placed for
+## it, unless you're already contesting it). FULL: as ASSISTED, sooner, and
+## for an AI teammate's kick too. See FullGame._on_auto_switch_kick.
+## Append only: the saved value is the index.
+enum AutoSwitch { OFF, ASSISTED, FULL }
+
+var auto_switch: AutoSwitch = AutoSwitch.ASSISTED:
+	set(value):
+		auto_switch = clampi(value, 0, AutoSwitch.size() - 1) as AutoSwitch
+
+
 var home_formation_index := 0:
 	set(value):
 		home_formation_index = clampi(value, 0, FORMATION_PRESETS.size() - 1)
@@ -330,6 +344,7 @@ func _load() -> void:
 		mouse_kick_swapped) as bool
 	player_control_mode = config.get_value(SECTION, "player_control_mode",
 		player_control_mode) as PlayerControlMode
+	auto_switch = int(config.get_value(SECTION, "auto_switch", auto_switch)) as AutoSwitch
 	home_formation_index = config.get_value(SECTION, "home_formation_index",
 		home_formation_index) as int
 	home_human_slot = config.get_value(SECTION, "home_human_slot",
@@ -365,6 +380,7 @@ func save() -> void:
 	config.set_value(SECTION, "camera_zoom", camera_zoom)
 	config.set_value(SECTION, "mouse_kick_swapped", mouse_kick_swapped)
 	config.set_value(SECTION, "player_control_mode", player_control_mode)
+	config.set_value(SECTION, "auto_switch", auto_switch)
 	config.set_value(SECTION, "home_formation_index", home_formation_index)
 	config.set_value(SECTION, "home_human_slot", home_human_slot)
 	config.set_value(SECTION, "home_ball_movement", home_ball_movement)

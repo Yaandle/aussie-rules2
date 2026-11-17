@@ -59,6 +59,11 @@ var _punch := 0.0
 ## facing instead of reading stick/mouse input. See switch_target().
 var _switch_timer := 0.0
 
+## Set by FullGame while the switch button is held (pre-Day-5 W3): the right
+## stick then picks a teammate to switch to, so CHASE stops orbiting on it
+## (mouse look is drained, not banked) until the button comes back up.
+var hold_look := false
+
 ## Training-coach two-shot (see Tuning's "Training coaches" section): a
 ## fixed side-on framing of two parties instead of the follow-cam's spring
 ## arm behind one target, entered/exited explicitly rather than falling
@@ -350,6 +355,10 @@ func _update_rotation(delta: float) -> void:
 
 	if _switch_timer > 0.0:
 		_ease_toward_switch_target(delta)
+		return
+
+	if hold_look:
+		InputManager.take_mouse_look()
 		return
 
 	var stick := InputManager.get_look_vector()

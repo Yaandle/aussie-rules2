@@ -7,6 +7,20 @@ own docs: `ANIMATION_RAGDOLL_AUDIT.md` (kick, carry, phase lock, bank,
 tackles), `MECHANICS_AUDIT.md` (ragdoll stages 2-5) and the 2026-10-30
 playtest commit (HUD, park turf, ruck, training).
 
+## Switching and the incoming mark cue (pre-Day-5 W3, 2026-11-18)
+
+Full Game, FULL TEAM control. Numbers in `Tuning` (`SWITCH_*`, `AUTO_SWITCH_*`, `MARK_CUE_INCOMING_RADIUS`) are unplaytested feel guesses.
+
+- [ ] Cycle: with you already nearest the ball, double-tap switch (Tab / D-pad left) and you go to the second nearest; a third tap goes to the third. One tap still never takes you off the ball. Is 0.6 s between taps (`SWITCH_CYCLE_WINDOW`) right?
+- [ ] Switch now acts on the button's release, not the press. Does a tap feel late?
+- [ ] Marker: a small dashed white ring under the player a tap would pick. Does it read in both cameras, and is it obviously not your own ring?
+- [ ] Directional, CHASE: hold switch and flick the right stick (Tab + arrow key) toward a teammate. You go to them, and the camera doesn't turn while the button's held. A bare flick still turns the camera.
+- [ ] Directional, FULL-SIDE: a bare right-stick flick (an arrow key) switches. Does it fire when you only meant to nudge the stick? Does it pick who you meant (a close player a little off the line beats a far one dead on it)?
+- [ ] Auto-switch on an AWAY kick (Settings > AUTO SWITCH: ASSISTED, the default): ~0.35 s after the kick you're on the HOME player nearest the shadow. If you were already within 8 m of the drop, it leaves you there. Too soon, too late, ever the wrong player?
+- [ ] AUTO SWITCH FULL also follows your AI teammates' kicks (0.2 s); OFF switches only onto a HOME player who gathers (not even after your own kick).
+- [ ] Nothing ever switches you mid-mark, mid-tackle, in kick stance, holding A, in a ruck contest or on the ground.
+- [ ] Incoming mark cue: a dimmed badge with the ring closing shows ~1.5-3 s before a kick comes down near you (it used to show ~0.3 s out), brightening into the live badge. Does the ring keep moving smoothly through the hand-over? Does the dimmed letter (A, or Y if an opponent is near the drop) mislead when the live one turns out different?
+
 ## Pre-playtest fixes (2026-11-16, branch `update`)
 
 - [ ] Free-kick taker on the spot (6AG-c): after a holding-the-ball or running-too-far free, the player awarded it now starts on the spot and walks back along the line from there, and the man on the mark stands on that same spot facing him. Before, the taker could be 2-7 m away from the spot. A man on the mark who starts 12 m+ away can still be jogging in, facing the spot, when an AI kicker plays on.
