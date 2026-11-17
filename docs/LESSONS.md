@@ -326,6 +326,11 @@ change should fit them.
   one at a time: `_live_ball()` reads the first ball in the scene. By 2026-11-18
   (7cd83d1) all 45 cases at once overflow Godot's message queue at spawn (signal 11 in `humanoid_rig.gd _ready`): run `--cases=` in
   chunks of six or so.
+- **Compare `mark_cue_harness -- probe` by its printed summary, not its
+  CSVs.** A run is repeatable, but the raw state on its `no_attempt` rows
+  (presses after the ball has gone) shifts with any non-comment code change,
+  even new `Tuning` constants alone (2026-11-18). Caught/missed, bands and
+  the summary lines don't move.
 - **Highlights replays assume evenly spaced frames.** The recorder takes one
   frame per rendered frame at ~30 Hz and a clip plays back at 30 fps, so a
   variable-rate run plays back sped up and slowed down. Anything that records
