@@ -201,3 +201,70 @@ the active ragdoll, stamina into TackleBalance), Build 7 / 4D model work,
 
 Merge order into `update`: W1, W3, then W2 and W4. Then the Day 5 match is
 the playtest of all of it.
+
+## Status 2026-11-18 (evening)
+
+- **W3 done and merged** (`f9e9dd2`, `1aa678d`): switch cycling, right-stick
+  flick switch, the next-player marker, auto-switch on the opposition's kick
+  (AUTO SWITCH setting), the incoming mark cue. User played it: "switching
+  works", fps felt higher.
+- **W1 not done.** The session profiled and stopped; nothing was committed
+  and its probe code was discarded. Its findings, for the next W1 session:
+  - With vsync off: p50 13.0 ms, p95 27.2 ms, max 64.5 ms (15 s run). The
+    31.4 ms median above is probably vsync rounding frames just over 16.7 ms
+    up to 33 ms; the p95 and spikes are the real problem.
+  - ~9 ms of process time sits outside the game scripts: most likely the 36
+    AnimationTrees and skeleton updates. Biggest target (distance LOD on far
+    players).
+  - Player physics scripts 6.7 ms per tick; Jolt ~3 ms per tick.
+  - Idle life 1.3 ms, mostly its nearest-opponent check every frame (cache
+    or share one scan per frame).
+  - `contact_sweep.tscn` crashes on load: loading the players' animations
+    overflows Godot's message queue (it only ran with an `override.cfg`
+    raising the limit). The same flood probably slows Full Game loading.
+  - Still to try: time the AnimationTrees, distance LOD, small `drive()` and
+    idle-life fixes, physics interpolation.
+
+## Playtest 2026-11-18: next changes (user's notes, in their order)
+
+Not started. The user wrote these after playing the W3 build; each wants
+its own check line in PLAYTEST_CHECKLIST.md when built.
+
+1. **Switching edge cases.** Can't switch while the opposition has a free
+   kick. Sometimes a teammate takes an intercept mark while the human wasn't
+   on him and control doesn't move to him (most of the time it does; a
+   manual switch works). Find which paths skip `_assign_human_to`.
+2. **Ball drop (landing) icon in Settings**, like the other HUD options, with
+   simple customisation (on/off, size, colour/style).
+3. **Mark cue earlier and bigger in Full Game.** Still appears too late to
+   react; make it larger on the Full Game screen so the timing reads, and
+   bring the incoming state in earlier (W3's radius / lead).
+4. **Contest Slide tackler** (the one in the animation viewer, "A: slings";
+   the in-game slide tackle looks fine): the tackler's feet stay flat and he
+   slides forward. Make it a quick grab-and-throw, with the tackler on
+   partial ragdoll physics that keeps his feet and takes a small step when
+   his body is moved (adaptive stepping). The tackled player's fall is good:
+   leave it.
+5. **Smother vs steal on X.** Close to the kicker as he kicks: the smother
+   dive. Otherwise X currently plays an odd arm-jelly animation; make it a
+   steal/intercept: arms out (T-pose-ish) to block a handball, and against a
+   carrier a steal attempt decided by the attributes / contest formula
+   (physics and timing per RULES_REFERENCE §3, the same style as the tackle
+   formula, not a dice roll unless the user decides otherwise).
+6. **Animation viewer, MARK DELIVERY badges**: every example shows (A). RUN
+   should show (X), LEAP (Y); rename LEAP to AGGRESSIVE.
+7. **Animation viewer, CONTESTS > MARK DELIVERY > CONTESTED**: a control to
+   raise or lower the number of opponents; opponents face the same way as
+   the player and stand side by side, for simulating packs of bodies jumping
+   with the marking formula on the motor control and ragdoll.
+8. **Tackles almost always succeed.** When the tackle formula says the
+   carrier wins, he should break away; and the losing side's motor control
+   should show it (a broken tackle is a push and a stumble, like a
+   successful fend sends the defender back stumbling).
+9. **Safe (A) marks not paid**: some look caught but no mark is paid and
+   the player is tackled. Reproduce and find why (`_complete_mark` /
+   `is_mark_eligible` / the 15 m rule).
+10. **LT defensive stance (6AA, shepherding)**: holding LT, in general play
+    or with the ball, drops into a low crouch, arms out wide, and keeps
+    facing the way he faces while moving in any direction (no body flip:
+    the Agility turn-out locks, he side-steps / backs off).
