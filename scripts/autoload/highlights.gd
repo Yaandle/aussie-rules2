@@ -141,13 +141,13 @@ func _add(moment: Dictionary) -> void:
 	_retick(type)
 
 
-## Ticks the best `keep` moments of `type` if it's switched on, else none.
+## Ticks every moment of `type` if it's switched on, else none. Since
+## 2026-11-17 the export works by type (playtest: "just the types, not every
+## single individual one"): a ticked type puts all its moments in
+## highlight.mp4, and the page's Space / X leaves a single one out.
+## HighlightTable.TYPES[type].keep no longer limits it.
 func _retick(type: String) -> void:
 	var allowed := HighlightPrefs.type_on(type)
-	var keep := int((HighlightTable.TYPES[type] as Dictionary).keep)
-	var rank := 0
 	for m in moments:
-		if m.type != type:
-			continue
-		m.keep = allowed and rank < keep
-		rank += 1
+		if m.type == type:
+			m.keep = allowed

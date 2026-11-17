@@ -46,17 +46,27 @@ func cancel() -> void:
 
 
 ## Exports `moments` (Highlights' dictionaries, best first) to a fresh
-## folder. `options`: `aspect` ("both", "16x9" or "9x16", default the saved
-## choice), `footage` ("match" or "generated", default Highlights') and
-## `subfolder` (under the highlights folder, default none). Awaitable; emits
-## progress as it goes and finished at the end.
+## folder: each moment's .replay and moments.json row, the full match
+## (match.replay, match.json, then export_full_match: match_16x9.mp4,
+## highlight.mp4 of these moments, match_video.json), and, only when asked,
+## each moment as its own video file (the old format).
+##
+## `options`: `clips` (render each moment's own video file; default the saved
+## choice, and always when there's no full-match recording to cut from),
+## `aspect` for those files ("both", "16x9" or "9x16", default 16x9),
+## `full_video` (default true), `footage` ("match" or "generated", default
+## Highlights') and `subfolder` (under the highlights folder, default none).
+## Awaitable; emits progress as it goes and finished at the end.
 func export_moments(moments: Array[Dictionary], match_info: Dictionary, options := {}) -> String:
 	busy = true
 	_cancel = false
-	var aspect := String(options.get("aspect", HighlightPrefs.aspect()))
+	var full: Dictionary = options.get("full_match", Highlights.full_match)
+	var have_full := not full.is_empty() and FileAccess.file_exists(String(full.replay))
+	var clips := bool(options.get("clips", HighlightPrefs.clip_files())) or not have_full
+	var aspect := String(options.get("aspect", "16x9"))
 	var footage := String(options.get("footage", Highlights.footage))
-	var want_land := aspect != "9x16"
-	var want_port := aspect != "16x9"
+	var want_land := clips and aspect != "9x16"
+	var want_port := clips and aspect != "16x9"
 	var folder := HighlightPaths.match_folder(String(match_info.get("home", "Home")),
 		String(match_info.get("away", "Away")), String(options.get("subfolder", "")))
 	var land := _viewport(HighlightTable.EXPORT_LANDSCAPE) if want_land else {}
@@ -77,6 +87,14 @@ func export_moments(moments: Array[Dictionary], match_info: Dictionary, options 
 		clip.save(folder.path_join(files.replay))
 		stage.load_clip(clip)
 		var preset := String(moment.get("camera", stage.default_preset()))
+		if not clips:
+			# No video of its own: it's in highlight.mp4. The row still says
+			# where it is (match_from..) and keeps its .replay.
+			var row := _row(moment, n + 1, files, preset, 0)
+			row["frames"] = 0
+			row["complete"] = true
+			rows.append(row)
+			continue
 		var writer_l: MjpegAviWriter = null
 		var writer_p: MjpegAviWriter = null
 		if want_land:
@@ -148,18 +166,19 @@ func export_moments(moments: Array[Dictionary], match_info: Dictionary, options 
 		"exported_at": Time.get_datetime_string_from_system(),
 		"output": {
 			"folder": folder,
-			"video": "MJPEG AVI, %d fps, %s" % [fps, " and ".join(shapes)],
+			"video": "MJPEG AVI, %d fps, %s" % [fps, " and ".join(shapes)] if clips else "no separate clips (in highlight.mp4)",
+			"clips": clips,
 			"aspect": aspect,
 			"mp4": mp4,
 			"complete": not _cancel,
 		},
 		"moments": rows,
 	}
-	var full: Dictionary = options.get("full_match", Highlights.full_match)
-	if not full.is_empty() and FileAccess.file_exists(String(full.replay)):
+	if have_full and not _cancel:
 		progress.emit("Copying the full-match recording", 1.0)
 		await get_tree().process_frame
-		var ok := DirAccess.copy_absolute(String(full.replay), folder.path_join(HighlightPaths.MATCH_REPLAY)) == OK 			and DirAccess.copy_absolute(String(full.json), folder.path_join(HighlightPaths.MATCH_JSON)) == OK
+		var ok := DirAccess.copy_absolute(String(full.replay), folder.path_join(HighlightPaths.MATCH_REPLAY)) == OK \
+			and DirAccess.copy_absolute(String(full.json), folder.path_join(HighlightPaths.MATCH_JSON)) == OK
 		if ok:
 			doc["full_match"] = {"replay": HighlightPaths.MATCH_REPLAY, "json": HighlightPaths.MATCH_JSON,
 				"frames": int(full.frames), "fps": int(full.fps)}
@@ -167,8 +186,9 @@ func export_moments(moments: Array[Dictionary], match_info: Dictionary, options 
 	if json != null:
 		json.store_string(JSON.stringify(doc, "  ", false))
 		json.close()
-	if doc.has("full_match") and not _cancel and bool(options.get("full_video", HighlightPrefs.full_video())):
-		await export_full_match(folder)
+	if doc.has("full_match") and not _cancel and bool(options.get("full_video", true)):
+		# The exported moments set the cameras and make highlight.mp4.
+		await export_full_match(folder, MatchCameraPlan.from_moments(moments, HighlightPrefs.match_camera()))
 	busy = false
 	finished.emit(folder, not _cancel)
 	return folder

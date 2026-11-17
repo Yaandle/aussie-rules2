@@ -13,22 +13,37 @@ ranking number is in `highlight_table.gd`; they are unplaytested feel guesses.
   general play (a passage of 3+ disposals in a row, or 2+ bounces, with no
   headline event; off by default). Each has a toggle (keys 1-8 or a click on
   the screen, or a row in the export window) and a count. A type that's off
-  isn't listed and isn't rendered. Switching one on ticks its best few
-  (`TYPES[type].keep`); off unticks them all. Each type has its own memory
-  cap (`TYPES[type].cap`), so goals can't push every tackle out.
+  isn't listed and isn't exported. Since 2026-11-17 a type that's on ticks
+  ALL its moments (`TYPES[type].keep` no longer limits it); Space / X on the
+  page leaves a single moment out. Each type has its own memory cap
+  (`TYPES[type].cap`), so goals can't push every tackle out.
 - **Cameras**: `broadcast`, `close`, `end` and `third` (the in-game chase
-  camera behind the moment's main player). Per type default and per moment,
-  both in the export window; defaults in `ReplayStage.DEFAULT_PRESET`.
-- **Format**: 16:9 + 9:16, 16:9 only or 9:16 only (the video side uses 16:9
-  only; one shape is half the render).
+  camera behind the moment's main player). Per type in the export window
+  (changing a type's camera there resets that type's per-moment picks), per
+  moment on the page and on the MATCH timeline; defaults in
+  `ReplayStage.DEFAULT_PRESET`.
 - The choices are saved in `user://highlights.cfg` (`HighlightPrefs`).
+
+## The export window (simplified 2026-11-17)
+
+Playtest: "the export is not that simple... just showing the types". One
+export makes the match video: `match_16x9.mp4` (the whole match, dead time
+cut), `highlight.mp4` (every ticked moment of the ticked types, in match
+order) and `match_video.json` (the timeline). The window lists only a row per
+type (tick, how many clips and how long, camera), one row for the old
+per-clip files (pref `clip_files`, off), and EXPORT / CLOSE. No per-moment
+rows and no format row: the clip files, when asked for, are 16:9.
+
+A match that wasn't recorded in full has nothing to cut the videos from: the
+window says so and the export saves each clip as its own file instead.
 
 ## Output
 
 `highlights/<date>_<time>_<Home>-v-<Away>/` (the generator's go in
 `highlights/generated/`):
 
-    NN_<type>_16x9.avi / _9x16.avi   MJPEG, 30 fps (only the shapes asked for)
+    NN_<type>_16x9.avi (.mp4)        only with "clip files" on (or no full recording);
+                                     the generator always makes them
     NN_<type>.replay                 raw poses (ReplayClip), always whole
     match.replay, match.json         the whole match (see "Full match")
     match_16x9.mp4, match_video.json that match rendered, dead time cut

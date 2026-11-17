@@ -312,7 +312,7 @@ func _next_moment_on_timeline(step: int) -> int:
 ## The camera plan from the listed moments and the match camera; again after
 ## any camera or type change. The next frame snaps to whatever it now says.
 func _rebuild_plan() -> void:
-	_plan = MatchCameraPlan.from_moments(Highlights.listed(), HighlightPrefs.match_camera())
+	_plan = MatchCameraPlan.from_moments(Highlights.kept(), HighlightPrefs.match_camera())
 	_match_stretch = -2
 
 
@@ -547,9 +547,13 @@ func _export() -> void:
 
 
 func _run_export(picked: Array[Dictionary]) -> void:
-	var folder := await _exporter.export_moments(picked, Highlights.match_info,
-		{"aspect": HighlightPrefs.aspect(), "footage": Highlights.footage})
-	var text := "Exported %d clip%s to\n%s" % [picked.size(), "" if picked.size() == 1 else "s", folder]
+	var folder := await _exporter.export_moments(picked, Highlights.match_info, {"footage": Highlights.footage})
+	var made: Array[String] = []
+	for file: String in ["match_16x9.mp4", "highlight.mp4"]:
+		if FileAccess.file_exists(folder.path_join(file)):
+			made.append(file)
+	var text := "Exported %s to\n%s" % [" and ".join(made) if not made.is_empty() else "%d clip%s" % [picked.size(),
+		"" if picked.size() == 1 else "s"], folder]
 	_status_label.text = text
 	if is_instance_valid(_dialog):
 		_dialog.finish(text + "\nA / Enter or B / Esc closes.")
@@ -697,15 +701,15 @@ func _build_ui() -> void:
 		var click := event as InputEventMouseButton
 		if click != null and click.pressed and click.button_index == MOUSE_BUTTON_LEFT and not _moments.is_empty():
 			_export())
-	var export_label := StudioStyle.text("EXPORT CLIPS...   E / Y", 14, StudioStyle.INK, StudioStyle.body_font())
+	var export_label := StudioStyle.text("EXPORT THE MATCH...   E / Y", 14, StudioStyle.INK, StudioStyle.body_font())
 	export_label.position = Vector2(12.0, 9.0)
 	export_button.add_child(export_label)
 	_list.add_child(export_button)
 	_path_label = StudioStyle.text("", 11, StudioStyle.INK_SOFT, StudioStyle.mono_font())
 	_path_label.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
 	_path_label.custom_minimum_size.x = COLUMN_WIDTH - 56.0
-	_path_label.text = "Folder: %s\nPer moment: MJPEG .avi at %d fps in the shapes chosen in the export window (16:9 1920x1080, 9:16 1080x1920; .mp4 too if ffmpeg is installed), a .replay, and moments.json." % [
-		HighlightPaths.root(), HighlightTable.EXPORT_FPS]
+	_path_label.text = "Folder: %s\nThe whole match with the dead time cut (match_16x9.mp4), a highlight video of the ticked types (highlight.mp4) and the timeline for the video tool (match_video.json). Space / X leaves one moment out." % [
+		HighlightPaths.root()]
 	_list.add_child(_path_label)
 	_status_label = StudioStyle.text("", 12, StudioStyle.INK, StudioStyle.body_font())
 	_status_label.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
