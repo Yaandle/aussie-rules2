@@ -186,19 +186,19 @@ const DIM_LOCKED := 0.58
 const BACKDROP_GRADE_TOP_ALPHA := 0.55
 const BACKDROP_GRADE_MID_ALPHA := 0.12
 const BACKDROP_GRADE_BOTTOM_ALPHA := 0.7
-## Chrome text over the footage: off-white for the title, a softer white
-## for the muted labels (SoftBrutalist's INK/MUTED were picked for its
-## cream paper and vanish against a dark field).
-const CHROME_INK := Color(0.97, 0.96, 0.93)
-const CHROME_MUTED := Color(0.97, 0.96, 0.93, 0.78)
-const CHROME_SHADOW := Color(0.0, 0.0, 0.0, 0.55)
+## Chrome text over the footage: plain white, no stroke or shadow, as in
+## the menu reference (SoftBrutalist's INK/MUTED were picked for its cream
+## paper and vanish against a dark field). The dark grade does the legibility
+## work instead. CHROME_TITLE is a touch warmer, like the reference's title.
+const CHROME_INK := Color(1.0, 1.0, 1.0)
+const CHROME_TITLE := Color(0.96, 0.95, 0.92)
 
 ## Menu chrome sized and spaced off the menu reference image: a tall
 ## condensed title, widely tracked caps for everything else, and short red
 ## rules under EST. 2025 and the subtitle.
 const CHROME_RED := Color("#C8332B")
-const TITLE_SIZE := 92
-const TITLE_TRACKING := 2
+const TITLE_SIZE := 108
+const TITLE_TRACKING := 1
 const SUBTITLE_SIZE := 17
 const SUBTITLE_TRACKING := 6
 const CORNER_SIZE := 15
@@ -445,6 +445,9 @@ static func display_font() -> FontVariation:
 	# variation_opentype is keyed by OpenType tag ints, not strings.
 	var ts := TextServerManager.get_primary_interface()
 	variation.variation_opentype = {ts.name_to_tag("wdth"): 75, ts.name_to_tag("wght"): 700}
+	# Bahnschrift tops out at wght 700; a little embolden on top gets the
+	# reference's heavier poster weight.
+	variation.variation_embolden = 0.35
 	variation.spacing_glyph = TITLE_TRACKING
 	_display_font = variation
 	return _display_font
@@ -458,16 +461,6 @@ func _rule(width: float, colour: Color = CHROME_RED,
 	rule.custom_minimum_size = Vector2(width, thickness)
 	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return rule
-
-
-## Soft drop shadow so chrome text holds up over the bright parts of the
-## footage (sky, white boundary lines) as well as the dark ones.
-func _chrome_shadow(label: Label) -> Label:
-	label.add_theme_color_override(&"font_shadow_color", CHROME_SHADOW)
-	label.add_theme_constant_override(&"shadow_offset_x", 0)
-	label.add_theme_constant_override(&"shadow_offset_y", 2)
-	label.add_theme_constant_override(&"shadow_outline_size", 6)
-	return label
 
 
 ## EST. 2025 on the left, version on the right, both on the screen's own
@@ -484,8 +477,8 @@ func _build_corner_chrome(parent: Control) -> void:
 	var established := VBoxContainer.new()
 	established.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	established.add_theme_constant_override(&"separation", 6)
-	established.add_child(_chrome_shadow(SoftBrutalist.label(ESTABLISHED_TEXT, CORNER_SIZE,
-		CHROME_INK, SoftBrutalist.WEIGHT_REGULAR, CORNER_TRACKING)))
+	established.add_child(SoftBrutalist.label(ESTABLISHED_TEXT, CORNER_SIZE,
+		CHROME_INK, SoftBrutalist.WEIGHT_REGULAR, CORNER_TRACKING))
 	var established_rule := _rule(CORNER_RULE_WIDTH)
 	established_rule.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	established.add_child(established_rule)
@@ -498,8 +491,8 @@ func _build_corner_chrome(parent: Control) -> void:
 
 	var version := String(ProjectSettings.get_setting(VERSION_SETTING, ""))
 	var version_text := "v" + version if not version.is_empty() else VERSION_FALLBACK
-	var version_label := _chrome_shadow(SoftBrutalist.label(version_text, CORNER_SIZE,
-		CHROME_INK, SoftBrutalist.WEIGHT_REGULAR, CORNER_TRACKING))
+	var version_label := SoftBrutalist.label(version_text, CORNER_SIZE,
+		CHROME_INK, SoftBrutalist.WEIGHT_REGULAR, CORNER_TRACKING)
 	version_label.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	row.add_child(version_label)
 
@@ -510,13 +503,13 @@ func _build_header(parent: Control) -> void:
 	column.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_1))
 	parent.add_child(column)
 
-	var title := _chrome_shadow(SoftBrutalist.label(TITLE_TEXT, TITLE_SIZE, CHROME_INK))
+	var title := SoftBrutalist.label(TITLE_TEXT, TITLE_SIZE, CHROME_TITLE)
 	title.add_theme_font_override(&"font", display_font())
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(title)
 
-	var subtitle := _chrome_shadow(SoftBrutalist.label(SUBTITLE_TEXT, SUBTITLE_SIZE,
-		CHROME_INK, SoftBrutalist.WEIGHT_REGULAR, SUBTITLE_TRACKING))
+	var subtitle := SoftBrutalist.label(SUBTITLE_TEXT, SUBTITLE_SIZE,
+		CHROME_INK, SoftBrutalist.WEIGHT_REGULAR, SUBTITLE_TRACKING)
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(subtitle)
 
@@ -559,8 +552,8 @@ func _build_util_row(parent: Control) -> void:
 	_util_labels.clear()
 	for i in UTIL_ENTRIES.size():
 		var entry: Dictionary = UTIL_ENTRIES[i]
-		var label := _chrome_shadow(SoftBrutalist.label(String(entry["label"]),
-			CORNER_SIZE, CHROME_MUTED, SoftBrutalist.WEIGHT_REGULAR, DIVIDER_TRACKING))
+		var label := SoftBrutalist.label(String(entry["label"]),
+			CORNER_SIZE, CHROME_INK, SoftBrutalist.WEIGHT_REGULAR, DIVIDER_TRACKING)
 		label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		label.mouse_filter = Control.MOUSE_FILTER_STOP
 		label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -600,7 +593,7 @@ func _build_footer(parent: Control) -> void:
 	row.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_3))
 	parent.add_child(row)
 
-	var settings_widget := _build_footer_action(&"gear", "SETTINGS", 0)
+	var settings_widget := _build_footer_action(&"cog", "SETTINGS", 0)
 	_footer_settings_icon = settings_widget.get_child(0) as UIIcon
 	_footer_settings_label = settings_widget.get_child(1) as Label
 	row.add_child(settings_widget)
@@ -641,8 +634,8 @@ func _build_footer_action(icon_name: StringName, text: String, footer_index: int
 	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(icon)
 
-	var label := _chrome_shadow(SoftBrutalist.label(text, FOOTER_TEXT_SIZE,
-		CHROME_INK, SoftBrutalist.WEIGHT_REGULAR, FOOTER_TRACKING))
+	var label := SoftBrutalist.label(text, FOOTER_TEXT_SIZE,
+		CHROME_INK, SoftBrutalist.WEIGHT_REGULAR, FOOTER_TRACKING)
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(label)
 
@@ -942,11 +935,11 @@ func _refresh() -> void:
 		widgets.border.add_theme_stylebox_override(&"panel", next_border)
 		tween.tween_property(next_border, "border_color", target_border, CARD_ANIM_DURATION)
 
-	# Util row labels: accent on the focused one, muted otherwise.
+	# Util row labels: accent on the focused one, white otherwise.
 	for i in _util_labels.size():
 		var focused := _row == 1 and i == _util_index
 		_util_labels[i].add_theme_color_override(&"font_color",
-			RetroWindow.ACCENT if focused else CHROME_MUTED)
+			RetroWindow.ACCENT if focused else CHROME_INK)
 
 	# Footer SETTINGS/EXIT GAME highlight — whichever _footer_index points at,
 	# only while the cursor is actually on the footer row.

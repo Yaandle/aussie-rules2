@@ -152,6 +152,13 @@ const SHAPES := {
 		["dot", 8.5, 12.0, 2.1],
 		["dot", 16.5, 17.5, 2.1],
 	],
+	# A real cogwheel (the menu reference image's SETTINGS glyph): eight
+	# teeth round a centre hole. Only meant for 22px and up — see "gear"'s
+	# note above for why the small icons keep the sliders.
+	&"cog": [
+		["loop", 19.34, 10.03, 22.07, 10.4, 22.07, 13.6, 19.34, 13.97, 18.58, 15.8, 20.25, 18.0, 18.0, 20.25, 15.8, 18.58, 13.97, 19.34, 13.6, 22.07, 10.4, 22.07, 10.03, 19.34, 8.2, 18.58, 6.0, 20.25, 3.75, 18.0, 5.42, 15.8, 4.66, 13.97, 1.93, 13.6, 1.93, 10.4, 4.66, 10.03, 5.42, 8.2, 3.75, 6.0, 6.0, 3.75, 8.2, 5.42, 10.03, 4.66, 10.4, 1.93, 13.6, 1.93, 13.97, 4.66, 15.8, 5.42, 18.0, 3.75, 20.25, 6.0, 18.58, 8.2],
+		["ring", 12.0, 12.0, 3.2],
+	],
 	# Door bracket, open on the side the arrow leaves through.
 	&"exit": [
 		["poly", 13.5, 4.0, 5.0, 4.0, 5.0, 20.0, 13.5, 20.0],
