@@ -2572,7 +2572,12 @@ func _update_smother(delta: float) -> void:
 	if live_smother_target() == null:
 		return
 	if not _brain.wants_smother():
-		return
+		# X as well as RB (playtest 2026-11-18: "if the player is close to
+		# kicking it and I press X it should trigger the smother dive"). This
+		# runs before _try_lunge_tackle, so next to a kicker lining up the
+		# press dives to smother instead of lunging at him.
+		if not (_brain.lunge_tackle_pending() and _brain.wants_lunge_tackle()):
+			return
 	var target := live_smother_target()
 
 	_smother_dive_target = target

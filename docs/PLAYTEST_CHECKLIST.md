@@ -211,3 +211,4 @@ Needs a real match (or the generator) and the Highlights screen. See `docs/HIGHL
 - [ ] **Animation viewer MARK DELIVERY:** SAFE shows A, RUN X, AGGRESSIVE Y; CONTESTED with Opponents 1-5 puts them in a line beside the marker, facing his way.
 - [ ] **PLAY ON call:** catch a kick that isn't a mark (under 15 m, touched, or off the ground): the banner says "PLAY ON — <why>". Tell me if a clean 15 m+ kick taken on the full is ever called play on: that would be a real bug.
 - [ ] **Broken tackles:** glancing or slow tackles (from the side, little closing speed) now break more often (Lunge break at p ≥ 0.4, Slide ≥ 0.85); the tackler is pushed back and stumbles (recoil 0.9). Hard tackles still always hold.
+- [ ] **X smother:** next to an opponent lining up a kick, X dives to smother (RB still does too); anywhere else X is still the Lunge.
