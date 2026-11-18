@@ -273,6 +273,10 @@ const HUD_OPTIONS := {
 	&"ring_size": {"label": "SIZE", "options": ["SMALL", "MEDIUM", "LARGE"], "default": 1},
 	&"ring_thickness": {"label": "THICKNESS", "options": ["THIN", "MEDIUM", "THICK"], "default": 1},
 	&"mark_assist": {"label": "TIMING ASSIST", "options": ["OFF", "ON"], "default": 0},
+	&"ball_drop": {"label": "BALL DROP ICON", "options": ["OFF", "CHEVRON", "RING"], "default": 1},
+	&"ball_drop_colour": {"label": "COLOUR",
+		"options": ["DEFAULT", "WHITE", "YELLOW", "GREEN", "ORANGE", "PINK"], "default": 0},
+	&"ball_drop_size": {"label": "SIZE", "options": ["SMALL", "MEDIUM", "LARGE"], "default": 1},
 }
 
 ## The colour each *_colour option's name stands for. GREEN is the kick

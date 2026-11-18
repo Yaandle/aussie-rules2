@@ -1960,7 +1960,7 @@ const MARK_PROMPT_HEIGHT := 2.05       # m above player origin
 # already closing, from the moment a kick's predicted drop at hand height is
 # this close to the controlled player, until live_mark_prompt() takes over.
 # Display only. Unplaytested feel guess.
-const MARK_CUE_INCOMING_RADIUS := 12.0  # m, drop to player, on the ground plane
+const MARK_CUE_INCOMING_RADIUS := 18.0  # m, drop to player, on the ground plane (12 -> 18, playtest 2026-11-18: "still too late")
 
 # Mark-timing assist (6AF, playtest 2026-11-11: "the timing for marking is
 # a bit hard"). A test feature, off by default (HUD STYLE > MARKING). As

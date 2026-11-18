@@ -157,7 +157,7 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
-	# Not while GoalKickPrompt's "Y · GOALS" is up (2026-11-17): after a mark
+	# Not while GoalKickPrompt's "[Y] Goals" chip is up (2026-11-17): after a mark
 	# in range both chips showed, one above the other, both naming Y.
 	_goal_shot_hint.visible = is_instance_valid(player) and player.is_carrying() \
 		and not player.is_kick_aiming() and player.can_take_goal_set_shot() \

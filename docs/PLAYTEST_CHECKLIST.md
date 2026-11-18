@@ -200,3 +200,12 @@ Needs a real match (or the generator) and the Highlights screen. See `docs/HIGHL
 - [ ] **Export window (2026-11-17):** one row per type with its clip count and length, the clip-files row, EXPORT; an export makes `match_16x9.mp4` (dead time cut) and `highlight.mp4` (only the ticked types, in match order). Say if anything still reads as duplicated or out of order.
 - [ ] **Idle life:** standing players breathe, shift weight foot to foot, turn their heads to the ball; arms and chest swing and settle when a player pulls up or takes off ("jelly"). Say if it's too much, too little or too in-step (`IDLE_*`, `JELLY_*` in player_animation.gd). Tackles should look exactly as before (the layer is off within 3 m of an opponent).
 - [ ] **Shot chips:** after a mark in range only "Y · GOALS" shows bottom right, not "Set Shot for Goal" as well.
+
+## Playtest 2026-11-18 follow-ups (branch `update`)
+
+- [ ] **Switch at the opposition's free kick:** on the mark, one switch press goes to the next nearest teammate (it used to do nothing when you were the nearest).
+- [ ] **Intercept mark:** a teammate's intercept mark puts you on him every time (FULL TEAM).
+- [ ] **Goal prompt:** after a mark in range the bottom-right shows the small "[Y] Goals" key chip, not a brown box; once accepted, "[LT] Aim [RT] Kick". Same in Career.
+- [ ] **Mark cue:** bigger (CUE_SCALE 0.88), ring lead 2.4 s, the dimmed incoming badge from 18 m (was 12) and more visible; say if it's now early enough.
+- [ ] **HUD STYLE > BALL DROP:** OFF / CHEVRON / RING, colour, size.
+- [ ] **Animation viewer MARK DELIVERY:** SAFE shows A, RUN X, AGGRESSIVE Y; CONTESTED with Opponents 1-5 puts them in a line beside the marker, facing his way.

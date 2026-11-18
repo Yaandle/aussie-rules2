@@ -952,6 +952,13 @@ func _on_player_marked(_tier: Tuning.Action, legal_mark: bool, player: PlayerCon
 	MatchState.record_mark(player.team)
 	if legal_mark:
 		MatchState.record_player_stat(player.roster_id, player.roster_name, "marks")
+	# Playtest 2026-11-18: a teammate's intercept mark sometimes left control
+	# where it was. _on_home_gained_possession skips anything outside
+	# Phase.PLAY, and a mark can stop play before that fires, so the marker
+	# is handed control here as well (same guards, minus the phase).
+	if _full_team_control() and player.team == Tuning.Team.HOME \
+			and ControlMode.scheme_for(Tuning.Team.HOME) == ControlMode.Scheme.SINGLE_PLAYER:
+		_assign_human_to(player)
 
 
 ## Career's per-player TACKLES: PlayerController.tackle_committed fires on
@@ -1583,7 +1590,12 @@ func _switch_human_player() -> void:
 	else:
 		_switch_cycle_order = _home_by_distance(_ball.global_position)
 		_switch_cycle_index = 0
-		next = _switch_cycle_order[0] if not _switch_cycle_order.is_empty() else previous
+		# Already the nearest (the man on the mark at the opposition's free
+		# kick, say): the first press goes to the next nearest instead of
+		# doing nothing (playtest 2026-11-18).
+		if _switch_cycle_order.size() > 1 and _switch_cycle_order[0] == previous:
+			_switch_cycle_index = 1
+		next = _switch_cycle_order[_switch_cycle_index] if not _switch_cycle_order.is_empty() else previous
 	_switch_cycle_timer = Tuning.SWITCH_CYCLE_WINDOW
 	if next == previous or not _can_take_control(next):
 		return
@@ -1611,6 +1623,8 @@ func _home_by_distance(point: Vector3) -> Array[PlayerController]:
 func _can_switch_now(player: PlayerController) -> bool:
 	if not is_instance_valid(player):
 		return true
+	# Stoppages (a free kick, a set shot) don't block a switch: playtest
+	# 2026-11-18, "when the opposition has a free kick I can't swap".
 	return not player.is_ragdolled() \
 		and player.current_action() == Tuning.Action.NONE \
 		and not player.is_kick_aiming() \

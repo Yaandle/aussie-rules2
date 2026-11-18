@@ -73,9 +73,9 @@ extends CanvasLayer
 ## 6T (playtest 2026-11-08, "the X/Y/A marking cue is too large"): every
 ## size below is scaled by CUE_SCALE, about two-thirds of the old cue. One
 ## dial so the next "smaller / bigger" note is a one-number change.
-const CUE_SCALE := 0.65
+const CUE_SCALE := 0.88
 const BADGE_RADIUS := 18.0 * CUE_SCALE
-const LABEL_SIZE := 13   ## 19 * CUE_SCALE, rounded (a font size is an int)
+const LABEL_SIZE := 17   ## 19 * CUE_SCALE, rounded (a font size is an int)
 
 ## Fixed ring radius (no longer animated in/out — see this file's own
 ## header) and how many seconds of live offset the sweep's full lap spans.
@@ -92,7 +92,7 @@ const RING_RADIUS := BADGE_RADIUS + 9.0 * CUE_SCALE
 ## the sweep room to start well before the ball is even close and still
 ## finish its lap at the same honest instant (mark_timing_offset() is
 ## unchanged — only how much runway the sweep gets to visualise it grew).
-const RING_LEAD_TIME := 1.8        ## s of live offset mapped across the closing ring
+const RING_LEAD_TIME := 2.4        ## s of live offset mapped across the closing ring
 const RING_THICKNESS := 5.0 * CUE_SCALE
 const RING_SEGMENTS := 48
 ## Where the closing ring starts, at the beginning of the RING_LEAD_TIME
@@ -105,7 +105,7 @@ const TARGET_RING_ALPHA := 0.55
 const RING_OUTLINE_EXTRA := 3.0 * CUE_SCALE
 ## How dim the incoming cue is: the badge, its target ring and the closing
 ## ring all draw at this fraction of their live alpha.
-const INCOMING_ALPHA := 0.45
+const INCOMING_ALPHA := 0.7   ## 0.45 -> 0.7 (playtest 2026-11-18: see the cue early)
 ## The estimate never lands the ring: "press now" only ever comes from the
 ## real countdown. A (Y) estimate would otherwise land 0.4 s before the
 ## ball, often before a press there would register at all (the live cue
@@ -150,6 +150,11 @@ var cue_source: int = Tuning.MARK_CUE_SOURCE
 ## HUD option and only runs for a human-controlled player, 0 / 1 force it
 ## off / on (dev tools).
 var assist_mode := -1
+
+## Dev tools only (the animation viewer's MARK DELIVERY): show this tier's
+## badge (A / X / Y) whenever any tier is live or incoming, instead of the
+## one the prompt would pick. NONE (the default) is the normal behaviour.
+var forced_tier := Tuning.Action.NONE
 
 ## The assist's graph: panel size in px, how far above the ring it floats,
 ## and the stretch of time it plots either side of the press instant.
@@ -279,6 +284,8 @@ func _display_tier() -> Tuning.Action:
 	# PlayerController.prompt_mark_tier: the ring used to finish on (Y)).
 	var live := player.prompt_mark_tier(ball)
 	var committed := player.committed_mark_tier()
+	if forced_tier != Tuning.Action.NONE:
+		return forced_tier if live != Tuning.Action.NONE or committed != Tuning.Action.NONE else Tuning.Action.NONE
 	if live != Tuning.Action.NONE:
 		_window_open = true
 	elif committed == Tuning.Action.NONE:
@@ -405,6 +412,8 @@ func _incoming_estimate() -> void:
 	var tier := Tuning.Action.MARK_SAFE
 	if SpatialQuery.nearest_opponent_distance(player, drop) <= Tuning.MARK_CONTEST_RANGE:
 		tier = Tuning.Action.MARK_AGGRESSIVE
+	if forced_tier != Tuning.Action.NONE:
+		tier = forced_tier
 	_estimate_tier = tier
 	_estimate_to_press = t_down + _press_target_offset(tier)
 
