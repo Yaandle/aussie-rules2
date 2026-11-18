@@ -1,5 +1,59 @@
 # Release notes
 
+## v1.5.0 — Full-match highlights, smoother control, marking and contests
+
+Everything since v1.4.0 (merged to `main` 2026-11-13, never tagged on its
+own).
+
+### Highlights
+- The whole match is recorded, then rendered as one 16:9 video with breaks
+  and dead time cut (`match_16x9.mp4`), plus `highlight.mp4`: every clip of
+  the types you tick, in match order.
+- A MATCH view on the Highlights screen (T / View): the full match on a
+  timeline with every moment and event marked; seek, jump between moments,
+  and set each moment's camera (broadcast, close, end-on, third person).
+- A simpler export window: one row per clip type, then EXPORT.
+  `match_video.json` carries the timeline (markers, moments, cameras) for
+  the video editor.
+
+### Control
+- Switching cycles to the next-nearest teammate on a second press, a
+  right-stick flick switches to the teammate that way, a marker shows who
+  you'd switch to, and AUTO SWITCH (off / assisted / full) puts you on the
+  player best placed when the opposition kicks.
+- You can switch at stoppages (an opposition free kick), and a teammate's
+  intercept mark always hands you control.
+- RB smothers a kicker lining up, or intercepts an opponent's handball in
+  flight. Hold LT without the ball for the shepherd stance: crouched, arms
+  out, facing held while you move any way.
+
+### Marking and contests
+- The mark cue comes in earlier (an "incoming" badge from 18 m) and bigger.
+- Jump attribute, contested marks decided by the MarkContest formula, and
+  an optional mark-timing assist (HUD STYLE > MARKING).
+- A take that isn't a mark says why: "PLAY ON — UNDER 15 M / TOUCHED / OFF
+  THE GROUND".
+- Glancing or slow tackles break more often, and a broken tackler is pushed
+  back and stumbles. Free-kick takers start on the spot, so the man on the
+  mark lines up with them.
+- The fend arm always shows and shoves a defender back. The Slide's sling
+  tackler plants his run out on stepping legs instead of sliding.
+- Goal kicking after a mark: the "[Y] Goals" chip, then LT aim, RT kick.
+
+### Look and feel
+- Standing players breathe, shift their weight, and watch the ball; arms
+  and chest swing and settle as players stop and start (off near
+  opponents, so contacts are unchanged).
+- Redesigned main menu (oval footage montage, loading screens per mode)
+  and Full Game pregame.
+- HUD STYLE > BALL DROP: the landing icon off / chevron / ring, colour,
+  size.
+
+### Known follow-ups (not in this release)
+- Performance: a full match isn't a steady 60 fps yet (profiling notes in
+  `docs/PRE_DAY5_PLAN.md`).
+- Camera smoothing and movement feel (speed curve, turning on the spot).
+
 ## v1.4.0 — Career seasons, active ragdoll tackles, new ovals
 
 Everything since v1.2.0 (the 1.3 UI pass was never released on its own).

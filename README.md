@@ -44,7 +44,7 @@ in [docs/LESSONS.md](docs/LESSONS.md).
 ### Windows: play the game
 
 1. Go to the [latest release](https://github.com/Yaandle/aussie-rules2/releases).
-2. Download **`Aussie-Rules-2-v1.4.0-Windows.zip`**.
+2. Download **`Aussie-Rules-2-v1.5.0-Windows.zip`**.
 3. Extract the ZIP, open its `builds` folder and run **`Aussie Rules 2.exe`**.
 4. Select **FULL GAME** or **CAREER** from the main menu.
 
