@@ -268,3 +268,24 @@ its own check line in PLAYTEST_CHECKLIST.md when built.
     or with the ball, drops into a low crouch, arms out wide, and keeps
     facing the way he faces while moving in any direction (no body flip:
     the Agility turn-out locks, he side-steps / backs off).
+
+### Where the 2026-11-18 list stands (2026-11-18, later)
+
+Done (624f370, bc4f0b0, 88e2fbd): 1 switching at stoppages + intercept-mark
+control; 2 ball drop icon, colour, size; 3 mark cue bigger and earlier; 6
+viewer badges A / X / Y and AGGRESSIVE; 7 viewer opponents 1-5 in a line;
+8 broken tackles more often + bigger recoil (thresholds only); 9 PLAY ON
+call with the reason; 5 (part) X smothers next to a kicker. Also: the goal
+prompt is the minimal "[Y] Goals" chip again (the 2026-11-14 stash recovery
+had brought in a brown box).
+
+Left:
+- 4 Contest Slide tackler: quick grab-and-throw, partial ragdoll that keeps
+  his feet and steps when moved (the viewer's CONTESTS > Slide case).
+- 5 (rest) X against a handball in flight: an intercept/block pose (arms
+  out) instead of the running-mark clip; X against a carrier as a steal.
+  **Needs the user's call:** X is the Lunge tackle today; a steal would
+  replace it (or sit on another button, or be what a Lunge that breaks
+  does).
+- 10 LT shepherd stance: hold LT (not carrying, not in kick stance) to
+  crouch, arms out, and keep facing while moving any way (no turn-out).
