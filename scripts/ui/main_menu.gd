@@ -177,10 +177,50 @@ const CARD_SHADOW_OFFSET_SELECTED := Vector2(12.0, 12.0)
 const DIM_UNSELECTED := 0.34
 const DIM_LOCKED := 0.58
 
-## Opacity of the cream wash over the 3D camera montage (menu_backdrop.tscn)
-## — high enough that chrome text stays legible, low enough that the
-## montage still reads as a background rather than a hidden layer.
-const BACKDROP_OVERLAY_ALPHA := 0.6
+## The montage behind the menu (menu_backdrop.tscn, our oval) now shows
+## through as footage, the way the menu reference image has it, instead of
+## sitting under a 0.6 cream wash. A dark vertical grade keeps the light
+## chrome text legible: heaviest behind the title and the footer, lightest
+## through the middle where the cards sit and the field is. Alphas are
+## unplaytested feel guesses, read off the reference.
+const BACKDROP_GRADE_TOP_ALPHA := 0.55
+const BACKDROP_GRADE_MID_ALPHA := 0.12
+const BACKDROP_GRADE_BOTTOM_ALPHA := 0.7
+## Chrome text over the footage: off-white for the title, a softer white
+## for the muted labels (SoftBrutalist's INK/MUTED were picked for its
+## cream paper and vanish against a dark field).
+const CHROME_INK := Color(0.97, 0.96, 0.93)
+const CHROME_MUTED := Color(0.97, 0.96, 0.93, 0.78)
+const CHROME_SHADOW := Color(0.0, 0.0, 0.0, 0.55)
+
+## Menu chrome sized and spaced off the menu reference image: a tall
+## condensed title, widely tracked caps for everything else, and short red
+## rules under EST. 2025 and the subtitle.
+const CHROME_RED := Color("#C8332B")
+const TITLE_SIZE := 92
+const TITLE_TRACKING := 2
+const SUBTITLE_SIZE := 17
+const SUBTITLE_TRACKING := 6
+const CORNER_SIZE := 15
+const CORNER_TRACKING := 3
+const RULE_THICKNESS := 3.0
+const CORNER_RULE_WIDTH := 36.0
+const SUBTITLE_RULE_WIDTH := 64.0
+## CHARACTER sits between two thin lines, like a section divider.
+const DIVIDER_LINE_WIDTH := 170.0
+const DIVIDER_LINE_COLOUR := Color(0.97, 0.96, 0.93, 0.45)
+const DIVIDER_TRACKING := 6
+const FOOTER_TEXT_SIZE := 17
+const FOOTER_TRACKING := 3
+const FOOTER_ICON_SIZE := 24.0
+## Condensed display face for the title. The project ships no font files,
+## so this asks the OS: Bahnschrift is on every Windows 10/11 install and is
+## a variable font, so the wdth/wght axes below narrow and thicken it to the
+## reference's poster lettering. Elsewhere the fallback list is tried, and a
+## face without those axes just ignores them.
+const DISPLAY_FONT_NAMES := ["Bahnschrift", "Oswald", "Arial Narrow", "Impact"]
+
+static var _display_font: FontVariation
 
 class CardWidgets:
 	var frame: Control
@@ -345,11 +385,10 @@ func _build() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 
-	# Translucent, not opaque: menu_backdrop.tscn's camera montage renders
-	# behind this in the SubViewportContainer laid out in main_menu.tscn,
-	# and this wash just needs to knock the footage back enough that ink
-	# text and the card frames stay legible over it.
-	root.add_child(SoftBrutalist.backdrop(BACKDROP_OVERLAY_ALPHA))
+	# menu_backdrop.tscn's camera montage renders behind this in the
+	# SubViewportContainer laid out in main_menu.tscn; see
+	# BACKDROP_GRADE_*_ALPHA for why it's a dark grade, not a wash.
+	root.add_child(_build_backdrop_grade())
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -372,6 +411,65 @@ func _build() -> void:
 	_build_footer(bands)
 
 
+func _build_backdrop_grade() -> TextureRect:
+	var gradient := Gradient.new()
+	gradient.offsets = PackedFloat32Array([0.0, 0.3, 0.62, 1.0])
+	gradient.colors = PackedColorArray([
+		Color(0.0, 0.0, 0.0, BACKDROP_GRADE_TOP_ALPHA),
+		Color(0.0, 0.0, 0.0, BACKDROP_GRADE_MID_ALPHA),
+		Color(0.0, 0.0, 0.0, BACKDROP_GRADE_MID_ALPHA),
+		Color(0.0, 0.0, 0.0, BACKDROP_GRADE_BOTTOM_ALPHA),
+	])
+	var texture := GradientTexture2D.new()
+	texture.gradient = gradient
+	texture.fill_from = Vector2(0.0, 0.0)
+	texture.fill_to = Vector2(0.0, 1.0)
+	texture.width = 4
+	texture.height = 256
+	var grade := TextureRect.new()
+	grade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	grade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	grade.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	grade.stretch_mode = TextureRect.STRETCH_SCALE
+	grade.texture = texture
+	return grade
+
+
+static func display_font() -> FontVariation:
+	if _display_font != null:
+		return _display_font
+	var system := SystemFont.new()
+	system.font_names = PackedStringArray(DISPLAY_FONT_NAMES)
+	var variation := FontVariation.new()
+	variation.base_font = system
+	# variation_opentype is keyed by OpenType tag ints, not strings.
+	var ts := TextServerManager.get_primary_interface()
+	variation.variation_opentype = {ts.name_to_tag("wdth"): 75, ts.name_to_tag("wght"): 700}
+	variation.spacing_glyph = TITLE_TRACKING
+	_display_font = variation
+	return _display_font
+
+
+## Short solid rule (the red accents under EST. 2025 and the subtitle).
+func _rule(width: float, colour: Color = CHROME_RED,
+		thickness: float = RULE_THICKNESS) -> ColorRect:
+	var rule := ColorRect.new()
+	rule.color = colour
+	rule.custom_minimum_size = Vector2(width, thickness)
+	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return rule
+
+
+## Soft drop shadow so chrome text holds up over the bright parts of the
+## footage (sky, white boundary lines) as well as the dark ones.
+func _chrome_shadow(label: Label) -> Label:
+	label.add_theme_color_override(&"font_shadow_color", CHROME_SHADOW)
+	label.add_theme_constant_override(&"shadow_offset_x", 0)
+	label.add_theme_constant_override(&"shadow_offset_y", 2)
+	label.add_theme_constant_override(&"shadow_outline_size", 6)
+	return label
+
+
 ## EST. 2025 on the left, version on the right, both on the screen's own
 ## margin. An HBox with a spacer between them, rather than the old pair of
 ## anchored labels offset by a guessed text width — a guess that put the
@@ -383,8 +481,15 @@ func _build_corner_chrome(parent: Control) -> void:
 	row.custom_minimum_size.y = CHROME_HEIGHT
 	parent.add_child(row)
 
-	row.add_child(SoftBrutalist.label(ESTABLISHED_TEXT, SoftBrutalist.SIZE_LABEL,
-		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL))
+	var established := VBoxContainer.new()
+	established.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	established.add_theme_constant_override(&"separation", 6)
+	established.add_child(_chrome_shadow(SoftBrutalist.label(ESTABLISHED_TEXT, CORNER_SIZE,
+		CHROME_INK, SoftBrutalist.WEIGHT_REGULAR, CORNER_TRACKING)))
+	var established_rule := _rule(CORNER_RULE_WIDTH)
+	established_rule.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	established.add_child(established_rule)
+	row.add_child(established)
 
 	var spacer := Control.new()
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -393,8 +498,10 @@ func _build_corner_chrome(parent: Control) -> void:
 
 	var version := String(ProjectSettings.get_setting(VERSION_SETTING, ""))
 	var version_text := "v" + version if not version.is_empty() else VERSION_FALLBACK
-	row.add_child(SoftBrutalist.label(version_text, SoftBrutalist.SIZE_LABEL,
-		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL))
+	var version_label := _chrome_shadow(SoftBrutalist.label(version_text, CORNER_SIZE,
+		CHROME_INK, SoftBrutalist.WEIGHT_REGULAR, CORNER_TRACKING))
+	version_label.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	row.add_child(version_label)
 
 
 func _build_header(parent: Control) -> void:
@@ -403,15 +510,19 @@ func _build_header(parent: Control) -> void:
 	column.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_1))
 	parent.add_child(column)
 
-	var title := SoftBrutalist.label(TITLE_TEXT, SoftBrutalist.SIZE_DISPLAY, SoftBrutalist.INK,
-		SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_DISPLAY)
+	var title := _chrome_shadow(SoftBrutalist.label(TITLE_TEXT, TITLE_SIZE, CHROME_INK))
+	title.add_theme_font_override(&"font", display_font())
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(title)
 
-	var subtitle := SoftBrutalist.label(SUBTITLE_TEXT, SoftBrutalist.SIZE_LABEL,
-		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_TITLE)
+	var subtitle := _chrome_shadow(SoftBrutalist.label(SUBTITLE_TEXT, SUBTITLE_SIZE,
+		CHROME_INK, SoftBrutalist.WEIGHT_REGULAR, SUBTITLE_TRACKING))
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(subtitle)
+
+	var subtitle_rule := _rule(SUBTITLE_RULE_WIDTH)
+	subtitle_rule.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	column.add_child(subtitle_rule)
 
 
 func _build_card_row(parent: Control) -> void:
@@ -442,14 +553,14 @@ func _build_util_row(parent: Control) -> void:
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.custom_minimum_size.y = UTIL_ROW_HEIGHT
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override(&"separation", UTIL_SEPARATION)
+	row.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_2))
 	parent.add_child(row)
 
 	_util_labels.clear()
 	for i in UTIL_ENTRIES.size():
 		var entry: Dictionary = UTIL_ENTRIES[i]
-		var label := SoftBrutalist.label(String(entry["label"]), SoftBrutalist.SIZE_LABEL,
-			SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_TITLE)
+		var label := _chrome_shadow(SoftBrutalist.label(String(entry["label"]),
+			CORNER_SIZE, CHROME_MUTED, SoftBrutalist.WEIGHT_REGULAR, DIVIDER_TRACKING))
 		label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		label.mouse_filter = Control.MOUSE_FILTER_STOP
 		label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -465,6 +576,17 @@ func _build_util_row(parent: Control) -> void:
 				_util_select())
 		row.add_child(label)
 		_util_labels.append(label)
+
+	# Divider lines either side of the row, as in the reference. Added after
+	# the labels and moved to the ends so _util_labels' indices still match
+	# UTIL_ENTRIES.
+	var left_line := _rule(DIVIDER_LINE_WIDTH, DIVIDER_LINE_COLOUR, 1.0)
+	left_line.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(left_line)
+	row.move_child(left_line, 0)
+	var right_line := _rule(DIVIDER_LINE_WIDTH, DIVIDER_LINE_COLOUR, 1.0)
+	right_line.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(right_line)
 
 
 ## SETTINGS on the left margin, the control legend centred, EXIT GAME on
@@ -484,6 +606,7 @@ func _build_footer(parent: Control) -> void:
 	row.add_child(settings_widget)
 
 	_hints_bar = DeviceHintBar.new()
+	_hints_bar.on_dark = true
 	_hints_bar.alignment = BoxContainer.ALIGNMENT_CENTER
 	_hints_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_hints_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -506,20 +629,20 @@ func _build_footer_action(icon_name: StringName, text: String, footer_index: int
 	# guessed 140px width — the old fixed width left the label floating
 	# short of the margin it was meant to sit on.
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_1))
+	row.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_2))
 	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	row.mouse_filter = Control.MOUSE_FILTER_STOP
 
 	var icon := UIIcon.new()
 	icon.icon_name = icon_name
-	icon.line_colour = SoftBrutalist.MUTED
-	icon.custom_minimum_size = Vector2(18.0, 18.0)
+	icon.line_colour = CHROME_INK
+	icon.custom_minimum_size = Vector2(FOOTER_ICON_SIZE, FOOTER_ICON_SIZE)
 	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(icon)
 
-	var label := SoftBrutalist.label(text, SoftBrutalist.SIZE_LABEL, SoftBrutalist.MUTED,
-		SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL)
+	var label := _chrome_shadow(SoftBrutalist.label(text, FOOTER_TEXT_SIZE,
+		CHROME_INK, SoftBrutalist.WEIGHT_REGULAR, FOOTER_TRACKING))
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(label)
 
@@ -823,24 +946,24 @@ func _refresh() -> void:
 	for i in _util_labels.size():
 		var focused := _row == 1 and i == _util_index
 		_util_labels[i].add_theme_color_override(&"font_color",
-			RetroWindow.ACCENT if focused else SoftBrutalist.MUTED)
+			RetroWindow.ACCENT if focused else CHROME_MUTED)
 
 	# Footer SETTINGS/EXIT GAME highlight — whichever _footer_index points at,
 	# only while the cursor is actually on the footer row.
 	var settings_focused := _row == 2 and _footer_index == 0
 	if is_instance_valid(_footer_settings_icon):
 		_footer_settings_icon.line_colour = RetroWindow.ACCENT if settings_focused \
-			else SoftBrutalist.MUTED
+			else CHROME_INK
 	if is_instance_valid(_footer_settings_label):
 		_footer_settings_label.add_theme_color_override(&"font_color",
-			RetroWindow.ACCENT if settings_focused else SoftBrutalist.MUTED)
+			RetroWindow.ACCENT if settings_focused else CHROME_INK)
 	var exit_focused := _row == 2 and _footer_index == 1
 	if is_instance_valid(_footer_exit_icon):
 		_footer_exit_icon.line_colour = RetroWindow.ACCENT if exit_focused \
-			else SoftBrutalist.MUTED
+			else CHROME_INK
 	if is_instance_valid(_footer_exit_label):
 		_footer_exit_label.add_theme_color_override(&"font_color",
-			RetroWindow.ACCENT if exit_focused else SoftBrutalist.MUTED)
+			RetroWindow.ACCENT if exit_focused else CHROME_INK)
 
 	# Dynamic hints reflect which row the cursor is on, per device (see
 	# ui_audit.md finding #1 — these used to be one combined "Enter / A"
@@ -877,9 +1000,9 @@ func _refresh() -> void:
 		else:
 			_hints_bar.set_hint_sets({
 				InputManager.Device.KEYBOARD: [
-					{"keys": "← / →", "label": "Choose"},
-					{"keys": "Enter", "label": "Select"},
-					{"keys": "↓", "label": "Character"},
+					{"keys": ["W", "A", "S", "D"], "label": "Choose"},
+					{"keys": "ENTER", "label": "Select"},
+					{"keys": "C", "label": "Character"},
 				],
 				InputManager.Device.GAMEPAD: [
 					{"keys": "D-Pad ↔", "label": "Choose"},
