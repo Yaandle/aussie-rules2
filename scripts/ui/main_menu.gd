@@ -212,12 +212,25 @@ var _footer_settings_label: Label
 var _footer_exit_icon: UIIcon
 var _footer_exit_label: Label
 
+## Cards that show a full-screen loading image before their scene swaps in:
+## the card zooms, the image fades over the menu, holds, then SceneWipe.
+## Keyed by Entry.image_key. A card not listed here swaps straight away, and
+## one whose image isn't imported yet still zooms but skips the overlay.
+const LOADING_SCREENS := {
+	"menuscreen_training": "res://assets/textures/images/loading_kicktokick.png",
+	"menuscreen_career": "res://assets/textures/images/careermode_loadingscreen.png",
+}
+const LOADING_HOLD := 1.0
+
+var _loading_overlay: TextureRect
+var _loading_active := false
 
 func _ready() -> void:
 	GameState.mode = GameState.Mode.SANDBOX
 	GameState.phase = GameState.Phase.MENU
 	_build()
 	_refresh()
+	_build_loading_overlay()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -287,7 +300,10 @@ func _move(step: int) -> void:
 
 func _select() -> void:
 	var entry := _entries[_index]
-	if not entry.unlocked:
+	if not entry.unlocked or _loading_active:
+		return
+	if LOADING_SCREENS.has(entry.image_key):
+		_begin_loading(LOADING_SCREENS[entry.image_key])
 		return
 	SceneWipe.change_scene(_scene_for(entry))
 
@@ -555,6 +571,12 @@ func _build_card(entry: Entry, index: int) -> CardWidgets:
 	frame.add_child(shadow)
 	widgets.shadow = shadow
 
+	var image_clip := Control.new()
+	image_clip.set_anchors_preset(Control.PRESET_FULL_RECT)
+	image_clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	image_clip.clip_contents = true
+	frame.add_child(image_clip)
+
 	var image := TextureRect.new()
 	image.set_anchors_preset(Control.PRESET_FULL_RECT)
 	image.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -584,7 +606,7 @@ func _build_card(entry: Entry, index: int) -> CardWidgets:
 	material.set_shader_parameter(&"image", texture)
 	material.set_shader_parameter(&"image_size", Vector2(texture.get_size()))
 	image.material = material
-	frame.add_child(image)
+	image_clip.add_child(image)
 	widgets.image = image
 	widgets.material = material
 
@@ -865,3 +887,40 @@ func _refresh() -> void:
 					{"keys": "D-Pad ↓", "label": "Character"},
 				],
 			})
+
+func _begin_loading(image_path: String) -> void:
+	_loading_active = true
+	set_process_unhandled_input(false)
+	var widgets := _cards[_index]
+	widgets.material.set_shader_parameter(&"saturation", 1.0)
+	widgets.image.pivot_offset = widgets.image.size * 0.5
+	var zoom := widgets.image.create_tween()
+	zoom.set_trans(Tween.TRANS_CUBIC)
+	zoom.set_ease(Tween.EASE_OUT)
+	zoom.set_parallel(true)
+	zoom.tween_property(widgets.image, "scale", Vector2(1.28, 1.28), 0.28)
+	zoom.tween_property(widgets.frame, "scale", Vector2(1.14, 1.14), 0.28) 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	await zoom.finished
+
+	if is_instance_valid(_loading_overlay) and ResourceLoader.exists(image_path):
+		_loading_overlay.texture = load(image_path)
+		_loading_overlay.visible = true
+		var fade := _loading_overlay.create_tween()
+		fade.tween_property(_loading_overlay, "modulate:a", 1.0, 0.12)
+		await fade.finished
+
+	await get_tree().create_timer(LOADING_HOLD).timeout
+	SceneWipe.change_scene(_scene_for(_entries[_index]))
+
+
+## One shared overlay above everything else on the menu; _begin_loading()
+## gives it the selected card's image.
+func _build_loading_overlay() -> void:
+	_loading_overlay = TextureRect.new()
+	_loading_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_loading_overlay.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_loading_overlay.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	_loading_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_loading_overlay.visible = false
+	_loading_overlay.modulate = Color(1.0, 1.0, 1.0, 0.0)
+	add_child(_loading_overlay)
