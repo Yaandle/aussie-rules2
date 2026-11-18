@@ -952,6 +952,10 @@ func _on_player_marked(_tier: Tuning.Action, legal_mark: bool, player: PlayerCon
 	MatchState.record_mark(player.team)
 	if legal_mark:
 		MatchState.record_player_stat(player.roster_id, player.roster_name, "marks")
+	elif player.brain() is HumanBrain and player.last_play_on_reason != "":
+		# A take that isn't a mark is play on: say why, so a "caught it but
+		# got tackled" reads as the rule it is (playtest 2026-11-18).
+		_scoreboard.flash("PLAY ON — %s" % player.last_play_on_reason, 1.5)
 	# Playtest 2026-11-18: a teammate's intercept mark sometimes left control
 	# where it was. _on_home_gained_possession skips anything outside
 	# Phase.PLAY, and a mark can stop play before that fires, so the marker

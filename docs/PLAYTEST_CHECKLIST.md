@@ -209,3 +209,5 @@ Needs a real match (or the generator) and the Highlights screen. See `docs/HIGHL
 - [ ] **Mark cue:** bigger (CUE_SCALE 0.88), ring lead 2.4 s, the dimmed incoming badge from 18 m (was 12) and more visible; say if it's now early enough.
 - [ ] **HUD STYLE > BALL DROP:** OFF / CHEVRON / RING, colour, size.
 - [ ] **Animation viewer MARK DELIVERY:** SAFE shows A, RUN X, AGGRESSIVE Y; CONTESTED with Opponents 1-5 puts them in a line beside the marker, facing his way.
+- [ ] **PLAY ON call:** catch a kick that isn't a mark (under 15 m, touched, or off the ground): the banner says "PLAY ON — <why>". Tell me if a clean 15 m+ kick taken on the full is ever called play on: that would be a real bug.
+- [ ] **Broken tackles:** glancing or slow tackles (from the side, little closing speed) now break more often (Lunge break at p ≥ 0.4, Slide ≥ 0.85); the tackler is pushed back and stumbles (recoil 0.9). Hard tackles still always hold.

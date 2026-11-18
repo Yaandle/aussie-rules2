@@ -1054,8 +1054,12 @@ const TACKLE_RAGDOLL_AI_V_AI := true
 # closing speed. Slide is also the AI's only tackle, so this is the number
 # that decides how often a human carrier shrugs off a chaser: at 0.9 a
 # chase from behind broke at up to ~2.7 m/s closing.
-const TACKLE_LUNGE_BREAK_P := 0.5               # unplaytested feel guess
-const TACKLE_SLIDE_BREAK_P := 0.95              # unplaytested feel guess
+# Playtest 2026-11-18: "a lot of tackles are successful, I never see some
+# that are not". Lunge 0.5 -> 0.4 and Slide 0.95 -> 0.85, so a glancing or
+# slow hit (the formula's own read) breaks more often; still the formula's
+# call, never a roll.
+const TACKLE_LUNGE_BREAK_P := 0.4               # unplaytested feel guess
+const TACKLE_SLIDE_BREAK_P := 0.85              # unplaytested feel guess
 const TACKLE_BREAK_SPEED_KEEP := 0.75           # unplaytested feel guess
 const TACKLE_RAGDOLL_ENABLED := true
 const TACKLE_BALANCE_CLOSING_SPEED_MAX := 10.0  # m/s — the fastest closing speed the formula tells apart; unplaytested feel guess
@@ -1304,7 +1308,9 @@ const CONTACT_REACT_IMPULSE_MAX := 60.0    # N·s
 # each other do. The carrier's tone is the hit's own b; a held-up tackler's
 # is half of it, and a broken tackler bounces off with BREAK_RECOIL_SHARE
 # of the push at the carrier's share, 1 - b (PlayerController._break_tackle).
-const CONTACT_REACT_BREAK_RECOIL_SHARE := 0.5
+# 0.5 -> 0.9 (playtest 2026-11-18: a broken tackle should visibly push the
+# tackler back and stumble him, as a fend does). Unplaytested feel guess.
+const CONTACT_REACT_BREAK_RECOIL_SHARE := 0.9
 # A broken tackle drags the carrier's legs (TACKLE_BREAK_SPEED_KEEP), and
 # their trunk lurches on over them by its own momentum. All of it (2 m/s off
 # a sprint) pitched a loosened trunk 25° forward into the spine's bend limit,

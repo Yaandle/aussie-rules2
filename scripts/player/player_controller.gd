@@ -3492,6 +3492,11 @@ func _update_ground_pickup(ball: Ball, _delta: float) -> void:
 ## machinery below: Safe/Running only ever call this once they already know
 ## the catch connects, so the "attempt" and the "outcome" are the same
 ## event. _begin() just plays the catch/cradle animation after the fact.
+## Why the last take wasn't paid as a mark (Ball.mark_ineligible_reason),
+## "" if it was. Read by FullGame for the PLAY ON banner.
+var last_play_on_reason := ""
+
+
 func _complete_mark(ball: Ball, tier: Tuning.Action) -> void:
 	# Cosmetic: hands the animation layer the ball's state while it's still
 	# where it was caught (the gather below snaps it into the hands), so it
@@ -3516,6 +3521,7 @@ func _complete_mark(ball: Ball, tier: Tuning.Action) -> void:
 ## still mid-air and resolves contact here.
 func _finish_mark_catch(ball: Ball, tier: Tuning.Action) -> void:
 	var legal_mark := ball.is_mark_eligible()
+	last_play_on_reason = ball.mark_ineligible_reason()
 	# Cosmetic: the ball eases into the hands from here (PlayerAnimation's
 	# "Catch glide") instead of appearing in them.
 	_animation.note_catch(ball.global_position)
