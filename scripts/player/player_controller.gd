@@ -326,6 +326,7 @@ var _smother_dive_target: PlayerController = null
 var _intercept_timer := 0.0
 var _intercept_cooldown := 0.0
 var _intercept_dir := Vector3.FORWARD
+var _intercept_speed := 0.0
 var _intercept_ball: Ball = null
 
 ## Shepherd stance (LT held, Tuning's "Shepherd stance"), set each physics
@@ -888,7 +889,7 @@ func _update_locomotion(delta: float) -> void:
 	# _update_intercept), re-aimed every frame.
 	if _intercept_timer > 0.0:
 		_heading = _intercept_dir
-		_speed = Tuning.INTERCEPT_STEP_SPEED
+		_speed = _intercept_speed
 		velocity.x = _heading.x * _speed
 		velocity.z = _heading.z * _speed
 		return
@@ -2690,9 +2691,14 @@ func _closest_pass_point(ball: Ball) -> Vector3:
 	return p + v * t
 
 
+## Also sets _intercept_speed: full step speed far off, easing to a stop on
+## the ball's line (it overshot the line at a flat 6 m/s and missed).
 func _intercept_heading(ball: Ball) -> Vector3:
 	var to_point := _closest_pass_point(ball) - Vector3(global_position.x, 0.0, global_position.z)
-	return to_point.normalized() if to_point.length_squared() > 0.0001 else -global_transform.basis.z
+	_intercept_speed = minf(Tuning.INTERCEPT_STEP_SPEED, to_point.length() * 8.0)
+	if to_point.length_squared() < 0.0001:
+		return -global_transform.basis.z
+	return to_point.normalized()
 
 
 ## After the move, every frame of the intercept step: the ball within

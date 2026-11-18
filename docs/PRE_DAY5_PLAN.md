@@ -289,3 +289,9 @@ Left:
   does).
 - 10 LT shepherd stance: hold LT (not carrying, not in kick stance) to
   crouch, arms out, and keep facing while moving any way (no turn-out).
+
+Later still (2026-11-18): the X smother was taken out again (the user: it
+clashes with the slide tackle). Item 5 is now RB: smother a kicker, or
+intercept an opponent's handball in flight (steal by reach and timing).
+Item 10 (LT shepherd stance) is built. Left: item 4, the Contest Slide
+tackler.
