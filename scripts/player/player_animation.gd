@@ -500,6 +500,17 @@ var _jelly_rate := Vector2.ZERO
 var _jelly_accel := Vector2.ZERO     ## body-space acceleration from drive() (m/s²)
 var _jelly_last_velocity := Vector3.ZERO
 var _ball_node: Node3D = null
+
+# Shepherd stance and RB intercept poses (see _apply_stance_pose): blends
+# 0-1 toward their targets at SHEPHERD_BLEND_RATE.
+var _shepherd := 0.0
+var _shepherd_on := false
+var _intercept := 0.0
+var _intercept_on := false
+var _stance_bones := {}
+## Whether every locomotion clip writes Hips' position (so lowering it
+## post-mix never stacks); -1 until checked.
+var _hips_position_animated := -1
 var _opponent_near := false
 
 
@@ -687,6 +698,7 @@ func _process(delta: float) -> void:
 	_apply_press(delta)
 	_apply_contact_reaction(delta)
 	_apply_idle_life(delta)
+	_apply_stance_pose(delta)
 	_clamp_feet_to_ground()
 	_update_ball_hold()
 
@@ -1053,7 +1065,7 @@ func _apply_idle_life(delta: float) -> void:
 
 	# Arms: drift against the roll, breathe, and swing on the jelly. A
 	# positive turn about `right` swings a hanging arm forward (as the brace).
-	if carrying or _brace > 0.01 or _fend > 0.01:
+	if carrying or _brace > 0.01 or _fend > 0.01 or _shepherd > 0.01 or _intercept > 0.01:
 		return
 	var arm_side := -roll * IDLE_ARM_DRIFT + _jelly.x
 	var arm_fwd := breath * IDLE_ARM_BREATH_DEG * w + _jelly.y
@@ -1061,6 +1073,95 @@ func _apply_idle_life(delta: float) -> void:
 		var bone: int = _life_bones[bone_name]
 		if bone >= 0:
 			_turn_bone(skeleton, bone, Quaternion(right, deg_to_rad(arm_fwd)) * Quaternion(forward, deg_to_rad(arm_side)))
+
+
+## The lower of the two feet along `up` (skeleton space).
+func _lowest_foot(skeleton: Skeleton3D, up: Vector3) -> float:
+	var low := INF
+	for side: String in ["Left", "Right"]:
+		var bone := int(_stance_bones[StringName(side + "Foot")])
+		if bone >= 0:
+			low = minf(low, skeleton.get_bone_global_pose(bone).origin.dot(up))
+	return low
+
+
+func set_shepherd(on: bool) -> void:
+	_shepherd_on = on
+
+
+func set_intercept(on: bool) -> void:
+	_intercept_on = on
+
+
+## The shepherd stance (LT) and the RB intercept, post-mix (playtest
+## 2026-11-18). Shepherd: hips and knees bent SHEPHERD_CROUCH_DEG with the
+## hips lowered to match (so the feet stay on the turf), trunk forward
+## SHEPHERD_LEAN_DEG, arms out SHEPHERD_ARMS_OUT_DEG. Intercept: the arms
+## out and forward, no crouch. Off in a ragdoll or an action clip, like the
+## other layers. Only bones every locomotion clip writes (no stacking).
+func _apply_stance_pose(delta: float) -> void:
+	var live := not ragdoll_active and current_state() == LOCOMOTION_STATE
+	var k := 1.0 - exp(-Tuning.SHEPHERD_BLEND_RATE * delta)
+	_shepherd = lerpf(_shepherd, 1.0 if _shepherd_on and live else 0.0, k)
+	_intercept = lerpf(_intercept, 1.0 if _intercept_on and live else 0.0, k)
+	if not live:
+		_shepherd = 0.0
+		_intercept = 0.0
+	if (_shepherd < 0.01 and _intercept < 0.01) or _rig == null:
+		return
+	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
+	var body := get_parent() as Node3D
+	if skeleton == null or body == null:
+		return
+	if _stance_bones.is_empty():
+		for bone_name: StringName in [&"Hips", &"Spine", &"LeftUpperLeg", &"LeftLowerLeg", &"LeftFoot",
+				&"RightUpperLeg", &"RightLowerLeg", &"RightFoot", &"LeftUpperArm", &"RightUpperArm"]:
+			_stance_bones[bone_name] = _find_animated_bone(bone_name)
+	var to_skeleton := skeleton.global_basis.orthonormalized().inverse()
+	var right := (to_skeleton * body.global_basis.x).normalized()
+	var forward := (to_skeleton * -body.global_basis.z).normalized()
+
+	if _shepherd > 0.01:
+		var bend := Tuning.SHEPHERD_CROUCH_DEG * _shepherd
+		var legs_ok := true
+		for bone_name: StringName in [&"LeftUpperLeg", &"LeftLowerLeg", &"LeftFoot", &"RightUpperLeg",
+				&"RightLowerLeg", &"RightFoot", &"Hips"]:
+			if int(_stance_bones[bone_name]) < 0:
+				legs_ok = false
+		if legs_ok:
+			# The lower foot's height (along the body's up, in the skeleton's
+			# frame) before and after the bend: the hips come down by the
+			# difference, so the planted foot stays on the turf whatever the
+			# model's proportions or axes.
+			var up_axis := (to_skeleton * body.global_basis.y).normalized()
+			var before := _lowest_foot(skeleton, up_axis)
+			# A positive turn about `right` swings a hanging bone forward
+			# (as the brace's arms): thigh forward, shin back past vertical,
+			# foot level again.
+			for side: String in ["Left", "Right"]:
+				_turn_bone(skeleton, int(_stance_bones[StringName(side + "UpperLeg")]), Quaternion(right, deg_to_rad(bend)))
+				_turn_bone(skeleton, int(_stance_bones[StringName(side + "LowerLeg")]), Quaternion(right, deg_to_rad(-2.0 * bend)))
+				_turn_bone(skeleton, int(_stance_bones[StringName(side + "Foot")]), Quaternion(right, deg_to_rad(bend)))
+			var hips := int(_stance_bones[&"Hips"])
+			if _hips_position_animated < 0:
+				_hips_position_animated = 1 if _position_animated(&"Hips") else 0
+			if _hips_position_animated == 1:
+				var drop := _lowest_foot(skeleton, up_axis) - before
+				if drop > 0.0:
+					skeleton.set_bone_pose_position(hips, skeleton.get_bone_pose_position(hips) - up_axis * drop)
+		var spine := int(_stance_bones[&"Spine"])
+		if spine >= 0:
+			_turn_bone(skeleton, spine, Quaternion(right, -deg_to_rad(Tuning.SHEPHERD_LEAN_DEG * _shepherd)))
+
+	# Arms out: a positive turn about `forward` swings a hanging arm toward
+	# the body's left, so the left arm takes +, the right -; the intercept
+	# also brings them a little forward to meet the ball.
+	var out := maxf(Tuning.SHEPHERD_ARMS_OUT_DEG * _shepherd, 70.0 * _intercept)
+	var ahead := 25.0 * _intercept
+	for pair: Array in [[&"LeftUpperArm", 1.0], [&"RightUpperArm", -1.0]]:
+		var bone := int(_stance_bones[pair[0]])
+		if bone >= 0:
+			_turn_bone(skeleton, bone, Quaternion(right, deg_to_rad(ahead)) * Quaternion(forward, deg_to_rad(out * float(pair[1]))))
 
 
 ## Turns `bone` by `turn` (a skeleton-space rotation) on top of its pose.
@@ -1666,6 +1767,22 @@ static func _relooped(anim: Animation, length: float, phase: float) -> Animation
 ## LEAN_BONE's index if every locomotion clip animates its rotation, else -1.
 func _find_lean_bone() -> int:
 	return _find_animated_bone(LEAN_BONE)
+
+
+## Whether the tree rewrites `bone_name`'s position every frame: the
+## AnimationTree is deterministic (the default), so a track any clip in the
+## library has is written each frame, blended toward its rest where the
+## playing clips don't key it. _clamp_feet_to_ground leans on the same for
+## Hips.
+func _position_animated(bone_name: StringName) -> bool:
+	if _tree == null or not _tree.deterministic:
+		return false
+	for clip in _player.get_animation_list():
+		var anim := _player.get_animation(clip)
+		for i in anim.get_track_count():
+			if anim.track_get_type(i) == Animation.TYPE_POSITION_3D 					and anim.track_get_path(i).get_concatenated_subnames() == String(bone_name):
+				return true
+	return false
 
 
 ## `bone_name`'s index if every locomotion clip writes its rotation (so the

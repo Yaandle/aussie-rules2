@@ -128,5 +128,10 @@ func wants_bump_stance() -> bool:
 	return Input.is_action_pressed(&"bump_stance")
 
 
+## LT held (the spoil's trigger; a tap still spoils a ball in reach).
+func wants_shepherd() -> bool:
+	return Input.is_action_pressed(&"spoil")
+
+
 func wants_goal_set_shot() -> bool:
 	return InputManager.consume_buffered_press(&"goal_set_shot")

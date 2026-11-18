@@ -322,6 +322,16 @@ var _smother_dive_timer := 0.0
 var _smother_dive_direction := Vector3.FORWARD
 var _smother_dive_target: PlayerController = null
 
+# Intercept (RB on an opponent's handball, Tuning's "Intercept").
+var _intercept_timer := 0.0
+var _intercept_cooldown := 0.0
+var _intercept_dir := Vector3.FORWARD
+var _intercept_ball: Ball = null
+
+## Shepherd stance (LT held, Tuning's "Shepherd stance"), set each physics
+## frame in _update_locomotion.
+var _shepherding := false
+
 ## Slide tackle's dive-in (see _update_slide_dive): while _slide_dive_timer
 ## is positive, _update_locomotion overrides normal input-driven movement
 ## with a committed dash toward _slide_dive_direction, same "external
@@ -621,6 +631,7 @@ func _physics_process(delta: float) -> void:
 	_slide_dive_cooldown = _tick_down(_slide_dive_cooldown, delta)
 	_lunge_tap_cooldown = _tick_down(_lunge_tap_cooldown, delta)
 	_smother_dive_cooldown = _tick_down(_smother_dive_cooldown, delta)
+	_intercept_cooldown = _tick_down(_intercept_cooldown, delta)
 	_possession_held_seconds = _possession_held_seconds + delta if is_carrying() else 0.0
 	if _is_ruck_contestant:
 		_ruck_contest_timer = maxf(0.0, _ruck_contest_timer - delta)
@@ -699,6 +710,7 @@ func _physics_process(delta: float) -> void:
 	_try_lunge_tackle()
 	_try_bump_contact()
 	_try_smother_contact()
+	_try_intercept_contact()
 
 	# The real ground speed sets how fast the legs turn over (PlayerAnimation's
 	# "Stride matching"), not just which clips blend.
@@ -711,6 +723,12 @@ func _physics_process(delta: float) -> void:
 # ── Locomotion ───────────────────────────────────────────────────────
 
 func _update_locomotion(delta: float) -> void:
+	# Shepherd stance (LT held; Tuning's "Shepherd stance"): only free, on
+	# the feet, without the ball, outside an action and the kick stance.
+	_shepherding = _brain.wants_shepherd() and not is_carrying() and _action == Tuning.Action.NONE \
+		and not is_ragdolled() and _stun_timer <= 0.0 and not is_kick_aiming()
+	if _animation != null:
+		_animation.set_shepherd(_shepherding)
 	# A ragdoll owns the body outright: while it falls the capsule just
 	# follows its hips along the ground, so where the body lands is where
 	# the player is; while it waits to go rigid or blends into the get-up,
@@ -866,6 +884,15 @@ func _update_locomotion(delta: float) -> void:
 		velocity.z = _heading.z * _speed
 		return
 
+	# The RB intercept's step toward where the handball passes (see
+	# _update_intercept), re-aimed every frame.
+	if _intercept_timer > 0.0:
+		_heading = _intercept_dir
+		_speed = Tuning.INTERCEPT_STEP_SPEED
+		velocity.x = _heading.x * _speed
+		velocity.z = _heading.z * _speed
+		return
+
 	# A Lunge's dash the same way, re-aimed at the carrier every frame — see
 	# _try_lunge_tackle.
 	if _lunge_dash_timer > 0.0 and is_instance_valid(_lunge_dash_target):
@@ -950,6 +977,13 @@ func _update_locomotion(delta: float) -> void:
 		# ENTER/EXIT so a diagonal push near the threshold doesn't flicker
 		# in and out every frame.
 		var facing_alignment := _yaw_direction(_facing_yaw).dot(_wish_dir)
+		if _shepherding:
+			# Shepherd stance: the backpedal's frozen facing for any direction
+			# and no turn-out. Pinning the alignment inside the gate's
+			# hysteresis band holds the state; the speed is set below.
+			_backpedaling = true
+			_backpedal_seconds = 0.0
+			facing_alignment = 0.0
 		if _backpedaling:
 			_backpedal_seconds += delta
 			if _backpedal_seconds >= Tuning.backpedal_turnout_duration(agility_scale):
@@ -999,6 +1033,8 @@ func _update_locomotion(delta: float) -> void:
 			# constant that never reads gait, so it needs the same guard
 			# explicitly or a stunned player could still shuffle backward.
 			target_speed = Tuning.BACKPEDAL_SPEED * speed_scale if _stun_timer <= 0.0 else 0.0
+			if _shepherding:
+				target_speed = Tuning.SHEPHERD_SPEED * speed_scale if _stun_timer <= 0.0 else 0.0
 		else:
 			# From a near standstill there is no momentum to fight, so the
 			# heading just snaps to intent. Without this a player stopped
@@ -2570,6 +2606,7 @@ func _update_smother(delta: float) -> void:
 				_smother_dive_direction = to_target.normalized()
 		return
 	if live_smother_target() == null:
+		_update_intercept(delta)
 		return
 	if not _brain.wants_smother():
 		return
@@ -2597,6 +2634,89 @@ func live_smother_target() -> PlayerController:
 	return _nearest_player(Tuning.SMOTHER_COMMIT_RANGE, func(other: PlayerController) -> bool:
 		return other.team != team and other.is_carrying() \
 			and (other.is_kick_aiming() or other.is_mid_kick_swing()))
+
+
+## RB with no kicker to smother: the intercept (Tuning's "Intercept").
+## Steps toward the point where the opponent's handball passes closest,
+## arms out (PlayerAnimation.set_intercept); _try_intercept_contact takes the
+## ball if it comes within reach. Re-aims every frame of the step.
+func _update_intercept(delta: float) -> void:
+	if _intercept_timer > 0.0:
+		_intercept_timer = _tick_down(_intercept_timer, delta)
+		if is_instance_valid(_intercept_ball):
+			_intercept_dir = _intercept_heading(_intercept_ball)
+		if _intercept_timer <= 0.0 and _animation != null:
+			_animation.set_intercept(false)
+		return
+	var ball := live_intercept_ball()
+	if ball == null or not _brain.wants_smother():
+		return
+	_intercept_ball = ball
+	_intercept_dir = _intercept_heading(ball)
+	_intercept_timer = Tuning.INTERCEPT_DURATION
+	_intercept_cooldown = Tuning.INTERCEPT_COOLDOWN
+	if _animation != null:
+		_animation.set_intercept(true)
+
+
+## The opponent's handball an RB press would go for right now, or null:
+## in flight, under INTERCEPT_MAX_HEIGHT, its flat path over the next
+## INTERCEPT_LOOKAHEAD passing within INTERCEPT_COMMIT_RANGE.
+func live_intercept_ball() -> Ball:
+	if is_carrying() or _stun_timer > 0.0 or _action != Tuning.Action.NONE or is_ragdolled() \
+			or _intercept_timer > 0.0 or _intercept_cooldown > 0.0:
+		return null
+	var ball := _live_ball()
+	if ball == null or not ball.is_handball_flight() or ball.global_position.y > Tuning.INTERCEPT_MAX_HEIGHT:
+		return null
+	var thrower := ball.last_disposer() as PlayerController
+	if thrower == null or thrower.team == team:
+		return null
+	if _closest_pass_point(ball).distance_to(Vector3(global_position.x, 0.0, global_position.z)) \
+			> Tuning.INTERCEPT_COMMIT_RANGE:
+		return null
+	return ball
+
+
+## Where (flat) the ball's path over the next INTERCEPT_LOOKAHEAD comes
+## closest to this player.
+func _closest_pass_point(ball: Ball) -> Vector3:
+	var p := Vector3(ball.global_position.x, 0.0, ball.global_position.z)
+	var v := Vector3(ball.linear_velocity.x, 0.0, ball.linear_velocity.z)
+	var me := Vector3(global_position.x, 0.0, global_position.z)
+	var t := 0.0
+	if v.length_squared() > 0.0001:
+		t = clampf((me - p).dot(v) / v.length_squared(), 0.0, Tuning.INTERCEPT_LOOKAHEAD)
+	return p + v * t
+
+
+func _intercept_heading(ball: Ball) -> Vector3:
+	var to_point := _closest_pass_point(ball) - Vector3(global_position.x, 0.0, global_position.z)
+	return to_point.normalized() if to_point.length_squared() > 0.0001 else -global_transform.basis.z
+
+
+## After the move, every frame of the intercept step: the ball within
+## INTERCEPT_REACH of the chest (CatchPoint) or either hand is taken.
+func _try_intercept_contact() -> void:
+	if _intercept_timer <= 0.0 or not is_instance_valid(_intercept_ball):
+		return
+	var ball := _intercept_ball
+	if ball.is_held or not ball.is_handball_flight():
+		_intercept_timer = 0.0
+		if _animation != null:
+			_animation.set_intercept(false)
+		return
+	var near := ball.global_position.distance_to(_catch_point.global_position) <= Tuning.INTERCEPT_REACH
+	if not near and _animation != null:
+		for hand: StringName in [&"LeftHand", &"RightHand"]:
+			var at := _animation.hand_world_position(hand)
+			if at.is_finite() and ball.global_position.distance_to(at) <= Tuning.INTERCEPT_REACH * 0.6:
+				near = true
+	if near:
+		_intercept_timer = 0.0
+		if _animation != null:
+			_animation.set_intercept(false)
+		_complete_gather(ball)
 
 
 ## Runs every physics frame a smother dive is live, after the body has

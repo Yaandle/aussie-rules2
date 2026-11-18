@@ -163,6 +163,11 @@ func wants_bump_stance() -> bool:
 	return false
 
 
+## Held: the shepherd stance (LT, not carrying). AI never shepherds.
+func wants_shepherd() -> bool:
+	return false
+
+
 ## Edge-triggered: true for the one frame a set shot for goal should be
 ## lined up (within Tuning.GOAL_SET_SHOT_MAX_DISTANCE of goal, still under
 ## mark/free-kick protection) — see PlayerController._update_charge. AI has

@@ -1503,6 +1503,32 @@ const SMOTHER_DIVE_SPEED := 9.0        # m/s — a genuine committed dive, just 
 const SMOTHER_DIVE_DURATION := 0.55    # s the dive overrides normal locomotion
 const SMOTHER_DIVE_COOLDOWN := 0.6     # s between attempts — matches SPOIL_COOLDOWN, a committed tap, not a battering
 
+# Intercept (RB, playtest 2026-11-18: "keep RB the smother and have it act as
+# a steal if it is between a pass of the opponent's handball in the air").
+# With no kicker to smother, RB while an opponent's handball is passing
+# within INTERCEPT_COMMIT_RANGE (its path over the next INTERCEPT_LOOKAHEAD)
+# steps in at INTERCEPT_STEP_SPEED toward where it passes, arms out, and
+# takes the ball if it comes within INTERCEPT_REACH of the chest or a hand.
+# Physics and timing, no roll (RULES_REFERENCE §3); a handball can't be
+# marked, so it's a gather. Unplaytested feel guesses.
+const INTERCEPT_COMMIT_RANGE := 3.0    # m, closest approach of the ball's path
+const INTERCEPT_LOOKAHEAD := 0.8       # s of the ball's path considered
+const INTERCEPT_MAX_HEIGHT := 2.8      # m, above this it's over your head
+const INTERCEPT_STEP_SPEED := 6.0      # m/s
+const INTERCEPT_DURATION := 0.45       # s
+const INTERCEPT_COOLDOWN := 0.6        # s
+const INTERCEPT_REACH := 1.3           # m, arms spread: wider than a catch
+
+# Shepherd stance (LT held, not carrying; playtest 2026-11-18, board 6AA):
+# a low crouch, arms out, the body keeps facing the way it faced while the
+# feet go any way (the backpedal's frozen facing, with no turn-out), at
+# SHEPHERD_SPEED. Unplaytested feel guesses.
+const SHEPHERD_SPEED := 4.2            # m/s
+const SHEPHERD_CROUCH_DEG := 32.0      # hip and knee bend
+const SHEPHERD_LEAN_DEG := 14.0        # trunk forward
+const SHEPHERD_ARMS_OUT_DEG := 62.0    # arms out from the sides
+const SHEPHERD_BLEND_RATE := 10.0      # 1/s in and out
+
 
 # ── Bump ─────────────────────────────────────────────────────────────
 # LB hold + Right Stick flick (design brief priority 7): Madden's hit-stick
