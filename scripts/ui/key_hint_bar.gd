@@ -25,6 +25,9 @@ var on_dark := false
 const DARK_CHIP_FILL := Color(0.86, 0.86, 0.84, 0.92)
 const DARK_CHIP_TEXT := Color(0.12, 0.12, 0.12)
 const DARK_LABEL := Color(0.97, 0.96, 0.93, 0.9)
+## Label colour on the default (light) style. A screen over a bright 3D
+## backdrop (the Full Game pregame's oval) sets it darker; set before hints.
+var label_colour := Color(0.35, 0.35, 0.35)
 
 
 func _init() -> void:
@@ -58,7 +61,7 @@ func _pair(keys: Array, text: String) -> HBoxContainer:
 	pair.add_child(chips)
 
 	var label := UIStyle.label(text, UIStyle.SIZE_HINT,
-		DARK_LABEL if on_dark else Color(0.35, 0.35, 0.35),
+		DARK_LABEL if on_dark else label_colour,
 		UIStyle.WEIGHT_REGULAR, UIStyle.TRACK_HINT)
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.size_flags_vertical = Control.SIZE_SHRINK_CENTER

@@ -177,6 +177,68 @@ const SHAPES := {
 		["ring", 12.0, 6.5, 3.3],
 		["loop", 7.0, 11.0, 17.0, 11.0, 15.0, 20.5, 9.0, 20.5],
 	],
+	# ── Full Game pregame card glyphs (match setup reference image) ──
+	# Player with both arms up — PLAYER CONTROL.
+	&"player_arms": [
+		["ring", 12.0, 5.0, 2.6],
+		["poly", 4.5, 4.0, 8.5, 11.0, 15.5, 11.0, 19.5, 4.0],
+		["loop", 8.5, 11.0, 15.5, 11.0, 14.5, 20.5, 9.5, 20.5],
+	],
+	# Video camera: body, lens, viewfinder wedge — CAMERA.
+	&"camera": [
+		["loop", 3.0, 8.0, 16.0, 8.0, 16.0, 18.0, 3.0, 18.0],
+		["ring", 9.5, 13.0, 2.8],
+		["loop", 16.0, 11.0, 21.0, 8.5, 21.0, 17.5, 16.0, 15.0],
+	],
+	# Three linked nodes — FORMATION.
+	&"nodes": [
+		["ring", 12.0, 5.5, 2.6],
+		["ring", 5.0, 18.0, 2.6],
+		["ring", 19.0, 18.0, 2.6],
+		["poly", 10.7, 7.8, 6.3, 15.7],
+		["poly", 13.3, 7.8, 17.7, 15.7],
+		["poly", 7.6, 18.0, 16.4, 18.0],
+	],
+	# Shield with a tick — DEFENSIVE PRESSURE.
+	&"shield": [
+		["loop", 12.0, 3.0, 20.0, 6.0, 19.0, 13.5, 12.0, 21.0, 5.0, 13.5, 4.0, 6.0],
+		["poly", 8.5, 12.0, 11.0, 14.8, 15.8, 9.2],
+	],
+	# Top-down ground: halfway line, centre circle, goal squares — YOUR
+	# POSITION.
+	&"pitch": [
+		["loop", 3.0, 6.0, 21.0, 6.0, 21.0, 18.0, 3.0, 18.0],
+		["poly", 12.0, 6.0, 12.0, 18.0],
+		["ring", 12.0, 12.0, 2.4],
+		["loop", 3.0, 9.5, 6.0, 9.5, 6.0, 14.5, 3.0, 14.5],
+		["loop", 21.0, 9.5, 18.0, 9.5, 18.0, 14.5, 21.0, 14.5],
+	],
+	# Flag on a pole — FIELD.
+	&"flag": [
+		["poly", 6.5, 21.0, 6.5, 3.0],
+		["fill", 6.5, 3.5, 18.5, 7.5, 6.5, 11.5],
+	],
+	# Rising bars — DIFFICULTY.
+	&"bars": [
+		["fill", 4.0, 14.0, 7.5, 14.0, 7.5, 20.0, 4.0, 20.0],
+		["fill", 10.25, 10.0, 13.75, 10.0, 13.75, 20.0, 10.25, 20.0],
+		["fill", 16.5, 5.5, 20.0, 5.5, 20.0, 20.0, 16.5, 20.0],
+	],
+	# Clock face — QUARTER LENGTH.
+	&"clock": [
+		["ring", 12.0, 12.0, 8.5],
+		["poly", 12.0, 6.5, 12.0, 12.0, 15.8, 14.2],
+	],
+	# Sun behind a cloud — WEATHER.
+	&"weather": [
+		["ring", 9.0, 8.5, 3.2],
+		["poly", 9.0, 2.0, 9.0, 3.3],
+		["poly", 2.5, 8.5, 3.8, 8.5],
+		["poly", 4.4, 3.9, 5.3, 4.8],
+		["poly", 13.6, 3.9, 12.7, 4.8],
+		["loop", 7.0, 20.0, 19.0, 20.0, 21.0, 17.5, 19.5, 14.5, 16.5, 14.0,
+			14.5, 11.5, 11.0, 12.0, 9.5, 15.0, 7.0, 15.5, 5.5, 18.0],
+	],
 	# Paint chip: a square tile split by one line — the generic "pick a
 	# colour" row (SKIN/JERSEY/SHORTS on the Customise panel).
 	&"swatch": [

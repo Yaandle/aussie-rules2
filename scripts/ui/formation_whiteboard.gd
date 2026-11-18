@@ -112,6 +112,14 @@ var show_opposition := false:
 		show_opposition = value
 		queue_redraw()
 
+## Adds a "DEFEND ↓" caption under the oval to balance "ATTACK ↑" (the
+## Full Game pregame's match setup reference). Off by default so
+## TeamListScreen's board is unchanged.
+var show_defend_caption := false:
+	set(value):
+		show_defend_caption = value
+		queue_redraw()
+
 ## Slot index whose player marker gets a highlight ring in SINGLE_PLAYER
 ## pregame. -1 disables the ring (FULL TEAM mode or not in pregame).
 var highlighted_slot: int = -1:
@@ -287,6 +295,27 @@ func _draw() -> void:
 	_draw_formation(centre, scale)
 
 	_draw_label(centre + Vector2(0.0, -h * 0.5 - CAPTION_OFFSET), "ATTACK ↑", true)
+	if show_defend_caption:
+		_draw_label(centre + Vector2(0.0, h * 0.5 + CAPTION_OFFSET), "DEFEND ↓", true)
+
+
+## How many of the 18 markers the current dials put in the back, middle
+## and forward thirds of the ground, in that order, read off the same
+## target positions the board animates to. The Full Game pregame shows it
+## as a "6-6-6" style shape badge, so the shape it names is always the one
+## drawn, not a label stored next to it.
+func line_counts() -> Array[int]:
+	var counts: Array[int] = [0, 0, 0]
+	var third := Tuning.FIELD_HALF_LENGTH / 3.0
+	for idx in TeamFormation.SLOTS.size():
+		var x := _target_position(idx).x
+		if x < -third:
+			counts[0] += 1
+		elif x > third:
+			counts[2] += 1
+		else:
+			counts[1] += 1
+	return counts
 
 
 ## Maps a world-space position (X = depth/attack axis, Z = lateral) to a

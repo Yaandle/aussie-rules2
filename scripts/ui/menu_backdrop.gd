@@ -16,6 +16,13 @@ const FIELD_SCENE := preload("res://scenes/field/field.tscn")
 const PLAYER_SCENE := preload("res://scenes/player/player.tscn")
 const BALL_SCENE := preload("res://scenes/ball/ball.tscn")
 
+## Hold one framing instead of cycling the montage: the Full Game pregame
+## screen puts its panels over the oval and a cut every few seconds behind a
+## settings screen would only distract. Set before the node enters the tree.
+@export var still := false
+const STILL_FROM := Vector3(-6.0, 3.2, -46.0)
+const STILL_LOOK_AT := Vector3(4.0, 5.0, 30.0)
+
 const SHOT_DURATION := 4.5   ## s each framing holds before the next hard cut (slower dollies read calmer behind the cards)
 
 class Shot:
@@ -67,6 +74,11 @@ func _ready() -> void:
 		Shot.new(Vector3(-24.0, 2.0, -12.0), Vector3(-12.0, 2.2, -10.0),
 			Vector3(goal_x, 5.0, 0.0)),
 	]
+	if still:
+		_camera.global_position = STILL_FROM
+		_camera.look_at(STILL_LOOK_AT, Vector3.UP)
+		set_process(false)
+		return
 	_cut_to_shot()
 
 
