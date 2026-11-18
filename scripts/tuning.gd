@@ -1165,6 +1165,29 @@ const TACKLE_SLIDE_SLING_FORWARD := 0.6
 const TACKLE_SLIDE_SLING_SIDE := 0.8
 const TACKLE_SLIDE_SLING_PUSH_SCALE := 1.0
 const TACKLE_SLIDE_SLING_STRENGTH_SCALE := 0.6
+# The slinging tackler's plant (playtest 2026-11-18: "the tackler's feet
+# stay flat and he slides forward"; wanted a quick grab-and-throw that keeps
+# his feet and steps when his body is moved). For the TACKLE_SLING clip the
+# throw owns his legs, as the hold owns a TACKLE_GRAB's
+# (PlayerController._step_sling_plant): he keeps his run less what the
+# collision took (TackleBalance's tackler_velocity) and plants it out at
+# PLANT_BRAKE, his legs stepping on the locomotion blend under the clip
+# (PlayerAnimation's "Wrestle" layer) instead of sliding on its planted
+# stance. Before this he carried on at ACTION_SPEED_SCALE of whatever the
+# stick (or the viewer's scripted run) asked: 2.4 m/s for the whole second.
+# His trunk takes the hit on the upper-body ragdoll (take_knock): RECOIL_SHARE
+# of the closing speed back along the hit line, at TONE_SHARE of the hit's b
+# (the hold-up tackler's numbers). Adaptive stepping: while his simulated
+# chest is more than STEP_SLACK off the clip's, his feet step under it at
+# STEP_GAIN per metre past that, up to STEP_MAX. None of it touches the
+# carrier or who wins. PLANT off is the old path. Unplaytested feel guesses.
+const TACKLE_SLING_PLANT := true
+const TACKLE_SLING_PLANT_BRAKE := 9.0       # m/s²
+const TACKLE_SLING_RECOIL_SHARE := 0.5
+const TACKLE_SLING_TONE_SHARE := 0.5
+const TACKLE_SLING_STEP_SLACK := 0.05       # m
+const TACKLE_SLING_STEP_GAIN := 8.0         # 1/s
+const TACKLE_SLING_STEP_MAX := 1.5          # m/s
 # Who wins the collision (playtest 2026-10-30: outcomes from approach
 # angle, speed and both players' mass; "a head-on B where neither side
 # wins: both wrapped up, on their feet, held, a ball-up"; "an X where the

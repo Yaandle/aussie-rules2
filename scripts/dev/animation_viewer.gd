@@ -1963,12 +1963,23 @@ func _step_contest(delta: float) -> void:
 		var resolved := _contest_a._action == Tuning.Action.TACKLED \
 			or _contest_a._action == Tuning.Action.TACKLE_GRAB \
 			or _contest_a._action == Tuning.Action.TACKLE_TAKEDOWN \
+			or _contest_a._action == Tuning.Action.TACKLE_SLING \
 			or _contest_b._action == Tuning.Action.TACKLED \
 			or _contest_b._action == Tuning.Action.TACKLE_HELD \
 			or _contest_b._action == Tuning.Action.KNOCKED_BACK \
 			or _contest_b._action == Tuning.Action.SMOTHERED
 		if resolved or _contest_timer > CONTEST_TIMEOUT:
 			_contest_stage = ContestStage.HOLD
+			# The run-in was only ever to get A there. Left wishing on at
+			# APPROACH SPEED, a slinging A slid on under his clip at the
+			# action's 0.4 of it and sprinted off the floor once it ended
+			# (playtest 2026-11-18); a real player lets the stick go or turns.
+			if resolved and (_contest_kind == ContestKind.TACKLE_SLIDE \
+					or _contest_kind == ContestKind.TACKLE_LUNGE):
+				_brain_a.wish_dir = Vector3.ZERO
+				_brain_a.gait_value = 0.0
+				_brain_a.tackle_wanted = false
+				_brain_a.lunge_wanted = false
 
 	_update_contact_readout()
 	_contest_status_label.text = "A: %s   B: %s" % [

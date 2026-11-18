@@ -317,8 +317,10 @@ const CONTACT_HANDS_RANGE := 1.3     ## m between the players
 ## the way the bodies go instead of sliding on the clip's planted stance.
 ## The layer is back under half before the clip ends: Blend2 reports the
 ## time of whichever input is over half, and the state leaves on its clip's.
+## The sling's tackler gets the same legs while he plants his run out
+## (Tuning.TACKLE_SLING_PLANT, 2026-11-18): the clip's flat feet slid.
 const PRESS_SMOOTHING := 8.0
-const WRESTLE_STATES: Array[StringName] = [&"tackle_grab", &"tackle_held"]
+const WRESTLE_STATES: Array[StringName] = [&"tackle_grab", &"tackle_held", &"tackle_sling"]
 const WRESTLE_LEG_BONES: Array[StringName] = [&"LeftUpperLeg", &"LeftLowerLeg", &"LeftFoot",
 	&"RightUpperLeg", &"RightLowerLeg", &"RightFoot"]
 const WRESTLE_LEGS_NODE := &"legs"

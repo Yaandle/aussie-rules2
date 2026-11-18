@@ -379,6 +379,9 @@ var _tackle_hold_partner: PlayerController = null
 var _tackle_hold_is_tackler := false
 ## The held-up pair's shared velocity, braking out (Tuning.TACKLE_HOLD_BRAKE).
 var _tackle_hold_velocity := Vector3.ZERO
+## A slinging tackler's run as his feet plant it out (Tuning's
+## TACKLE_SLING_PLANT, _step_sling_plant).
+var _sling_velocity := Vector3.ZERO
 ## The held-up wrestle (Tuning's "The held-up wrestle"), one Dictionary shared
 ## by both players for the hold: "b" (the tackle formula's balance loss),
 ## "run" (the way the carrier drives, zero if they were standing), "velocity"
@@ -807,6 +810,12 @@ func _update_locomotion(delta: float) -> void:
 				var scale := Tuning.TACKLE_SLIDE_DIVE_SPEED / closing_speed
 				velocity.x *= scale
 				velocity.z *= scale
+		return
+
+	# A sling's throw owns the tackler's legs the same way: his run planted
+	# out under the clip, stepping where the hit moves him (_step_sling_plant).
+	if _action == Tuning.Action.TACKLE_SLING and Tuning.TACKLE_SLING_PLANT:
+		_step_sling_plant(delta)
 		return
 
 	# Walking back off a legal mark (Tuning.MARK_RETREAT_DISTANCE) owns the
@@ -1914,6 +1923,8 @@ func _slide_connect(target: PlayerController, impact: Dictionary, ruling: bool) 
 		target._get_tackled(self, false, _sling_impact(impact, target), ruling)
 		_fall_toward(impact.direction)
 		_begin(Tuning.Action.TACKLE_SLING)
+		if Tuning.TACKLE_SLING_PLANT:
+			_begin_sling_plant(impact)
 	else:
 		last_tackle.outcome = &"hold" if won else &"stand"
 		# With the ragdoll off for this pair, the stand is the hold-up clip.
@@ -1947,6 +1958,53 @@ func _hold_up(target: PlayerController, stand_impact: Dictionary, ruling: bool,
 	# Both sides of the same wrestle, started on the same frame.
 	_begin_tackle_hold(target, true)
 	target._begin_tackle_hold(self, false, impact)
+
+
+## The slinging tackler's side of the hit (Tuning's TACKLE_SLING_PLANT): he
+## keeps his run less what the collision took out of it, for
+## _step_sling_plant to plant out, and his trunk takes the carrier's weight
+## on the upper-body ragdoll. Arms on the clip's grab (no hands target: the
+## carrier is already a falling ragdoll). Changes nothing on the carrier.
+func _begin_sling_plant(impact: Dictionary) -> void:
+	var carried: Vector3 = impact.get("tackler_velocity", velocity)
+	_sling_velocity = Vector3(carried.x, 0.0, carried.z)
+	velocity.x = _sling_velocity.x
+	velocity.z = _sling_velocity.z
+	var line: Vector3 = impact.direction
+	take_knock(-line * maxf(float(impact.closing_speed), 0.0) * Tuning.TACKLE_SLING_RECOIL_SHARE,
+		float(impact.b) * Tuning.TACKLE_SLING_TONE_SHARE, false, Vector3.INF, line)
+
+
+## One tick of the slinging tackler's plant (_update_locomotion, for the
+## TACKLE_SLING clip): his carried run braked out at PLANT_BRAKE, plus a step
+## toward wherever the hit has pushed his trunk past his feet (adaptive
+## stepping, Tuning's TACKLE_SLING_STEP_*). The clip's legs step on the
+## locomotion blend at that velocity (PlayerAnimation's "Wrestle" layer).
+## Facing stays on the hit line (_fall_toward); the stick waits for the clip.
+func _step_sling_plant(delta: float) -> void:
+	_speed = 0.0
+	_sling_velocity = _sling_velocity.move_toward(Vector3.ZERO, Tuning.TACKLE_SLING_PLANT_BRAKE * delta)
+	var lean := _reaction_chest_shift()
+	var past := lean.length() - Tuning.TACKLE_SLING_STEP_SLACK
+	var step := Vector3.ZERO
+	if past > 0.0:
+		step = lean.normalized() * minf(past * Tuning.TACKLE_SLING_STEP_GAIN, Tuning.TACKLE_SLING_STEP_MAX)
+	velocity.x = _sling_velocity.x + step.x
+	velocity.z = _sling_velocity.z + step.z
+
+
+## How far an upper-body knock has carried the simulated chest off the
+## clip's, on the ground plane (world); zero with no knock on physics.
+func _reaction_chest_shift() -> Vector3:
+	if _ragdoll == null or _ragdoll.phase() != PlayerRagdoll.Phase.REACTING:
+		return Vector3.ZERO
+	var physics := _ragdoll.ragdoll()
+	var chest := physics.body(&"Chest") if physics != null else null
+	if chest == null:
+		return Vector3.ZERO
+	var shift := chest.global_position - physics.animated_transform(&"Chest").origin
+	shift.y = 0.0
+	return shift
 
 
 ## The push for a sling (Tuning's "Sling"): the hit's push without the
