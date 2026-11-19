@@ -90,6 +90,8 @@ SLOTS = {
 	"boot": 6, "sole": 7, "studs": 8, "hair": 9, "eyes": 10, "mouth": 11,
 	# Build 8: the band round each sock, in the kit's accent colour.
 	"accent": 12,
+	# Build 8: the whites of the eyes (the "eyes" faces are now the irises).
+	"eyewhite": 13,
 }
 
 ## Preview colours (sRGB): Blender's viewport and the .glb's vertex colours.
@@ -102,7 +104,7 @@ PREVIEW = {
 	"trim": (0.07, 0.07, 0.08), "shorts": (0.07, 0.07, 0.08), "socks": (0.07, 0.07, 0.08),
 	"boot": (0.10, 0.10, 0.11), "sole": (0.05, 0.05, 0.06), "studs": (0.55, 0.55, 0.57),
 	"hair": (0.13, 0.09, 0.06), "eyes": (0.05, 0.05, 0.06), "mouth": (0.50, 0.30, 0.22),
-	"accent": (0.78, 0.12, 0.12),
+	"accent": (0.78, 0.12, 0.12), "eyewhite": (0.86, 0.84, 0.80),
 }
 
 ## The sash (Build 8): a diagonal band from the left shoulder to the right
@@ -115,12 +117,15 @@ PREVIEW = {
 ## size. Build 7's V is a flat 0.5, under SASH_UV_BASE - 0.5, so the same
 ## shader never draws a sash on it. SASH_TOP and SASH_BOTTOM are points on
 ## the band's centre line, (x, z) in metres (+x is the body's left).
-SASH_TOP = (0.215, 1.800)
-SASH_BOTTOM = (-0.175, 1.230)
+##
+## Second pass, from the reference: steeper (29° off vertical, was 34°),
+## wider (SASH_HALF_WIDTH), and running down to the lower hem.
+SASH_TOP = (0.205, 1.820)
+SASH_BOTTOM = (-0.150, 1.180)
 SASH_UV_BASE = 2.0
 ## The band's half width (m), for the preview colours only: the game's is
 ## SASH_HALF_WIDTH in player_kit.gdshader. Keep them equal.
-SASH_HALF_WIDTH = 0.058
+SASH_HALF_WIDTH = 0.068
 ## Every slot that can carry the sash: the guernsey and the number on it.
 SASH_SLOTS = ("jersey", "number")
 
@@ -453,28 +458,32 @@ def thigh_table(K):
 		# (vastus lateralis), a full teardrop of vastus medialis low and
 		# inside, hamstrings behind.
 		(0.295, P(0.100, 0.097, 0.112, 0.101, ((50, 40, 0.008), (270, 35, 0.006)))),
-		(0.375, P(0.091, 0.097, 0.101, 0.090, ((135, 30, 0.011), (40, 35, 0.004)))),
-		(0.428, P(0.073, 0.086, 0.081, 0.073, ((140, 28, 0.009),))),
+		(0.375, P(0.093, 0.099, 0.103, 0.091, ((135, 30, 0.012), (40, 35, 0.005)))),
+		(0.428, P(0.074, 0.088, 0.082, 0.074, ((140, 28, 0.010),))),
 		(K - 0.020, P(0.064, 0.067, 0.070, 0.062)),
 		# Knee: the kneecap's flat front, the hamstring tendons either side
 		# behind.
 		(K, P(0.061, 0.061, 0.068, 0.058)),
 		(K + 0.030, P(0.060, 0.060, 0.061, 0.064)),
-		(K + 0.058, P(0.062, 0.062, 0.058, 0.072)),
+		(K + 0.058, P(0.063, 0.063, 0.058, 0.074)),
+		# Build 8: the reference's socks sit at mid-calf, so the top of the
+		# calf is bare skin: the inner head of gastrocnemius the bigger and
+		# lower one, both bulging behind.
+		(K + 0.105, P(0.071, 0.077, 0.061, 0.090, ((235, 30, 0.008), (305, 30, 0.004)))),
+		(K + 0.150, P(0.074, 0.081, 0.063, 0.093, ((235, 30, 0.010), (305, 30, 0.004)))),
 	]
 
 
 def sock_table(K):
 	return [
-		(K + 0.064, P(0.069, 0.069, 0.064, 0.080)),   # sock top band
-		# Build 8: the accent band a few centimetres under the sock's top
-		# (SOCK_BAND below: the faces between these two rings), as in the
-		# reference. Its rings sit on the calf's straight run.
-		(K + 0.082, P(0.070, 0.071, 0.064, 0.083)),
-		(K + 0.112, P(0.072, 0.075, 0.064, 0.088, ((235, 30, 0.004),))),
-		# Calf: the inner head of gastrocnemius is the bigger and lower one.
-		(K + 0.155, P(0.074, 0.080, 0.064, 0.091, ((235, 30, 0.009),))),
-		(K + 0.235, P(0.066, 0.070, 0.058, 0.079)),
+		# Build 8: the sock's top at mid-calf, a few millimetres proud of the
+		# skin above it so the cuff has an edge, then the accent band a
+		# couple of centimetres under it (SOCK_BAND: the faces between the
+		# second and third rings), as in the reference.
+		(K + 0.166, P(0.077, 0.083, 0.066, 0.095)),   # sock top
+		(K + 0.186, P(0.075, 0.081, 0.065, 0.092)),
+		(K + 0.212, P(0.072, 0.077, 0.063, 0.087)),
+		(K + 0.250, P(0.066, 0.069, 0.058, 0.078)),
 		(K + 0.325, P(0.053, 0.054, 0.051, 0.058)),
 		(K + 0.410, P(0.045, 0.045, 0.045, 0.047)),
 		(K + 0.452, P(0.040, 0.040, 0.042, 0.041)),   # just above the boot's collar
@@ -543,6 +552,12 @@ def build_legs(skin):
 
 # ── arms and hands ────────────────────────────────────────────────────
 
+## Build 8: radius scale on the upper arm and forearm (not the elbow).
+ARM_BULK = 1.14
+## Build 8: the hands' size about the wrist (the reference's are big).
+HAND_SCALE = 1.12
+
+
 def build_arms(skin):
 	"""Shoulder dome to wrist. theta 0 is up-and-out in the A-pose (the
 	side of the deltoid), 90 front, 180 the armpit side, 270 behind."""
@@ -585,8 +600,8 @@ def build_arms(skin):
 			# Build 8: ~6% more through the deltoid, biceps, triceps and
 			# forearm than Build 7 (the reference is a strong, not a big,
 			# arm); the elbow stays narrower than both.
-			(0.014, P(0.076, 0.058, 0.069, 0.069, ((0, 50, 0.004),))),
-			(0.075, P(0.072, 0.056, 0.065, 0.066)),
+			(0.014, P(0.087, 0.060, 0.073, 0.073, ((0, 50, 0.006),))),
+			(0.075, P(0.082, 0.059, 0.070, 0.070)),
 			(0.140, P(0.059, 0.053, 0.061, 0.060)),
 			# Biceps in front, the triceps behind: a long, lean upper arm.
 			(0.220, P(0.055, 0.052, 0.064, 0.061, ((90, 35, 0.003), (270, 35, 0.003)))),
@@ -604,6 +619,13 @@ def build_arms(skin):
 		rings = []
 		for t, prof in table:
 			c, axis = arm_point(t)
+			# Build 8: the reference's thicker biceps and forearms. The
+			# elbow and the deltoid's top, under the guernsey's cap, stay
+			# as they are.
+			k = ARM_BULK if 0.10 < t < W - 0.03 and abs(t - E) > 0.02 else 1.0
+			if k != 1.0:
+				prof = dict(prof, out=prof["out"] * k, **{"in": prof["in"] * k},
+					front=prof["front"] * k, back=prof["back"] * k)
 			rings.append((c, axis, prof, arm_w(t)))
 		first = len(skin.faces)
 		lofted = skin.loft(rings, "skin", 12, math.radians(15.0), lambda ax: frame(ax, sign))
@@ -624,58 +646,67 @@ def build_hands(skin):
 	read as one mass beyond that. Palm faces the body's midline with the
 	thumb forward: the pose 6thbuild's clips were authored against."""
 	for sfx, sign in ((".l", 1.0), (".r", -1.0)):
-		w0, w1 = bone("hand" + sfx)
-		hd, la = "hand" + sfx, "lowerarm" + sfx
-		d, s, f = frame(w1 - w0, sign)
-		palm_n = -s   # palm faces the midline
+		first_v = len(skin.co)
+		build_hand(skin, sfx, sign)
+		w0, _ = bone("hand" + sfx)
+		for i in range(first_v, len(skin.co)):
+			skin.co[i] = w0 + (skin.co[i] - w0) * HAND_SCALE
 
-		def fr(_ax):
-			return d, s, f
 
-		palm = [
-			(-0.012, P(0.022, 0.022, 0.031, 0.029)),
-			(0.002, P(0.021, 0.023, 0.034, 0.030)),
-			(0.034, P(0.020, 0.025, 0.041, 0.037)),
-			(0.068, P(0.019, 0.024, 0.045, 0.040)),
-			(0.088, P(0.017, 0.021, 0.044, 0.038)),
-		]
-		rings = [(w0 + d * t, d, prof, {hd: 0.6, la: 0.4} if t <= 0.0 else {hd: 1.0}) for t, prof in palm]
-		lofted = skin.loft(rings, "skin", 8, math.pi / 8.0, fr)
-		skin.cap(lofted[0], w0 - d * 0.02, {hd: 0.6, la: 0.4}, "skin")
-		skin.cap(lofted[-1], w0 + d * 0.094, {hd: 1.0}, "skin")
+def build_hand(skin, sfx, sign):
+	"""One hand at Build 7's size; build_hands scales it about the wrist."""
+	w0, w1 = bone("hand" + sfx)
+	hd, la = "hand" + sfx, "lowerarm" + sfx
+	d, s, f = frame(w1 - w0, sign)
+	palm_n = -s   # palm faces the midline
 
-		def finger(base, direction, lengths, curls, half):
-			"""A square-section finger, each segment bent `curls` (radians,
-			cumulative) toward the palm."""
-			pts = [base]
-			dirs = []
-			p = base
-			for length, curl in zip(lengths, curls):
-				dd = (direction * math.cos(curl) + palm_n * math.sin(curl)).normalized()
-				dirs.append(dd)
-				p = p + dd * length
-				pts.append(p)
-			rings_f = []
-			for k, c in enumerate(pts):
-				ax = dirs[min(k, len(dirs) - 1)] if k == 0 or k == len(pts) - 1 else (dirs[k - 1] + dirs[k]).normalized()
-				h = half * (0.82 if k == len(pts) - 1 else 1.0)
-				rings_f.append((c, ax, P(h, h, h * 1.08, h * 1.08), {hd: 1.0}))
+	def fr(_ax):
+		return d, s, f
 
-			def finger_frame(ax):
-				u = (palm_n - ax * palm_n.dot(ax)).normalized()
-				return ax, u, ax.cross(u)
+	palm = [
+		(-0.012, P(0.022, 0.022, 0.031, 0.029)),
+		(0.002, P(0.021, 0.023, 0.034, 0.030)),
+		(0.034, P(0.020, 0.025, 0.041, 0.037)),
+		(0.068, P(0.019, 0.024, 0.045, 0.040)),
+		(0.088, P(0.017, 0.021, 0.044, 0.038)),
+	]
+	rings = [(w0 + d * t, d, prof, {hd: 0.6, la: 0.4} if t <= 0.0 else {hd: 1.0}) for t, prof in palm]
+	lofted = skin.loft(rings, "skin", 8, math.pi / 8.0, fr)
+	skin.cap(lofted[0], w0 - d * 0.02, {hd: 0.6, la: 0.4}, "skin")
+	skin.cap(lofted[-1], w0 + d * 0.094, {hd: 1.0}, "skin")
 
-			lf = skin.loft(rings_f, "skin", 4, math.pi / 4.0, finger_frame)
-			skin.cap(lf[0], pts[0] - dirs[0] * 0.006, {hd: 1.0}, "skin")
-			skin.cap(lf[-1], pts[-1] + dirs[-1] * 0.010, {hd: 1.0}, "skin")
+	def finger(base, direction, lengths, curls, half):
+		"""A square-section finger, each segment bent `curls` (radians,
+		cumulative) toward the palm."""
+		pts = [base]
+		dirs = []
+		p = base
+		for length, curl in zip(lengths, curls):
+			dd = (direction * math.cos(curl) + palm_n * math.sin(curl)).normalized()
+			dirs.append(dd)
+			p = p + dd * length
+			pts.append(p)
+		rings_f = []
+		for k, c in enumerate(pts):
+			ax = dirs[min(k, len(dirs) - 1)] if k == 0 or k == len(pts) - 1 else (dirs[k - 1] + dirs[k]).normalized()
+			h = half * (0.82 if k == len(pts) - 1 else 1.0)
+			rings_f.append((c, ax, P(h, h, h * 1.08, h * 1.08), {hd: 1.0}))
 
-		knuckle = w0 + d * 0.080
-		for off, lengths in ((0.029, (0.042, 0.034)), (0.010, (0.045, 0.036)),
-				(-0.009, (0.042, 0.034)), (-0.027, (0.035, 0.028))):
-			finger(knuckle + f * off, d, lengths, (math.radians(24), math.radians(58)), 0.0108)
-		thumb_base = w0 + d * 0.024 + f * 0.028 + palm_n * 0.011
-		thumb_dir = (d * 0.60 + f * 0.62 + palm_n * 0.30).normalized()
-		finger(thumb_base, thumb_dir, (0.038, 0.032), (math.radians(10), math.radians(35)), 0.0120)
+		def finger_frame(ax):
+			u = (palm_n - ax * palm_n.dot(ax)).normalized()
+			return ax, u, ax.cross(u)
+
+		lf = skin.loft(rings_f, "skin", 4, math.pi / 4.0, finger_frame)
+		skin.cap(lf[0], pts[0] - dirs[0] * 0.006, {hd: 1.0}, "skin")
+		skin.cap(lf[-1], pts[-1] + dirs[-1] * 0.010, {hd: 1.0}, "skin")
+
+	knuckle = w0 + d * 0.080
+	for off, lengths in ((0.029, (0.042, 0.034)), (0.010, (0.045, 0.036)),
+			(-0.009, (0.042, 0.034)), (-0.027, (0.035, 0.028))):
+		finger(knuckle + f * off, d, lengths, (math.radians(24), math.radians(58)), 0.0108)
+	thumb_base = w0 + d * 0.024 + f * 0.028 + palm_n * 0.011
+	thumb_dir = (d * 0.60 + f * 0.62 + palm_n * 0.30).normalized()
+	finger(thumb_base, thumb_dir, (0.038, 0.032), (math.radians(10), math.radians(35)), 0.0120)
 
 
 # ── neck, head and hair ───────────────────────────────────────────────
@@ -692,8 +723,8 @@ HEAD = [
 	(1.872, -0.042, 0.032, 0.031, 0.032, 0.030, 0.026),
 	(1.888, -0.034, 0.067, 0.063, 0.058, 0.050, 0.040),   # under the chin
 	(1.914, -0.021, 0.086, 0.080, 0.074, 0.067, 0.058),   # chin and the jaw's line
-	(1.952, -0.008, 0.094, 0.090, 0.085, 0.081, 0.078),   # mouth, the jaw's corner
-	(1.990, 0.000, 0.100, 0.097, 0.088, 0.093, 0.097),    # cheekbones
+	(1.952, -0.008, 0.094, 0.091, 0.088, 0.082, 0.078),   # mouth, the jaw's corner
+	(1.990, 0.000, 0.100, 0.098, 0.092, 0.094, 0.097),    # cheekbones
 	(2.024, 0.002, 0.102, 0.092, 0.088, 0.098, 0.104),    # eyes
 	(2.048, 0.003, 0.105, 0.090, 0.087, 0.100, 0.107),    # brow ridge
 	(2.084, 0.005, 0.094, 0.085, 0.084, 0.098, 0.104),    # forehead
@@ -701,9 +732,16 @@ HEAD = [
 	(2.141, 0.008, 0.042, 0.042, 0.042, 0.050, 0.054),
 ]
 HEAD_X = 0.007
-## 14, as Build 7: an even number of segments with one at the front puts a
-## ridge down the middle of the face, which broke the mouth and the brows.
-HEAD_SEGMENTS = 14
+## Build 8: 16, turned half a segment (HEAD_PHASE) so the middle of the
+## face is a flat facet, not a ridge (a ridge there broke the mouth and the
+## brows). Build 7 has 14 with no turn.
+HEAD_SEGMENTS = 16
+HEAD_PHASE = 0.5
+## Build 8: the head and hair are scaled by this about HEAD_PIVOT after
+## they're built (features and all), for the reference's bigger head. The
+## pivot is under the jaw, so the neck's join doesn't move.
+HEAD_SCALE = 1.07
+HEAD_PIVOT = (0.007, 0.0, 1.900)
 
 
 def head_row(z):
@@ -759,9 +797,10 @@ def build_neck_and_head(skin, hair):
 	head_w = {"head": 1.0}
 	n = HEAD_SEGMENTS
 	start_face = len(skin.faces)
+	start_v = len(skin.co)
 	head_rings = []
 	for row in HEAD:
-		pts = [head_point(2.0 * math.pi * i / n, row[0]) for i in range(n)]
+		pts = [head_point(2.0 * math.pi * (i + HEAD_PHASE) / n, row[0]) for i in range(n)]
 		head_rings.append(skin.ring(pts, head_w))
 	for k in range(len(HEAD) - 1):
 		ca = Vector((HEAD_X, HEAD[k][1], HEAD[k][0]))
@@ -781,30 +820,37 @@ def build_neck_and_head(skin, hair):
 			return Vector((x, row[1] - row[2], z)), FORWARD
 		return hit + normal * lift, normal
 
-	# Nose: a faceted wedge off the face, bridge to tip.
-	top, _ = on_face(HEAD_X, 2.040, 0.0)
-	bl, _ = on_face(HEAD_X - 0.018, 1.982, 0.0)
-	br, _ = on_face(HEAD_X + 0.018, 1.982, 0.0)
-	tip_base, _ = on_face(HEAD_X, 1.990, 0.0)
-	tip = tip_base + FORWARD * 0.026 + Vector((0, 0, -0.004))
-	under = (bl + br) * 0.5 + FORWARD * 0.011 + Vector((0, 0, -0.005))
+	# Nose: a faceted wedge off the face, bridge to tip. Build 8: a longer
+	# bridge, wider wings and a stronger tip, as the reference's.
+	top, _ = on_face(HEAD_X, 2.044, 0.0)
+	bl, _ = on_face(HEAD_X - 0.020, 1.978, 0.0)
+	br, _ = on_face(HEAD_X + 0.020, 1.978, 0.0)
+	tip_base, _ = on_face(HEAD_X, 1.986, 0.0)
+	tip = tip_base + FORWARD * 0.030 + Vector((0, 0, -0.004))
+	under = (bl + br) * 0.5 + FORWARD * 0.013 + Vector((0, 0, -0.006))
 	i_top, i_bl, i_br, i_tip, i_un = (skin.v(p, head_w) for p in (top, bl, br, tip, under))
 	nose_c = (top + bl + br) / 3.0
 	for tri in ((i_top, i_tip, i_bl), (i_top, i_br, i_tip), (i_bl, i_tip, i_un), (i_tip, i_br, i_un)):
 		skin.face(list(tri), "skin", (nose_c,))
 
-	# Eyes: dark almond quads in the shade of the brow.
+	# Eyes. Build 8: an almond of white with a dark iris on it, as the
+	# reference's open, level gaze; Build 7's were a dark almond only.
 	for ex in (-0.035, 0.035):
 		corners = []
-		for dx, dz in ((-0.013, -0.004), (0.0, -0.0065), (0.013, -0.002), (0.0, 0.006)):
+		for dx, dz in ((-0.0145, -0.0035), (0.0, -0.0068), (0.0145, -0.0015), (0.0, 0.0062)):
 			outer = 0.002 if dx * ex > 0 else 0.0
-			p, _ = on_face(HEAD_X + ex + dx, 2.022 + dz + outer, 0.0025)
+			p, _ = on_face(HEAD_X + ex + dx, 2.022 + dz + outer, 0.0022)
 			corners.append(skin.v(p, head_w))
-		skin.face(corners, "eyes", FORWARD)
+		skin.face(corners, "eyewhite", FORWARD)
+		iris = []
+		for dx, dz in ((-0.0058, 0.0), (0.0, -0.0060), (0.0058, 0.0), (0.0, 0.0058)):
+			p, _ = on_face(HEAD_X + ex * 0.97 + dx, 2.0225 + dz, 0.0032)
+			iris.append(skin.v(p, head_w))
+		skin.face(iris, "eyes", FORWARD)
 
 	# Mouth: a short darker line.
 	corners = []
-	for dx, dz in ((-0.020, 0.0), (0.020, 0.0), (0.016, 0.005), (-0.016, 0.005)):
+	for dx, dz in ((-0.022, 0.0), (0.022, 0.0), (0.017, 0.0045), (-0.017, 0.0045)):
 		p, _ = on_face(HEAD_X + dx, 1.944 + dz, 0.0018)
 		corners.append(skin.v(p, head_w))
 	skin.face(corners, "mouth", FORWARD)
@@ -821,14 +867,24 @@ def build_neck_and_head(skin, hair):
 
 	build_hair(hair, on_face)
 
+	# Build 8: the bigger head, features and hair together.
+	pv = Vector(HEAD_PIVOT)
+	for i in range(start_v, len(skin.co)):
+		skin.co[i] = pv + (skin.co[i] - pv) * HEAD_SCALE
+	for i in range(len(hair.co)):
+		hair.co[i] = pv + (hair.co[i] - pv) * HEAD_SCALE
+
 
 ## Hairline height by angle round the head (theta as head_point: 0 the left
 ## side, 90 the front, 270 the back): a straight front edge, a little
 ## recession at the temples, sideburns down in front of each ear, up over
 ## the ear, and a nape at the back. Short back and sides, longer on top.
-HAIRLINE = [(0, 2.030), (10, 2.000), (18, 2.004), (34, 2.062), (60, 2.088), (90, 2.094),
-	(120, 2.088), (146, 2.062), (162, 2.004), (170, 2.000), (180, 2.030), (205, 1.972),
-	(240, 1.950), (270, 1.944), (300, 1.950), (335, 1.972), (360, 2.034)]
+##
+## Build 8: the reference's short sideburns (they stop level with the top of
+## the ear, where Build 7's ran down in front of it) and temples set back.
+HAIRLINE = [(0, 2.056), (10, 2.034), (18, 2.040), (34, 2.072), (60, 2.090), (90, 2.096),
+	(120, 2.090), (146, 2.072), (162, 2.040), (170, 2.034), (180, 2.056), (205, 1.990),
+	(240, 1.962), (270, 1.954), (300, 1.962), (335, 1.990), (360, 2.056)]
 
 
 def hairline(deg):
@@ -863,22 +919,38 @@ def build_hair(hair, on_face):
 			z = lerp(edge, crown, u)
 			front = max(0.0, math.sin(th))
 			if not hair_rings:
-				g = 0.007
+				g = 0.006
 			else:
-				# Short back and sides that keep the skull's shape; the
-				# volume is on top, more of it toward the front.
-				g = 0.008 + (0.004 + 0.020 * front) * u + 0.022 * u * u
+				# Build 8: a tight taper at the back and sides (4-8 mm, a
+				# short back and sides close to the skull), and the volume
+				# on top, most of it at the front.
+				# At least 7 mm: thinner, the 16-sided skull's corners came
+				# through between the hair's 20 at the nape.
+				g = 0.007 + 0.005 * u + (0.012 + 0.016 * front) * u * u
+				# Fullness over the temples and the top of the sides, so
+				# from the front the hair is as broad as the head rather
+				# than a narrow dome.
+				g += 0.040 * u * (1.0 - u) * (0.6 + 0.4 * front)
 			p = head_point(th, z, g)
 			if hair_rings and u >= 0.2:
-				p.z += 0.030 * u * front   # lift at the front
-				p.x -= 0.010 * u * u       # swept to the right
+				# The top stands up off the skull (head_point only grows the
+				# rings outward, which near the crown isn't up), higher at
+				# the front: the reference's quiff. Swept to the right (-x)
+				# from a part over the left eye.
+				p.z += (0.002 + 0.010 * front) * u * u
+				p.x -= 0.014 * u * u * front
+				if u >= 0.45 and i % 2:
+					p.z += 0.006 * front   # chunky strands along the front
 			pts.append(p)
 		hair_rings.append(hair.ring(pts, head_w))
 	hc = Vector((HEAD_X, 0.0, 2.05))
 	hair.bridge(hair_rings[0], hair_rings[1], "hair", hc, hc, hint=Vector((0, 0, -1)))
 	for k in range(1, len(hair_rings) - 1):
 		hair.bridge(hair_rings[k], hair_rings[k + 1], "hair", Vector((HEAD_X, 0.0, 1.95)), Vector((HEAD_X, 0.0, 2.2)))
-	hair.cap(hair_rings[-1], Vector((HEAD_X, 0.004, crown + 0.024)), head_w, "hair")
+	# The apex sits above the last ring's highest point (the lifted front),
+	# or the cap's faces there turn inside out and the skull shows.
+	top_z = max(hair.co[k].z for k in hair_rings[-1])
+	hair.cap(hair_rings[-1], Vector((HEAD_X - 0.006, -0.004, max(crown + 0.010, top_z + 0.004))), head_w, "hair")
 
 	for ex in (-0.035, 0.035):
 		corners = []
@@ -927,24 +999,37 @@ BLADES = ((246, 22, 0.007), (294, 22, 0.007))
 ##
 ## Build 8: a stronger V than Build 7: the chest and lats ~4% wider, the
 ## shoulder cap 0.8 cm further out on each side, the waist as before.
+##
+## Build 8 (second pass): worn out over the shorts, as the reference's hangs:
+## from the lats it runs almost straight down to a hem at the top of the
+## shorts' seat, standing clear of the shorts' waistband and hips all
+## round, so it reads as a loose, boxy guernsey rather than a tucked-in
+## second skin. Its hem stays above the shorts' rows that a lifted thigh
+## shoves up (SHORTS_HIPS rows 2-3), so a stride can't push them out
+## through it. The bottom rows' weights are all pelvis (torso_w).
 GUERNSEY = [
-	(1.228, 0.155, 0.095, 0.103, 2.2, ()),
-	(1.262, 0.152, 0.094, 0.102, 2.2, ()),
-	(1.320, 0.152, 0.096, 0.103, 2.2, ()),
-	(1.400, 0.164, 0.101, 0.107, 2.3, ()),
-	(1.480, 0.185, 0.107, 0.111, 2.4, ()),
+	(1.168, 0.226, 0.133, 0.150, 2.6, ()),     # hem, over the top of the seat
+	(1.205, 0.222, 0.131, 0.147, 2.6, ()),
+	(1.262, 0.212, 0.126, 0.138, 2.5, ()),     # over the shorts' waistband
+	(1.330, 0.204, 0.120, 0.126, 2.4, ()),
+	(1.400, 0.202, 0.117, 0.120, 2.4, ()),
+	(1.480, 0.205, 0.116, 0.117, 2.4, ()),
 	(1.550, 0.207, 0.115, 0.115, 2.5, LATS),
-	(1.610, 0.221, 0.120, 0.117, 2.6, LATS + PECS),
-	(1.665, 0.233, 0.122, 0.116, 2.7, PECS + BLADES),
-	(1.712, 0.249, 0.115, 0.110, 2.9, BLADES),
-	(1.742, 0.267, 0.103, 0.100, 3.0, ()),
-	(1.767, 0.278, 0.091, 0.091, 3.0, ()),     # the cap's widest, over the deltoid
+	(1.610, 0.226, 0.121, 0.118, 2.6, LATS + PECS),
+	(1.665, 0.240, 0.123, 0.117, 2.7, PECS + BLADES),
+	(1.712, 0.258, 0.116, 0.111, 2.9, BLADES),
+	(1.742, 0.276, 0.104, 0.101, 3.0, ()),
+	(1.767, 0.287, 0.092, 0.092, 3.0, ()),     # the cap's widest, over the deltoid
 	(1.788, 0.259, 0.081, 0.084, 2.8, ()),
 	(1.806, 0.229, 0.075, 0.081, 2.6, ()),
 	(1.824, 0.182, 0.071, 0.078, 2.4, ()),
 	(1.842, 0.102, 0.069, 0.077, 2.0, ()),
 ]
 GUERNSEY_SEGMENTS = 24
+## Build 8: the collar and armhole bindings are the guernsey's own colour,
+## as on the reference (Build 7's are the contrasting trim). The number's
+## digits still use the trim colour.
+TRIM_SLOT = "jersey"
 ## The neck's centre line, front to back (build_neck_and_head's ny): the
 ## collar and the guernsey's top rings sit on it.
 COLLAR_Y = 0.012
@@ -963,7 +1048,14 @@ def build_guernsey(shirt, arm_trees):
 		y = lerp(spine_y(z), COLLAR_Y, ramp(z, 1.75, 1.84))
 		rings.append((Vector((0.004, y, z)), UP, P(hw, hw, fr, bk, bulge, sq), torso_w))
 	first = len(shirt.faces)
-	shirt.loft(rings, "jersey", n, 0.0, torso_frame)
+	hem_ring = shirt.loft(rings, "jersey", n, 0.0, torso_frame)[0]
+	# Build 8: the hem hangs free, so it gets a lining folded up inside it
+	# (thickness at the edge, and nothing to see into from below).
+	z0, hw, fr, bk, sq, _ = GUERNSEY[0]
+	c_fold = Vector((0.004, spine_y(z0 + 0.03), z0 + 0.03))
+	fold = shirt.ring([profile_point(c_fold, SIDE, FORWARD, 2.0 * math.pi * i / n,
+		P(hw - 0.008, hw - 0.008, fr - 0.008, bk - 0.008, sq=sq)) for i in range(n)], torso_w)
+	shirt.bridge(hem_ring, fold, "jersey", c_fold, c_fold, hint=Vector((0, 0, -1)))
 
 	# The number: guernsey faces on the back inside the number box (plus a
 	# face's width, so the box never straddles a jersey face) become
@@ -997,8 +1089,8 @@ def build_guernsey(shirt, arm_trees):
 	high = collar_ring(1.868, 0.082, 0.066, 0.077, 0.032)
 	fold = collar_ring(1.860, 0.076, 0.061, 0.072, 0.030)
 	cc_lo, cc_hi = Vector((0.004, COLLAR_Y, 1.80)), Vector((0.004, COLLAR_Y, 1.90))
-	shirt.bridge(low, high, "trim", cc_lo, cc_hi)
-	shirt.bridge(high, fold, "trim", cc_lo, cc_hi, hint=UP)
+	shirt.bridge(low, high, TRIM_SLOT, cc_lo, cc_hi)
+	shirt.bridge(high, fold, TRIM_SLOT, cc_lo, cc_hi, hint=UP)
 
 	build_armholes(shirt, shirt.bvh(shirt.faces[first:]), arm_trees)
 
@@ -1074,7 +1166,7 @@ def build_armholes(shirt, tree, arm_trees):
 					out = inner[i][2] + inner[j][2]
 					if k == 0:
 						out = -out
-				shirt.face(quad, "trim", out)
+				shirt.face(quad, TRIM_SLOT, out)
 
 
 # ── shorts ────────────────────────────────────────────────────────────

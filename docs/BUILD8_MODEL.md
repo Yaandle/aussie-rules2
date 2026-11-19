@@ -21,7 +21,8 @@ covers what changed.
 | Exporter, checker, review sheets | `export_8thbuild.py`, `check_8thbuild_deform.py`, `render_8thbuild_review.py` in `tools/blender/` |
 | Runtime asset | `assets/characters/8thbuild.glb` |
 | Godot entry | `HumanoidRig.CHARACTER_MODELS["8thbuild"]` |
-| Review images | `docs/review/8thbuild/` (`.gdignore`d): Blender sheets in the reference kit, `cmp_*` Build 7 vs 8 in Godot |
+| Reference renders | `scenes/dev/reference_match.tscn` (run windowed): the model in the reference's kit, light and framing (`ref_*`) |
+| Review images | `docs/review/8thbuild/` (`.gdignore`d): `reference_vs_build8.png` side by side, `ref_*` reference-matched, `cmp_*` Build 7 vs 8 in Godot |
 
 ```powershell
 & "F:\blender\blender.exe" assets/blender/8thbuild.blend --background --python tools/blender/build_8thbuild_mesh.py -- --save
@@ -34,7 +35,32 @@ Before/after in Godot (windowed): `build_compare.tscn -- --models=7thbuild,8thbu
 The review script's output path must be absolute (a relative one lands
 somewhere other than the repo).
 
-## What changed from Build 7
+## Accuracy pass against the reference (same day)
+
+Reviewed against the reference with `reference_match.tscn` (the same kit,
+low warm sun and front-on framing). What differed, and what was done:
+
+| Reference | First Build 8 | Now |
+|---|---|---|
+| A loose, boxy guernsey hanging over the shorts | tucked in, a narrow waist | worn out: straight from the lats to a hem over the top of the seat, clear of the shorts all round, with a folded lining |
+| No contrasting trim | off-white collar and armholes | collar and armholes in the guernsey's colour (`TRIM_SLOT`) |
+| A wide, steep sash | 11.6 cm, 34° off vertical | 13.6 cm, 29°, down to the lower hem |
+| Socks at mid-calf, the calf bare above them | socks just under the knee | the top at mid-calf, the band 2 cm under it |
+| Short back and sides, a full, swept top | a smooth helmet, long sideburns | a tight taper, short sideburns, fullness over the temples, a low quiff swept right |
+| A bigger head, eye whites, a stronger nose | Build 7's face | head and hair 7% bigger, 16 segments turned half a step, whites and irises (slot 13, `eyewhite`), a longer nose |
+| Broad shoulders, thick forearms, big hands | Build 7's arms +6% | deltoids and guernsey cap wider, arms `ARM_BULK` 1.14, hands `HAND_SCALE` 1.12 |
+
+On the back the sash stops at a jersey-coloured panel round the number
+(`NUMBER_PANEL_MARGIN`), so the digits read as on a plain guernsey. An
+outline round the digits, the first try, made them read as hollow shapes.
+
+**What can't match:** the reference is a stylised figure with short legs
+and a big head. Limb lengths come from the skeleton, which the clips, the
+ragdoll and every gameplay anchor are built on, so this pass matched shapes,
+not proportions. Its skin and hair colours are per player (`kit_skin`,
+`kit_hair`), and the red comes from the kit's accent (below).
+
+## What changed from Build 7 (first pass)
 
 - **Legs.** Fuller quads (the outer sweep and the teardrop over the knee,
   ~8% more) and calves (~6%). The thigh ring that's now under the longer
@@ -54,8 +80,8 @@ somewhere other than the repo).
   a little to the right. The head stays at 14 segments: 16 put a vertex
   down the middle of the face and broke the mouth and brows.
 - **Kit.** The sash and the sock bands (below).
-- **Budget.** 5,062 triangles in one surface (Build 7: 4,554). Still one
-  material and one draw per player.
+- **Budget.** 5,258 triangles in one surface after the accuracy pass
+  (Build 7: 4,554). Still one material and one draw per player.
 
 ## The sash and the accent colour
 
@@ -81,9 +107,8 @@ the trim colour, which always contrasts with the jersey: a dark sash on a
 light guernsey, off-white on a dark one. `HumanoidRig.kit_accent` (alpha 0
 = unset) overrides it, and `kit_sash = false` gives a plain guernsey.
 
-Over the sash the number's digits get a jersey-coloured outline
-(`NUMBER_OUTLINE`), so a number that crosses the sash stays one colour. Off
-the sash the outline doesn't show.
+On the back the sash stops at a panel round the number (see the accuracy
+pass above).
 
 ## Deformation check
 
@@ -100,7 +125,10 @@ Same checker as Build 7, run on both. Changes from Build 7's output:
   `knocked_back` 9 vertices at 14 mm (Build 7: 6, 14 mm) and
   `tackle_takedown` 4 at 14 mm (3, 12 mm).
 - One- or two-face crush or stretch flags on the shorts in a few ragdoll
-  poses (fetal, sit, splits, arch), from the looser cloth.
+  poses (fetal, sit, splits, arch), from the looser cloth, and 4 crushed
+  faces on the guernsey's hem in `rd_fetal_over`.
+- The loose guernsey over the shorts (the checker's pair is now shorts
+  inside guernsey, 1.15-1.30 m) is clean in every clip and pose.
 
 The tackle sweep wasn't re-run: the skeleton, clips and ragdoll are Build
 7's byte for byte, and the ragdoll reads only the skeleton.

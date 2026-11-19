@@ -50,6 +50,7 @@ MESHES = ["B8_Body", "B8_Guernsey", "B8_Shorts", "B8_Boots", "B8_Hair"]
 SLOTS = {
 	"skin": 0, "jersey": 1, "number": 2, "trim": 3, "shorts": 4, "socks": 5,
 	"boot": 6, "sole": 7, "studs": 8, "hair": 9, "eyes": 10, "mouth": 11,
+	"accent": 12, "eyewhite": 13,
 }
 
 ## (inner object, outer object, inner slots or None, min z, max z, bones
@@ -61,7 +62,9 @@ SLOTS = {
 PAIRS = [
 	("B8_Body", "B8_Guernsey", ("skin",), 1.40, 1.86, ("upperarm.l", "upperarm.r")),
 	("B8_Body", "B8_Shorts", ("skin",), 0.88, 1.30, ()),
-	("B8_Guernsey", "B8_Shorts", None, 1.0, 1.27, ()),
+	# Build 8's guernsey is worn out over the shorts, so the shorts' top is
+	# the inner layer, under the guernsey down to its hem.
+	("B8_Shorts", "B8_Guernsey", None, 1.15, 1.30, ()),
 	("B8_Body", "B8_Boots", ("socks",), -1.0, 0.13, ()),
 ]
 ## Pairs whose outer layer is two separate pieces, one per side: a vertex
