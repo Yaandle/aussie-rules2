@@ -133,6 +133,23 @@ const EXPORT_FPS := RECORD_FPS
 const EXPORT_LANDSCAPE := Vector2i(1920, 1080)
 const EXPORT_PORTRAIT := Vector2i(1080, 1920)
 const EXPORT_JPEG_QUALITY := 0.9
+
+## Full-match video (FullMatchCut; docs/HIGHLIGHTS_FULLGAME_PLAN.md phase 2).
+## Unplaytested feel guesses, 2026-11-16. A stopped clock at least DEAD_MIN
+## seconds long is cut, keeping DEAD_KEEP_AFTER seconds after it stopped (the
+## goal and the celebration, the whistle) and DEAD_KEEP_BEFORE before play
+## starts again (the bounce, the kick-in).
+const DEAD_MIN := 4.0
+const DEAD_KEEP_AFTER := 2.5
+const DEAD_KEEP_BEFORE := 2.0
+## The full match's camera outside the moments, until the player picks one
+## (HighlightPrefs.match_camera); each moment's stretch uses its own camera
+## (MatchCameraPlan). Always 16:9.
+const FULL_MATCH_CAMERA := "broadcast"
+## x264 settings for the full match: a fast preset, since a match is ~15k
+## frames.
+const FULL_MATCH_CRF := 20
+const FULL_MATCH_PRESET := "veryfast"
 ## Which shapes an export renders. "both" draws every frame twice, so 16:9
 ## or 9:16 alone is half the render.
 const ASPECTS := ["both", "16x9", "9x16"]

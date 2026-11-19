@@ -7,11 +7,54 @@ own docs: `ANIMATION_RAGDOLL_AUDIT.md` (kick, carry, phase lock, bank,
 tackles), `MECHANICS_AUDIT.md` (ragdoll stages 2-5) and the 2026-10-30
 playtest commit (HUD, park turf, ruck, training).
 
+## Switching and the incoming mark cue (pre-Day-5 W3, 2026-11-18)
+
+Full Game, FULL TEAM control. Numbers in `Tuning` (`SWITCH_*`, `AUTO_SWITCH_*`, `MARK_CUE_INCOMING_RADIUS`) are unplaytested feel guesses.
+
+- [ ] Cycle: with you already nearest the ball, double-tap switch (Tab / D-pad left) and you go to the second nearest; a third tap goes to the third. One tap still never takes you off the ball. Is 0.6 s between taps (`SWITCH_CYCLE_WINDOW`) right?
+- [ ] Switch now acts on the button's release, not the press. Does a tap feel late?
+- [ ] Marker: a small dashed white ring under the player a tap would pick. Does it read in both cameras, and is it obviously not your own ring?
+- [ ] Directional, CHASE: hold switch and flick the right stick (Tab + arrow key) toward a teammate. You go to them, and the camera doesn't turn while the button's held. A bare flick still turns the camera.
+- [ ] Directional, FULL-SIDE: a bare right-stick flick (an arrow key) switches. Does it fire when you only meant to nudge the stick? Does it pick who you meant (a close player a little off the line beats a far one dead on it)?
+- [ ] Auto-switch on an AWAY kick (Settings > AUTO SWITCH: ASSISTED, the default): ~0.35 s after the kick you're on the HOME player nearest the shadow. If you were already within 8 m of the drop, it leaves you there. Too soon, too late, ever the wrong player?
+- [ ] AUTO SWITCH FULL also follows your AI teammates' kicks (0.2 s); OFF switches only onto a HOME player who gathers (not even after your own kick).
+- [ ] Nothing ever switches you mid-mark, mid-tackle, in kick stance, holding A, in a ruck contest or on the ground.
+- [ ] Incoming mark cue: a dimmed badge with the ring closing shows ~1.5-3 s before a kick comes down near you (it used to show ~0.3 s out), brightening into the live badge. Does the ring keep moving smoothly through the hand-over? Does the dimmed letter (A, or Y if an opponent is near the drop) mislead when the live one turns out different?
+
+## Pre-playtest fixes (2026-11-16, branch `update`)
+
+- [ ] Free-kick taker on the spot (6AG-c): after a holding-the-ball or running-too-far free, the player awarded it now starts on the spot and walks back along the line from there, and the man on the mark stands on that same spot facing him. Before, the taker could be 2-7 m away from the spot. A man on the mark who starts 12 m+ away can still be jogging in, facing the spot, when an AI kicker plays on.
+
+## Fend you can see, goal kick (2026-11-16, branch `update`)
+
+- [ ] Fend arm: run with the ball and tap RB with nobody near. The left arm should go out straight for about half a second while the ball stays in the right hand. Before this fix the arm only showed if you were already being hit.
+- [ ] Fend push: tap RB as a defender runs at you from the front. Your palm should land on their chest and they should be driven back about a metre, off balance for 0.4 s, and you keep the ball. Does it read as a fend? Does it make breaking a tackle too easy? A defender already diving or lunging at you isn't shoved: that tackle lands and the old fend rule (balance loss cut 35%) decides it. `Tuning.FEND_CONTACT_REACH`, `FEND_SHOVE_*`.
+- [ ] Goal kick (merged 2026-11-15, `1cc2b39`): take a legal mark within 60 m of goal and a "Y · GOALS" chip shows bottom right. Press Y: the camera swings behind you in about half a second and the chip reads "LT AIM · RT KICK". Does the shot clock (the older set-shot system) still behave alongside it? Y without a mark in range should still be the aggressive mark. `Tuning.GOAL_KICK_*`.
+
+## README demos re-recorded on a real ground (2026-11-13, branch `update`)
+
+- [ ] Watch the four `docs/media/video/*.mp4` (and the README GIFs). Do they look like the game: lighting, turf, framing close enough, camera smooth? Nobody has watched them in motion; only stills were checked.
+- [ ] Marking demo, take 2 (Running mark at 3.0 s): the run logged no mark for it. Is the ball taken in stride, or does it go past?
+- [ ] Tackling demo, take 1: the wrap (tap X) put the carrier down alone with the tackler on their feet (outcome "fall"), not the both-go-down wrap. Fine for a "wrap tackle" caption?
+- [ ] Tackling demo, take 3 (fend-off at 7.2 s): does the straight arm read, and does the broken tackle look like a fend rather than a miss? The tackle staged is a soft side-on step-in (b 0.28), the kind a fend breaks.
+- [ ] Ruck demo: the runner gathering the tap at about 3.5 s. Does it read as a tap to a runner? Is the park scoreboard in shot showing anything odd?
+- [ ] Kicking demo: the set shot crossed the goal line 0.8 m up. Did it go through on the full or bounce through? Are the goals big enough in frame?
+- [ ] GIF size: 3.9-9.4 MB each at 640 px, 20 fps, 64 colours a frame. Skin tones band a little. Acceptable on the README page?
+
+## Marking block: jump attribute and contested marks (2026-11-12, branch `update`)
+
+- [ ] Jump (6AD): CHARACTER screen, JUMPING row now moves (0.70x-1.50x). At 1.50 the (Y) leap goes about 1.25 m off the ground, at 0.70 about 0.6 m (it was 0.82 m for everyone). Does the top end read as a big leap, not a float? The (Y) ring timing should feel unchanged. `Tuning.CHARACTER_JUMP_*`.
+- [ ] Jump in Career: JUMPING is a fifth trainable row on the Career character screen. Does the card still fit with five rows? An old Career save should load with JUMPING at the default. OVERALL ratings shift a little (five attributes averaged, not four).
+- [ ] Contested marks (6AE): go up against an opponent for the same ball. The one with better timing, front position, higher hands (height + jump) or more body should take it, the same way every time. Stand beside a heavier or higher-leaping opponent and hold (A): they should take it off you. Does losing one read as being out-marked, not as a dropped input? `MarkContest`, `Tuning.MARK_CONTEST_*`.
+- [ ] Contested marks where nobody takes it: if the better-rated player's own hands never reach the ball, it goes through the pack and nobody marks. How often does that happen, and does it look right (a spoiled contest) or wrong (a ball you had)?
+- [ ] Mark-timing assist (6AF, a test feature, off by default): Settings > HUD STYLE > MARKING > TIMING ASSIST ON. Under a kick the game drops to 0.4x as the press instant comes up, and a small dark graph over your player shows the ball's arc, a window on it and the ball as a dot; press when the dot is in the window (it goes green). Does the slow-down help or annoy, and does it come in early enough (it starts 0.6 s before the press instant)? Does the dot reach the window smoothly, or jump into it at the last moment? Pausing mid slow-down should leave the menus at normal speed. `Tuning.MARK_ASSIST_*`.
+- [ ] AI in packs: do AI players still mark often enough around other players (they hold (A) under every ball, so they are in most contests)?
+
 ## Section B: fend, fist, snap/banana, call lines (2026-11-11, branch `update`)
 
 - [ ] Fend off (6Y): carrying, tap RB (J) as a tackler closes from in front: your left arm goes out straight (ball in the right hand) and a soft or glancing tackle breaks, the tackler shoved back. A hard square one (~4 m/s+) still holds; from behind a fend does nothing. `Tuning.FEND_*`.
 - [ ] Fist away (6Y): in a mark contest (prompt up), tap RB: the ruck-tap leap, and the ball is punched about 9 m/s along the right stick, or on along its line. Knee-high balls go under the leap. Does it read as a fist, not a ruck palm? `Tuning.FIST_*`.
-- [ ] Snap / banana (6Z): hold LB (L) while kicking. Aimed 45°+ across your body to the left (right-footer) is a snap: flatter, softer, hooks hard left. Anything else is a banana that bends left a few metres. The trajectory arc shows the bend; check the ball follows it. Everyone kicks right-footed for now. `Tuning.KICK_SNAP_*`, `KICK_BANANA_*`, `BALL_SIDESPIN_MAGNUS_COEFF`.
+- [ ] Snap / banana (6Z): hold LB (L) while kicking. Aimed 45°+ across your body to the left (right-footer) is a snap: flatter, softer, hooks hard left. Anything else is a banana that bends right a few metres, away from the body (flipped 2026-11-12: it used to bend left like the snap). The trajectory arc shows the bend; check the ball follows it. Everyone kicks right-footed for now. `Tuning.KICK_SNAP_*`, `KICK_BANANA_*`, `BALL_SIDESPIN_MAGNUS_COEFF`.
 - [ ] Ruck tap distance (2026-11-11): the tap now leaves at its tuned 6 m/s and first lands ~6 m away; it used to fly ~15 m (a knock() bug doubled it). If it now feels too short, raise `Tuning.RUCK_HIT_OUT_SPEED` (about 12.6 gives back the old tap).
 - [ ] Call lines (6V): in single-player control, call for the ball (A): a small "/ | \" shows under your feet for about a second. Big enough?
 
@@ -149,3 +192,28 @@ Needs a real match (or the generator) and the Highlights screen. See `docs/HIGHL
 - [ ] **End-on camera:** stays inside the boundary fence on a goal at the far end.
 - [ ] **Cancelled export:** cancel part-way; the clip being rendered is in moments.json with `"complete": false` and a smaller `frames`.
 - [ ] **Generator** (`scenes/dev/highlight_generator.tscn`, windowed, `--fixed-fps 60`): a run exports goal / mark / tackle clips from mixed cameras into `highlights/generated/`; the footage reads as AI play, and moments.json says `"footage": "generated"`, `"mode": "ai_vs_ai"`.
+- [ ] **Full-match video** (export with FULL MATCH VIDEO on): `match_16x9.mp4` plays the whole match with breaks cut; say whether the cuts after a goal and before a bounce come too early or late (`DEAD_KEEP_AFTER` 2.5 s, `DEAD_KEEP_BEFORE` 2.0 s, `DEAD_MIN` 4 s), and whether broadcast-only reads well for a whole match.
+- [ ] **Full-match record cost:** play a full human match with full-match recording on; no new hitches (it writes ~270 KB/s to `highlights/_recording/`).
+- [ ] **Cancel the full render:** cancel during quarter 2's render; the folder keeps `match_q1_16x9.mp4`, `match_video.json` says `"complete": false`, and no `.partial` file is left.
+- [ ] **MATCH view** (Highlights screen, T / View): the full match plays with breaks cut; clicking and dragging the timeline seeks; ↑ / ↓ land on each moment's band; the ticks line up with what you see (a goal tick as the ball goes through). Say if the timeline is too busy or the tick colours don't read.
+- [ ] **Cameras on the timeline:** in the MATCH view, ← / → inside a band changes that moment's camera (its letter changes), outside changes the match camera; export and check `match_16x9.mp4` and `highlight.mp4` use them, cut cleanly at each band, and the third-person shots follow the right player.
+- [ ] **Export window (2026-11-17):** one row per type with its clip count and length, the clip-files row, EXPORT; an export makes `match_16x9.mp4` (dead time cut) and `highlight.mp4` (only the ticked types, in match order). Say if anything still reads as duplicated or out of order.
+- [ ] **Idle life:** standing players breathe, shift weight foot to foot, turn their heads to the ball; arms and chest swing and settle when a player pulls up or takes off ("jelly"). Say if it's too much, too little or too in-step (`IDLE_*`, `JELLY_*` in player_animation.gd). Tackles should look exactly as before (the layer is off within 3 m of an opponent).
+- [ ] **Shot chips:** after a mark in range only "Y · GOALS" shows bottom right, not "Set Shot for Goal" as well.
+
+## Playtest 2026-11-18 follow-ups (branch `update`)
+
+- [ ] **Switch at the opposition's free kick:** on the mark, one switch press goes to the next nearest teammate (it used to do nothing when you were the nearest).
+- [ ] **Intercept mark:** a teammate's intercept mark puts you on him every time (FULL TEAM).
+- [ ] **Goal prompt:** after a mark in range the bottom-right shows the small "[Y] Goals" key chip, not a brown box; once accepted, "[LT] Aim [RT] Kick". Same in Career.
+- [ ] **Mark cue:** bigger (CUE_SCALE 0.88), ring lead 2.4 s, the dimmed incoming badge from 18 m (was 12) and more visible; say if it's now early enough.
+- [ ] **HUD STYLE > BALL DROP:** OFF / CHEVRON / RING, colour, size.
+- [ ] **Animation viewer MARK DELIVERY:** SAFE shows A, RUN X, AGGRESSIVE Y; CONTESTED with Opponents 1-5 puts them in a line beside the marker, facing his way.
+- [ ] **PLAY ON call:** catch a kick that isn't a mark (under 15 m, touched, or off the ground): the banner says "PLAY ON — <why>". Tell me if a clean 15 m+ kick taken on the full is ever called play on: that would be a real bug.
+- [ ] **Broken tackles:** glancing or slow tackles (from the side, little closing speed) now break more often (Lunge break at p ≥ 0.4, Slide ≥ 0.85); the tackler is pushed back and stumbles (recoil 0.9). Hard tackles still always hold.
+- [ ] **Main menu backdrop:** the montage shows your Settings oval (Field 1 or 2), five slow low shots in warm late light; no shot clips through the fence or a player. Title, subtitle, corner tags, CHARACTER divider and the W A S D / ENTER / C keycaps match the reference; text stays readable on every shot.
+- [ ] **X is the Lunge only** (the X smother was taken out again: it clashed with the slide tackle). RB smothers a kicker lining up.
+- [ ] **RB intercept:** with no kicker to smother, RB as an opponent's handball passes within ~3 m steps onto its line with arms out and takes it if it comes within reach; mistimed, it goes by. Not a mark (it's a handball).
+- [ ] **LT shepherd stance:** hold LT without the ball: low crouch, arms out, the body keeps facing the same way while you move any direction (no flip), at 4.2 m/s; feet stay on the turf. A tap of LT still spoils a ball in reach. Keyboard has no spoil key yet (remap one to try it).
+- [ ] **Slide sling tackler** (animation viewer CONTESTS > Slide, and a B sling in a match): quick grab-and-throw; he steps into the carrier, his trunk gives on the hit, he plants within ~0.6 m and stands where he tackled (no sliding on flat feet, no running off). The carrier's fall is unchanged. Watch the clip's last 0.3 s: its feet still slide back to stance (authored clip).
+- [ ] **Full Game pregame:** your oval behind the panels; cards show icons with no arrows (chevrons only while a card is open), padlocks over locked cards (YOUR POSITION unlocks on 1 PLAYER); the shape badge beside the board changes with FORMATION / PRESSURE; it hides while the CAMERA card shows its preview.

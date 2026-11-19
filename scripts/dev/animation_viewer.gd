@@ -182,9 +182,9 @@ enum MarkPreviewTier { AUTO, SAFE, RUNNING, AGGRESSIVE }
 
 const MARK_PREVIEW_TIERS := [
 	["AUTO", MarkPreviewTier.AUTO, "Whichever tier the live mark prompt shows"],
-	["SAFE", MarkPreviewTier.SAFE, "Safe mark (hold)"],
-	["RUN", MarkPreviewTier.RUNNING, "Running mark (tap on arrival)"],
-	["LEAP", MarkPreviewTier.AGGRESSIVE, "Aggressive mark (the leap)"],
+	["SAFE", MarkPreviewTier.SAFE, "Safe mark (hold) — A"],
+	["RUN", MarkPreviewTier.RUNNING, "Running mark (tap on arrival) — X"],
+	["AGGRESSIVE", MarkPreviewTier.AGGRESSIVE, "Aggressive mark (the leap) — Y"],
 ]
 
 ## The delivery: launched this far out on the FROM bearing from where B will
@@ -410,6 +410,8 @@ var _mark_run_speed := MARK_RUN_DEFAULT
 var _mark_height := MARK_HEIGHT_DEFAULT
 var _mark_view_deg := MARK_VIEW_DEFAULT
 var _mark_contested := false
+var _mark_opponent_count := 1
+var _mark_opponents: Array[PlayerController] = []
 var _mark_pressed := false
 var _mark_result := ""
 var _mark_catch_spot := Vector3.ZERO
@@ -1111,14 +1113,22 @@ func _build_mark_delivery_panel() -> VBoxContainer:
 		set_view, degrees).node)
 
 	var contested := UIStyle.dev_button("CONTESTED", true)
-	contested.tooltip_text = "Stand an opponent at B's shoulder"
-	contested.toggled.connect(func(on: bool) -> void: _mark_contested = on)
+	contested.tooltip_text = "Place one or more opponents in the mark contest"
+	contested.toggled.connect(func(on: bool) -> void:
+		_mark_contested = on
+		if _mark_active:
+			_launch_mark_preview(_mark_tier)
+	)
 	panel.add_child(contested)
 
-	# CUE: whose countdown the Aggressive press and B's ring follow — see
-	# MarkCueModel.CueSource. MLP needs trained weights (the ML page, or
-	# res://data/ml/mark_cue/weights_mark_aggressive.json); without them it
-	# reads exactly like GATED.
+	panel.add_child(UIStyle.dev_slider_row("Opponents", 1.0, 5.0, 1.0, float(_mark_opponent_count),
+		func(v: float) -> void:
+			_mark_opponent_count = clampi(roundi(v), 1, 5)
+			if _mark_active:
+				_launch_mark_preview(_mark_tier),
+		func(v: float) -> String: return "%d" % roundi(v)).node)
+
+	# CUE: whose countdown the Aggressive press and B's ring follow.
 	var cues := []
 	for source in MARK_CUE_NAMES.size():
 		cues.append([MARK_CUE_NAMES[source],
@@ -1129,6 +1139,7 @@ func _build_mark_delivery_panel() -> VBoxContainer:
 	cue_row.add_child(cue_label)
 	cue_row.move_child(cue_label, 0)
 	panel.add_child(cue_row)
+
 	return panel
 
 
@@ -1172,6 +1183,17 @@ func _launch_mark_preview(tier: MarkPreviewTier) -> void:
 		add_child(_mark_prompt)
 	_contest_b.camera = _camera
 	_mark_prompt.cue_source = _mark_cue_source
+	# The badge shows the tier picked here (RUN shows X, AGGRESSIVE Y), not
+	# whichever the live prompt would choose (it always picked A).
+	match tier:
+		MarkPreviewTier.SAFE:
+			_mark_prompt.forced_tier = Tuning.Action.MARK_SAFE
+		MarkPreviewTier.RUNNING:
+			_mark_prompt.forced_tier = Tuning.Action.MARK_RUNNING
+		MarkPreviewTier.AGGRESSIVE:
+			_mark_prompt.forced_tier = Tuning.Action.MARK_AGGRESSIVE
+		_:
+			_mark_prompt.forced_tier = Tuning.Action.NONE
 	_mark_prompt.ball = _contest_ball
 	_mark_prompt.player = _contest_b
 	var t := MARK_DELIVERY_FLIGHT_TIME
@@ -1181,14 +1203,20 @@ func _launch_mark_preview(tier: MarkPreviewTier) -> void:
 	_mark_brain.wish_dir = Vector3.FORWARD if _mark_run_speed > 0.05 else Vector3.ZERO
 	_mark_brain.gait_value = _gait_for_speed(_mark_run_speed)
 
-	# B faces -Z, so its right is +X.
-	if _mark_contested:
-		_place_contest_body(_contest_a, _mark_catch_spot + Vector3.RIGHT * MARK_OPPONENT_OFFSET,
-			-_mark_source_dir(), 0.0)
-		_contest_a.visible = true
-	else:
-		_place_contest_body(_contest_a, MARK_OPPONENT_PARK, Vector3.FORWARD, 0.0)
-		_contest_a.visible = false
+	# B faces -Z, so its right is +X. The opponents (playtest 2026-11-18)
+	# stand in a line across the catch spot, MARK_OPPONENT_OFFSET apart, out
+	# from B's shoulders alternately right and left, all facing the way B
+	# runs: a pack for marking contests on the motor ragdoll.
+	var count := _mark_opponent_count if _mark_contested else 0
+	for i in 1 + _mark_opponents.size():
+		var opponent := _contest_a if i == 0 else _mark_opponents[i - 1]
+		if i < count:
+			var step := float(i / 2 + 1) * MARK_OPPONENT_OFFSET
+			var side := 1.0 if i % 2 == 0 else -1.0
+			_place_contest_body(opponent, _mark_catch_spot + Vector3.RIGHT * step * side, Vector3.FORWARD, 0.0)
+			opponent.visible = true
+		else:
+			_park_mark_opponent(opponent, i)
 
 	var target := _mark_catch_spot + Vector3.UP * _mark_height + Vector3.FORWARD * MARK_DELIVERY_AHEAD
 	var start := _mark_catch_spot + _mark_source_dir() * MARK_DELIVERY_DISTANCE \
@@ -1585,6 +1613,26 @@ func _ensure_contest_built() -> void:
 	_brain_b = ContestBrain.new()
 	_contest_b.set_brain(_brain_b)
 
+	# MARK DELIVERY's extra opponents (CONTESTED, Opponents 2-5). HOME, like
+	# A: B is AWAY. Parked well away, apart, when unused, so they never
+	# touch the other contests.
+	_mark_opponents.clear()
+	for i in 4:
+		var opponent := PlayerScene.instantiate()
+		opponent.team = Tuning.Team.HOME
+		(opponent.get_node("Rig") as HumanoidRig).high_detail = false
+		add_child(opponent)
+		opponent.set_brain(ContestBrain.new())
+		_mark_opponents.append(opponent)
+		_park_mark_opponent(opponent, i + 1)
+
+
+## Out of the way: A at MARK_OPPONENT_PARK (as before), the extra opponents
+## in a row past it.
+func _park_mark_opponent(opponent: PlayerController, index: int) -> void:
+	_place_contest_body(opponent, MARK_OPPONENT_PARK + Vector3.RIGHT * 3.0 * float(index), Vector3.FORWARD, 0.0)
+	opponent.visible = false
+
 
 ## A small, flat collision floor — deliberately not the full 165x135m
 ## Field scene (design brief: "remove it... instead of me being able to
@@ -1915,12 +1963,23 @@ func _step_contest(delta: float) -> void:
 		var resolved := _contest_a._action == Tuning.Action.TACKLED \
 			or _contest_a._action == Tuning.Action.TACKLE_GRAB \
 			or _contest_a._action == Tuning.Action.TACKLE_TAKEDOWN \
+			or _contest_a._action == Tuning.Action.TACKLE_SLING \
 			or _contest_b._action == Tuning.Action.TACKLED \
 			or _contest_b._action == Tuning.Action.TACKLE_HELD \
 			or _contest_b._action == Tuning.Action.KNOCKED_BACK \
 			or _contest_b._action == Tuning.Action.SMOTHERED
 		if resolved or _contest_timer > CONTEST_TIMEOUT:
 			_contest_stage = ContestStage.HOLD
+			# The run-in was only ever to get A there. Left wishing on at
+			# APPROACH SPEED, a slinging A slid on under his clip at the
+			# action's 0.4 of it and sprinted off the floor once it ended
+			# (playtest 2026-11-18); a real player lets the stick go or turns.
+			if resolved and (_contest_kind == ContestKind.TACKLE_SLIDE \
+					or _contest_kind == ContestKind.TACKLE_LUNGE):
+				_brain_a.wish_dir = Vector3.ZERO
+				_brain_a.gait_value = 0.0
+				_brain_a.tackle_wanted = false
+				_brain_a.lunge_wanted = false
 
 	_update_contact_readout()
 	_contest_status_label.text = "A: %s   B: %s" % [

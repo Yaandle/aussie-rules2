@@ -2,7 +2,7 @@ class_name FormationWhiteboard
 extends Control
 
 ## Top-down tactics board: a schematic oval plus one marker per HOME
-## player — all 18 AFL slots from TeamFormation.SLOTS, always drawn, each
+## player — all 18 Aussie Rules slots from TeamFormation.SLOTS, always drawn, each
 ## displaced by the three Team Edit tactics dials. A full position chart
 ## that also breathes with the tactics dials, rather than either extreme
 ## on its own: the previous design only drew whichever 4 slots a formation
@@ -13,7 +13,7 @@ extends Control
 ## Drawn vertically — attack direction points toward the top of the panel
 ## — with world.x (the length/attack axis) mapped to screen Y (inverted)
 ## and world.z (width) mapped to screen X, so the oval reads as a real
-## portrait-oriented AFL ground rather than the landscape 3D-world layout.
+## portrait-oriented Aussie Rules ground rather than the landscape 3D-world layout.
 ##
 ## Drawn with plain Control._draw() calls rather than a 3D scene reused
 ## from Field — Field's geometry generator builds real meshes sized in
@@ -110,6 +110,14 @@ var defensive_pressure: Settings.DefensivePressure = Settings.DefensivePressure.
 var show_opposition := false:
 	set(value):
 		show_opposition = value
+		queue_redraw()
+
+## Adds a "DEFEND ↓" caption under the oval to balance "ATTACK ↑" (the
+## Full Game pregame's match setup reference). Off by default so
+## TeamListScreen's board is unchanged.
+var show_defend_caption := false:
+	set(value):
+		show_defend_caption = value
 		queue_redraw()
 
 ## Slot index whose player marker gets a highlight ring in SINGLE_PLAYER
@@ -287,6 +295,27 @@ func _draw() -> void:
 	_draw_formation(centre, scale)
 
 	_draw_label(centre + Vector2(0.0, -h * 0.5 - CAPTION_OFFSET), "ATTACK ↑", true)
+	if show_defend_caption:
+		_draw_label(centre + Vector2(0.0, h * 0.5 + CAPTION_OFFSET), "DEFEND ↓", true)
+
+
+## How many of the 18 markers the current dials put in the back, middle
+## and forward thirds of the ground, in that order, read off the same
+## target positions the board animates to. The Full Game pregame shows it
+## as a "6-6-6" style shape badge, so the shape it names is always the one
+## drawn, not a label stored next to it.
+func line_counts() -> Array[int]:
+	var counts: Array[int] = [0, 0, 0]
+	var third := Tuning.FIELD_HALF_LENGTH / 3.0
+	for idx in TeamFormation.SLOTS.size():
+		var x := _target_position(idx).x
+		if x < -third:
+			counts[0] += 1
+		elif x > third:
+			counts[2] += 1
+		else:
+			counts[1] += 1
+	return counts
 
 
 ## Maps a world-space position (X = depth/attack axis, Z = lateral) to a
@@ -676,3 +705,4 @@ func _draw_label(point: Vector2, text: String, muted := false,
 		else Vector2(-text_size.x * 0.5, text_size.y * 0.5)
 	draw_string(_font, point + offset, text, HORIZONTAL_ALIGNMENT_LEFT, -1.0,
 		LABEL_FONT_SIZE, colour)
+

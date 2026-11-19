@@ -236,7 +236,7 @@ func _finish() -> void:
 		Highlights.match_info["mode"] = "staged"
 		Highlights.match_info["staged_shots"] = _staged
 	var folder := await exporter.export_moments(picked, Highlights.match_info,
-		{"aspect": _aspect, "footage": "generated", "subfolder": "generated"})
+		{"aspect": _aspect, "footage": "generated", "subfolder": "generated", "clips": true})
 	print("GENERATOR: exported %d clips to %s" % [picked.size(), folder])
 	get_tree().quit()
 

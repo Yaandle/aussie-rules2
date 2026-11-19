@@ -123,6 +123,10 @@ var _frame := 0
 
 func _ready() -> void:
 	CharacterProfile.model_id = MODEL_ID
+	# Each pair is put together in one frame, skipping the approach in which a
+	# match turns idle life off (PlayerAnimation.IDLE_LIFE_CLEAR): off here,
+	# so the sweep measures the pose a real contact starts from.
+	PlayerAnimation.idle_life_enabled = false
 	add_child(_build_floor())
 	# LESSONS.md's same-frame construction race.
 	for i in 3:

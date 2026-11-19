@@ -96,7 +96,7 @@ const SHAPES := {
 	&"play": [
 		["fill", 7.5, 4.0, 19.0, 12.0, 7.5, 20.0],
 	],
-	# AFL ball, stood on its end: a pointed oval with a seam and four
+	# Aussie Rules ball, stood on its end: a pointed oval with a seam and four
 	# laces across it — main_menu.gd's FULL GAME card badge.
 	#
 	# Upright and pointed, not the wide flat ellipse this was. Lying on
@@ -119,7 +119,7 @@ const SHAPES := {
 		["poly", 6.0, 20.0, 18.0, 20.0],
 		["poly", 9.0, 13.0, 15.0, 13.0],
 	],
-	# AFL goalposts: two tall goal posts flanked by two shorter behind
+	# Aussie Rules goalposts: two tall goal posts flanked by two shorter behind
 	# posts on a baseline — main_menu.gd's GOAL KICKING card badge.
 	&"goalpost": [
 		["poly", 4.0, 10.0, 4.0, 21.0],
@@ -152,6 +152,13 @@ const SHAPES := {
 		["dot", 8.5, 12.0, 2.1],
 		["dot", 16.5, 17.5, 2.1],
 	],
+	# A real cogwheel (the menu reference image's SETTINGS glyph): eight
+	# teeth round a centre hole. Only meant for 22px and up — see "gear"'s
+	# note above for why the small icons keep the sliders.
+	&"cog": [
+		["loop", 19.34, 10.03, 22.07, 10.4, 22.07, 13.6, 19.34, 13.97, 18.58, 15.8, 20.25, 18.0, 18.0, 20.25, 15.8, 18.58, 13.97, 19.34, 13.6, 22.07, 10.4, 22.07, 10.03, 19.34, 8.2, 18.58, 6.0, 20.25, 3.75, 18.0, 5.42, 15.8, 4.66, 13.97, 1.93, 13.6, 1.93, 10.4, 4.66, 10.03, 5.42, 8.2, 3.75, 6.0, 6.0, 3.75, 8.2, 5.42, 10.03, 4.66, 10.4, 1.93, 13.6, 1.93, 13.97, 4.66, 15.8, 5.42, 18.0, 3.75, 20.25, 6.0, 18.58, 8.2],
+		["ring", 12.0, 12.0, 3.2],
+	],
 	# Door bracket, open on the side the arrow leaves through.
 	&"exit": [
 		["poly", 13.5, 4.0, 5.0, 4.0, 5.0, 20.0, 13.5, 20.0],
@@ -169,6 +176,68 @@ const SHAPES := {
 	&"figure": [
 		["ring", 12.0, 6.5, 3.3],
 		["loop", 7.0, 11.0, 17.0, 11.0, 15.0, 20.5, 9.0, 20.5],
+	],
+	# ── Full Game pregame card glyphs (match setup reference image) ──
+	# Player with both arms up — PLAYER CONTROL.
+	&"player_arms": [
+		["ring", 12.0, 5.0, 2.6],
+		["poly", 4.5, 4.0, 8.5, 11.0, 15.5, 11.0, 19.5, 4.0],
+		["loop", 8.5, 11.0, 15.5, 11.0, 14.5, 20.5, 9.5, 20.5],
+	],
+	# Video camera: body, lens, viewfinder wedge — CAMERA.
+	&"camera": [
+		["loop", 3.0, 8.0, 16.0, 8.0, 16.0, 18.0, 3.0, 18.0],
+		["ring", 9.5, 13.0, 2.8],
+		["loop", 16.0, 11.0, 21.0, 8.5, 21.0, 17.5, 16.0, 15.0],
+	],
+	# Three linked nodes — FORMATION.
+	&"nodes": [
+		["ring", 12.0, 5.5, 2.6],
+		["ring", 5.0, 18.0, 2.6],
+		["ring", 19.0, 18.0, 2.6],
+		["poly", 10.7, 7.8, 6.3, 15.7],
+		["poly", 13.3, 7.8, 17.7, 15.7],
+		["poly", 7.6, 18.0, 16.4, 18.0],
+	],
+	# Shield with a tick — DEFENSIVE PRESSURE.
+	&"shield": [
+		["loop", 12.0, 3.0, 20.0, 6.0, 19.0, 13.5, 12.0, 21.0, 5.0, 13.5, 4.0, 6.0],
+		["poly", 8.5, 12.0, 11.0, 14.8, 15.8, 9.2],
+	],
+	# Top-down ground: halfway line, centre circle, goal squares — YOUR
+	# POSITION.
+	&"pitch": [
+		["loop", 3.0, 6.0, 21.0, 6.0, 21.0, 18.0, 3.0, 18.0],
+		["poly", 12.0, 6.0, 12.0, 18.0],
+		["ring", 12.0, 12.0, 2.4],
+		["loop", 3.0, 9.5, 6.0, 9.5, 6.0, 14.5, 3.0, 14.5],
+		["loop", 21.0, 9.5, 18.0, 9.5, 18.0, 14.5, 21.0, 14.5],
+	],
+	# Flag on a pole — FIELD.
+	&"flag": [
+		["poly", 6.5, 21.0, 6.5, 3.0],
+		["fill", 6.5, 3.5, 18.5, 7.5, 6.5, 11.5],
+	],
+	# Rising bars — DIFFICULTY.
+	&"bars": [
+		["fill", 4.0, 14.0, 7.5, 14.0, 7.5, 20.0, 4.0, 20.0],
+		["fill", 10.25, 10.0, 13.75, 10.0, 13.75, 20.0, 10.25, 20.0],
+		["fill", 16.5, 5.5, 20.0, 5.5, 20.0, 20.0, 16.5, 20.0],
+	],
+	# Clock face — QUARTER LENGTH.
+	&"clock": [
+		["ring", 12.0, 12.0, 8.5],
+		["poly", 12.0, 6.5, 12.0, 12.0, 15.8, 14.2],
+	],
+	# Sun behind a cloud — WEATHER.
+	&"weather": [
+		["ring", 9.0, 8.5, 3.2],
+		["poly", 9.0, 2.0, 9.0, 3.3],
+		["poly", 2.5, 8.5, 3.8, 8.5],
+		["poly", 4.4, 3.9, 5.3, 4.8],
+		["poly", 13.6, 3.9, 12.7, 4.8],
+		["loop", 7.0, 20.0, 19.0, 20.0, 21.0, 17.5, 19.5, 14.5, 16.5, 14.0,
+			14.5, 11.5, 11.0, 12.0, 9.5, 15.0, 7.0, 15.5, 5.5, 18.0],
 	],
 	# Paint chip: a square tile split by one line — the generic "pick a
 	# colour" row (SKIN/JERSEY/SHORTS on the Customise panel).
@@ -236,3 +305,4 @@ func _draw_shape(shape: Array, origin: Vector2, scale: float, width: float) -> v
 		"dot":
 			draw_circle(origin + Vector2(shape[1], shape[2]) * scale, shape[3] * scale,
 				line_colour)
+

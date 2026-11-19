@@ -56,12 +56,26 @@ extends CanvasLayer
 ##   MARK_STAND_MIN_DISTANCE off the boot (live_mark_prompt()). The SMOTHER
 ##   badge that used to show there is gone (playtest: not wanted).
 
+## Pre-Day-5 W3, the "incoming" cue: the badge used to appear only once
+## live_mark_prompt() went live, which needs the ball within reach or
+## MARK_CONTEST_RANGE of the player, often with under a second left. Now,
+## from the moment a kick's predicted drop at hand height is within
+## Tuning.MARK_CUE_INCOMING_RADIUS of the player, a dimmed badge shows with
+## the ring already closing on an estimate (_incoming_estimate: the ball's
+## gravity-only fall to the hands' height, plus the tier's press target).
+## When live_mark_prompt() goes live the badge brightens and the ring
+## switches to the real countdown; until that countdown exists (mark_timing_
+## offset not yet closing) the ring keeps closing on the estimate, so it
+## doesn't vanish at the hand-over. The estimate never fires the rumble or
+## the timing assist, and nothing here feeds catch resolution: display only
+## (RULES_REFERENCE.md §3).
+
 ## 6T (playtest 2026-11-08, "the X/Y/A marking cue is too large"): every
 ## size below is scaled by CUE_SCALE, about two-thirds of the old cue. One
 ## dial so the next "smaller / bigger" note is a one-number change.
-const CUE_SCALE := 0.65
+const CUE_SCALE := 0.88
 const BADGE_RADIUS := 18.0 * CUE_SCALE
-const LABEL_SIZE := 13   ## 19 * CUE_SCALE, rounded (a font size is an int)
+const LABEL_SIZE := 17   ## 19 * CUE_SCALE, rounded (a font size is an int)
 
 ## Fixed ring radius (no longer animated in/out — see this file's own
 ## header) and how many seconds of live offset the sweep's full lap spans.
@@ -78,7 +92,7 @@ const RING_RADIUS := BADGE_RADIUS + 9.0 * CUE_SCALE
 ## the sweep room to start well before the ball is even close and still
 ## finish its lap at the same honest instant (mark_timing_offset() is
 ## unchanged — only how much runway the sweep gets to visualise it grew).
-const RING_LEAD_TIME := 1.8        ## s of live offset mapped across the closing ring
+const RING_LEAD_TIME := 2.4        ## s of live offset mapped across the closing ring
 const RING_THICKNESS := 5.0 * CUE_SCALE
 const RING_SEGMENTS := 48
 ## Where the closing ring starts, at the beginning of the RING_LEAD_TIME
@@ -89,6 +103,14 @@ const TARGET_RING_THICKNESS := 2.0
 const TARGET_RING_ALPHA := 0.55
 ## Ink outline drawn under the closing ring so it reads over turf.
 const RING_OUTLINE_EXTRA := 3.0 * CUE_SCALE
+## How dim the incoming cue is: the badge, its target ring and the closing
+## ring all draw at this fraction of their live alpha.
+const INCOMING_ALPHA := 0.7   ## 0.45 -> 0.7 (playtest 2026-11-18: see the cue early)
+## The estimate never lands the ring: "press now" only ever comes from the
+## real countdown. A (Y) estimate would otherwise land 0.4 s before the
+## ball, often before a press there would register at all (the live cue
+## comes up ~0.3 s out, at MARK_CONTEST_RANGE).
+const ESTIMATE_MAX_PROGRESS := 0.95
 
 ## Brief post-resolution flash so the result reads as clearly as the
 ## countdown did — connects directly to the player's own mark_caught/
@@ -124,12 +146,50 @@ var ball: Ball = null
 ## MarkCueModel.cue_time_to_press.
 var cue_source: int = Tuning.MARK_CUE_SOURCE
 
+## Mark-timing assist (6AF, Tuning's "Mark-timing assist"): -1 follows the
+## HUD option and only runs for a human-controlled player, 0 / 1 force it
+## off / on (dev tools).
+var assist_mode := -1
+
+## Dev tools only (the animation viewer's MARK DELIVERY): show this tier's
+## badge (A / X / Y) whenever any tier is live or incoming, instead of the
+## one the prompt would pick. NONE (the default) is the normal behaviour.
+var forced_tier := Tuning.Action.NONE
+
+## The assist's graph: panel size in px, how far above the ring it floats,
+## and the stretch of time it plots either side of the press instant.
+const ASSIST_SIZE := Vector2(124.0, 68.0)
+const ASSIST_GAP := 10.0
+const ASSIST_PAD := 8.0
+const ASSIST_SPAN_BEFORE := 1.2   ## s
+const ASSIST_SPAN_AFTER := 0.4    ## s
+const ASSIST_MIN_TOP := 3.0       ## m: the least height the y axis spans
+const ASSIST_SAMPLES := 28
+const ASSIST_PANEL := Color(0.165, 0.165, 0.165, 0.86)   ## #2a2a2a
+const ASSIST_IN_WINDOW := Color("#8BC896")
+
+## Seconds of game time to the cue's press-now instant (the number the ring
+## counts down), NAN while there's nothing to count down to.
+var _to_press := NAN
+## True while this prompt has Engine.time_scale off 1.0, so it only ever
+## puts back what it took.
+var _assist_owns_time := false
+
 var _canvas: Control
 var _tier := Tuning.Action.NONE
 var _screen_pos := Vector2.ZERO
 var _visible_this_frame := false
 var _ring_visible_this_frame := false
 var _ring_progress := 0.0   ## 0 = ring just started closing, 1 = on the badge — press now
+## The incoming cue is up this frame (and the live one isn't).
+var _incoming_this_frame := false
+## This frame's ring progress came from _incoming_estimate, not the real
+## countdown: no completion rumble off it.
+var _ring_from_estimate := false
+## _incoming_estimate's answer this frame: seconds to the press instant and
+## the tier it expects, or NAN / NONE when no kick is coming down near.
+var _estimate_to_press := NAN
+var _estimate_tier := Tuning.Action.NONE
 
 ## The button pressed during this ball's live window, or NONE until one is.
 ## Overrides the recommendation for display (see this file's header) and is
@@ -172,13 +232,17 @@ func _process(delta: float) -> void:
 
 	var previous_tier := _tier
 	_ring_visible_this_frame = false
+	_ring_from_estimate = false
+	_to_press = NAN
 	var live_now := false
+	var incoming_now := false
 	if is_instance_valid(player) and is_instance_valid(ball):
 		var camera := player.camera as Camera3D
 		if is_instance_valid(camera):
+			_incoming_estimate()
 			var tier := _display_tier()
+			var world := player.global_position + Vector3.UP * Tuning.MARK_PROMPT_HEIGHT
 			if tier != Tuning.Action.NONE:
-				var world := player.global_position + Vector3.UP * Tuning.MARK_PROMPT_HEIGHT
 				if not camera.is_position_behind(world):
 					# _screen_pos/_tier only update while genuinely live, so
 					# they hold their last-live values through the post-
@@ -190,11 +254,21 @@ func _process(delta: float) -> void:
 					live_now = true
 					if tier != Tuning.Action.SMOTHER_DIVE:
 						_update_ring()
+			elif _estimate_tier != Tuning.Action.NONE and _flash_sign == 0 \
+					and not camera.is_position_behind(world):
+				_screen_pos = camera.unproject_position(world)
+				_tier = _estimate_tier
+				incoming_now = true
+				_ring_from_estimate = true
+				_ring_progress = minf(_progress_for(_estimate_to_press), ESTIMATE_MAX_PROGRESS)
 	_visible_this_frame = live_now
+	_incoming_this_frame = incoming_now
+	_update_assist(delta)
 
 	if not live_now or _tier != previous_tier:
 		_ring_completed = false
-	if _ring_visible_this_frame and _ring_progress >= 1.0 and not _ring_completed:
+	if _ring_visible_this_frame and not _ring_from_estimate and _ring_progress >= 1.0 \
+			and not _ring_completed:
 		_ring_completed = true
 		_cue_timer = CUE_DURATION
 		InputManager.rumble(Tuning.RUMBLE_MARK_TIMING_CUE)
@@ -210,6 +284,8 @@ func _display_tier() -> Tuning.Action:
 	# PlayerController.prompt_mark_tier: the ring used to finish on (Y)).
 	var live := player.prompt_mark_tier(ball)
 	var committed := player.committed_mark_tier()
+	if forced_tier != Tuning.Action.NONE:
+		return forced_tier if live != Tuning.Action.NONE or committed != Tuning.Action.NONE else Tuning.Action.NONE
 	if live != Tuning.Action.NONE:
 		_window_open = true
 	elif committed == Tuning.Action.NONE:
@@ -277,15 +353,75 @@ func _update_ring() -> void:
 	# _press_target_offset(_tier) - mark_timing_offset(), with NAN on the
 	# not-closing sentinel.
 	var to_press := MarkCueModel.cue_time_to_press(player, ball, _tier, cue_source)
+	_to_press = to_press
 	if is_nan(to_press):
-		_ring_progress = 0.0   # nothing meaningful to count down yet — ring hasn't started closing
+		# Nothing meaningful to count down yet. If the incoming estimate is
+		# running, keep closing on it so the ring doesn't drop back to empty
+		# at the hand-over from the incoming cue (no rumble off it).
+		if not is_nan(_estimate_to_press):
+			_ring_progress = minf(_progress_for(_estimate_to_press), ESTIMATE_MAX_PROGRESS)
+			_ring_from_estimate = true
+		else:
+			_ring_progress = 0.0
 		return
-	# 0 at the start of the countdown window, 1 (ring on the badge) right
-	# at the press-now instant.
-	_ring_progress = clampf(1.0 - to_press / RING_LEAD_TIME, 0.0, 1.0)
+	_ring_progress = _progress_for(to_press)
+
+
+## 0 at the start of the countdown window, 1 (ring on the badge) right at
+## the press-now instant.
+func _progress_for(to_press: float) -> float:
+	return clampf(1.0 - to_press / RING_LEAD_TIME, 0.0, 1.0)
+
+
+## The incoming cue's estimate (see this file's header): sets
+## _estimate_to_press / _estimate_tier, or NAN / NONE. A live kick (not the
+## player's own) whose gravity-only fall reaches the hands' height on the
+## way down within Tuning.MARK_CUE_INCOMING_RADIUS of the player, on the
+## ground plane. The tier is the take prompt_mark_tier() would most likely
+## settle on: (Y) with an opponent within MARK_CONTEST_RANGE of that drop,
+## else (A). An opponent's kick still within MARK_STAND_MIN_DISTANCE of the
+## boot shows nothing to the player standing by the kicker (the man on the
+## mark: same reason live_mark_prompt() holds off there).
+func _incoming_estimate() -> void:
+	_estimate_to_press = NAN
+	_estimate_tier = Tuning.Action.NONE
+	if ball.is_held or not ball.is_kick_flight() or player.is_carrying() \
+			or player.is_ragdolled() or ball.last_disposer() == player:
+		return
+	var to_player := ball.global_position - player.global_position
+	to_player.y = 0.0
+	if ball.kick_team() != player.team and ball.kick_team() != Tuning.Team.NONE \
+			and ball.distance_since_launch() < Tuning.MARK_STAND_MIN_DISTANCE \
+			and to_player.length() < Tuning.MARK_STAND_MIN_DISTANCE:
+		return
+	var hands := player.catch_point_position().y
+	var y0 := ball.global_position.y
+	var vy := ball.linear_velocity.y
+	var through := vy * vy + 2.0 * Tuning.GRAVITY * (y0 - hands)
+	if through < 0.0:
+		return
+	var t_down := (vy + sqrt(through)) / Tuning.GRAVITY
+	if t_down <= 0.0:
+		return
+	var drop := ball.global_position + Vector3(ball.linear_velocity.x, 0.0, ball.linear_velocity.z) * t_down
+	var to_drop := drop - player.global_position
+	to_drop.y = 0.0
+	if to_drop.length() > Tuning.MARK_CUE_INCOMING_RADIUS:
+		return
+	drop.y = player.global_position.y
+	var tier := Tuning.Action.MARK_SAFE
+	if SpatialQuery.nearest_opponent_distance(player, drop) <= Tuning.MARK_CONTEST_RANGE:
+		tier = Tuning.Action.MARK_AGGRESSIVE
+	if forced_tier != Tuning.Action.NONE:
+		tier = forced_tier
+	_estimate_tier = tier
+	_estimate_to_press = t_down + _press_target_offset(tier)
 
 
 func _draw_badge(canvas: Control) -> void:
+	if _incoming_this_frame and not _visible_this_frame and _flash_sign == 0:
+		_draw_incoming(canvas)
+		return
 	if not _visible_this_frame and _flash_sign == 0:
 		return
 	if _flash_sign != 0:
@@ -328,6 +464,127 @@ func _draw_badge(canvas: Control) -> void:
 	var size := font.get_string_size(label, HORIZONTAL_ALIGNMENT_CENTER, -1, LABEL_SIZE)
 	canvas.draw_string(font, _screen_pos - size * 0.5 + Vector2(0.0, size.y * 0.5),
 		label, HORIZONTAL_ALIGNMENT_LEFT, -1, LABEL_SIZE, SoftBrutalist.PANEL)
+	_draw_assist(canvas)
+
+
+## The incoming cue: the live badge's drawing at INCOMING_ALPHA, the ring
+## closing on the estimate.
+func _draw_incoming(canvas: Control) -> void:
+	var colour := _badge_colour(_tier)
+	canvas.draw_arc(_screen_pos, RING_RADIUS, 0.0, TAU, RING_SEGMENTS,
+		Color(colour, TARGET_RING_ALPHA * INCOMING_ALPHA), TARGET_RING_THICKNESS, true)
+	if _ring_progress > 0.0 and _ring_progress < 1.0:
+		var radius := lerpf(RING_CLOSE_START_RADIUS, RING_RADIUS, _ring_progress)
+		var alpha := clampf(_ring_progress * 4.0, 0.0, 1.0) * INCOMING_ALPHA
+		canvas.draw_arc(_screen_pos, radius, 0.0, TAU, RING_SEGMENTS,
+			Color(SoftBrutalist.INK, alpha), RING_THICKNESS + RING_OUTLINE_EXTRA, true)
+		canvas.draw_arc(_screen_pos, radius, 0.0, TAU, RING_SEGMENTS,
+			Color(colour, alpha), RING_THICKNESS, true)
+	canvas.draw_circle(_screen_pos, BADGE_RADIUS, Color(colour, INCOMING_ALPHA))
+	canvas.draw_circle(_screen_pos, BADGE_RADIUS, Color(SoftBrutalist.INK, INCOMING_ALPHA),
+		false, 2.0, true)
+	var font := SoftBrutalist.font(SoftBrutalist.WEIGHT_HEAVY)
+	var label := _badge_label(_tier)
+	var size := font.get_string_size(label, HORIZONTAL_ALIGNMENT_CENTER, -1, LABEL_SIZE)
+	canvas.draw_string(font, _screen_pos - size * 0.5 + Vector2(0.0, size.y * 0.5),
+		label, HORIZONTAL_ALIGNMENT_LEFT, -1, LABEL_SIZE, Color(SoftBrutalist.PANEL, INCOMING_ALPHA))
+
+
+# ── Mark-timing assist (6AF) ─────────────────────────────────────────
+
+func _assist_on() -> bool:
+	if assist_mode >= 0:
+		return assist_mode == 1
+	return Settings.hud_on(&"mark_assist") and is_instance_valid(player) \
+		and player.brain() is HumanBrain
+
+
+## Slows the game around the press instant and lets it back up after. The
+## ease runs on real time (delta is already scaled, so it's divided back).
+func _update_assist(delta: float) -> void:
+	var want := 1.0
+	if _visible_this_frame and _ring_visible_this_frame and not is_nan(_to_press) \
+			and _assist_on() \
+			and _to_press <= Tuning.MARK_ASSIST_SLOW_LEAD \
+			and _to_press >= -Tuning.MARK_ASSIST_SLOW_AFTER \
+			and player.committed_mark_tier() != Tuning.Action.MARK_AGGRESSIVE:
+		want = Tuning.MARK_ASSIST_TIME_SCALE
+	if not _assist_owns_time and want >= 1.0:
+		return
+	_assist_owns_time = true
+	var real_delta := delta / maxf(Engine.time_scale, 0.01)
+	var rate := (1.0 - Tuning.MARK_ASSIST_TIME_SCALE) / Tuning.MARK_ASSIST_EASE
+	Engine.time_scale = move_toward(Engine.time_scale, want, rate * real_delta)
+	if want >= 1.0 and Engine.time_scale >= 0.999:
+		_release_time()
+
+
+func _release_time() -> void:
+	if _assist_owns_time:
+		Engine.time_scale = 1.0
+		_assist_owns_time = false
+
+
+## A pause, or the match ending mid slow-down, mustn't leave the menus
+## running at 0.4x.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PAUSED or what == NOTIFICATION_EXIT_TREE:
+		_release_time()
+
+
+## The graph: time along x (the press instant ASSIST_SPAN_BEFORE in from the
+## left), the ball's height up y. The curve is the ball's flight from where
+## it is now under gravity alone; the window sits on the curve at the press
+## instant, and the dot is the ball, now.
+func _draw_assist(canvas: Control) -> void:
+	if not _visible_this_frame or not _ring_visible_this_frame or is_nan(_to_press) \
+			or not _assist_on() or not is_instance_valid(ball):
+		return
+	var top_left := _screen_pos + Vector2(-ASSIST_SIZE.x * 0.5,
+		-(RING_CLOSE_START_RADIUS + ASSIST_GAP + ASSIST_SIZE.y))
+	top_left.y = maxf(top_left.y, 8.0)
+	var panel := Rect2(top_left, ASSIST_SIZE)
+	canvas.draw_rect(panel, ASSIST_PANEL)
+	var plot := panel.grow(-ASSIST_PAD)
+	var axis := Color(SoftBrutalist.PANEL, 0.55)
+	canvas.draw_line(plot.position, Vector2(plot.position.x, plot.end.y), axis, 1.0)
+	canvas.draw_line(Vector2(plot.position.x, plot.end.y), plot.end, axis, 1.0)
+
+	var span := ASSIST_SPAN_BEFORE + ASSIST_SPAN_AFTER
+	var heights := PackedFloat32Array()
+	var top := ASSIST_MIN_TOP
+	for i in ASSIST_SAMPLES + 1:
+		# t: seconds from the press instant; ahead: seconds from now.
+		var t := -ASSIST_SPAN_BEFORE + span * float(i) / ASSIST_SAMPLES
+		heights.append(_assist_height(t + _to_press))
+		top = maxf(top, heights[i])
+	var curve := PackedVector2Array()
+	for i in ASSIST_SAMPLES + 1:
+		curve.append(Vector2(plot.position.x + plot.size.x * float(i) / ASSIST_SAMPLES,
+			plot.end.y - plot.size.y * heights[i] / top))
+	canvas.draw_polyline(curve, Color(SoftBrutalist.PANEL, 0.8), 1.5, true)
+
+	var per_second := plot.size.x / span
+	var press_x := plot.position.x + ASSIST_SPAN_BEFORE * per_second
+	var press_y := plot.end.y - plot.size.y * _assist_height(_to_press) / top
+	var in_window := absf(_to_press) <= Tuning.MARK_ASSIST_WINDOW
+	var window_colour := ASSIST_IN_WINDOW if in_window else _badge_colour(_tier)
+	var window := Rect2(press_x - Tuning.MARK_ASSIST_WINDOW * per_second, press_y - 9.0,
+		2.0 * Tuning.MARK_ASSIST_WINDOW * per_second, 18.0).intersection(plot.grow(2.0))
+	canvas.draw_rect(window, Color(window_colour, 0.25))
+	canvas.draw_rect(window, window_colour, false, 2.0)
+
+	var ball_x := clampf(press_x - _to_press * per_second, plot.position.x, plot.end.x)
+	var ball_y := plot.end.y - plot.size.y * _assist_height(0.0) / top
+	canvas.draw_circle(Vector2(ball_x, ball_y), 3.5,
+		ASSIST_IN_WINDOW if in_window else SoftBrutalist.PANEL)
+
+
+## The ball's height `ahead` seconds from now (negative: back along the
+## same arc), gravity only.
+func _assist_height(ahead: float) -> float:
+	return maxf(0.0, ball.global_position.y + ball.linear_velocity.y * ahead
+		- 0.5 * Tuning.GRAVITY * ahead * ahead)
 
 
 func _flash_colour() -> Color:

@@ -134,6 +134,13 @@ func _ready() -> void:
 			Settings.hud_index(&"umpire_banner"),
 			func(index: int) -> void: Settings.set_hud(&"umpire_banner", index)
 		),
+		# Settings.AutoSwitch, in its order (full-team Full Game only).
+		Row.new(
+			"AUTO SWITCH",
+			["OFF", "ASSISTED", "FULL"],
+			Settings.auto_switch,
+			func(index: int) -> void: Settings.auto_switch = index as Settings.AutoSwitch
+		),
 	]
 
 	var root := Control.new()

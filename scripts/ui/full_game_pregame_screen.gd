@@ -108,17 +108,32 @@ const HEADER_HEIGHT := 66.0
 const FOOTER_HEIGHT := 24.0
 
 ## Ten cards plus nine gaps has to clear the screen's own side margins:
-## 10*90 + 9*18 = 1062, against 1280 - 40*2 = 1200 usable. Card height is
-## set by the tallest content a card can hold — a two-line wrapped title
-## ("DEFENSIVE PRESSURE"), a two-line wrapped value, and the cursor glyph
-## row under it.
-const CARD_WIDTH := 90.0
-const CARD_HEIGHT := 96.0
-const CARD_SEPARATION := 18
-const CARD_PAD_X := 7
-const CARD_PAD_Y := 8
-const CARD_GLYPH_SIZE := 11.0
-const CARD_CHEVRON_GAP := 6
+## 10*106 + 9*12 = 1168, against 1280 - 40*2 = 1200 usable. Bigger than
+## the old 90x96 to hold the match setup reference's layout: an icon on
+## top, a two-line wrapped title ("DEFENSIVE PRESSURE") and a two-line
+## wrapped value ("FIELD 2 · BUSH") under it.
+const CARD_WIDTH := 106.0
+const CARD_HEIGHT := 112.0
+const CARD_SEPARATION := 12
+const CARD_PAD_X := 6
+const CARD_PAD_Y := 9
+const CARD_ICON_SIZE := 28.0
+const CARD_LOCK_SIZE := 40.0
+const CARD_CHEVRON_GAP := 4
+## One icon per card, in _cards order (match setup reference image).
+const CARD_ICONS: Array[StringName] = [&"player_arms", &"camera", &"nodes", &"football",
+	&"shield", &"pitch", &"flag", &"bars", &"clock", &"weather"]
+## A locked card's padlock sits over its icon and title, as in the reference,
+## on top of the greyed card; the icon underneath fades to a ghost.
+const LOCKED_ICON_ALPHA := 0.35
+## The formation shape badge beside the board ("6-6-6"; see
+## FormationWhiteboard.line_counts()) and the rule between the readout
+## column and the board.
+const BADGE_SIZE := Vector2(92.0, 36.0)
+const BADGE_RIGHT_MARGIN := 96.0
+const BADGE_FILL := Color("#1F3A2E")
+const BADGE_TEXT := Color("#F3EBD9")
+const READOUT_DIVIDER_X := 296.0
 
 ## What the four fixed bands leave for the preview. Written as the
 ## subtraction rather than as a measured constant so moving any band's
@@ -126,7 +141,7 @@ const CARD_CHEVRON_GAP := 6
 const PREVIEW_HEIGHT := DESIGN_HEIGHT - SCREEN_MARGIN_Y * 2.0 - HEADER_HEIGHT \
 	- CARD_HEIGHT - ActionButton.HEIGHT - FOOTER_HEIGHT - float(BAND_GAP) * 4.0
 
-## FormationWhiteboard draws itself to a portrait AFL aspect (Tuning's
+## FormationWhiteboard draws itself to a portrait Aussie Rules aspect (Tuning's
 ## half-width over half-length) fitted to the height it is given, plus its
 ## own MARGIN inset on every side — so this is the panel width at which
 ## the board exactly fills the window rather than sitting in a band of
@@ -238,6 +253,7 @@ class Card:
 	var title_label: Label
 	var value_label: Label
 	var glyph: UIIcon
+	var lock_icon: UIIcon
 	var chevron_left: Label
 	var chevron_right: Label
 
@@ -267,6 +283,8 @@ var _open := false
 var _busy := false
 
 var _whiteboard: FormationWhiteboard
+var _shape_badge: PanelContainer
+var _shape_label: Label
 var _readout_values: Array[Label] = []
 var _start_button: ActionButton
 var _start_band: Control
@@ -568,7 +586,10 @@ func _build() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 
-	root.add_child(SoftBrutalist.backdrop())
+	# The oval behind the panels (match setup reference image), from
+	# menu_backdrop.tscn in its still mode: the Settings field, one held
+	# framing rather than the main menu's montage.
+	root.add_child(_build_field_backdrop())
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -591,6 +612,22 @@ func _build() -> void:
 	_build_footer(bands)
 
 
+func _build_field_backdrop() -> SubViewportContainer:
+	var container := SubViewportContainer.new()
+	container.set_anchors_preset(Control.PRESET_FULL_RECT)
+	container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	container.stretch = true
+	var viewport := SubViewport.new()
+	viewport.own_world_3d = true
+	viewport.handle_input_locally = false
+	container.add_child(viewport)
+	var backdrop := (load("res://scenes/ui/menu_backdrop.tscn") as PackedScene).instantiate() \
+		as MenuBackdrop
+	backdrop.still = true
+	viewport.add_child(backdrop)
+	return container
+
+
 func _build_header(parent: Control) -> void:
 	var column := VBoxContainer.new()
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -605,8 +642,9 @@ func _build_header(parent: Control) -> void:
 	# with the card row hanging off the bottom.
 	column.add_child(SoftBrutalist.label(TITLE_TEXT, SoftBrutalist.SIZE_DISPLAY,
 		RetroWindow.BORDER, SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_DISPLAY))
-	column.add_child(SoftBrutalist.label(SUBTITLE_TEXT, SoftBrutalist.SIZE_LABEL,
-		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_REGULAR, SoftBrutalist.TRACK_LABEL))
+	# Darker than MUTED: it sits on the oval's sky now, not cream paper.
+	column.add_child(SoftBrutalist.label(SUBTITLE_TEXT, SoftBrutalist.SIZE_BODY,
+		Color(RetroWindow.BORDER, 0.8), SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL))
 
 
 ## The preview window: a RetroWindow shell holding a live
@@ -678,7 +716,10 @@ func _build_preview(parent: Control) -> void:
 	_whiteboard = FormationWhiteboard.new()
 	_whiteboard.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_whiteboard.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_whiteboard.show_defend_caption = true
 	board_holder.add_child(_whiteboard)
+
+	_build_shape_badge(body)
 
 	# Live preview built first, readout strip second — Control siblings
 	# draw in child order, and the readout (MATCH SETUP / CAMERA PREVIEW)
@@ -686,6 +727,33 @@ func _build_preview(parent: Control) -> void:
 	# on top of the formation whiteboard beneath it.
 	_build_camera_preview_content(body)
 	_build_readout(body)
+
+## Dark pill to the board's right naming the shape it draws ("6-6-6"),
+## filled from FormationWhiteboard.line_counts() in _sync_preview(). Hidden
+## with the board while the camera preview has the window.
+func _build_shape_badge(parent: Control) -> void:
+	_shape_badge = PanelContainer.new()
+	_shape_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_shape_badge.anchor_left = 1.0
+	_shape_badge.anchor_right = 1.0
+	_shape_badge.anchor_top = 0.5
+	_shape_badge.anchor_bottom = 0.5
+	_shape_badge.offset_right = -BADGE_RIGHT_MARGIN
+	_shape_badge.offset_left = -BADGE_RIGHT_MARGIN - BADGE_SIZE.x
+	_shape_badge.offset_top = -BADGE_SIZE.y * 0.5
+	_shape_badge.offset_bottom = BADGE_SIZE.y * 0.5
+	var style := StyleBoxFlat.new()
+	style.bg_color = BADGE_FILL
+	style.set_corner_radius_all(6)
+	_shape_badge.add_theme_stylebox_override(&"panel", style)
+	parent.add_child(_shape_badge)
+
+	_shape_label = SoftBrutalist.label("", SoftBrutalist.SIZE_HEADING, BADGE_TEXT,
+		SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_LABEL)
+	_shape_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_shape_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_shape_badge.add_child(_shape_label)
+
 
 ## Live render fills the window (CameraModePreview — see its own header
 ## for why this replaced the old static fullside.png/3rdperson.png
@@ -798,6 +866,18 @@ func _build_readout(panel: Control) -> void:
 	divider.custom_minimum_size = Vector2(0.0, 1.0)
 	divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	strip.add_child(divider)
+
+	# Vertical rule closing the readout column off from the board, starting
+	# under the heading (match setup reference image).
+	var column_rule := ColorRect.new()
+	column_rule.color = Color(RetroWindow.BORDER, 0.55)
+	column_rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column_rule.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	column_rule.offset_left = READOUT_DIVIDER_X
+	column_rule.offset_right = READOUT_DIVIDER_X + 1.0
+	column_rule.offset_top = READOUT_INSET_X + 64.0
+	column_rule.offset_bottom = READOUT_INSET_X + READOUT_PANEL_HEIGHT + 8.0
+	panel.add_child(column_rule)
 
 	for title: String in ["FORMATION", "CONTROL", "CAMERA", "POSITION"]:
 		var row_parts := _build_readout_row(strip, title)
@@ -998,15 +1078,25 @@ func _build_card(card: Card, index: int) -> void:
 
 	var column := VBoxContainer.new()
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	column.add_theme_constant_override(&"separation", 2)
+	column.add_theme_constant_override(&"separation", 4)
 	inset.add_child(column)
 
+	# Icon on top, then the setting's name, then its value — the match
+	# setup reference image's tile. No arrow under the value any more: the
+	# orange border shows the cursor, and the chevrons beside the value
+	# appear only while the card's picker is open.
+	card.glyph = UIIcon.new()
+	card.glyph.icon_name = CARD_ICONS[index] if index < CARD_ICONS.size() else &"gear"
+	card.glyph.custom_minimum_size = Vector2(CARD_ICON_SIZE, CARD_ICON_SIZE)
+	card.glyph.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	card.glyph.line_width = 2.0
+	column.add_child(card.glyph)
+
 	# Titles wrap rather than clip — "DEFENSIVE PRESSURE" does not fit a
-	# 118px tile on one line at any readable size, and a card row where one
-	# label is silently truncated is worse than one where it takes two
-	# lines.
+	# tile on one line at any readable size, and a card row where one label
+	# is silently truncated is worse than one where it takes two lines.
 	card.title_label = SoftBrutalist.label(card.row.title, SoftBrutalist.SIZE_CAPTION,
-		RetroWindow.BORDER, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL)
+		RetroWindow.BORDER, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_NONE)
 	card.title_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	card.title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(card.title_label)
@@ -1016,40 +1106,45 @@ func _build_card(card: Card, index: int) -> void:
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	column.add_child(spacer)
 
-	card.value_label = SoftBrutalist.label(card.row.value(), SoftBrutalist.SIZE_LABEL,
-		RetroWindow.ACCENT, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_NONE)
-	card.value_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	card.value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	column.add_child(card.value_label)
-
-	# Cursor/lock glyph, flanked by the two picker chevrons. The chevrons
-	# are always in the layout and only change alpha (see _refresh()), so
-	# opening a card never nudges the glyph sideways — a marker that shifts
-	# as you press a button reads as a glitch, same reason main_menu.gd
-	# moved its cursor off a text prefix and onto a badge.
-	var glyph_row := HBoxContainer.new()
-	glyph_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	glyph_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	glyph_row.add_theme_constant_override(&"separation", CARD_CHEVRON_GAP)
-	column.add_child(glyph_row)
+	# The chevrons are always in the layout and only change alpha (see
+	# _refresh()), so opening a card never nudges the value sideways.
+	var value_row := HBoxContainer.new()
+	value_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	value_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	value_row.add_theme_constant_override(&"separation", CARD_CHEVRON_GAP)
+	column.add_child(value_row)
 
 	card.chevron_left = SoftBrutalist.label("‹", SoftBrutalist.SIZE_BODY,
 		RetroWindow.ACCENT, SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_NONE)
 	card.chevron_left.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	glyph_row.add_child(card.chevron_left)
+	value_row.add_child(card.chevron_left)
 
-	card.glyph = UIIcon.new()
-	# Padlock on the four inert cards, matching main_menu.gd's locked mode
-	# tiles; the "open this" chevron-arrow otherwise, its own glyph too.
-	card.glyph.icon_name = &"lock" if card.locked else &"arrow_right"
-	card.glyph.custom_minimum_size = Vector2(CARD_GLYPH_SIZE, CARD_GLYPH_SIZE)
-	card.glyph.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	glyph_row.add_child(card.glyph)
+	card.value_label = SoftBrutalist.label(card.row.value(), SoftBrutalist.SIZE_LABEL,
+		RetroWindow.ACCENT, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_NONE)
+	card.value_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	card.value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	card.value_label.custom_minimum_size.x = CARD_WIDTH - CARD_PAD_X * 2.0 - 24.0
+	value_row.add_child(card.value_label)
 
 	card.chevron_right = SoftBrutalist.label("›", SoftBrutalist.SIZE_BODY,
 		RetroWindow.ACCENT, SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_NONE)
 	card.chevron_right.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	glyph_row.add_child(card.chevron_right)
+	value_row.add_child(card.chevron_right)
+
+	# Padlock over the icon and title of a locked card (match setup
+	# reference image). Always built: YOUR POSITION locks and unlocks with
+	# PLAYER CONTROL, so _refresh() just toggles it.
+	card.lock_icon = UIIcon.new()
+	card.lock_icon.icon_name = &"lock"
+	card.lock_icon.line_width = 2.2
+	card.lock_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.lock_icon.anchor_left = 0.5
+	card.lock_icon.anchor_right = 0.5
+	card.lock_icon.offset_left = -CARD_LOCK_SIZE * 0.5
+	card.lock_icon.offset_right = CARD_LOCK_SIZE * 0.5
+	card.lock_icon.offset_top = CARD_PAD_Y + CARD_ICON_SIZE * 0.5
+	card.lock_icon.offset_bottom = CARD_PAD_Y + CARD_ICON_SIZE * 0.5 + CARD_LOCK_SIZE
+	body.add_child(card.lock_icon)
 
 	# The card's pixel size comes from the layout, and the selection pop
 	# has to scale about the card's middle rather than its top-left corner.
@@ -1109,6 +1204,8 @@ func _build_footer(parent: Control) -> void:
 	parent.add_child(row)
 
 	_hints = DeviceHintBar.new()
+	# Dark ink, not the default grey: the legend sits on the oval's grass.
+	_hints.label_colour = RetroWindow.BORDER
 	_hints.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(_hints)
 
@@ -1193,16 +1290,15 @@ func _refresh() -> void:
 		card.value_label.add_theme_color_override(&"font_color",
 			SoftBrutalist.MUTED if card.locked else RetroWindow.ACCENT)
 		card.glyph.line_colour = _glyph_colour(card, selected)
-		card.glyph.icon_name = &"lock" if card.locked else &"arrow_right"
+		card.glyph.modulate.a = LOCKED_ICON_ALPHA if card.locked else 1.0
+		card.lock_icon.visible = card.locked
+		card.lock_icon.line_colour = Color(RetroWindow.BORDER, 0.75)
 
-		# Alpha rather than `visible`, so the glyph row's layout never
-		# reflows — see _build_card(). Shown on `selected`, not just `open`
-		# — user report: "remove the arrows from the options... unless that
-		# card is on hover". `selected` already means "the cursor (mouse
-		# hover or keyboard/gamepad) is on this card" (see above), so this
-		# one condition change covers every input method at once rather
-		# than needing a separate mouse-only hover flag.
-		var chevron_alpha := 1.0 if selected or open else 0.0
+		# Alpha rather than `visible`, so the value row never reflows — see
+		# _build_card(). Only while the picker is open now: the match setup
+		# reference has no arrows on the tiles, and the orange border
+		# already marks the card under the cursor.
+		var chevron_alpha := 1.0 if open else 0.0
 		card.chevron_left.modulate.a = chevron_alpha
 		card.chevron_right.modulate.a = chevron_alpha
 
@@ -1238,10 +1334,10 @@ func _card_style(card: Card, selected: bool, open: bool) -> StyleBoxFlat:
 	return RetroWindow.panel_style()
 
 
-func _glyph_colour(card: Card, selected: bool) -> Color:
+func _glyph_colour(card: Card, _selected: bool) -> Color:
 	if card.locked:
 		return SoftBrutalist.DISABLED_BORDER
-	return RetroWindow.ACCENT if selected else SoftBrutalist.MUTED
+	return RetroWindow.BORDER
 
 
 func _animate_card(card: Card, lifted: bool) -> void:
@@ -1284,6 +1380,8 @@ func _set_camera_preview_active(active: bool) -> void:
 
 	if is_instance_valid(_whiteboard):
 		_whiteboard.visible = not active
+	if is_instance_valid(_shape_badge):
+		_shape_badge.visible = not active
 
 	# The readout strip itself stays visible either way now — only its
 	# title text and which rows it shows change, so CAMERA PREVIEW/ZOOM
@@ -1340,6 +1438,10 @@ func _sync_preview() -> void:
 			if Settings.player_control_mode == Settings.PlayerControlMode.SINGLE_PLAYER \
 			else -1
 
+	if is_instance_valid(_whiteboard) and is_instance_valid(_shape_label):
+		var counts := _whiteboard.line_counts()
+		_shape_label.text = "%d-%d-%d" % [counts[0], counts[1], counts[2]]
+
 	if _readout_values.size() < 4:
 		return
 	_readout_values[0].text = String(
@@ -1357,3 +1459,4 @@ func _sync_preview() -> void:
 	# ONE PLAYER mode, but shown regardless — the card is too.
 	_readout_values[3].text = "%d %s" % [Settings.home_human_slot + 1,
 		String(TeamFormation.roster_slot(Settings.home_human_slot)["label"])]
+

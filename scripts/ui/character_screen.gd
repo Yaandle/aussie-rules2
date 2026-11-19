@@ -36,7 +36,7 @@ extends Node
 ## colour-only Customise panel below (see CUSTOMISE_ROWS).
 const ATTRIBUTE_ROWS := [
 	{"key": "speed", "icon": &"speed", "name": "SPEED"},
-	{"key": null, "icon": &"jump", "name": "JUMPING"},
+	{"key": "jump", "icon": &"jump", "name": "JUMPING"},
 	{"key": "kick_power", "icon": &"kick", "name": "KICKING POWER"},
 	{"key": "kick_accuracy", "icon": &"accuracy", "name": "KICKING ACCURACY"},
 	{"key": "agility", "icon": &"agility", "name": "AGILITY"},
@@ -201,6 +201,8 @@ func _ready() -> void:
 			"step": Tuning.CHARACTER_KICK_ACCURACY_STEP, "format": "%.0f%%"},
 		"agility": {"min": Tuning.CHARACTER_AGILITY_MIN, "max": Tuning.CHARACTER_AGILITY_MAX,
 			"step": Tuning.CHARACTER_AGILITY_STEP, "format": "%.2fx"},
+		"jump": {"min": Tuning.CHARACTER_JUMP_MIN, "max": Tuning.CHARACTER_JUMP_MAX,
+			"step": Tuning.CHARACTER_JUMP_STEP, "format": "%.2fx"},
 	}
 	_model_ids.append_array(HumanoidRig.CHARACTER_MODELS.keys())
 	_draft = {
@@ -209,6 +211,7 @@ func _ready() -> void:
 		"kick_power": CharacterProfile.kick_power,
 		"kick_accuracy": CharacterProfile.kick_accuracy,
 		"agility": CharacterProfile.agility,
+		"jump": CharacterProfile.jump,
 		"apply_all": CharacterProfile.apply_all,
 		"model_id": CharacterProfile.model_id,
 		"skin_color": CharacterProfile.skin_color,
@@ -387,6 +390,7 @@ func _commit_draft() -> void:
 	CharacterProfile.kick_power = _draft["kick_power"]
 	CharacterProfile.kick_accuracy = _draft["kick_accuracy"]
 	CharacterProfile.agility = _draft["agility"]
+	CharacterProfile.jump = _draft["jump"]
 	CharacterProfile.apply_all = _draft["apply_all"]
 	CharacterProfile.model_id = _draft["model_id"]
 	CharacterProfile.skin_color = _draft["skin_color"]

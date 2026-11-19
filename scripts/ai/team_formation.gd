@@ -1,7 +1,7 @@
 class_name TeamFormation
 extends Resource
 
-## Pure-geometry AFL formation data: 18 fixed slots grouped into the six
+## Pure-geometry Aussie Rules formation data: 18 fixed slots grouped into the six
 ## real position lines, each at a position expressed as a fraction of
 ## Tuning.FIELD_HALF_LENGTH/FIELD_HALF_WIDTH rather than a fixed
 ## coordinate — so the layout stays correct if the ground size ever
@@ -19,7 +19,7 @@ extends Resource
 ## the ground is symmetric across the centre line, so both teams' left
 ## flank sits at the same sign.
 ##
-## Depths and laterals here are a plausible AFL-shaped starting-position
+## Depths and laterals here are a plausible Aussie Rules-shaped starting-position
 ## layout, not a scouted real-world formation — good enough for a preview
 ## screen and a formation-start spawn; a tactics system would vary these
 ## live, which is explicitly out of scope for this pass.
@@ -38,7 +38,7 @@ enum Line { BACK, HALF_BACK, CENTRE, HALF_FORWARD, FORWARD, FOLLOWERS }
 
 const LINE_NAMES := ["BACK", "HALF BACK", "CENTRE", "HALF FORWARD", "FORWARD", "FOLLOWERS"]
 
-## 18 slots, the full AFL team. Each: role, short label (for the Team List
+## 18 slots, the full Aussie Rules team. Each: role, short label (for the Team List
 ## dots), the line it belongs to, and its depth/lateral fraction.
 const SLOTS := [
 	{"role": Role.FULL_BACK, "label": "FB", "line": Line.BACK, "depth": -0.80, "lateral": 0.0},
@@ -67,7 +67,7 @@ const SLOTS := [
 ]
 
 
-## Roster spawn order as indices into SLOTS: the four players the AFL
+## Roster spawn order as indices into SLOTS: the four players the Aussie Rules
 ## centre-square law lets start inside the square at a centre bounce — the
 ## ruck, the centre and the two rovers — are pulled to the front, so a
 ## mode that rings roster indices 0-3 at a bounce and nominates index 0 as
@@ -121,3 +121,4 @@ static func world_positions(count: int, attack_direction: float) -> Array[Vector
 	for i in mini(count, SLOTS.size()):
 		positions.append(world_position(SLOTS[i], attack_direction))
 	return positions
+

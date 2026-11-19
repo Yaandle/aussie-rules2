@@ -1,31 +1,39 @@
 class_name HighlightExportDialog
 extends Control
 
-## The Highlights screen's export window (playtest 2026-11-10: "when I
-## click export let me select which clips to export"). The page behind is
-## blurred and dimmed; the window lists, top to bottom:
-##   a row per moment TYPE: its toggle, how many are held and ticked, and the
-##     type's default camera (left / right changes it);
-##   the FORMAT row: 16:9 + 9:16, 16:9 only or 9:16 only (half the render);
-##   a row per listed moment with its tick box and camera (left / right
-##     changes that moment's own camera);
-##   then EXPORT and CANCEL.
-## The type toggles, cameras and format are saved (HighlightPrefs). The
-## moment ticks are the moments' own `keep` flags, so what you ticked on the
-## page arrives pre-ticked here and stays in step. A type that's off isn't
-## listed and isn't rendered.
+## The Highlights screen's export window. The page behind is blurred and
+## dimmed.
 ##
-## Pad and keyboard: ↑/↓ move, ←/→ change a camera or the format, A/Enter
-## (or X/Space) toggles or presses EXPORT/CANCEL, Y/E exports straight away,
-## B/Esc closes (or cancels a running export). Mouse: click a row. The screen
-## forwards its input here while the window is open (handle_input).
+## Simplified 2026-11-17 (playtest: "the export is not that simple... just
+## showing the types of clips we have selected, not every single individual
+## one"). One export makes the match video for the daily series:
+##   match_16x9.mp4    the whole match, breaks and dead time cut
+##   highlight.mp4     every ticked clip of the ticked types, in match order
+##   match_video.json  the timeline (markers, moments, cameras) for the
+##                     video tool
+## so the window lists only what changes that, top to bottom:
+##   a row per clip TYPE, in HighlightTable.TYPE_ORDER: its tick, how many
+##     clips it adds and how long they run, and its camera (left / right);
+##   one row for the old per-clip files (off by default; the video tool's
+##     current reader still uses them);
+##   EXPORT and CLOSE.
+## Single moments aren't listed: untick one on the Highlights page (Space /
+## X) to leave it out. Type ticks and cameras are saved (HighlightPrefs).
+##
+## Without a full-match recording (full-match recording off, or a match from
+## before it existed) there's nothing to cut the videos from, so the export
+## falls back to separate clip files and says so.
+##
+## Pad and keyboard: ↑/↓ move, ←/→ change a camera, A/Enter (or X/Space)
+## toggles or presses EXPORT/CLOSE, Y/E exports straight away, B/Esc closes
+## (or cancels a running export). Mouse: click a row. The screen forwards
+## its input here while the window is open (handle_input).
 
 signal export_requested(moments: Array[Dictionary])
 signal cancel_requested
 signal closed
 
 const WIDTH := 600.0
-const LIST_HEIGHT := 400.0
 const ROW_HEIGHT := 34.0
 
 ## A mipmap blur of whatever is drawn under it (the 3D replay and the
@@ -45,14 +53,18 @@ var _moments: Array[Dictionary] = []
 var _cursor := 0
 var _exporting := false
 var _done := false
-## One per row, top to bottom: {kind: "type"|"format"|"moment"|"export"|"close",
-## type (for "type"), moment (for "moment")}.
+## One per row, top to bottom: {kind: "type"|"clips"|"export"|"close", type}.
 var _entries: Array[Dictionary] = []
 var _rows: Array[Panel] = []
 var _labels: Array[Label] = []
+## Type rows only: the clip count and the camera, each at its own x so the
+## columns line up (the body font isn't fixed-width). Null on other rows.
+var _amounts: Array = []
+var _cameras: Array = []
+const AMOUNT_X := 190.0
+const CAMERA_X := 370.0
 var _list: VBoxContainer
 var _actions: HBoxContainer
-var _scroll: ScrollContainer
 var _status: Label
 var _count: Label
 
@@ -88,24 +100,18 @@ func _init(moments: Array[Dictionary]) -> void:
 	column.add_theme_constant_override(&"separation", 8)
 	margin.add_child(column)
 
-	column.add_child(StudioStyle.text("Export highlights", 20, StudioStyle.INK, StudioStyle.display_font()))
-	var where := StudioStyle.text("To %s" % HighlightPaths.root(), 11, StudioStyle.INK_SOFT, StudioStyle.mono_font())
-	where.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
-	where.custom_minimum_size.x = WIDTH
-	column.add_child(where)
-	var rule := ColorRect.new()
-	rule.color = StudioStyle.INK
-	rule.custom_minimum_size = Vector2(0.0, 2.0)
-	column.add_child(rule)
+	column.add_child(StudioStyle.text("Export the match", 20, StudioStyle.INK, StudioStyle.display_font()))
+	var makes := StudioStyle.text(_makes_text(), 12, StudioStyle.INK, StudioStyle.body_font())
+	makes.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	makes.custom_minimum_size.x = WIDTH
+	column.add_child(makes)
+	_rule(column)
 
-	_scroll = ScrollContainer.new()
-	_scroll.custom_minimum_size = Vector2(WIDTH, LIST_HEIGHT)
-	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	column.add_child(_scroll)
+	column.add_child(StudioStyle.text("CLIPS IN THE HIGHLIGHT VIDEO", 11, StudioStyle.INK_SOFT, StudioStyle.mono_font()))
 	_list = VBoxContainer.new()
-	_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_list.add_theme_constant_override(&"separation", 4)
-	_scroll.add_child(_list)
+	column.add_child(_list)
+	_rule(column)
 
 	_count = StudioStyle.text("", 12, StudioStyle.INK, StudioStyle.body_font())
 	_count.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -114,16 +120,36 @@ func _init(moments: Array[Dictionary]) -> void:
 	_actions = HBoxContainer.new()
 	_actions.add_theme_constant_override(&"separation", 8)
 	column.add_child(_actions)
-	_status = StudioStyle.text("A / Enter toggle   ·   ← / → camera, format   ·   Y / E export   ·   B / Esc close", 11,
+	_status = StudioStyle.text("A / Enter tick   ·   ← / → camera   ·   Y / E export   ·   B / Esc close", 11,
 		StudioStyle.INK_SOFT, StudioStyle.mono_font())
 	_status.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
 	_status.custom_minimum_size.x = WIDTH
 	column.add_child(_status)
+	var where := StudioStyle.text("To %s" % HighlightPaths.root(), 11, StudioStyle.INK_SOFT, StudioStyle.mono_font())
+	where.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
+	where.custom_minimum_size.x = WIDTH
+	column.add_child(where)
 	_rebuild()
 
 
-## Builds every row from the saved choices and the moments held. Called again
-## whenever a type is switched, since that changes which moments are listed.
+static func _rule(parent: Control) -> void:
+	var rule := ColorRect.new()
+	rule.color = StudioStyle.INK
+	rule.custom_minimum_size = Vector2(0.0, 2.0)
+	parent.add_child(rule)
+
+
+static func has_full_match() -> bool:
+	return not Highlights.full_match.is_empty() and FileAccess.file_exists(String(Highlights.full_match.replay))
+
+
+func _makes_text() -> String:
+	if not has_full_match():
+		return "This match wasn't recorded in full, so there's no match video to cut. The export saves each ticked clip as its own 16:9 file instead."
+	return "Makes match_16x9.mp4 (the whole match, breaks and dead time cut), highlight.mp4 (the ticked clips below, in match order) and match_video.json (the timeline for the video tool). Both videos use the cameras set here and on the timeline."
+
+
+## Builds every row. Called again whenever a type is switched.
 func _rebuild() -> void:
 	for child in _list.get_children():
 		child.queue_free()
@@ -132,12 +158,12 @@ func _rebuild() -> void:
 	_entries.clear()
 	_rows.clear()
 	_labels.clear()
+	_amounts.clear()
+	_cameras.clear()
 	for type: String in HighlightTable.TYPE_ORDER:
 		_add_entry(_list, {"kind": "type", "type": type})
-	_add_entry(_list, {"kind": "format"})
-	for m in _moments:
-		if HighlightPrefs.type_on(String(m.type)):
-			_add_entry(_list, {"kind": "moment", "moment": m})
+	if has_full_match():
+		_add_entry(_list, {"kind": "clips"})
 	for kind in ["export", "close"]:
 		var panel := _add_entry(_actions, {"kind": kind})
 		panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -157,10 +183,22 @@ func _add_entry(parent: Control, entry: Dictionary) -> Panel:
 	label.clip_text = true
 	label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	panel.add_child(label)
+	var amount: Label = null
+	var camera: Label = null
+	if String(entry.kind) == "type":
+		label.size.x = AMOUNT_X - 20.0
+		amount = StudioStyle.text("", 13, StudioStyle.INK, StudioStyle.body_font())
+		amount.position = Vector2(AMOUNT_X, 7.0)
+		panel.add_child(amount)
+		camera = StudioStyle.text("", 13, StudioStyle.INK, StudioStyle.body_font())
+		camera.position = Vector2(CAMERA_X, 7.0)
+		panel.add_child(camera)
 	parent.add_child(panel)
 	_entries.append(entry)
 	_rows.append(panel)
 	_labels.append(label)
+	_amounts.append(amount)
+	_cameras.append(camera)
 	return panel
 
 
@@ -168,54 +206,65 @@ func _camera_label(preset: String) -> String:
 	return String(ReplayStage.PRESET_LABELS.get(preset, preset))
 
 
-## How many clips the export would make, and the frames they'd render.
-func _plan() -> Dictionary:
-	var picked := selected()
-	var frames := 0
-	for m in picked:
-		frames += (m.clip as ReplayClip).frame_count()
-	var shapes := 2 if HighlightPrefs.aspect() == "both" else 1
-	return {"clips": picked.size(), "frames": frames * shapes}
+## The clips of `type` that would go in, and how long they run together
+## (seconds; overlapping clips counted once by the video, so this is an
+## upper bound).
+func _type_plan(type: String) -> Dictionary:
+	var clips := 0
+	var seconds := 0.0
+	for m in _moments:
+		if m.type == type and m.keep:
+			clips += 1
+			seconds += float(m.get("duration_s", 0.0))
+	return {"clips": clips, "seconds": seconds}
+
+
+static func _mmss(seconds: float) -> String:
+	return "%d:%02d" % [int(seconds) / 60, int(seconds) % 60]
 
 
 func _refresh() -> void:
-	var plan := _plan()
+	var total_clips := 0
+	var total_seconds := 0.0
 	for i in _rows.size():
 		var on := i == _cursor and not _exporting
 		_rows[i].add_theme_stylebox_override(&"panel",
 			StudioStyle.box(StudioStyle.INK if on else StudioStyle.WHITE, 2, StudioStyle.SHADOW if on else 0))
-		_labels[i].add_theme_color_override(&"font_color", StudioStyle.LIME if on else StudioStyle.INK)
+		for label in [_labels[i], _amounts[i], _cameras[i]]:
+			if label != null:
+				(label as Label).add_theme_color_override(&"font_color", StudioStyle.LIME if on else StudioStyle.INK)
 		var entry := _entries[i]
 		match String(entry.kind):
 			"type":
 				var type: String = entry.type
 				var spec: Dictionary = HighlightTable.TYPES[type]
+				var ticked := HighlightPrefs.type_on(type)
+				var plan := _type_plan(type)
 				var held := Highlights.count_of(type)
-				var ticked := 0
-				for m in _moments:
-					if m.type == type and m.keep:
-						ticked += 1
-				_labels[i].text = "%s  %s   %d held, %d ticked   ·   camera ◂ %s ▸" % [
-					"■" if HighlightPrefs.type_on(type) else "□", String(spec.plural), held,
-					ticked if HighlightPrefs.type_on(type) else 0, _camera_label(HighlightPrefs.camera_for(type))]
-			"format":
-				_labels[i].text = "FORMAT   ◂ %s ▸      (16:9 alone is half the render)" % String(
-					HighlightTable.ASPECT_LABELS[HighlightPrefs.aspect()])
-			"moment":
-				var m: Dictionary = entry.moment
-				var camera := String(m.get("camera", HighlightPrefs.camera_for(String(m.type))))
-				_labels[i].text = "%s  %s   %s   ◂ %s ▸   %s" % ["■" if m.keep else "□", String(m.label),
-					HighlightsScreen.clock_text(m), _camera_label(camera), String(m.caption)]
+				var amount := "none this match" if held == 0 else "%d clip%s  ·  %s" % [plan.clips,
+					"" if plan.clips == 1 else "s", _mmss(plan.seconds)]
+				if ticked:
+					total_clips += int(plan.clips)
+					total_seconds += float(plan.seconds)
+				_labels[i].text = "%s  %s" % ["■" if ticked else "□", String(spec.plural)]
+				(_amounts[i] as Label).text = amount if ticked else ("%d held" % held if held > 0 else "none this match")
+				(_cameras[i] as Label).text = "camera  ◂ %s ▸" % _camera_label(HighlightPrefs.camera_for(type))
+			"clips":
+				_labels[i].text = "%s  Also save each clip as its own file (old format, for the current video tool)" % [
+					"■" if HighlightPrefs.clip_files() else "□"]
 			"export":
-				_labels[i].text = "EXPORT %d CLIP%s" % [plan.clips, "" if plan.clips == 1 else "S"]
+				_labels[i].text = "EXPORT"
 			_:
-				_labels[i].text = "CLOSE" if _done else "CANCEL"
-	_count.text = "%d clip%s ticked  ·  %d frames to render (%.0f s of video, %s)" % [plan.clips,
-		"" if plan.clips == 1 else "s", plan.frames, float(plan.frames) / HighlightTable.EXPORT_FPS,
-		String(HighlightTable.ASPECT_LABELS[HighlightPrefs.aspect()])]
+				_labels[i].text = "CLOSE" if _done else "CANCEL" if _exporting else "CLOSE"
+	if has_full_match():
+		var recorded := float(Highlights.full_match.get("frames", 0)) / float(HighlightTable.RECORD_FPS)
+		_count.text = "Highlight video: %d clip%s, up to %s   ·   Full match: %s recorded, less once the dead time is cut" % [
+			total_clips, "" if total_clips == 1 else "s", _mmss(total_seconds), _mmss(recorded)]
+	else:
+		_count.text = "%d clip%s to save (%s)" % [total_clips, "" if total_clips == 1 else "s", _mmss(total_seconds)]
 
 
-## The moments that will render: ticked, and of a type that's switched on.
+## The moments that will be exported: ticked, of a ticked type.
 func selected() -> Array[Dictionary]:
 	return Highlights.kept()
 
@@ -244,9 +293,9 @@ func handle_input(event: InputEvent) -> bool:
 	if back:
 		_close()
 	elif event.is_action_pressed(&"ui_up") or event.is_action_pressed(&"move_forward"):
-		_move(-1)
+		_cursor = clampi(_cursor - 1, 0, _rows.size() - 1)
 	elif event.is_action_pressed(&"ui_down") or event.is_action_pressed(&"move_back"):
-		_move(1)
+		_cursor = clampi(_cursor + 1, 0, _rows.size() - 1)
 	elif event.is_action_pressed(&"ui_left") or event.is_action_pressed(&"move_left"):
 		_sideways(-1)
 	elif event.is_action_pressed(&"ui_right") or event.is_action_pressed(&"move_right"):
@@ -258,30 +307,27 @@ func handle_input(event: InputEvent) -> bool:
 		_start()
 	else:
 		return false
-	_refresh()
+	if is_inside_tree() and not is_queued_for_deletion():
+		_refresh()
 	return true
 
 
-func _move(step: int) -> void:
-	_cursor = clampi(_cursor + step, 0, _rows.size() - 1)
-	if String(_entries[_cursor].kind) in ["type", "format", "moment"]:
-		_scroll.ensure_control_visible(_rows[_cursor])
-
-
-## Left / right: change the row's camera or the format; on the action row,
-## swap between EXPORT and CANCEL.
+## Left / right: a type row's camera; on the action row, swap EXPORT and
+## CLOSE.
 func _sideways(step: int) -> void:
 	var entry := _entries[_cursor]
 	match String(entry.kind):
 		"type":
 			var type: String = entry.type
 			HighlightPrefs.set_camera(type, _cycled(ReplayStage.CAMERA_PRESETS, HighlightPrefs.camera_for(type), step))
-		"format":
-			HighlightPrefs.set_aspect(_cycled(HighlightTable.ASPECTS, HighlightPrefs.aspect(), step))
-		"moment":
-			var m: Dictionary = entry.moment
-			m["camera"] = _cycled(ReplayStage.CAMERA_PRESETS,
-				String(m.get("camera", HighlightPrefs.camera_for(String(m.type)))), step)
+			# A moment's own camera (set on the page) gives way to the type's
+			# new one: the window shows types, so the type's camera is the one
+			# the export should use.
+			for m in _moments:
+				if m.type == type:
+					m.erase("camera")
+		"clips":
+			pass
 		_:
 			var first := _entries.size() - 2
 			_cursor = first + (1 - (_cursor - first))
@@ -295,15 +341,12 @@ func _activate(index: int) -> void:
 	var entry := _entries[index]
 	match String(entry.kind):
 		"type":
-			var type: String = entry.type
-			Highlights.set_type_on(type, not HighlightPrefs.type_on(type))
-			_rebuild()
-		"format":
-			HighlightPrefs.set_aspect(_cycled(HighlightTable.ASPECTS, HighlightPrefs.aspect(), 1))
-		"moment":
 			if not _done:
-				var m: Dictionary = entry.moment
-				m["keep"] = not bool(m.keep)
+				var type: String = entry.type
+				Highlights.set_type_on(type, not HighlightPrefs.type_on(type))
+				_rebuild()
+		"clips":
+			HighlightPrefs.set_clip_files(not HighlightPrefs.clip_files())
 		"export":
 			_start()
 		_:
@@ -311,13 +354,17 @@ func _activate(index: int) -> void:
 
 
 func _start() -> void:
+	if _done:
+		_close()
+		return
 	var picked := selected()
-	if picked.is_empty():
-		_status.text = "Tick at least one clip to export."
+	if picked.is_empty() and not has_full_match():
+		_status.text = "Tick at least one type with clips to export."
 		return
 	_exporting = true
 	_done = false
 	_status.text = "Starting export..."
+	_refresh()
 	export_requested.emit(picked)
 
 
