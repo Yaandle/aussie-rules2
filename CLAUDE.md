@@ -1,7 +1,10 @@
 # Aussie Rules 2 — agent notes
 
 This is a Godot 4.6 (Jolt) Aussie Rules football game. Work on branch
-`update`. Never push; the user pushes after review.
+`update`. After every change: `git add` your files, commit, and push to
+`origin/update`. The user opens PRs `update` → `dev` at the end of a
+session and `dev` → `main` for releases; never push to `dev` or `main`.
+Keep only the `main`, `dev` and `update` branches.
 
 ## Read only what the task needs
 
