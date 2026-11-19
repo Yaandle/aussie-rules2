@@ -5,7 +5,7 @@ build_8thbuild_mesh.py, without a round trip through Godot. How the model
 reads in the game (its lighting, its cameras, the kit shader) is
 scripts/dev/build_compare.gd's job.
 
-    blender assets/blender/8thbuild.blend --background --python tools/blender/render_8thbuild_review.py -- OUT.png [--wire] [--poses | --close] [--small]
+    blender assets/blender/8thbuild.blend --background --python tools/blender/render_8thbuild_review.py -- OUT.png [--wire] [--poses | --close | --audit] [--small]
     blender assets/blender/8thbuild.blend --background --python tools/blender/build_8thbuild_mesh.py --python tools/blender/render_8thbuild_review.py -- OUT.png
 
 (the second form regenerates the mesh first without saving, for iterating
@@ -43,6 +43,31 @@ CLOSE = [
 	("takedown", "tackle_takedown", 15, 15.0, 1.05, 1.2),
 	("hips 3/4", None, 0, 35.0, 1.05, 0.8),
 	("run hips", "run_fwd", 7, 70.0, 1.02, 0.8),
+]
+## The worst frames audit_8thbuild_anim.py finds, framed on a bone so a
+## body that moves in its clip stays in shot: (label, action, frame, yaw,
+## bone, how far along it 0..1, width of view in metres). --audit.
+AUDIT = [
+	("run elbow", "run_fwd", 9, 90.0, "lowerarm.l", 0.0, 0.55),
+	("run elbow front", "run_fwd", 9, 20.0, "lowerarm.l", 0.0, 0.55),
+	("handball elbow", "handball", 3, 60.0, "lowerarm.r", 0.0, 0.55),
+	("mark elbow", "mark_aggressive", 13, 20.0, "lowerarm.l", 0.0, 0.55),
+	("kick boot", "kick", 13, 90.0, "foot.r", 0.2, 0.5),
+	("kick boot 3/4", "kick", 11, 45.0, "foot.r", 0.2, 0.5),
+	("tackled boot", "tackled", 25, 90.0, "foot.l", 0.2, 0.5),
+	("dive boot", "smother_dive", 11, 60.0, "foot.l", 0.2, 0.5),
+	("bounce knee", "bounce", 13, 90.0, "lowerleg.l", 0.0, 0.6),
+	("mark run knee", "mark_running", 5, 90.0, "lowerleg.r", 0.0, 0.6),
+	("knocked knee", "knocked_back", 25, 90.0, "lowerleg.l", 0.0, 0.7),
+	("dive knee", "smother_dive", 9, 60.0, "lowerleg.l", 0.0, 0.7),
+	("stride crotch", "run_fwd_r", 13, 180.0, "pelvis", 0.0, 0.7),
+	("dive seat", "smother_dive", 11, 150.0, "pelvis", 0.0, 0.8),
+	("knocked seat", "knocked_back", 25, 120.0, "pelvis", 0.0, 0.8),
+	("tackled wrist", "tackled", 15, 30.0, "hand.r", 0.0, 0.4),
+	("tackled wrist l", "tackled", 21, 30.0, "hand.l", 0.0, 0.4),
+	("mark shoulder", "mark_aggressive", 7, 30.0, "upperarm.r", 0.0, 0.6),
+	("tackled neck", "tackled", 21, 90.0, "head", 0.0, 0.5),
+	("hit_out elbow", "hit_out", 7, 20.0, "lowerarm.r", 0.0, 0.55),
 ]
 POSES = [
 	("run knee", "run_fwd", 7, 70.0, False),
@@ -108,11 +133,11 @@ def add_wire():
 	return wires
 
 
-def frame_close(cam, yaw, z, width):
+def frame_close(cam, yaw, z, width, centre=None):
 	"""An orthographic close-up `width` metres across, centred at height z
-	on the body's axis."""
+	on the body's axis, or on `centre`."""
 	d = Vector((math.sin(math.radians(yaw)), -math.cos(math.radians(yaw)), 0.10)).normalized()
-	centre = Vector((0.0, 0.0, z))
+	centre = Vector((0.0, 0.0, z)) if centre is None else centre
 	cam.data.type = 'ORTHO'
 	cam.data.ortho_scale = width * CELL[1] / CELL[0]
 	cam.location = centre + d * 6.0
@@ -164,7 +189,11 @@ def render_cells(scene, cam, shots, objs):
 					ad.action_slot = act.slots[0]
 				scene.frame_set(fr)
 			bpy.context.view_layer.update()
-			if len(shot) == 6:
+			if len(shot) == 7:
+				pb = arm.pose.bones[shot[4]]
+				h, t = arm.matrix_world @ pb.head, arm.matrix_world @ pb.tail
+				frame_close(cam, yaw, 0.0, shot[6], h + (t - h) * shot[5])
+			elif len(shot) == 6:
 				frame_close(cam, yaw, shot[4], shot[5])
 			else:
 				frame_body(cam, yaw, shot[4], objs)
@@ -211,6 +240,8 @@ def main():
 		add_wire()
 	if "--close" in argv:
 		shots = CLOSE
+	elif "--audit" in argv:
+		shots = AUDIT
 	else:
 		shots = TURNAROUND + (POSES if "--poses" in argv else [])
 	cells = render_cells(scene, cam, shots, objs)

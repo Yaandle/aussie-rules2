@@ -133,6 +133,46 @@ Same checker as Build 7, run on both. Changes from Build 7's output:
 The tackle sweep wasn't re-run: the skeleton, clips and ragdoll are Build
 7's byte for byte, and the ragdoll reads only the skeleton.
 
+## Animation audit (2026-11-20)
+
+`tools/blender/audit_8thbuild_anim.py` samples every clip (every 2nd frame)
+and the twelve ragdoll poses, and measures what the layer checker can't:
+
+- **bones**: each deform bone's length and scale against rest. **0.00 in
+  every frame of every clip**: no clip stretches the skeleton.
+- **strain**: each edge's length against rest, by body region (the bone,
+  or the pair of bones, its vertices are weighted to). Flags past 1.35x or
+  under 0.70x. Geometry covered by another layer (the thigh cone under the
+  shorts, the sock inside the boot, the neck's base, the shorts' waist
+  under the guernsey) is reported as "hidden" and not flagged.
+- **volume**: each skin vertex's distance from its own bones against rest
+  (pinched elbows, collapsed twists). Flags under 0.70 or over 1.35.
+- **rigid**: the head, hair, hands and the body of each boot. **All 0.00**:
+  they keep their shape exactly.
+
+The flagged frames were rendered close up (`render_8thbuild_review.py
+--audit`, framed on a bone; `audit_before.png`, `audit_after.png`,
+`audit_zoom_*.png`):
+
+| Where | Numbers | Verdict |
+|---|---|---|
+| **Boots at a pointed foot** (kick, tackled, takedown, dive) | the upper squashed to 11% in front of the ankle, 1.9x behind | **Fixed.** The boot bent like a sock. `ankle_foot` now starts the foot-to-shin blend at 0.11 m (0.085), so the boot is rigid on the foot up to its collar and the sock bends above it: 37% / 1.6x, at the collar's top edge only. No sock through the boot (the dive's 5 mm poke is gone); hidden sock-in-boot crossings rose from 9 to 12 (dive) and 0 to 5 (tackled). |
+| Elbows in the runs | inner crease to 0.14 of its rest distance from the bones, 0.45x strain; outside 1.7-2.0x in marks and hit-outs | Looks right: a ~110° bend in a low-poly arm with no extra bones. The crease folds, it doesn't kink. |
+| Knees in deep bends (bounce, mark_running, dives, falls) | back of the knee to 0.04-0.11, front 1.9x | Looks right: the calf meets the hamstring. The kneecap's ring stretches over the bend. |
+| Wrists in `tackled` | one vertex to 0.06 | Not visible: inside the fist's join. |
+| Shorts' crotch in strides | 3-4x on the short inseam edges | Hidden between the legs. |
+| Shorts' front and seat in deep hip bends | front 0.11-0.2x, seat 2-3x | Cloth: the front folds, the seat pulls. Visible only in falls. |
+| Guernsey over the shoulders in a mark | 0.41-0.48x | Bunches as the arms go up, as cloth does. |
+| Guernsey's belly in the ragdoll curls | 0.22-0.28x, 0.01x in `rd_fetal_over` | Folds; the `_over` poses are stress tests past any clip. |
+| Neck in `tackled` (head tipped back) | 0.51x behind the neck | The skin creases behind the head; nothing breaks through. |
+
+Also seen: in `smother_dive` the loose guernsey's hem shows edge-on as a
+thin line across the seat as the back arches (the shorts don't come
+through it; the checker covers that pair).
+
+Re-run after any change to the generator:
+`blender assets/blender/8thbuild.blend --background --python tools/blender/audit_8thbuild_anim.py -- --frames`.
+
 ## Needs your eyes
 
 In `docs/PLAYTEST_CHECKLIST.md` under "Build 8 player model".

@@ -423,8 +423,16 @@ def torso_w(p):
 
 def ankle_foot(z):
 	"""Share of the foot bone by height: the boot and the sock inside it
-	use the same number, so a pointed or flexed foot moves them alike."""
-	return 1.0 - ramp(z, 0.085, 0.16)
+	use the same number, so a pointed or flexed foot moves them alike.
+
+	Build 8 (animation audit, 2026-11-20): the blend starts at 0.11 m, not
+	Build 7's 0.085, so the boot stays rigid on the foot up to just under
+	its collar and the sock above bends instead. From 0.085 the boot's
+	upper bent like a sock at a pointed foot (kick, tackled, takedown):
+	squashed to 11% of its rest length in front of the ankle and stretched
+	1.9x behind it. Now 37% and 1.6x, and only at the collar's top edge;
+	check_8thbuild_deform.py finds no sock through the boot."""
+	return 1.0 - ramp(z, 0.110, 0.17)
 
 
 # ── legs ──────────────────────────────────────────────────────────────

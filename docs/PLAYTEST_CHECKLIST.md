@@ -225,5 +225,7 @@ Pick `8THBUILD` on the CHARACTER screen's MODEL row (it isn't the default).
 - [ ] **Look against the reference** (`docs/review/8thbuild/reference_vs_build8.png`): the loose guernsey worn over the shorts, the wide sash, the black collar, socks at mid-calf, the hair and the face, close up and at match distance. Say what's still off.
 - [ ] **Sash colour:** it takes the trim colour (dark on a light guernsey, off-white on a dark one); no team has its own accent colour yet. Say if you want an accent picker on the CHARACTER screen or per-team accents.
 - [ ] **Number on the back:** the sash stops at a plain panel round the number. Say if that reads as a real guernsey, on your kit and the away kit.
+- [ ] **Boots in kicks and falls:** the boot keeps its shape as the foot points and the sock bends above it (no rubbery boot). Say if the kink at the collar shows.
+- [ ] **Smother dive:** the guernsey hem across the seat reads as a hem, not a stray line.
 - [ ] **Loose guernsey in play:** the hem stays over the shorts in sprints, marks, tackles and falls; nothing of the shorts comes through it.
 - [ ] **Diagonal runs and falls:** no skin should show through the shorts' hem when you run on the diagonal (a few-millimetre sliver at the inner hem is possible), in a big tackle takedown or when you're knocked back.

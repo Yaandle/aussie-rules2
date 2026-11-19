@@ -300,6 +300,10 @@ change should fit them.
   material. glTF flips V: a projection authored in Blender UVs reads
   upside down in Godot, and a value stored in a second UV's V (Build 8's
   sash distance) arrives as `1 - v`.
+- **Rigid gear needs its own weights, not the skin's.** A boot weighted
+  like the ankle under it bends like a sock; keep it on the foot up to its
+  collar and let the sock above take the bend
+  (`tools/blender/audit_8thbuild_anim.py` measures strain per region).
 - **Pattern lines on a lofted mesh go in the shader**, not the faces:
   store a planar distance per vertex and threshold it (Build 8's sash).
   Faces cut along a diagonal come out jagged.
