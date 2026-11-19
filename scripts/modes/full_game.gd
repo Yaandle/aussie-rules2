@@ -8,7 +8,7 @@ extends Node3D
 ## (ai_brain.gd) everywhere the human isn't, contests resolved physically
 ## via PlayerController's tackle handling, goals/behinds detected by
 ## Field's trigger zones. See docs/RULES_REFERENCE.md for what's a real
-## AFL rule here and what's a deliberate MVP simplification.
+## Aussie Rules rule here and what's a deliberate MVP simplification.
 ##
 ## Owns the whole match state machine: kickoff formation -> centre bounce
 ## -> play -> (score -> pause -> re-bounce) | (quarter ends -> next
@@ -28,7 +28,7 @@ const KICKOFF_DEPTH := 30.0     ## m from centre each team lines up at
 ## full-forward, CHB on CHF, …) and the two coincident capsules blow the
 ## solver up on the first physics tick. Shifting each side ±this along the
 ## ground line puts paired opponents ~2x this apart — a defender goal-side
-## of their opponent, not standing in them. Not an AFL number; just enough
+## of their opponent, not standing in them. Not an Aussie Rules number; just enough
 ## clearance that no two bodies ever spawn on one point.
 const FORMATION_TEAM_STAGGER := 2.0
 
@@ -60,6 +60,9 @@ var _mark_prompt: MarkPrompt
 var _controlled_ring: ControlledPlayerRing
 ## The "/ | \" under a player who calls for the ball (6V).
 var _call_cue: CallForBallCue
+var _goal_kick_prompt: GoalKickPrompt
+var _goal_kick_player: PlayerController = null
+var _goal_kick_pending := false
 
 ## The two ruckmen in the current live ruck contest (set in _release_ruck_
 ## contest). Cleared the instant a hit-out connects so the on-ballers are
@@ -101,6 +104,25 @@ var _defence_switch_flicked := false
 var _kick_switch_from: PlayerController = null
 var _kick_switch_timer := 0.0
 
+## Switch cycling (pre-Day-5 W3): the HOME roster sorted by distance to the
+## ball at the first press of a run, where in it the last press landed, and
+## the seconds left before the next press starts a fresh run instead
+## (Tuning.SWITCH_CYCLE_WINDOW).
+var _switch_cycle_order: Array[PlayerController] = []
+var _switch_cycle_index := 0
+var _switch_cycle_timer := 0.0
+## The switch button (Tab / D-pad left) is held: a right-stick flick (arrow
+## key) meanwhile is a directional switch, and the release does nothing
+## more. See _on_switch_button.
+var _switch_button_down := false
+var _switch_button_flicked := false
+var _switch_button_lost := 0
+## Auto-switch on a kick the human didn't take (Settings.auto_switch): the
+## kicked ball's countdown to the hand-over, or < 0 with nothing pending.
+var _auto_switch_timer := -1.0
+## The small ring under the player a switch press would pick.
+var _switch_marker: SwitchTargetMarker
+
 
 func _ready() -> void:
 	GameState.mode = GameState.Mode.FULL_GAME
@@ -131,12 +153,17 @@ func _ready() -> void:
 	_mark_prompt.ball = _ball
 	add_child(_mark_prompt)
 
+	_goal_kick_prompt = GoalKickPrompt.new()
+	add_child(_goal_kick_prompt)
+
 	_controlled_ring = ControlledPlayerRing.new()
 	# _apply_camera_mode() ran above, before this existed — seed the state
 	# it would have set, then it keeps it live on any mid-match change.
 	_controlled_ring.active = Settings.full_game_camera_mode \
 		== Settings.FullGameCameraMode.FULL_SIDE
 	add_child(_controlled_ring)
+	_switch_marker = SwitchTargetMarker.new()
+	add_child(_switch_marker)
 	_call_cue = CallForBallCue.new()
 	add_child(_call_cue)
 
@@ -147,6 +174,9 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	_check_out_of_bounds()
 	_update_kick_switch(delta)
+	_update_auto_switch(delta)
+	_update_switch_input(delta)
+	_update_goal_kick()
 	# Ticked ahead of the pause gate below, not inside the live-play branch:
 	# a call made just before a goal/ball-up shouldn't stay on cooldown for
 	# the whole stoppage as well.
@@ -262,11 +292,15 @@ func _apply_camera_mode(setting: Settings.FullGameCameraMode) -> void:
 ## teams stay registered as ControlMode.Scheme.SINGLE_PLAYER regardless,
 ## exactly as before this pass.
 func _unhandled_input(event: InputEvent) -> void:
+	# Y is only meaningful here after a legal marked catch in range. Outside
+	# that context it retains its existing aggressive-mark meaning.
+	if event.is_action_pressed(&"goal_kick") and _request_goal_kick():
+		return
 	if event.is_action(&"switch_player_defence") and not event.is_echo():
 		_on_defence_switch_event(event.is_pressed())
-	if event.is_action_pressed(&"switch_player"):
+	if event.is_action(&"switch_player") and not event.is_echo():
 		if _full_team_control():
-			_switch_human_player()
+			_on_switch_button(event.is_pressed())
 	elif event.is_action_pressed(&"call_for_ball"):
 		if not _full_team_control():
 			_call_for_ball()
@@ -317,6 +351,7 @@ func _on_focus_changed(team: Tuning.Team, previous: PlayerController, next: Play
 	_hud.player = next
 	_crosshair.player = next
 	_mark_prompt.player = next
+	_goal_kick_prompt.player = next
 	_controlled_ring.player = next
 
 
@@ -412,7 +447,8 @@ func _apply_character_profile(start_idx: int) -> void:
 		if not CharacterProfile.apply_all and i != start_idx:
 			continue
 		_apply_stats(_home_players[i], CharacterProfile.speed, CharacterProfile.agility,
-			CharacterProfile.kick_power, CharacterProfile.kick_accuracy, CharacterProfile.height)
+			CharacterProfile.kick_power, CharacterProfile.kick_accuracy, CharacterProfile.height,
+			CharacterProfile.jump)
 
 
 ## Career matches: every player plays to their own roster entry's
@@ -434,7 +470,8 @@ func _apply_career_rosters() -> void:
 				float(entry.get("agility", Tuning.CHARACTER_AGILITY_DEFAULT)),
 				float(entry.get("kick_power", Tuning.CHARACTER_KICK_POWER_DEFAULT)),
 				float(entry.get("kick_accuracy", Tuning.CHARACTER_KICK_ACCURACY_DEFAULT)),
-				float(entry.get("height", Tuning.CHARACTER_HEIGHT_DEFAULT)))
+				float(entry.get("height", Tuning.CHARACTER_HEIGHT_DEFAULT)),
+				float(entry.get("jump", Tuning.CHARACTER_JUMP_DEFAULT)))
 			# Weight was flavour only until tackles weighed the two players
 			# (TackleBalance's mass ratio, the ragdoll's segment masses).
 			players[i].body_mass = float(entry.get("weight", Tuning.PLAYER_DEFAULT_MASS_KG))
@@ -443,9 +480,10 @@ func _apply_career_rosters() -> void:
 ## Raw stats (the same units CharacterProfile/CareerProfile/roster entries
 ## store) onto one player, as the scales PlayerController reads.
 func _apply_stats(p: PlayerController, speed: float, agility: float, kick_power: float,
-		kick_accuracy: float, height: float) -> void:
+		kick_accuracy: float, height: float, jump := Tuning.CHARACTER_JUMP_DEFAULT) -> void:
 	p.speed_scale = speed / Tuning.CHARACTER_SPEED_DEFAULT
 	p.agility_scale = agility / Tuning.CHARACTER_AGILITY_DEFAULT
+	p.jump_scale = jump / Tuning.CHARACTER_JUMP_DEFAULT
 	p.kick_power_scale = kick_power
 	p.kick_accuracy = kick_accuracy
 	(p.get_node("Rig") as Node3D).scale = Vector3.ONE * (height / Tuning.CHARACTER_HEIGHT_DEFAULT)
@@ -560,7 +598,7 @@ func _kickoff_slot(index: int, attack_direction: float, team: Tuning.Team) -> Ve
 	return Vector3(x, 0.0, z)
 
 
-## Real AFL centre-square law: at a centre bounce a maximum of four players
+## Real Aussie Rules centre-square law: at a centre bounce a maximum of four players
 ## per team — the ruck plus three midfielders ("on-ballers") — may be
 ## inside the 50 m centre square until the ball is bounced; everyone else
 ## must start outside it. So roster indices 0-3 go on the ruck-contest
@@ -834,6 +872,9 @@ func _on_player_disposed(action: Tuning.Action, player: PlayerController) -> voi
 		_last_kicker[player.team] = player
 	if action == Tuning.Action.KICK:
 		_on_home_kick_disposed(player)
+		_on_auto_switch_kick(player)
+	if player == _goal_kick_player:
+		_end_goal_kick()
 
 
 ## FULL_TEAM: once the human's own kick has left the boot there is nothing
@@ -857,7 +898,7 @@ func _on_player_disposed(action: Tuning.Action, player: PlayerController) -> voi
 func _on_home_kick_disposed(kicker: PlayerController) -> void:
 	if GameState.phase != GameState.Phase.PLAY:
 		return
-	if not _full_team_control():
+	if not _full_team_control() or Settings.auto_switch == Settings.AutoSwitch.OFF:
 		return
 	if ControlMode.scheme_for(Tuning.Team.HOME) != ControlMode.Scheme.SINGLE_PLAYER:
 		return
@@ -911,12 +952,60 @@ func _on_player_marked(_tier: Tuning.Action, legal_mark: bool, player: PlayerCon
 	MatchState.record_mark(player.team)
 	if legal_mark:
 		MatchState.record_player_stat(player.roster_id, player.roster_name, "marks")
+	elif player.brain() is HumanBrain and player.last_play_on_reason != "":
+		# A take that isn't a mark is play on: say why, so a "caught it but
+		# got tackled" reads as the rule it is (playtest 2026-11-18).
+		_scoreboard.flash("PLAY ON — %s" % player.last_play_on_reason, 1.5)
+	# Playtest 2026-11-18: a teammate's intercept mark sometimes left control
+	# where it was. _on_home_gained_possession skips anything outside
+	# Phase.PLAY, and a mark can stop play before that fires, so the marker
+	# is handed control here as well (same guards, minus the phase).
+	if _full_team_control() and player.team == Tuning.Team.HOME \
+			and ControlMode.scheme_for(Tuning.Team.HOME) == ControlMode.Scheme.SINGLE_PLAYER:
+		_assign_human_to(player)
 
 
 ## Career's per-player TACKLES: PlayerController.tackle_committed fires on
 ## the tackler only when an on-the-ball tackle connects and holds.
 func _on_player_tackle_landed(_is_slide: bool, player: PlayerController) -> void:
 	MatchState.record_player_stat(player.roster_id, player.roster_name, "tackles")
+
+
+## Y (the goal_kick action) can be pressed as soon as a legal mark is taken. If the player is
+## still completing their automatic walk-back, the request waits for that
+## movement rather than interrupting it, then performs the short camera
+## sweep into the existing LT/RT kick controls.
+func _request_goal_kick() -> bool:
+	if GameState.phase != GameState.Phase.PLAY or _goal_kick_player != null:
+		return false
+	var player := ControlMode.controlled_player(Tuning.Team.HOME)
+	if not is_instance_valid(player) or not player.can_take_goal_kick(Tuning.GOAL_KICK_MAX_RANGE):
+		return false
+	_goal_kick_player = player
+	_goal_kick_pending = true
+	return true
+
+
+func _update_goal_kick() -> void:
+	if not is_instance_valid(_goal_kick_player):
+		_end_goal_kick()
+		return
+	if not _goal_kick_player.can_take_goal_kick(Tuning.GOAL_KICK_MAX_RANGE):
+		_end_goal_kick()
+		return
+	if _goal_kick_pending and not _goal_kick_player.is_retreating_from_mark():
+		_goal_kick_pending = false
+		_camera.begin_goal_kick()
+		_goal_kick_prompt.active = true
+
+
+func _end_goal_kick() -> void:
+	_goal_kick_pending = false
+	_goal_kick_player = null
+	if is_instance_valid(_goal_kick_prompt):
+		_goal_kick_prompt.active = false
+	if is_instance_valid(_camera):
+		_camera.end_goal_kick()
 
 
 func _on_field_ball_up(tackler: PlayerController, tackled: PlayerController) -> void:
@@ -987,7 +1076,7 @@ func _award_free_kick(spot: Vector3, tackler: PlayerController) -> void:
 
 
 ## The 15 m run rule (RULES_REFERENCE.md §1: "Bounce every 15m while
-## running" — BOUNCE_INTERVAL, a real AFL law, not a P1 feel number).
+## running" — BOUNCE_INTERVAL, a real Aussie Rules law, not a P1 feel number).
 ## PlayerController tracks the carry distance and fires run_too_far_called
 ## the instant it passes 15 m with no bounce. Same handling as
 ## _on_holding_the_ball: whistle, brief stoppage, free kick to the nearest
@@ -1073,6 +1162,17 @@ func _fifty_metre_spot(from: Vector3, team: Tuning.Team) -> Vector3:
 func _award_possession_at(spot: Vector3, receiver: PlayerController, retreat := true) -> void:
 	_drop_all_balls()
 	_ball.reset_at(spot + Vector3.UP * 0.3)
+	if retreat:
+		# 6AG-c (playtest: the man on the mark "lands a little off the
+		# point"): the kick is taken FROM the spot, so the taker starts on
+		# it. Holding the ball named the tackler where he stood at the
+		# whistle, and the tackle carried on through the pause; running too
+		# far names whoever was nearest, often metres away. Either way he
+		# took the ball wherever he'd ended up and walked back from there,
+		# while the man on the mark went to the real spot, so the two were
+		# off the same line. _award_infringement and out on the full
+		# already placed theirs; this covers every free kick in one place.
+		receiver.global_position = Vector3(spot.x, receiver.global_position.y, spot.z)
 	receiver.give_possession(_ball)
 	receiver.grant_protection(Tuning.MARK_HOLD_DURATION)
 	if retreat:
@@ -1135,7 +1235,7 @@ func _on_scored(team: Tuning.Team, is_goal: bool) -> void:
 		_after_siren_kicker = null
 		_start_pause(Tuning.SCORE_PAUSE_DURATION, _end_quarter)
 		return
-	# AFL restarts a GOAL with a centre bounce; a BEHIND restarts with a
+	# Aussie Rules restarts a GOAL with a centre bounce; a BEHIND restarts with a
 	# protected kick-in by the team that conceded it (design brief
 	# priority 5) — not another centre bounce, which is what every score
 	# used to get here regardless of which it was.
@@ -1470,20 +1570,291 @@ func _reset_ball() -> void:
 ## a switch is now itself just "get me to the ball", the same intent
 ## _on_home_gained_possession serves, so there is nothing to protect from
 ## it.
+##
+## Cycling (pre-Day-5 W3): a press within Tuning.SWITCH_CYCLE_WINDOW of the
+## last one walks on down the HOME list sorted by distance to the ball (the
+## order frozen at the run's first press, so players moving meanwhile can't
+## bounce you back and forth). One press still never drags you off the ball:
+## if you're already the nearest it does nothing, and the second press is
+## what takes you to the second nearest. Not while you carry the ball (that
+## would hand it to the AI), and never mid-action or mid-ragdoll
+## (_can_switch_now).
 func _switch_human_player() -> void:
 	if ControlMode.scheme_for(Tuning.Team.HOME) == ControlMode.Scheme.TEAM_COMMAND:
 		_cycle_team_command_selection()
 		return
 
 	var previous := ControlMode.controlled_player(Tuning.Team.HOME)
-	# Straight to the HOME player nearest the ball — pass the ball as the
-	# reference (see ControlMode.next_in_roster). One press puts you on
-	# whoever's on the ball; if you're already there this returns the same
-	# body and the guard below no-ops.
-	var next := ControlMode.next_in_roster(Tuning.Team.HOME, previous, _ball.global_position)
-	if next == previous:
+	if not _can_switch_now(previous) or (is_instance_valid(previous) and previous.is_carrying()):
+		return
+	var next: PlayerController = null
+	if _switch_cycle_timer > 0.0 and _switch_cycle_order.size() > 1:
+		_switch_cycle_index = (_switch_cycle_index + 1) % _switch_cycle_order.size()
+		next = _switch_cycle_order[_switch_cycle_index]
+	else:
+		_switch_cycle_order = _home_by_distance(_ball.global_position)
+		_switch_cycle_index = 0
+		# Already the nearest (the man on the mark at the opposition's free
+		# kick, say): the first press goes to the next nearest instead of
+		# doing nothing (playtest 2026-11-18).
+		if _switch_cycle_order.size() > 1 and _switch_cycle_order[0] == previous:
+			_switch_cycle_index = 1
+		next = _switch_cycle_order[_switch_cycle_index] if not _switch_cycle_order.is_empty() else previous
+	_switch_cycle_timer = Tuning.SWITCH_CYCLE_WINDOW
+	if next == previous or not _can_take_control(next):
 		return
 	_assign_human_to(next)
+
+
+## HOME, nearest `point` first, on the ground plane.
+func _home_by_distance(point: Vector3) -> Array[PlayerController]:
+	var order: Array[PlayerController] = []
+	for player in _home_players:
+		if is_instance_valid(player):
+			order.append(player)
+	var flat := Vector3(point.x, 0.0, point.z)
+	order.sort_custom(func(a: PlayerController, b: PlayerController) -> bool:
+		return Vector3(a.global_position.x, 0.0, a.global_position.z).distance_squared_to(flat) \
+			< Vector3(b.global_position.x, 0.0, b.global_position.z).distance_squared_to(flat))
+	return order
+
+
+## Whether control may leave `player` now (plan W3: "never switch mid-action
+## or mid-ragdoll"). A mark attempt, tackle, kick or any other action clip,
+## a held A, a kick stance, a ruck contest or a ragdoll all keep you where
+## you are: handing that body an AIBrain mid-way would cut the action off
+## (the AI never ragdolls, see PlayerRagdoll).
+func _can_switch_now(player: PlayerController) -> bool:
+	if not is_instance_valid(player):
+		return true
+	# Stoppages (a free kick, a set shot) don't block a switch: playtest
+	# 2026-11-18, "when the opposition has a free kick I can't swap".
+	return not player.is_ragdolled() \
+		and player.current_action() == Tuning.Action.NONE \
+		and not player.is_kick_aiming() \
+		and not player.is_mark_readying() \
+		and player.committed_mark_tier() == Tuning.Action.NONE \
+		and not player.is_ruck_contestant()
+
+
+## Whether `player` can be handed the HumanBrain: not down on the turf.
+func _can_take_control(player: PlayerController) -> bool:
+	return is_instance_valid(player) and not player.is_ragdolled()
+
+
+## The switch button (Tab / D-pad left). Acts on the release: a tap is the
+## nearest / cycle switch above; held, a right-stick flick (an arrow key)
+## switches to the teammate that way instead and the release then does
+## nothing (_update_switch_input). Acting on the release costs a tap's
+## length of latency (~0.1 s) and is what lets the one button carry both.
+func _on_switch_button(pressed: bool) -> void:
+	if pressed:
+		_switch_button_down = true
+		_switch_button_flicked = false
+		_set_camera_look_hold(true)
+		return
+	if not _switch_button_down:
+		return
+	_switch_button_down = false
+	_set_camera_look_hold(false)
+	if not _switch_button_flicked:
+		_switch_human_player()
+
+
+## While the switch button is held the right stick is the switch's, not the
+## camera's (CHASE orbits on it). FULL_SIDE doesn't read the stick anyway.
+func _set_camera_look_hold(on: bool) -> void:
+	if is_instance_valid(_camera):
+		_camera.hold_look = on
+
+
+## Right-stick flick switching, each physics tick (InputManager updates
+## flick_vector() on its own physics tick, before this node's).
+##
+## How it shares the right stick (plan W3): in CHASE the stick orbits the
+## camera, so a bare flick is a camera move and only a flick while the
+## switch button is held switches (the camera holds still meanwhile). In
+## FULL_SIDE the camera never reads the stick, so a bare flick switches too.
+## Either way the stick keeps its other jobs first: kick aim (in stance),
+## the ruck tap's aim, and LB + flick (bump), none of which can switch here.
+## On a keyboard the arrow keys are the stick and a tap is a flick
+## (InputManager.flick_vector), so Tab + arrow, or an arrow alone in
+## FULL_SIDE.
+func _update_switch_input(delta: float) -> void:
+	_switch_cycle_timer = maxf(0.0, _switch_cycle_timer - delta)
+	# A release this node never saw (the pause menu took it) mustn't leave
+	# the camera holding its look. A few ticks' grace: the polled state can
+	# run a tick ahead of the release event reaching _unhandled_input.
+	if _switch_button_down and not Input.is_action_pressed(&"switch_player"):
+		_switch_button_lost += 1
+		if _switch_button_lost > 3:
+			_switch_button_down = false
+			_set_camera_look_hold(false)
+	else:
+		_switch_button_lost = 0
+	_update_switch_marker()
+	if not _full_team_control() \
+			or ControlMode.scheme_for(Tuning.Team.HOME) != ControlMode.Scheme.SINGLE_PLAYER:
+		return
+	var flick := InputManager.flick_vector()
+	if flick == Vector2.ZERO:
+		return
+	if _defence_switch_down or Input.is_action_pressed(&"bump_stance"):
+		return   # LB + flick is a bump
+	var full_side := _camera.mode == BroadcastCamera.Mode.FULL_SIDE
+	if not (_switch_button_down or full_side):
+		return
+	var current := ControlMode.controlled_player(Tuning.Team.HOME)
+	if not is_instance_valid(current) or current.is_carrying() or not _can_switch_now(current):
+		return
+	if _switch_button_down:
+		_switch_button_flicked = true
+	var next := _teammate_toward(current, _flick_world_direction(flick))
+	if next != null:
+		_assign_human_to(next)
+		_switch_cycle_timer = 0.0
+
+
+## The stick's (x, y) as a direction on the field, relative to the camera,
+## the way PlayerController._flick_world_direction reads a bump's flick.
+func _flick_world_direction(flick: Vector2) -> Vector3:
+	var forward := Vector3.FORWARD
+	var cam := _camera.camera()
+	if is_instance_valid(cam):
+		var flat := -cam.global_transform.basis.z
+		flat.y = 0.0
+		if flat.length_squared() > 0.000001:
+			forward = flat.normalized()
+	var right := Vector3(-forward.z, 0.0, forward.x)
+	var dir := right * flick.x + forward * flick.y
+	return dir.normalized() if dir.length_squared() > 0.0001 else forward
+
+
+## The HOME teammate most nearly along `direction` from `from`: inside
+## Tuning.SWITCH_FLICK_CONE_DEG and SWITCH_FLICK_MAX_RANGE, lowest
+## distance x (1 + SWITCH_FLICK_ANGLE_WEIGHT x radians off the line). Null
+## if nobody is that way.
+func _teammate_toward(from: PlayerController, direction: Vector3) -> PlayerController:
+	var best: PlayerController = null
+	var best_cost := INF
+	var cone := deg_to_rad(Tuning.SWITCH_FLICK_CONE_DEG)
+	for player in _home_players:
+		if player == from or not _can_take_control(player):
+			continue
+		var offset := player.global_position - from.global_position
+		offset.y = 0.0
+		var dist := offset.length()
+		if dist < 0.5 or dist > Tuning.SWITCH_FLICK_MAX_RANGE:
+			continue
+		var angle := direction.angle_to(offset / dist)
+		if angle > cone:
+			continue
+		var cost := dist * (1.0 + Tuning.SWITCH_FLICK_ANGLE_WEIGHT * angle)
+		if cost < best_cost:
+			best_cost = cost
+			best = player
+	return best
+
+
+## Who a press of the switch button would go to now, for the marker: the
+## next in a running cycle, else the nearest to the ball, else (you are the
+## nearest) the second nearest, which a double press reaches. Null when a
+## press would do nothing at all (you carry it, you're mid-action).
+func _switch_preview() -> PlayerController:
+	if not _full_team_control() or GameState.phase != GameState.Phase.PLAY \
+			or ControlMode.scheme_for(Tuning.Team.HOME) != ControlMode.Scheme.SINGLE_PLAYER:
+		return null
+	var current := ControlMode.controlled_player(Tuning.Team.HOME)
+	if not is_instance_valid(current) or current.is_carrying() or not _can_switch_now(current):
+		return null
+	if _switch_cycle_timer > 0.0 and _switch_cycle_order.size() > 1:
+		return _switch_cycle_order[(_switch_cycle_index + 1) % _switch_cycle_order.size()]
+	var order := _home_by_distance(_ball.global_position)
+	if order.is_empty():
+		return null
+	if order[0] != current:
+		return order[0]
+	return order[1] if order.size() > 1 else null
+
+
+func _update_switch_marker() -> void:
+	if is_instance_valid(_switch_marker):
+		_switch_marker.player = _switch_preview()
+
+
+# ── Auto-switch on a kick the human didn't take ───────────────────────
+
+## Starts the countdown to an auto-switch for a kick by `kicker` (anyone but
+## the human: their own kick has _on_home_kick_disposed). ASSISTED: AWAY's
+## kicks. FULL: AWAY's and HOME's AI teammates'. The human isn't the carrier
+## by construction (someone else just kicked it).
+func _on_auto_switch_kick(kicker: PlayerController) -> void:
+	_auto_switch_timer = -1.0
+	if GameState.phase != GameState.Phase.PLAY or not _full_team_control():
+		return
+	if ControlMode.scheme_for(Tuning.Team.HOME) != ControlMode.Scheme.SINGLE_PLAYER:
+		return
+	var human := ControlMode.controlled_player(Tuning.Team.HOME)
+	if kicker == human:
+		return
+	match Settings.auto_switch:
+		Settings.AutoSwitch.OFF:
+			return
+		Settings.AutoSwitch.ASSISTED:
+			if kicker.team != Tuning.Team.AWAY:
+				return
+			_auto_switch_timer = Tuning.AUTO_SWITCH_DELAY
+		Settings.AutoSwitch.FULL:
+			_auto_switch_timer = Tuning.AUTO_SWITCH_DELAY_FULL
+
+
+## Counts the pending auto-switch down, then hands control to the HOME player
+## nearest Ball.predicted_landing_position() (the drop LandingShadow draws),
+## unless the human is already contesting it: within
+## AUTO_SWITCH_CONTEST_RADIUS of the drop, or no more than
+## AUTO_SWITCH_KEEP_MARGIN further than that player. Dropped when the kick
+## stops being one (gathered, marked, spoiled, landed) or play stops. Waits,
+## rather than drops, while the human is mid-action or ragdolled.
+func _update_auto_switch(delta: float) -> void:
+	if _auto_switch_timer < 0.0:
+		return
+	if GameState.phase != GameState.Phase.PLAY or _pause_timer > 0.0 \
+			or _ball.is_held or not _ball.is_kick_flight():
+		_auto_switch_timer = -1.0
+		return
+	_auto_switch_timer -= delta
+	if _auto_switch_timer > 0.0:
+		return
+	var human := ControlMode.controlled_player(Tuning.Team.HOME)
+	if not _can_switch_now(human):
+		_auto_switch_timer = 0.0   # try again next tick
+		return
+	_auto_switch_timer = -1.0
+	var target := auto_switch_target(human, _ball.predicted_landing_position())
+	if target != null and target != human:
+		_assign_human_to(target)
+
+
+## Who the auto-switch would hand to for a drop at `landing`, or `human` to
+## stay. Public so a scratch check can read the pick without a kick.
+func auto_switch_target(human: PlayerController, landing: Vector3) -> PlayerController:
+	var flat := Vector3(landing.x, 0.0, landing.z)
+	var best: PlayerController = null
+	var best_d := INF
+	for player in _home_players:
+		if not _can_take_control(player):
+			continue
+		var d := Vector3(player.global_position.x, 0.0, player.global_position.z).distance_to(flat)
+		if d < best_d:
+			best_d = d
+			best = player
+	if best == null or not is_instance_valid(human):
+		return best
+	var human_d := Vector3(human.global_position.x, 0.0, human.global_position.z).distance_to(flat)
+	if human_d <= Tuning.AUTO_SWITCH_CONTEST_RADIUS \
+			or human_d <= best_d + Tuning.AUTO_SWITCH_KEEP_MARGIN:
+		return human
+	return best
 
 
 ## LB on defence (6AB). Not an `is_action_pressed` switch like D-pad
@@ -1550,7 +1921,7 @@ func _on_home_gained_possession(_ball_ref: Ball, carrier: PlayerController) -> v
 # teammate has the footy there is otherwise nothing at all the human can do
 # to influence what happens to it. This is that mode's replacement — lead
 # into space, shout for it, and the carrier may or may not give it to you.
-# Not an AFL rule (see Tuning's CALL_FOR_BALL_* block), and deliberately a
+# Not an Aussie Rules rule (see Tuning's CALL_FOR_BALL_* block), and deliberately a
 # request rather than a command: a guaranteed handball would make the AI a
 # ball-delivery service and every contest optional.
 
@@ -1744,3 +2115,4 @@ func _nearest_commandable_teammate(from: PlayerController) -> PlayerController:
 			best_dist = dist
 			best = player
 	return best
+

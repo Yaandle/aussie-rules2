@@ -86,6 +86,7 @@ static func generate_team(team_name: String, salt := 0, band := FULL_BAND) -> Ar
 			"kick_accuracy": _banded(rng, Tuning.CHARACTER_KICK_ACCURACY_MIN,
 				Tuning.CHARACTER_KICK_ACCURACY_MAX, band),
 			"agility": _banded(rng, Tuning.CHARACTER_AGILITY_MIN, Tuning.CHARACTER_AGILITY_MAX, band),
+			"jump": _banded(rng, Tuning.CHARACTER_JUMP_MIN, Tuning.CHARACTER_JUMP_MAX, band),
 		})
 	return roster
 
@@ -97,7 +98,7 @@ static func _banded(rng: RandomNumberGenerator, vmin: float, vmax: float, band: 
 	return lerpf(vmin, vmax, t)
 
 
-## 0..100 rating from a roster entry's four performance attributes
+## 0..100 rating from a roster entry's five performance attributes
 ## (height/weight/number don't factor in — they're physical/identity,
 ## not skill), each normalised against the same Tuning range the
 ## character screens draft within, then averaged. Works for both a
@@ -114,7 +115,9 @@ static func overall(entry: Dictionary) -> int:
 		Tuning.CHARACTER_KICK_ACCURACY_MIN, Tuning.CHARACTER_KICK_ACCURACY_MAX)
 	total += _normalised(entry.get("agility", Tuning.CHARACTER_AGILITY_DEFAULT),
 		Tuning.CHARACTER_AGILITY_MIN, Tuning.CHARACTER_AGILITY_MAX)
-	return int(round(total / 4.0))
+	total += _normalised(entry.get("jump", Tuning.CHARACTER_JUMP_DEFAULT),
+		Tuning.CHARACTER_JUMP_MIN, Tuning.CHARACTER_JUMP_MAX)
+	return int(round(total / 5.0))
 
 
 static func _normalised(value: float, vmin: float, vmax: float) -> float:

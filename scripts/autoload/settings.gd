@@ -79,7 +79,7 @@ var mouse_kick_swapped := false:
 		mouse_kick_binding_changed.emit(value)
 
 ## Matchday formation (Team Edit expansion, polish-pass brief): which 4 of
-## TeamFormation's 18 named AFL slots the HOME side actually lines up in
+## TeamFormation's 18 named Aussie Rules slots the HOME side actually lines up in
 ## for Full Game, replacing the flat even-spread _kickoff_slot() used
 ## unconditionally before this. Indices into TeamFormation.SLOTS — each
 ## preset a plausible, curated 4-a-side shape (one from the back/centre/
@@ -109,6 +109,20 @@ enum PlayerControlMode { SINGLE_PLAYER, FULL_TEAM }
 var player_control_mode: PlayerControlMode = PlayerControlMode.FULL_TEAM:
 	set(value):
 		player_control_mode = value as PlayerControlMode
+
+
+## FULL_TEAM automatic switching (pre-Day-5 W3). OFF: control only moves
+## by itself onto a HOME player who gathers the ball. ASSISTED (default):
+## also after your own kick (to whoever is nearest the drop, the old
+## behaviour) and after an opposition kick (to whoever is best placed for
+## it, unless you're already contesting it). FULL: as ASSISTED, sooner, and
+## for an AI teammate's kick too. See FullGame._on_auto_switch_kick.
+## Append only: the saved value is the index.
+enum AutoSwitch { OFF, ASSISTED, FULL }
+
+var auto_switch: AutoSwitch = AutoSwitch.ASSISTED:
+	set(value):
+		auto_switch = clampi(value, 0, AutoSwitch.size() - 1) as AutoSwitch
 
 
 var home_formation_index := 0:
@@ -258,6 +272,11 @@ const HUD_OPTIONS := {
 	&"ring_style": {"label": "LINE", "options": ["SOLID", "DASHED"], "default": 0},
 	&"ring_size": {"label": "SIZE", "options": ["SMALL", "MEDIUM", "LARGE"], "default": 1},
 	&"ring_thickness": {"label": "THICKNESS", "options": ["THIN", "MEDIUM", "THICK"], "default": 1},
+	&"mark_assist": {"label": "TIMING ASSIST", "options": ["OFF", "ON"], "default": 0},
+	&"ball_drop": {"label": "BALL DROP ICON", "options": ["OFF", "CHEVRON", "RING"], "default": 1},
+	&"ball_drop_colour": {"label": "COLOUR",
+		"options": ["DEFAULT", "WHITE", "YELLOW", "GREEN", "ORANGE", "PINK"], "default": 0},
+	&"ball_drop_size": {"label": "SIZE", "options": ["SMALL", "MEDIUM", "LARGE"], "default": 1},
 }
 
 ## The colour each *_colour option's name stands for. GREEN is the kick
@@ -329,6 +348,7 @@ func _load() -> void:
 		mouse_kick_swapped) as bool
 	player_control_mode = config.get_value(SECTION, "player_control_mode",
 		player_control_mode) as PlayerControlMode
+	auto_switch = int(config.get_value(SECTION, "auto_switch", auto_switch)) as AutoSwitch
 	home_formation_index = config.get_value(SECTION, "home_formation_index",
 		home_formation_index) as int
 	home_human_slot = config.get_value(SECTION, "home_human_slot",
@@ -364,6 +384,7 @@ func save() -> void:
 	config.set_value(SECTION, "camera_zoom", camera_zoom)
 	config.set_value(SECTION, "mouse_kick_swapped", mouse_kick_swapped)
 	config.set_value(SECTION, "player_control_mode", player_control_mode)
+	config.set_value(SECTION, "auto_switch", auto_switch)
 	config.set_value(SECTION, "home_formation_index", home_formation_index)
 	config.set_value(SECTION, "home_human_slot", home_human_slot)
 	config.set_value(SECTION, "home_ball_movement", home_ball_movement)

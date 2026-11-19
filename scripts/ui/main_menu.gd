@@ -177,10 +177,50 @@ const CARD_SHADOW_OFFSET_SELECTED := Vector2(12.0, 12.0)
 const DIM_UNSELECTED := 0.34
 const DIM_LOCKED := 0.58
 
-## Opacity of the cream wash over the 3D camera montage (menu_backdrop.tscn)
-## — high enough that chrome text stays legible, low enough that the
-## montage still reads as a background rather than a hidden layer.
-const BACKDROP_OVERLAY_ALPHA := 0.6
+## The montage behind the menu (menu_backdrop.tscn, our oval) now shows
+## through as footage, the way the menu reference image has it, instead of
+## sitting under a 0.6 cream wash. A dark vertical grade keeps the light
+## chrome text legible: heaviest behind the title and the footer, lightest
+## through the middle where the cards sit and the field is. Alphas are
+## unplaytested feel guesses, read off the reference.
+const BACKDROP_GRADE_TOP_ALPHA := 0.55
+const BACKDROP_GRADE_MID_ALPHA := 0.12
+const BACKDROP_GRADE_BOTTOM_ALPHA := 0.7
+## Chrome text over the footage: plain white, no stroke or shadow, as in
+## the menu reference (SoftBrutalist's INK/MUTED were picked for its cream
+## paper and vanish against a dark field). The dark grade does the legibility
+## work instead. CHROME_TITLE is a touch warmer, like the reference's title.
+const CHROME_INK := Color(1.0, 1.0, 1.0)
+const CHROME_TITLE := Color(0.96, 0.95, 0.92)
+
+## Menu chrome sized and spaced off the menu reference image: a tall
+## condensed title, widely tracked caps for everything else, and short red
+## rules under EST. 2025 and the subtitle.
+const CHROME_RED := Color("#C8332B")
+const TITLE_SIZE := 108
+const TITLE_TRACKING := 1
+const SUBTITLE_SIZE := 17
+const SUBTITLE_TRACKING := 6
+const CORNER_SIZE := 15
+const CORNER_TRACKING := 3
+const RULE_THICKNESS := 3.0
+const CORNER_RULE_WIDTH := 36.0
+const SUBTITLE_RULE_WIDTH := 64.0
+## CHARACTER sits between two thin lines, like a section divider.
+const DIVIDER_LINE_WIDTH := 170.0
+const DIVIDER_LINE_COLOUR := Color(0.97, 0.96, 0.93, 0.45)
+const DIVIDER_TRACKING := 6
+const FOOTER_TEXT_SIZE := 17
+const FOOTER_TRACKING := 3
+const FOOTER_ICON_SIZE := 24.0
+## Condensed display face for the title. The project ships no font files,
+## so this asks the OS: Bahnschrift is on every Windows 10/11 install and is
+## a variable font, so the wdth/wght axes below narrow and thicken it to the
+## reference's poster lettering. Elsewhere the fallback list is tried, and a
+## face without those axes just ignores them.
+const DISPLAY_FONT_NAMES := ["Bahnschrift", "Oswald", "Arial Narrow", "Impact"]
+
+static var _display_font: FontVariation
 
 class CardWidgets:
 	var frame: Control
@@ -212,12 +252,25 @@ var _footer_settings_label: Label
 var _footer_exit_icon: UIIcon
 var _footer_exit_label: Label
 
+## Cards that show a full-screen loading image before their scene swaps in:
+## the card zooms, the image fades over the menu, holds, then SceneWipe.
+## Keyed by Entry.image_key. A card not listed here swaps straight away, and
+## one whose image isn't imported yet still zooms but skips the overlay.
+const LOADING_SCREENS := {
+	"menuscreen_training": "res://assets/textures/images/loading_kicktokick.png",
+	"menuscreen_career": "res://assets/textures/images/careermode_loadingscreen.png",
+}
+const LOADING_HOLD := 1.0
+
+var _loading_overlay: TextureRect
+var _loading_active := false
 
 func _ready() -> void:
 	GameState.mode = GameState.Mode.SANDBOX
 	GameState.phase = GameState.Phase.MENU
 	_build()
 	_refresh()
+	_build_loading_overlay()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -287,7 +340,10 @@ func _move(step: int) -> void:
 
 func _select() -> void:
 	var entry := _entries[_index]
-	if not entry.unlocked:
+	if not entry.unlocked or _loading_active:
+		return
+	if LOADING_SCREENS.has(entry.image_key):
+		_begin_loading(LOADING_SCREENS[entry.image_key])
 		return
 	SceneWipe.change_scene(_scene_for(entry))
 
@@ -329,11 +385,10 @@ func _build() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 
-	# Translucent, not opaque: menu_backdrop.tscn's camera montage renders
-	# behind this in the SubViewportContainer laid out in main_menu.tscn,
-	# and this wash just needs to knock the footage back enough that ink
-	# text and the card frames stay legible over it.
-	root.add_child(SoftBrutalist.backdrop(BACKDROP_OVERLAY_ALPHA))
+	# menu_backdrop.tscn's camera montage renders behind this in the
+	# SubViewportContainer laid out in main_menu.tscn; see
+	# BACKDROP_GRADE_*_ALPHA for why it's a dark grade, not a wash.
+	root.add_child(_build_backdrop_grade())
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -356,6 +411,58 @@ func _build() -> void:
 	_build_footer(bands)
 
 
+func _build_backdrop_grade() -> TextureRect:
+	var gradient := Gradient.new()
+	gradient.offsets = PackedFloat32Array([0.0, 0.3, 0.62, 1.0])
+	gradient.colors = PackedColorArray([
+		Color(0.0, 0.0, 0.0, BACKDROP_GRADE_TOP_ALPHA),
+		Color(0.0, 0.0, 0.0, BACKDROP_GRADE_MID_ALPHA),
+		Color(0.0, 0.0, 0.0, BACKDROP_GRADE_MID_ALPHA),
+		Color(0.0, 0.0, 0.0, BACKDROP_GRADE_BOTTOM_ALPHA),
+	])
+	var texture := GradientTexture2D.new()
+	texture.gradient = gradient
+	texture.fill_from = Vector2(0.0, 0.0)
+	texture.fill_to = Vector2(0.0, 1.0)
+	texture.width = 4
+	texture.height = 256
+	var grade := TextureRect.new()
+	grade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	grade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	grade.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	grade.stretch_mode = TextureRect.STRETCH_SCALE
+	grade.texture = texture
+	return grade
+
+
+static func display_font() -> FontVariation:
+	if _display_font != null:
+		return _display_font
+	var system := SystemFont.new()
+	system.font_names = PackedStringArray(DISPLAY_FONT_NAMES)
+	var variation := FontVariation.new()
+	variation.base_font = system
+	# variation_opentype is keyed by OpenType tag ints, not strings.
+	var ts := TextServerManager.get_primary_interface()
+	variation.variation_opentype = {ts.name_to_tag("wdth"): 75, ts.name_to_tag("wght"): 700}
+	# Bahnschrift tops out at wght 700; a little embolden on top gets the
+	# reference's heavier poster weight.
+	variation.variation_embolden = 0.35
+	variation.spacing_glyph = TITLE_TRACKING
+	_display_font = variation
+	return _display_font
+
+
+## Short solid rule (the red accents under EST. 2025 and the subtitle).
+func _rule(width: float, colour: Color = CHROME_RED,
+		thickness: float = RULE_THICKNESS) -> ColorRect:
+	var rule := ColorRect.new()
+	rule.color = colour
+	rule.custom_minimum_size = Vector2(width, thickness)
+	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return rule
+
+
 ## EST. 2025 on the left, version on the right, both on the screen's own
 ## margin. An HBox with a spacer between them, rather than the old pair of
 ## anchored labels offset by a guessed text width — a guess that put the
@@ -367,8 +474,15 @@ func _build_corner_chrome(parent: Control) -> void:
 	row.custom_minimum_size.y = CHROME_HEIGHT
 	parent.add_child(row)
 
-	row.add_child(SoftBrutalist.label(ESTABLISHED_TEXT, SoftBrutalist.SIZE_LABEL,
-		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL))
+	var established := VBoxContainer.new()
+	established.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	established.add_theme_constant_override(&"separation", 6)
+	established.add_child(SoftBrutalist.label(ESTABLISHED_TEXT, CORNER_SIZE,
+		CHROME_INK, SoftBrutalist.WEIGHT_REGULAR, CORNER_TRACKING))
+	var established_rule := _rule(CORNER_RULE_WIDTH)
+	established_rule.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	established.add_child(established_rule)
+	row.add_child(established)
 
 	var spacer := Control.new()
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -377,8 +491,10 @@ func _build_corner_chrome(parent: Control) -> void:
 
 	var version := String(ProjectSettings.get_setting(VERSION_SETTING, ""))
 	var version_text := "v" + version if not version.is_empty() else VERSION_FALLBACK
-	row.add_child(SoftBrutalist.label(version_text, SoftBrutalist.SIZE_LABEL,
-		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL))
+	var version_label := SoftBrutalist.label(version_text, CORNER_SIZE,
+		CHROME_INK, SoftBrutalist.WEIGHT_REGULAR, CORNER_TRACKING)
+	version_label.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	row.add_child(version_label)
 
 
 func _build_header(parent: Control) -> void:
@@ -387,15 +503,19 @@ func _build_header(parent: Control) -> void:
 	column.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_1))
 	parent.add_child(column)
 
-	var title := SoftBrutalist.label(TITLE_TEXT, SoftBrutalist.SIZE_DISPLAY, SoftBrutalist.INK,
-		SoftBrutalist.WEIGHT_HEAVY, SoftBrutalist.TRACK_DISPLAY)
+	var title := SoftBrutalist.label(TITLE_TEXT, TITLE_SIZE, CHROME_TITLE)
+	title.add_theme_font_override(&"font", display_font())
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(title)
 
-	var subtitle := SoftBrutalist.label(SUBTITLE_TEXT, SoftBrutalist.SIZE_LABEL,
-		SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_TITLE)
+	var subtitle := SoftBrutalist.label(SUBTITLE_TEXT, SUBTITLE_SIZE,
+		CHROME_INK, SoftBrutalist.WEIGHT_REGULAR, SUBTITLE_TRACKING)
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(subtitle)
+
+	var subtitle_rule := _rule(SUBTITLE_RULE_WIDTH)
+	subtitle_rule.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	column.add_child(subtitle_rule)
 
 
 func _build_card_row(parent: Control) -> void:
@@ -426,14 +546,14 @@ func _build_util_row(parent: Control) -> void:
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.custom_minimum_size.y = UTIL_ROW_HEIGHT
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override(&"separation", UTIL_SEPARATION)
+	row.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_2))
 	parent.add_child(row)
 
 	_util_labels.clear()
 	for i in UTIL_ENTRIES.size():
 		var entry: Dictionary = UTIL_ENTRIES[i]
-		var label := SoftBrutalist.label(String(entry["label"]), SoftBrutalist.SIZE_LABEL,
-			SoftBrutalist.MUTED, SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_TITLE)
+		var label := SoftBrutalist.label(String(entry["label"]),
+			CORNER_SIZE, CHROME_INK, SoftBrutalist.WEIGHT_REGULAR, DIVIDER_TRACKING)
 		label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		label.mouse_filter = Control.MOUSE_FILTER_STOP
 		label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -450,6 +570,17 @@ func _build_util_row(parent: Control) -> void:
 		row.add_child(label)
 		_util_labels.append(label)
 
+	# Divider lines either side of the row, as in the reference. Added after
+	# the labels and moved to the ends so _util_labels' indices still match
+	# UTIL_ENTRIES.
+	var left_line := _rule(DIVIDER_LINE_WIDTH, DIVIDER_LINE_COLOUR, 1.0)
+	left_line.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(left_line)
+	row.move_child(left_line, 0)
+	var right_line := _rule(DIVIDER_LINE_WIDTH, DIVIDER_LINE_COLOUR, 1.0)
+	right_line.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(right_line)
+
 
 ## SETTINGS on the left margin, the control legend centred, EXIT GAME on
 ## the right margin — the expanding legend in the middle is what pins the
@@ -462,12 +593,13 @@ func _build_footer(parent: Control) -> void:
 	row.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_3))
 	parent.add_child(row)
 
-	var settings_widget := _build_footer_action(&"gear", "SETTINGS", 0)
+	var settings_widget := _build_footer_action(&"cog", "SETTINGS", 0)
 	_footer_settings_icon = settings_widget.get_child(0) as UIIcon
 	_footer_settings_label = settings_widget.get_child(1) as Label
 	row.add_child(settings_widget)
 
 	_hints_bar = DeviceHintBar.new()
+	_hints_bar.on_dark = true
 	_hints_bar.alignment = BoxContainer.ALIGNMENT_CENTER
 	_hints_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_hints_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -490,20 +622,20 @@ func _build_footer_action(icon_name: StringName, text: String, footer_index: int
 	# guessed 140px width — the old fixed width left the label floating
 	# short of the margin it was meant to sit on.
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_1))
+	row.add_theme_constant_override(&"separation", int(SoftBrutalist.SPACE_2))
 	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	row.mouse_filter = Control.MOUSE_FILTER_STOP
 
 	var icon := UIIcon.new()
 	icon.icon_name = icon_name
-	icon.line_colour = SoftBrutalist.MUTED
-	icon.custom_minimum_size = Vector2(18.0, 18.0)
+	icon.line_colour = CHROME_INK
+	icon.custom_minimum_size = Vector2(FOOTER_ICON_SIZE, FOOTER_ICON_SIZE)
 	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(icon)
 
-	var label := SoftBrutalist.label(text, SoftBrutalist.SIZE_LABEL, SoftBrutalist.MUTED,
-		SoftBrutalist.WEIGHT_BOLD, SoftBrutalist.TRACK_LABEL)
+	var label := SoftBrutalist.label(text, FOOTER_TEXT_SIZE,
+		CHROME_INK, SoftBrutalist.WEIGHT_REGULAR, FOOTER_TRACKING)
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(label)
 
@@ -555,6 +687,12 @@ func _build_card(entry: Entry, index: int) -> CardWidgets:
 	frame.add_child(shadow)
 	widgets.shadow = shadow
 
+	var image_clip := Control.new()
+	image_clip.set_anchors_preset(Control.PRESET_FULL_RECT)
+	image_clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	image_clip.clip_contents = true
+	frame.add_child(image_clip)
+
 	var image := TextureRect.new()
 	image.set_anchors_preset(Control.PRESET_FULL_RECT)
 	image.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -584,7 +722,7 @@ func _build_card(entry: Entry, index: int) -> CardWidgets:
 	material.set_shader_parameter(&"image", texture)
 	material.set_shader_parameter(&"image_size", Vector2(texture.get_size()))
 	image.material = material
-	frame.add_child(image)
+	image_clip.add_child(image)
 	widgets.image = image
 	widgets.material = material
 
@@ -797,28 +935,28 @@ func _refresh() -> void:
 		widgets.border.add_theme_stylebox_override(&"panel", next_border)
 		tween.tween_property(next_border, "border_color", target_border, CARD_ANIM_DURATION)
 
-	# Util row labels: accent on the focused one, muted otherwise.
+	# Util row labels: accent on the focused one, white otherwise.
 	for i in _util_labels.size():
 		var focused := _row == 1 and i == _util_index
 		_util_labels[i].add_theme_color_override(&"font_color",
-			RetroWindow.ACCENT if focused else SoftBrutalist.MUTED)
+			RetroWindow.ACCENT if focused else CHROME_INK)
 
 	# Footer SETTINGS/EXIT GAME highlight — whichever _footer_index points at,
 	# only while the cursor is actually on the footer row.
 	var settings_focused := _row == 2 and _footer_index == 0
 	if is_instance_valid(_footer_settings_icon):
 		_footer_settings_icon.line_colour = RetroWindow.ACCENT if settings_focused \
-			else SoftBrutalist.MUTED
+			else CHROME_INK
 	if is_instance_valid(_footer_settings_label):
 		_footer_settings_label.add_theme_color_override(&"font_color",
-			RetroWindow.ACCENT if settings_focused else SoftBrutalist.MUTED)
+			RetroWindow.ACCENT if settings_focused else CHROME_INK)
 	var exit_focused := _row == 2 and _footer_index == 1
 	if is_instance_valid(_footer_exit_icon):
 		_footer_exit_icon.line_colour = RetroWindow.ACCENT if exit_focused \
-			else SoftBrutalist.MUTED
+			else CHROME_INK
 	if is_instance_valid(_footer_exit_label):
 		_footer_exit_label.add_theme_color_override(&"font_color",
-			RetroWindow.ACCENT if exit_focused else SoftBrutalist.MUTED)
+			RetroWindow.ACCENT if exit_focused else CHROME_INK)
 
 	# Dynamic hints reflect which row the cursor is on, per device (see
 	# ui_audit.md finding #1 — these used to be one combined "Enter / A"
@@ -855,9 +993,9 @@ func _refresh() -> void:
 		else:
 			_hints_bar.set_hint_sets({
 				InputManager.Device.KEYBOARD: [
-					{"keys": "← / →", "label": "Choose"},
-					{"keys": "Enter", "label": "Select"},
-					{"keys": "↓", "label": "Character"},
+					{"keys": ["W", "A", "S", "D"], "label": "Choose"},
+					{"keys": "ENTER", "label": "Select"},
+					{"keys": "C", "label": "Character"},
 				],
 				InputManager.Device.GAMEPAD: [
 					{"keys": "D-Pad ↔", "label": "Choose"},
@@ -865,3 +1003,40 @@ func _refresh() -> void:
 					{"keys": "D-Pad ↓", "label": "Character"},
 				],
 			})
+
+func _begin_loading(image_path: String) -> void:
+	_loading_active = true
+	set_process_unhandled_input(false)
+	var widgets := _cards[_index]
+	widgets.material.set_shader_parameter(&"saturation", 1.0)
+	widgets.image.pivot_offset = widgets.image.size * 0.5
+	var zoom := widgets.image.create_tween()
+	zoom.set_trans(Tween.TRANS_CUBIC)
+	zoom.set_ease(Tween.EASE_OUT)
+	zoom.set_parallel(true)
+	zoom.tween_property(widgets.image, "scale", Vector2(1.28, 1.28), 0.28)
+	zoom.tween_property(widgets.frame, "scale", Vector2(1.14, 1.14), 0.28) 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	await zoom.finished
+
+	if is_instance_valid(_loading_overlay) and ResourceLoader.exists(image_path):
+		_loading_overlay.texture = load(image_path)
+		_loading_overlay.visible = true
+		var fade := _loading_overlay.create_tween()
+		fade.tween_property(_loading_overlay, "modulate:a", 1.0, 0.12)
+		await fade.finished
+
+	await get_tree().create_timer(LOADING_HOLD).timeout
+	SceneWipe.change_scene(_scene_for(_entries[_index]))
+
+
+## One shared overlay above everything else on the menu; _begin_loading()
+## gives it the selected card's image.
+func _build_loading_overlay() -> void:
+	_loading_overlay = TextureRect.new()
+	_loading_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_loading_overlay.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_loading_overlay.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	_loading_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_loading_overlay.visible = false
+	_loading_overlay.modulate = Color(1.0, 1.0, 1.0, 0.0)
+	add_child(_loading_overlay)

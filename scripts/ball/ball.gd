@@ -67,8 +67,12 @@ var _was_airborne := false
 ## the instant the ball touches down or is gathered — the live "is this
 ## still an uninterrupted kick flight" state is_mark_eligible() reads.
 ## Handballs/bounces/hit-outs never set this, so they can never be marked,
-## same as real AFL.
+## same as real Aussie Rules.
 var _is_kick_flight := false
+## Why the last kick flight stopped being a live mark chance, for the PLAY ON
+## call (mark_ineligible_reason): "" while it still is one, else
+## "OFF THE GROUND" (it landed) or "TOUCHED" (knocked in the air).
+var _flight_end_reason := ""
 var _flight_origin := Vector3.ZERO
 
 ## Set true only by a launch() from a HANDBALL disposal — the "is this
@@ -191,7 +195,9 @@ func _physics_process(delta: float) -> void:
 	if _was_airborne and not airborne:
 		landed.emit(linear_velocity.length())
 		# Touched down without being marked — no longer a live mark chance,
-		# same as a kick that bounces before anyone takes it in real AFL.
+		# same as a kick that bounces before anyone takes it in real Aussie Rules.
+		if _is_kick_flight:
+			_flight_end_reason = "OFF THE GROUND"
 		_is_kick_flight = false
 		_is_handball_flight = false
 		# A rebounded bounce that comes back down untaken is just a loose
@@ -304,6 +310,7 @@ func launch(direction: Vector3, speed: float, spin: Vector3, from: Node3D = null
 	angular_velocity = spin
 	_was_airborne = is_airborne()
 	_is_kick_flight = is_kick_disposal
+	_flight_end_reason = ""
 	_is_bounce_flight = is_bounce
 	_is_handball_flight = is_handball
 	_bounce_rebounded = false
@@ -401,11 +408,25 @@ func is_settled() -> bool:
 
 
 ## True while this is still an uninterrupted kick flight that has covered
-## Tuning.MARK_STAND_MIN_DISTANCE — the real AFL test for a legal mark, as
+## Tuning.MARK_STAND_MIN_DISTANCE — the real Aussie Rules test for a legal mark, as
 ## opposed to just a good take (see PlayerController._complete_mark, which
 ## reads this to decide whether to grant mark protection). Distance is
 ## straight-line from where it left the boot: that's what a kick's
 ## displacement actually is, regardless of the shape of the arc it flew.
+## Why a take now wouldn't be a mark, for the umpire's PLAY ON call
+## (playtest 2026-11-18: "some safe A marks aren't paid and I get
+## tackled"): "" when it would be one. Under the 15 m, touched in the air,
+## off the ground, or not a kick at all.
+func mark_ineligible_reason() -> String:
+	if is_mark_eligible():
+		return ""
+	if _is_kick_flight:
+		return "UNDER 15 M"
+	if _flight_end_reason != "":
+		return _flight_end_reason
+	return "NOT FROM A KICK"
+
+
 func is_mark_eligible() -> bool:
 	return _is_kick_flight and not is_held \
 		and global_position.distance_to(_flight_origin) >= Tuning.MARK_STAND_MIN_DISTANCE
@@ -483,6 +504,8 @@ func kick_team() -> Tuning.Team:
 ## left to callers reaching into _is_kick_flight directly, so this
 ## invariant can't be forgotten at a new call site later.
 func knock(impulse: Vector3) -> void:
+	if _is_kick_flight:
+		_flight_end_reason = "TOUCHED"
 	_is_kick_flight = false
 	_is_handball_flight = false
 	_kick_team = Tuning.Team.NONE
@@ -589,3 +612,4 @@ func _build_hull() -> ConvexPolygonShape3D:
 func _shape_mesh() -> void:
 	var stretch := Tuning.BALL_SEMI_MAJOR / Tuning.BALL_SEMI_MINOR
 	_mesh.scale = Vector3(1.0, 1.0, stretch)
+

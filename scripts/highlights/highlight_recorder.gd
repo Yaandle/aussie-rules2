@@ -31,8 +31,26 @@ extends Node
 ## sound on exact frames. A goal or behind records the kick that actually
 ## scored it (`_flight`: the last kick nobody has gathered since), not the
 ## scoring team's last kick, which was often an earlier one (2026-11-10).
+##
+## Full match (docs/HIGHLIGHTS_FULLGAME_PLAN.md, phase 1, 2026-11-16): unless
+## HighlightPrefs.full_match() is off, every frame also goes to
+## `match.replay` in HighlightPaths.recording_dir() as it's taken, so the
+## whole match can be rendered and put on a timeline later, not just the
+## moments the ring still held. Same layout as a ReplayClip (its header says
+## `frame_count` -1: read to the end), so the video side's reader works on it
+## unchanged. When the match ends `match.json` goes beside it: each frame's
+## recorder time (the recorder samples on a timer, so a hitch spaces frames
+## unevenly and a renderer has to resample), the quarters and gaps
+## (`segments`), and every event, not only those near a moment. Each moment
+## gets `match_from`, `match_to` and `match_frame`, its place in that file:
+## clip frame k is full-match frame match_from + k, byte for byte. Writing a
+## frame is one buffered file write of ~9 KB (~270 KB/s) and no extra
+## capture: the frame is packed for the ring anyway.
 
 signal moment_detected(moment: Dictionary)
+## The full-match recording is closed: `info` is {replay, json, frames, fps}
+## (absolute paths), or empty when nothing was recorded.
+signal full_match_closed(info: Dictionary)
 
 const FIELD_SCENE := "res://scenes/modes/full_game.tscn"
 
@@ -48,6 +66,23 @@ var _ring: Array[PackedByteArray] = []
 var _ring_times := PackedFloat64Array()
 var _ring_head := 0
 var _ring_count := 0
+## Each ring slot's full-match frame number.
+var _ring_index := PackedInt64Array()
+
+# Full-match recording (see the header). `_full` is null when it's off or the
+# file couldn't be opened.
+var _full: FileAccess = null
+var _full_dir := ""
+## Frames committed so far: the full-match number the next frame gets.
+var _frame_index := 0
+var _full_times := PackedFloat64Array()
+var _full_quarters := PackedByteArray()
+## Every event of the match, {t, kind, player}; `_events` only keeps the last
+## BUFFER_SECONDS.
+var _full_events: Array[Dictionary] = []
+var _full_closed := false
+## Total time spent writing frames to disk, microseconds (for the check).
+var write_usec := 0
 
 var _t := 0.0
 var _since_frame := 0.0
@@ -104,7 +139,10 @@ func setup(game: Node) -> void:
 	var frames := int(ceil(HighlightTable.BUFFER_SECONDS * HighlightTable.RECORD_FPS))
 	_ring.resize(frames)
 	_ring_times.resize(frames)
+	_ring_index.resize(frames)
 	_connect_events()
+	if HighlightPrefs.full_match():
+		_open_full()
 
 
 func team_name(team: Tuning.Team) -> String:
@@ -255,6 +293,15 @@ func _commit_frame() -> void:
 			ReplayClip.put_vec3(buf, p)
 	_ring[_ring_head] = buf.data_array
 	_ring_times[_ring_head] = _t
+	_ring_index[_ring_head] = _frame_index
+	if _full != null:
+		var t0 := Time.get_ticks_usec()
+		_full.store_32(buf.data_array.size())
+		_full.store_buffer(buf.data_array)
+		_full_times.append(_t)
+		_full_quarters.append(MatchState.quarter)
+		write_usec += Time.get_ticks_usec() - t0
+	_frame_index += 1
 	_ring_head = (_ring_head + 1) % _ring.size()
 	_ring_count = mini(_ring_count + 1, _ring.size())
 
@@ -264,8 +311,10 @@ func _commit_frame() -> void:
 
 
 ## Frames recorded between `from` and `to` (recorder time), oldest first.
-## `times`, if given, gets each frame's recorder time.
-func _window(from: float, to: float, times: PackedFloat64Array = PackedFloat64Array()) -> Array[PackedByteArray]:
+## `times`, if given, gets each frame's recorder time; `indexes` its
+## full-match frame number.
+func _window(from: float, to: float, times: PackedFloat64Array = PackedFloat64Array(),
+		indexes: PackedInt64Array = PackedInt64Array()) -> Array[PackedByteArray]:
 	var out: Array[PackedByteArray] = []
 	var size := _ring.size()
 	var oldest := (_ring_head - _ring_count + size) % size
@@ -275,6 +324,7 @@ func _window(from: float, to: float, times: PackedFloat64Array = PackedFloat64Ar
 		if t >= from and t <= to:
 			out.append(_ring[i])
 			times.append(t)
+			indexes.append(_ring_index[i])
 	return out
 
 
@@ -303,7 +353,8 @@ func _update_pending() -> void:
 func _finish(moment: Dictionary) -> void:
 	var t_event: float = moment._t_event
 	var times := PackedFloat64Array()
-	var frames := _window(t_event - float(moment.lead), t_event + float(moment.out), times)
+	var indexes := PackedInt64Array()
+	var frames := _window(t_event - float(moment.lead), t_event + float(moment.out), times, indexes)
 	if frames.is_empty():
 		return
 	var clip := ReplayClip.new()
@@ -312,6 +363,12 @@ func _finish(moment: Dictionary) -> void:
 	# Which frame is the moment itself, for the camera and the scrub bar.
 	var event_frame := _nearest_frame(times, t_event)
 	clip.meta["event_frame"] = event_frame
+	if _full_dir != "":
+		# Where this clip sits in match.replay (contiguous: clip frame k is
+		# full frame match_from + k).
+		moment["match_from"] = int(indexes[0])
+		moment["match_to"] = int(indexes[indexes.size() - 1])
+		moment["match_frame"] = int(indexes[event_frame])
 	clip.meta["focus"] = moment.focus
 	clip.meta["type"] = moment.type
 	clip.meta["attack_dir"] = moment.attack_dir
@@ -353,10 +410,115 @@ func flush() -> void:
 		moment.out = maxf(0.0, _t - float(moment._t_event))
 		_finish(moment)
 	_pending.clear()
+	_close_full()
 
 
 func _exit_tree() -> void:
 	flush()
+
+
+# ── Full-match recording ───────────────────────────────────────────
+
+func _open_full() -> void:
+	var dir := HighlightPaths.recording_dir()
+	var path := dir.path_join(HighlightPaths.MATCH_REPLAY)
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		push_warning("HighlightRecorder: can't write %s (%s); recording moments only" %
+			[path, error_string(FileAccess.get_open_error())])
+		return
+	# A match.json left from the last match would describe the wrong file.
+	DirAccess.remove_absolute(dir.path_join(HighlightPaths.MATCH_JSON))
+	var header := _meta.duplicate(true)
+	header["version"] = ReplayClip.VERSION
+	header["frame_count"] = -1
+	header["full_match"] = true
+	file.store_var(header)
+	_full = file
+	_full_dir = dir
+
+
+## Closes match.replay and writes match.json. Once only (the generator
+## flushes, then _exit_tree flushes again).
+func _close_full() -> void:
+	if _full_closed:
+		return
+	_full_closed = true
+	if _full == null:
+		full_match_closed.emit({})
+		return
+	_full.close()
+	_full = null
+	var frames := _full_times.size()
+	var events: Array = []
+	for ev in _full_events:
+		var who := int(ev.player)
+		var entry := {"frame": _full_frame_at(float(ev.t)), "t": snappedf(float(ev.t), 0.001),
+			"kind": ev.kind, "player": String(_meta.bodies[who].name) if who >= 0 else ""}
+		if who >= 0:
+			entry["team"] = "home" if int(_meta.bodies[who].team) == int(Tuning.Team.HOME) else "away"
+		events.append(entry)
+	var times: Array = []
+	for t in _full_times:
+		times.append(snappedf(t, 0.0001))
+	var doc := {
+		"format": "aussie-rules-2-match", "version": 1,
+		"fps": HighlightTable.RECORD_FPS,
+		"replay": HighlightPaths.MATCH_REPLAY,
+		"frame_count": frames,
+		"duration_s": snappedf(_full_times[frames - 1] - _full_times[0], 0.001) if frames > 0 else 0.0,
+		"segments": _segments(),
+		"events": events,
+		"frame_times": times,
+	}
+	var json := FileAccess.open(_full_dir.path_join(HighlightPaths.MATCH_JSON), FileAccess.WRITE)
+	if json != null:
+		json.store_string(JSON.stringify(doc, "  ", false))
+		json.close()
+	full_match_closed.emit({
+		"replay": _full_dir.path_join(HighlightPaths.MATCH_REPLAY),
+		"json": _full_dir.path_join(HighlightPaths.MATCH_JSON),
+		"frames": frames, "fps": HighlightTable.RECORD_FPS,
+	})
+
+
+## The full-match frame nearest recorder time `t`.
+func _full_frame_at(t: float) -> int:
+	var n := _full_times.size()
+	if n == 0:
+		return 0
+	var i := _full_times.bsearch(t)
+	if i >= n:
+		return n - 1
+	if i > 0 and absf(_full_times[i - 1] - t) <= absf(_full_times[i] - t):
+		return i - 1
+	return i
+
+
+## A new segment starts when the quarter changes or the recorder stopped for
+## more than this many frame steps (the game was paused).
+const SEGMENT_GAP := 2.5
+
+
+## Runs of frames in one quarter with no gap: {quarter, from, to, t_from,
+## t_to}, frames inclusive. Dead time inside a segment (a break with the
+## clock stopped, the wait after a score) is phase 2's to find: it reads the
+## clock from each frame's header.
+func _segments() -> Array:
+	var out: Array = []
+	var n := _full_times.size()
+	if n == 0:
+		return out
+	var step := 1.0 / HighlightTable.RECORD_FPS
+	var start := 0
+	for i in range(1, n + 1):
+		var split := i == n or _full_quarters[i] != _full_quarters[i - 1] \
+			or _full_times[i] - _full_times[i - 1] > step * SEGMENT_GAP
+		if split:
+			out.append({"quarter": int(_full_quarters[start]), "from": start, "to": i - 1,
+				"t_from": snappedf(_full_times[start], 0.001), "t_to": snappedf(_full_times[i - 1], 0.001)})
+			start = i
+	return out
 
 
 # ── Events ──────────────────────────────────────────────────────────
@@ -378,6 +540,8 @@ func _connect_events() -> void:
 ## Adds to the rolling log; what a moment's clip lists as `events`.
 func _log(kind: String, player: PlayerController = null) -> void:
 	_events.append({"t": _t, "kind": kind, "player": _players.find(player) if player != null else -1})
+	if _full != null:
+		_full_events.append(_events[-1])
 	while not _events.is_empty() and _t - float(_events[0].t) > HighlightTable.BUFFER_SECONDS:
 		_events.pop_front()
 

@@ -39,3 +39,6 @@ desktop.ini
 
 # Blender auto-backups
 *.blend1
+
+# Godot user data (saves, logs), junctioned from %APPDATA%\Godot\app_userdata
+userdata/

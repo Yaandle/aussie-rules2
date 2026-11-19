@@ -51,7 +51,11 @@ change should fit them.
   mark cue is only a cue (`docs/ML_AI_AUDIT.md` §9). `TackleBalance`
   evaluates the tackle model's formula on the real contact: a threshold
   decides hold or break, and the same value sets ragdoll strength. It's
-  never rolled.
+  never rolled. `MarkContest` is its twin for contested marks: every player
+  going for the ball gets a rating from timing, position, hand height and
+  body, and only the highest rated player's hands close
+  (`_wins_mark_contest`). Its weights are hand-set, not trained.
+  `scenes/dev/mark_contest_check.tscn` is the regression check.
 - **Kits resolve in one place.** `TeamKit` gives HOME the CHARACTER
   screen's kit and AWAY a preset picked to contrast with it. Imported
   models are recoloured by Blender material name (`Shirt`/`Jersey`, `Short`,
@@ -319,7 +323,14 @@ change should fit them.
 - **Knocks on the feet:** `scenes/dev/contact_sweep.tscn` (collisions,
   broken and held-up tackles, glancing bumps, contested marks, by bearing,
   pace and stamina; `-- --model=7thbuild`, `-- --cases=N`). Run mark cases
-  one at a time: `_live_ball()` reads the first ball in the scene.
+  one at a time: `_live_ball()` reads the first ball in the scene. By 2026-11-18
+  (7cd83d1) all 45 cases at once overflow Godot's message queue at spawn (signal 11 in `humanoid_rig.gd _ready`): run `--cases=` in
+  chunks of six or so.
+- **Compare `mark_cue_harness -- probe` by its printed summary, not its
+  CSVs.** A run is repeatable, but the raw state on its `no_attempt` rows
+  (presses after the ball has gone) shifts with any non-comment code change,
+  even new `Tuning` constants alone (2026-11-18). Caught/missed, bands and
+  the summary lines don't move.
 - **Highlights replays assume evenly spaced frames.** The recorder takes one
   frame per rendered frame at ~30 Hz and a clip plays back at 30 fps, so a
   variable-rate run plays back sped up and slowed down. Anything that records

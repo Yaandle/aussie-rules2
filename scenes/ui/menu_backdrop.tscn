@@ -9,29 +9,19 @@ script = ExtResource("1_backdrop")
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = ExtResource("2_env")
 
-; Afternoon sun, travelling (-0.35, -0.72, -0.60) — i.e. downward, at
-; about 46 degrees of elevation.
-;
-; The transform this replaces was the transposed one docs/HANDOVER.md
-; warns about: the 12 numbers in a Transform3D literal are the basis
-; ROWS, while basis.x/y/z are its COLUMNS, so writing an axis along a
-; triple instead of down them yields the transpose. That is still
-; orthonormal, so it loads without complaint and the light looks
-; configured — but here it left basis.z = (0.574, -0.628, 0.527), meaning
-; the sun travelled *upward* at 39 degrees. Every horizontal surface in
-; the match scenes, the whole ground included, was therefore lit by sky
-; ambient alone: green turf under a blue-only ambient rendered dark teal,
-; and nothing in the scene cast a shadow worth the name.
-;
-; character_backdrop.tscn had already been corrected; that file's own note
-; flags that the same literal was still in four other scenes. This is one
-; of them.
+; Late-afternoon sun, low (about 20 degrees up) and warm, matching the
+; menu reference image: long shadows across the turf, golden light on the
+; posts and players. Written as rotation_degrees rather than a Transform3D
+; literal on purpose: the 12 numbers in a Transform3D are the basis ROWS,
+; and writing an axis along them instead of down them gave this scene a sun
+; that pointed at the sky (see character_backdrop.tscn's note). A light
+; shines down its -Z, so x = -20 is 20 degrees below the horizon line.
 [node name="Sun" type="DirectionalLight3D" parent="."]
-transform = Transform3D(0.8637, -0.3627, 0.3499, 0, 0.6943, 0.7197, -0.5039, -0.6216, 0.5998, 0, 40, 0)
-; 2.6 was brute force compensating for a sun that pointed at the sky —
-; with the direction corrected the same number blows the montage out.
-light_energy = 0.95
-shadow_enabled = false
+rotation_degrees = Vector3(-20, 155, 0)
+light_color = Color(1, 0.84, 0.66, 1)
+light_energy = 1.15
+shadow_enabled = true
+directional_shadow_max_distance = 120.0
 
 ; Cool sky bounce from the opposite side, keeping the shaded faces of the
 ; posts and players in the palette rather than letting them fall to grey.

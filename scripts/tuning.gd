@@ -110,7 +110,7 @@ enum Action { NONE, KICK, HANDBALL, BOUNCE, MARK_SAFE, MARK_RUNNING, MARK_AGGRES
 
 
 # ── Ground geometry (metres) ─────────────────────────────────────────
-# A real AFL oval varies ground to ground; 165 x 135 is a mid-size
+# A real Aussie Rules oval varies ground to ground; 165 x 135 is a mid-size
 # ground (the MCG is ~160 x 141). Prototype 1's 166 x 88 grid was a
 # 16:9-framing compromise for its fixed diorama camera, not a real
 # aspect ratio — a 3D camera has no such constraint, so the oval is
@@ -120,10 +120,10 @@ const FIELD_WIDTH := 135.0             # wing to wing, along Z
 const FIELD_HALF_LENGTH := FIELD_LENGTH * 0.5
 const FIELD_HALF_WIDTH := FIELD_WIDTH * 0.5
 
-const GOAL_POST_SEPARATION := 6.4      # AFL: 6.4m between the goal posts
+const GOAL_POST_SEPARATION := 6.4      # Aussie Rules: 6.4m between the goal posts
 const BEHIND_POST_OFFSET := 6.4        # and 6.4m again out to each behind post
-const GOAL_POST_HEIGHT := 10.0         # AFL minimum is 6m; AFL-level grounds use ~10m
-const BEHIND_POST_HEIGHT := 6.0        # AFL minimum is 3m
+const GOAL_POST_HEIGHT := 10.0         # Aussie Rules minimum is 6m; Aussie Rules-level grounds use ~10m
+const BEHIND_POST_HEIGHT := 6.0        # Aussie Rules minimum is 3m
 const GOAL_SQUARE_DEPTH := 9.0
 const CENTRE_SQUARE_SIZE := 50.0
 const CENTRE_CIRCLE_OUTER := 5.0       # 10m diameter
@@ -135,7 +135,7 @@ const LINE_WIDTH := 0.1
 
 
 # ── Player locomotion ────────────────────────────────────────────────
-# Real AFL running speeds. An elite midfielder tops out around 8.5-9 m/s
+# Real Aussie Rules running speeds. An elite midfielder tops out around 8.5-9 m/s
 # over a short burst and cruises at 4-5. Prototype 1's PLAYER_SPEED (28
 # logical units/s on a 166-unit field) was an arcade abstraction; a 3D
 # game in real metres has to use real numbers or nothing else reads right.
@@ -315,7 +315,7 @@ const BALL_SLEEP_SPEED := 0.12         # m/s below which a resting ball is allow
 # not hand-estimated: 24 m/s at 40 degrees carries ~46m in the air
 # standing, ~55m kicking on the run, which lands the *total* travelled
 # distance (including bounce/roll-out) around 60-70m once it's down —
-# a real long AFL punt, not a 100m bomb. The first tuned value (30 m/s)
+# a real long Aussie Rules punt, not a 100m bomb. The first tuned value (30 m/s)
 # measured out to ~65m flight / ~100m+ total once roll-out was included,
 # confirmed too far by playtesting.
 # (P1: KICK_MAX_RANGE = 88 logical units, BALL_FLIGHT_SPEED = 95 — both
@@ -558,7 +558,7 @@ const ACTION_CONTACT := {
 	Action.KNOCKED_BACK: 0.30, Action.TACKLE_SLING: 0.12,
 }
 
-# AFL rule: a player running with the ball must bounce or touch it to
+# Aussie Rules rule: a player running with the ball must bounce or touch it to
 # ground every 15 metres (Prototype 1's BOUNCE_INTERVAL, which matched the
 # real rule). Raised to 20 here on playtest feel — the call was landing
 # early. Two reasons it reads short at 15: _carry_distance accumulates
@@ -783,16 +783,16 @@ const RUMBLE_GATHER := Vector3(0.12, 0.0, 0.08)
 
 
 # ── Match structure ──────────────────────────────────────────────────
-# Full Game mode (design doc §7 priority 1). Real AFL 18-a-side. Each
+# Full Game mode (design doc §7 priority 1). Real Aussie Rules 18-a-side. Each
 # roster index maps 1:1 onto a TeamFormation slot via
 # TeamFormation.ROSTER_ORDER (on-ball unit first, then back-to-forward),
 # so a smaller value here still spawns a valid formation that is a strict
 # prefix of the full 18 — shrinking the roster never reshuffles who
 # remains. Values above 18 are unsupported: ROSTER_ORDER wraps and two
 # players would double up on one slot.
-const TEAM_SIZE := 18                  # players per side (real AFL)
+const TEAM_SIZE := 18                  # players per side (real Aussie Rules)
 
-# A real AFL quarter is 20 minutes plus time-on. 120s is a deliberately
+# A real Aussie Rules quarter is 20 minutes plus time-on. 120s is a deliberately
 # short default so a full 4-quarter match is playable in one sitting while
 # this is being tuned by feel; QUARTERS_PER_MATCH stays at the real 4.
 const QUARTER_LENGTH := 120.0          # s
@@ -1054,8 +1054,12 @@ const TACKLE_RAGDOLL_AI_V_AI := true
 # closing speed. Slide is also the AI's only tackle, so this is the number
 # that decides how often a human carrier shrugs off a chaser: at 0.9 a
 # chase from behind broke at up to ~2.7 m/s closing.
-const TACKLE_LUNGE_BREAK_P := 0.5               # unplaytested feel guess
-const TACKLE_SLIDE_BREAK_P := 0.95              # unplaytested feel guess
+# Playtest 2026-11-18: "a lot of tackles are successful, I never see some
+# that are not". Lunge 0.5 -> 0.4 and Slide 0.95 -> 0.85, so a glancing or
+# slow hit (the formula's own read) breaks more often; still the formula's
+# call, never a roll.
+const TACKLE_LUNGE_BREAK_P := 0.4               # unplaytested feel guess
+const TACKLE_SLIDE_BREAK_P := 0.85              # unplaytested feel guess
 const TACKLE_BREAK_SPEED_KEEP := 0.75           # unplaytested feel guess
 const TACKLE_RAGDOLL_ENABLED := true
 const TACKLE_BALANCE_CLOSING_SPEED_MAX := 10.0  # m/s — the fastest closing speed the formula tells apart; unplaytested feel guess
@@ -1161,6 +1165,29 @@ const TACKLE_SLIDE_SLING_FORWARD := 0.6
 const TACKLE_SLIDE_SLING_SIDE := 0.8
 const TACKLE_SLIDE_SLING_PUSH_SCALE := 1.0
 const TACKLE_SLIDE_SLING_STRENGTH_SCALE := 0.6
+# The slinging tackler's plant (playtest 2026-11-18: "the tackler's feet
+# stay flat and he slides forward"; wanted a quick grab-and-throw that keeps
+# his feet and steps when his body is moved). For the TACKLE_SLING clip the
+# throw owns his legs, as the hold owns a TACKLE_GRAB's
+# (PlayerController._step_sling_plant): he keeps his run less what the
+# collision took (TackleBalance's tackler_velocity) and plants it out at
+# PLANT_BRAKE, his legs stepping on the locomotion blend under the clip
+# (PlayerAnimation's "Wrestle" layer) instead of sliding on its planted
+# stance. Before this he carried on at ACTION_SPEED_SCALE of whatever the
+# stick (or the viewer's scripted run) asked: 2.4 m/s for the whole second.
+# His trunk takes the hit on the upper-body ragdoll (take_knock): RECOIL_SHARE
+# of the closing speed back along the hit line, at TONE_SHARE of the hit's b
+# (the hold-up tackler's numbers). Adaptive stepping: while his simulated
+# chest is more than STEP_SLACK off the clip's, his feet step under it at
+# STEP_GAIN per metre past that, up to STEP_MAX. None of it touches the
+# carrier or who wins. PLANT off is the old path. Unplaytested feel guesses.
+const TACKLE_SLING_PLANT := true
+const TACKLE_SLING_PLANT_BRAKE := 9.0       # m/s²
+const TACKLE_SLING_RECOIL_SHARE := 0.5
+const TACKLE_SLING_TONE_SHARE := 0.5
+const TACKLE_SLING_STEP_SLACK := 0.05       # m
+const TACKLE_SLING_STEP_GAIN := 8.0         # 1/s
+const TACKLE_SLING_STEP_MAX := 1.5          # m/s
 # Who wins the collision (playtest 2026-10-30: outcomes from approach
 # angle, speed and both players' mass; "a head-on B where neither side
 # wins: both wrapped up, on their feet, held, a ball-up"; "an X where the
@@ -1304,7 +1331,9 @@ const CONTACT_REACT_IMPULSE_MAX := 60.0    # N·s
 # each other do. The carrier's tone is the hit's own b; a held-up tackler's
 # is half of it, and a broken tackler bounces off with BREAK_RECOIL_SHARE
 # of the push at the carrier's share, 1 - b (PlayerController._break_tackle).
-const CONTACT_REACT_BREAK_RECOIL_SHARE := 0.5
+# 0.5 -> 0.9 (playtest 2026-11-18: a broken tackle should visibly push the
+# tackler back and stumble him, as a fend does). Unplaytested feel guess.
+const CONTACT_REACT_BREAK_RECOIL_SHARE := 0.9
 # A broken tackle drags the carrier's legs (TACKLE_BREAK_SPEED_KEEP), and
 # their trunk lurches on over them by its own momentum. All of it (2 m/s off
 # a sprint) pitched a loosened trunk 25° forward into the spine's bend limit,
@@ -1442,7 +1471,7 @@ const SPOIL_COOLDOWN := 0.6            # s between attempts — a tap, not a bat
 # consumes the signal today — a known, tracked gap, not a silent one.
 const PRIOR_OPPORTUNITY_GRACE := 0.5   # s
 
-# Free-kick/mark retreat distance — real AFL's "get back 10 metres" rule,
+# Free-kick/mark retreat distance — real Aussie Rules's "get back 10 metres" rule,
 # distinct from stand-the-mark (MARK_STAND_MIN_DISTANCE above): the ONE
 # nearest opponent stands exactly still (PlayerController.stand_the_mark),
 # while every OTHER opponent within this radius of wherever protection was
@@ -1497,16 +1526,42 @@ const SMOTHER_DIVE_SPEED := 9.0        # m/s — a genuine committed dive, just 
 const SMOTHER_DIVE_DURATION := 0.55    # s the dive overrides normal locomotion
 const SMOTHER_DIVE_COOLDOWN := 0.6     # s between attempts — matches SPOIL_COOLDOWN, a committed tap, not a battering
 
+# Intercept (RB, playtest 2026-11-18: "keep RB the smother and have it act as
+# a steal if it is between a pass of the opponent's handball in the air").
+# With no kicker to smother, RB while an opponent's handball is passing
+# within INTERCEPT_COMMIT_RANGE (its path over the next INTERCEPT_LOOKAHEAD)
+# steps in at INTERCEPT_STEP_SPEED toward where it passes, arms out, and
+# takes the ball if it comes within INTERCEPT_REACH of the chest or a hand.
+# Physics and timing, no roll (RULES_REFERENCE §3); a handball can't be
+# marked, so it's a gather. Unplaytested feel guesses.
+const INTERCEPT_COMMIT_RANGE := 3.0    # m, closest approach of the ball's path
+const INTERCEPT_LOOKAHEAD := 0.8       # s of the ball's path considered
+const INTERCEPT_MAX_HEIGHT := 2.8      # m, above this it's over your head
+const INTERCEPT_STEP_SPEED := 6.0      # m/s
+const INTERCEPT_DURATION := 0.45       # s
+const INTERCEPT_COOLDOWN := 0.6        # s
+const INTERCEPT_REACH := 1.3           # m, arms spread: wider than a catch
+
+# Shepherd stance (LT held, not carrying; playtest 2026-11-18, board 6AA):
+# a low crouch, arms out, the body keeps facing the way it faced while the
+# feet go any way (the backpedal's frozen facing, with no turn-out), at
+# SHEPHERD_SPEED. Unplaytested feel guesses.
+const SHEPHERD_SPEED := 4.2            # m/s
+const SHEPHERD_CROUCH_DEG := 32.0      # hip and knee bend
+const SHEPHERD_LEAN_DEG := 14.0        # trunk forward
+const SHEPHERD_ARMS_OUT_DEG := 62.0    # arms out from the sides
+const SHEPHERD_BLEND_RATE := 10.0      # 1/s in and out
+
 
 # ── Bump ─────────────────────────────────────────────────────────────
 # LB hold + Right Stick flick (design brief priority 7): Madden's hit-stick
 # model. A bump disrupts balance — knockback plus a short stun, or on a
 # clean connect a full knockdown — it does not itself strip the ball the
-# way a tackle does (real AFL: a legal bump can put a carrier off their
+# way a tackle does (real Aussie Rules: a legal bump can put a carrier off their
 # line or to ground; dispossessing them is a tackle's job, not a bump's).
 # Every number below is a physics-simulation parameter (impulse speed,
 # cooldown, a detection cone/window), the same category SPOIL_IMPULSE_
-# SPEED/TACKLE_SPILL_SPEED already are — none of them are AFL rule
+# SPEED/TACKLE_SPILL_SPEED already are — none of them are Aussie Rules rule
 # thresholds.
 #
 # CRITICAL, per the brief: dangerous/high contact needs a free-kick
@@ -1628,6 +1683,19 @@ const FEND_ARC_DEG := 100.0
 const FEND_B_CUT := 0.35
 const FEND_PUSH_SPEED := 2.0
 const FEND_TARGET_RANGE := 2.2        # m: the arm goes to an opponent this close
+# The palm in the chest (playtest 2026-11-16: "I want to see my player put
+# a hand in the opponent's chest and push them back"). While the fend is
+# out, the first opponent inside FEND_CONTACT_REACH (centre to centre,
+# inside FEND_ARC_DEG of the facing) who isn't already diving, held or
+# knocked is pushed back at FEND_SHOVE_SPEED times the fender's mass over
+# theirs (clamped to FEND_SHOVE_MASS_RATIO) and is off balance for
+# FEND_SHOVE_STUN, long enough that they can't tackle straight back. One
+# per press. Physical and deterministic, never a roll. All unplaytested
+# feel guesses.
+const FEND_CONTACT_REACH := 1.25      # m: an arm's length plus two half-bodies
+const FEND_SHOVE_SPEED := 3.0         # m/s back, at even mass
+const FEND_SHOVE_MASS_RATIO := Vector2(0.7, 1.35)
+const FEND_SHOVE_STUN := 0.4          # s
 
 # Fist the ball away (6Y: "RB in a mark contest you might not win is a
 # fist-away, like the ruck tap"). The ruck tap's own leap (HIT_OUT, with its
@@ -1646,9 +1714,13 @@ const FIST_REACH := MARK_CATCH_RADIUS * MARK_AGGRESSIVE_REACH_SCALE + MARK_ASSIS
 # footer aiming left of where they're running) by at least
 # KICK_SNAP_MIN_ANGLE is a SNAP: struck side-on, flatter and softer, with the
 # most sidespin. Anything else with LB held is a BANANA: closer to a normal
-# kick, with less bend. Either way a right foot hooks the ball right to left
-# and a left foot left to right (the inside of the boot). Most of the punt's
-# backspin goes, since the ball is struck across rather than through.
+# kick, with less bend, off the outside of the boot. The two bend opposite
+# ways: a right foot's snap hooks right to left (the inside of the boot), its
+# banana swings left to right, away from the body, which is what makes it
+# the kick from the wrong pocket. A left foot mirrors both. (Until
+# 2026-11-12 the banana spun the snap's way and bent toward the body.) Most
+# of the punt's backspin goes, since the ball is struck across rather than
+# through.
 # Unplaytested feel guesses.
 const KICK_SNAP_MIN_ANGLE := 45.0       # deg between aim and run direction
 const KICK_SNAP_SPIN := 60.0            # rad/s about vertical
@@ -1671,7 +1743,7 @@ const FLICK_NEUTRAL_MAGNITUDE := 0.30  # deflection below this counts as "was ne
 # moment of resolution, matching RULES_REFERENCE.md §3's "physical, not a
 # probability table" stance, the same one tackling already follows.
 
-# Real AFL rule: a kick has to travel this far, uninterrupted (not touching
+# Real Aussie Rules rule: a kick has to travel this far, uninterrupted (not touching
 # the ground or another player), before a catch counts as a legal mark
 # rather than just a possession. The same number is also the real trigger
 # distance for stand-the-mark (RULES_REFERENCE.md's existing entry for this
@@ -1690,7 +1762,7 @@ const MARK_HOLD_DURATION := 5.0         # s
 # move backwards about 5m then they can do the rest of the kicking
 # animation or play on."
 #
-# Not an AFL rule with a number attached — the real rule is that the mark
+# Not an Aussie Rules rule with a number attached — the real rule is that the mark
 # is *taken* where it was caught and the kicker may retreat as far as they
 # like; 5m is the requested feel value for how far that retreat carries.
 # Retreat is along the team's own defensive direction (away from the goal
@@ -1739,6 +1811,13 @@ const SET_SHOT_CLOCK := 20.0   # s
 # lands, scores, goes out nor gets caught (a ball stuck on someone).
 # Comfortably longer than any kick's flight.
 const AFTER_SIREN_MAX_FLIGHT := 6.0   # s
+
+# A legal mark inside this range may be turned into a set-shot presentation.
+# 60m is the requested maximum and is within the measured full-charge range
+# of the physical kick model above; it is a presentation gate, never a
+# scripted scoring or range rule.
+const GOAL_KICK_MAX_RANGE := 60.0       # m from the attacking goal line
+const GOAL_KICK_CAMERA_SWEEP_DURATION := 0.55  # s, wide/match view -> behind-kicker view
 
 # The man on the mark (PlayerController._apply_stand_the_mark) is the
 # nearest opponent when the mark is taken, placed a metre goal-side of the
@@ -1932,6 +2011,28 @@ const MARK_CUE_SOURCE := 1
 # is above the player's own origin, not the chest-height CAM_FOCUS_HEIGHT —
 # a Madden-style prompt floats over the head, a camera frames the chest.
 const MARK_PROMPT_HEIGHT := 2.05       # m above player origin
+# MarkPrompt's "incoming" cue (pre-Day-5 W3): a dimmed badge with the ring
+# already closing, from the moment a kick's predicted drop at hand height is
+# this close to the controlled player, until live_mark_prompt() takes over.
+# Display only. Unplaytested feel guess.
+const MARK_CUE_INCOMING_RADIUS := 18.0  # m, drop to player, on the ground plane (12 -> 18, playtest 2026-11-18: "still too late")
+
+# Mark-timing assist (6AF, playtest 2026-11-11: "the timing for marking is
+# a bit hard"). A test feature, off by default (HUD STYLE > MARKING). As
+# the press-now instant of the mark cue comes up the whole game runs at
+# MARK_ASSIST_TIME_SCALE, from MARK_ASSIST_SLOW_LEAD game-seconds before it
+# to MARK_ASSIST_SLOW_AFTER past it (or until the (Y) leap is committed),
+# easing in and out over MARK_ASSIST_EASE real seconds. MarkPrompt draws a
+# small graph over the player: the ball's height against time, a window on
+# the curve MARK_ASSIST_WINDOW either side of the press instant, and the
+# ball as a dot that goes green inside it. The window is the Stage 3 card's
+# ~0.3 s catch window. It only shows the cue the ring already counts down
+# to; nothing about how a mark is judged changes. Unplaytested feel guesses.
+const MARK_ASSIST_TIME_SCALE := 0.4
+const MARK_ASSIST_SLOW_LEAD := 0.6     # s of game time before the press instant
+const MARK_ASSIST_SLOW_AFTER := 0.2    # s
+const MARK_ASSIST_EASE := 0.12         # s, real time
+const MARK_ASSIST_WINDOW := 0.15       # s either side of the press instant
 
 # Timing-based skill mechanic (user brief): a graded press against the
 # ball's live arrival, synced to its actual flight rather than a fixed
@@ -2212,9 +2313,38 @@ const CHARACTER_AGILITY_MAX := 1.5
 const CHARACTER_AGILITY_STEP := 0.05
 const CHARACTER_AGILITY_DEFAULT := 1.0
 
+# Jump (6AD, playtest 2026-11-11: "a high jump stat jumps far higher") is a
+# unitless multiplier on how HIGH a player leaves the ground: the (Y) mark's
+# leap, the (A) mark's hop, the ruck tap and the fist. Height goes with
+# takeoff speed squared, so Tuning.jump_speed scales the speed by the root:
+# the (Y) leap's 0.82 m is 0.57 m at 0.7 and 1.22 m at 1.5. The leap's
+# timing (ACTION_CONTACT) doesn't move, so the Stage 3 mark cue stays right
+# for every jump value; what changes is how high the hands are when it
+# resolves, which is MarkContest's height input. Unplaytested feel guesses.
+const CHARACTER_JUMP_MIN := 0.7
+const CHARACTER_JUMP_MAX := 1.5
+const CHARACTER_JUMP_STEP := 0.05
+const CHARACTER_JUMP_DEFAULT := 1.0
+
+# Contested marks (6AE, MarkContest: the tackle formula's twin). A player
+# counts as in the contest while they're attempting a mark with the hands
+# within MARK_CONTEST_REACH of the ball; wider than any tier's own catch
+# reach (about 1.0-1.2 m), so a rival about to get there is weighed too.
+# MARK_CONTEST_HANDS_LOW / HIGH bracket the height input: the hands of the
+# shortest player standing, to the tallest at the top of a full-jump leap.
+# The body input is mass x run at the ball against MARK_CONTEST_BODY_REF_
+# MASS at a sprint; a player standing under it still counts as moving at
+# MARK_CONTEST_BODY_MIN_SPEED, so mass matters in a standing pack.
+# Unplaytested feel guesses.
+const MARK_CONTEST_REACH := 1.5            # m, hands to ball
+const MARK_CONTEST_HANDS_LOW := 1.2        # m above the ground
+const MARK_CONTEST_HANDS_HIGH := 2.9       # m
+const MARK_CONTEST_BODY_REF_MASS := 100.0  # kg
+const MARK_CONTEST_BODY_MIN_SPEED := 2.0   # m/s
+
 # ── Career ───────────────────────────────────────────────────────────
 ## A Career player's trainable attributes (speed, kick power, kick
-## accuracy, agility) are stored as levels, one per square of the stat bar,
+## accuracy, agility, jump) are stored as levels, one per square of the stat bar,
 ## not as free floats: the upgrade system hands out whole squares (see
 ## docs/CAREER_AUDIT.md), so a value between two squares has nowhere to
 ## come from. Level 0 is the CHARACTER_*_MIN above, this many is the MAX,
@@ -2343,7 +2473,7 @@ const AI_LOOSE_BALL_REACTION_MAX := 0.40   # s
 
 # ── AI disposal target selection (ai_brain.gd _best_disposal_target / _think_carrying) ──
 # Feel-tuned AI judgement, the same standing as AI_KICK_RANGE / AI_SUPPORT_
-# PULL above — NOT AFL rule numbers. They decide which teammate a carrying
+# PULL above — NOT Aussie Rules rule numbers. They decide which teammate a carrying
 # AI gives it to when a shot at goal isn't on; before this pass there was
 # nothing here at all (the AI fired every disposal down its own run line).
 const AI_DISPOSAL_MIN := 6.0            # m — nearer than this isn't a real disposal option
@@ -2371,14 +2501,14 @@ const AI_LOOSE_BALL_CEDE_MARGIN := 2.0  # m — an opponent this much nearer the
 
 # ControlMode.Scheme.TEAM_COMMAND (control-mode pass): how far ahead of the
 # selected player an issued "lead here" order's target point sits. Not an
-# AFL number — there's nothing to cite — just a placeholder distance long
+# Aussie Rules number — there's nothing to cite — just a placeholder distance long
 # enough to look like a real lead run and short enough to stay on-screen
 # from the follow cam. Expect this to move once someone actually plays the
 # mode; see HANDOVER.md (archived, see docs/LESSONS.md)'s control-mode entry.
 const COMMAND_LEAD_DISTANCE := 12.0     # m
 
 # Call for the ball (Settings.PlayerControlMode.SINGLE_PLAYER — see
-# FullGame._call_for_ball). Not an AFL rule: there is no "calling" mechanic
+# FullGame._call_for_ball). Not an Aussie Rules rule: there is no "calling" mechanic
 # in the laws of the game, so nothing here has a rule number to cite. It
 # exists because SINGLE_PLAYER locks the human to one body for the whole
 # match, which removes switch_player's escape hatch and leaves them with no
@@ -2432,6 +2562,29 @@ const CALL_FOR_BALL_MAX_CHANCE := 0.95
 # guess.
 const FULL_TEAM_KICK_SWITCH_HOLD := 0.2   # s
 
+# Switching, pre-Day-5 W3 (docs/PRE_DAY5_PLAN.md). FullGame owns all of it.
+# Switch presses this close together walk down the HOME list sorted by
+# distance to the ball (frozen at the first press), so a second press gets
+# you the second nearest, a third the third. Unplaytested feel guess.
+const SWITCH_CYCLE_WINDOW := 0.6          # s between presses
+# Directional switch (right-stick flick): the teammate most nearly along the
+# flick from the controlled player, inside this cone and range. Cost is
+# distance x (1 + ANGLE_WEIGHT x radians off the line), lowest wins, so a
+# close player a little off the line beats a far one dead on it.
+# Unplaytested feel guesses.
+const SWITCH_FLICK_CONE_DEG := 55.0       # deg either side of the flick
+const SWITCH_FLICK_MAX_RANGE := 70.0      # m
+const SWITCH_FLICK_ANGLE_WEIGHT := 1.5
+# Auto-switch on a kick the human didn't take (Settings.auto_switch): after
+# this delay, control goes to the HOME player nearest the predicted drop,
+# unless the human is within CONTEST_RADIUS of it or no more than
+# KEEP_MARGIN further than that player (already contesting it). FULL hands
+# over sooner. Unplaytested feel guesses.
+const AUTO_SWITCH_DELAY := 0.35           # s after the kick (ASSISTED)
+const AUTO_SWITCH_DELAY_FULL := 0.2       # s after the kick (FULL)
+const AUTO_SWITCH_CONTEST_RADIUS := 8.0   # m from the predicted drop
+const AUTO_SWITCH_KEEP_MARGIN := 4.0      # m
+
 
 # ── Training coaches ────────────────────────────────────────────────
 # All three now exist (design brief): kicking, marking, and tackling —
@@ -2446,7 +2599,6 @@ const MARK_COACH_STAND_OFFSET := Vector3(-18.0, 0.0, 10.0)   # opposite half, cl
 ## rival's own Z=-18 anchor.
 const TACKLE_COACH_STAND_OFFSET := Vector3(0.0, 0.0, 18.0)
 
-const KICK_CHALLENGE_TARGET_DISTANCE := 40.0   # m downfield of the player when accepted
 const KICK_CHALLENGE_TARGET_RADIUS := 3.0      # m, hit tolerance
 
 # Kick-to-kick rival (polish-pass brief: "build out kick-to-kick so we can
@@ -2462,7 +2614,6 @@ const KICK_CHALLENGE_TARGET_RADIUS := 3.0      # m, hit tolerance
 const KICK_TO_KICK_RIVAL_OFFSET := Vector3(0.0, 0.0, -18.0)   # from field centre, clear of both coach zones
 const KICK_CHALLENGE_ATTEMPTS := 5
 
-const MARK_CHALLENGE_ATTEMPTS := 6
 ## The marking tutorial (MarkChallenge's steps): catches of a step's tier
 ## before it moves on. Unplaytested feel guess.
 const MARK_TUTORIAL_CATCHES_PER_STEP := 2
@@ -2599,6 +2750,13 @@ static func agility_turn_rate_mult(agility_scale: float) -> float:
 	return clampf(agility_scale, AGILITY_TURN_RATE_MIN_MULT, AGILITY_TURN_RATE_MAX_MULT)
 
 
+## A takeoff speed for a player of the given jump_scale (PlayerController.
+## jump_scale, 1.0 == baseline). The root, so jump height scales with the
+## stat itself (h = v^2 / 2g).
+static func jump_speed(base_speed: float, jump_scale: float) -> float:
+	return base_speed * sqrt(clampf(jump_scale, CHARACTER_JUMP_MIN, CHARACTER_JUMP_MAX))
+
+
 static func action_duration(action: Action) -> float:
 	return float(ACTION_DURATION.get(action, 0.0))
 
@@ -2630,3 +2788,4 @@ static func action_speed_scale(action: Action) -> float:
 			return 0.0
 		_:
 			return ACTION_SPEED_SCALE
+

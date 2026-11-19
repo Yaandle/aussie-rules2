@@ -44,7 +44,7 @@ extends CanvasLayer
 ##
 ## The board itself moves its own markers to reflect these three dials —
 ## a FIFA/NBA 2K-style tactics board — rather than the retired design of
-## drawing all 18 named AFL slots and ringing whichever 4 the preset used
+## drawing all 18 named Aussie Rules slots and ringing whichever 4 the preset used
 ## (see HANDOVER.md (archived, see docs/LESSONS.md) for that design's own history).
 ##
 ## ── Squad sheet (release 1.3) ───────────────────────────────────────
@@ -90,7 +90,7 @@ const HINT_HEIGHT := 24.0
 const COLUMN_WIDTH := 320.0
 const CARD_PAD := SoftBrutalist.SPACE_3             ## 24
 
-## Board panel width. The board draws itself to a portrait AFL aspect
+## Board panel width. The board draws itself to a portrait Aussie Rules aspect
 ## (Tuning's half-width over half-length) fitted to whatever height it is
 ## given, so this is that aspect applied to the tallest band this screen
 ## can offer, plus the board's own inset — i.e. the width at which the

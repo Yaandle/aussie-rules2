@@ -79,6 +79,27 @@ func _process(delta: float) -> void:
 		visible = false
 		return
 
+	# HUD STYLE > BALL DROP (playtest 2026-11-18: "a similar feature in
+	# settings for the ball drop icon, and some simple customisation"):
+	# OFF / CHEVRON / RING, a colour (DEFAULT keeps the marker's own) and a
+	# size.
+	var choice := Settings.hud_choice(&"ball_drop")
+	if choice == "OFF":
+		visible = false
+		return
+	if choice == "RING" and not (mesh is TorusMesh):
+		var torus := TorusMesh.new()
+		torus.inner_radius = 0.30
+		torus.outer_radius = 0.42
+		mesh = torus
+	elif choice == "CHEVRON" and not (mesh is ArrayMesh):
+		mesh = _build_marker_mesh()
+	var size_scale: float = {"SMALL": 0.75, "MEDIUM": 1.0, "LARGE": 1.4}.get(Settings.hud_choice(&"ball_drop_size"), 1.0)
+	scale = Vector3.ONE * size_scale
+	var colour := _colour
+	if Settings.hud_choice(&"ball_drop_colour") != "DEFAULT":
+		colour = Color(Settings.hud_colour(&"ball_drop_colour"), _colour.a)
+
 	var was_visible := visible
 	visible = true
 	_time += delta
@@ -101,8 +122,8 @@ func _process(delta: float) -> void:
 		global_position = landing
 
 	var pulse := sin(_time * PULSE_SPEED)
-	_material.albedo_color = Color(_colour.r, _colour.g, _colour.b,
-		clampf(_colour.a * (1.0 + pulse * PULSE_ALPHA_AMOUNT), 0.0, 1.0))
+	_material.albedo_color = Color(colour.r, colour.g, colour.b,
+		clampf(colour.a * (1.0 + pulse * PULSE_ALPHA_AMOUNT), 0.0, 1.0))
 
 
 ## Same integration KickTrajectory._simulate uses, just walked from a live

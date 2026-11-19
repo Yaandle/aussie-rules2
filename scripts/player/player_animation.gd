@@ -248,6 +248,58 @@ const CONTACT_HANDS_HOLD := 0.3        ## s at full brace after a contact
 const CONTACT_HANDS_RISE := 25.0       ## 1/s, exponential
 const CONTACT_HANDS_FALL := 6.0        ## 1/s
 const CONTACT_ARM_BONES: Array[StringName] = [&"LeftUpperArm", &"RightUpperArm"]
+
+## ── Idle life ───────────────────────────────────────────────────────
+## Playtest 2026-11-17: "the players just stand there with a weird pose...
+## make them a bit more jelly and natural/fluent." A standing player held
+## the idle clip's one slow breath and nothing else, the whole ground in
+## step. Three post-mix layers on top of whatever the tree wrote, all
+## presentation (gameplay measures from the body, never these bones):
+##   breath + weight shift: the chest rises and falls, the trunk rolls from
+##     foot to foot with the neck keeping the eyes level, and the hanging
+##     arms drift against it. Each player has his own clock (phases from his
+##     instance id), so a team doesn't breathe as one. Fades in as he slows
+##     below IDLE_LIFE_SPEED.
+##   head: turns toward the ball (yaw within IDLE_LOOK_MAX_DEG, a little
+##     pitch for a high ball), easing round at IDLE_LOOK_RATE like a head,
+##     not a turret. Not while carrying: the carrier looks where he runs.
+##   jelly: the arms and chest lag the body. A damped spring (JELLY_HZ,
+##     JELLY_DAMPING) driven by the body's change of velocity, so pulling up
+##     swings the arms forward and tips the chest, which then settle; a
+##     start leaves them behind for a moment. Any speed.
+## All of it is off while ragdolled or in an action clip (tackles, marks,
+## kicks keep their authored poses exactly), and the arms are left alone
+## while the carry layer, a brace or a fend has them. It's also off, at once,
+## whenever an opponent is within IDLE_LIFE_CLEAR m: a ragdoll is built from
+## the pose on screen at contact, and with the layer on, tackle_sweep's falls
+## changed (same outcomes, different spins). Off near opponents, every
+## contact starts from exactly the pose it did before, and the sweep is
+## identical. Unplaytested feel guesses.
+const IDLE_LIFE_SPEED := 1.2            ## m/s: full life below 30% of this, none above it
+const IDLE_LIFE_FADE := 3.0             ## 1/s
+const IDLE_LIFE_CLEAR := 3.0            ## m to the nearest opponent: closer, no idle life at all
+
+## Idle life on or off for everyone. tackle_sweep switches it off: it puts
+## each pair together in one frame, skipping the approach in which a match
+## turns the layer off (IDLE_LIFE_CLEAR), so with it on the sweep would
+## measure a pose no real contact starts from.
+static var idle_life_enabled := true
+const IDLE_BREATH_HZ := 0.27
+const IDLE_BREATH_DEG := 2.2            ## chest pitch
+const IDLE_SHIFT_HZ := 0.085            ## foot to foot
+const IDLE_SHIFT_DEG := 3.2             ## spine roll
+const IDLE_ARM_DRIFT := 0.8             ## arms against the roll, as a share of it
+const IDLE_ARM_BREATH_DEG := 1.5        ## arms forward and back with the breath
+const IDLE_LOOK_MAX_DEG := 55.0
+const IDLE_LOOK_PITCH_DEG := 25.0
+const IDLE_LOOK_RATE := 2.5             ## 1/s
+const IDLE_LOOK_MOVING := 0.4           ## share of the look kept while moving
+const JELLY_HZ := 2.2
+const JELLY_DAMPING := 0.32             ## of critical
+const JELLY_PER_ACCEL := 180.0          ## deg/s² of spring force per m/s² of the body's acceleration
+const JELLY_ACCEL_CAP := 30.0           ## m/s²: a reset or teleport isn't a lurch
+const JELLY_MAX_DEG := 10.0
+const JELLY_CHEST_SHARE := 0.35         ## the chest moves this much of the arms' swing
 ## Hands on the other body (ArmIK, 2026-11-11): palms this far either side
 ## of their chest, this far out from its centre on this player's side, and
 ## only within this range of them. Unplaytested feel guesses.
@@ -265,8 +317,10 @@ const CONTACT_HANDS_RANGE := 1.3     ## m between the players
 ## the way the bodies go instead of sliding on the clip's planted stance.
 ## The layer is back under half before the clip ends: Blend2 reports the
 ## time of whichever input is over half, and the state leaves on its clip's.
+## The sling's tackler gets the same legs while he plants his run out
+## (Tuning.TACKLE_SLING_PLANT, 2026-11-18): the clip's flat feet slid.
 const PRESS_SMOOTHING := 8.0
-const WRESTLE_STATES: Array[StringName] = [&"tackle_grab", &"tackle_held"]
+const WRESTLE_STATES: Array[StringName] = [&"tackle_grab", &"tackle_held", &"tackle_sling"]
 const WRESTLE_LEG_BONES: Array[StringName] = [&"LeftUpperLeg", &"LeftLowerLeg", &"LeftFoot",
 	&"RightUpperLeg", &"RightLowerLeg", &"RightFoot"]
 const WRESTLE_LEGS_NODE := &"legs"
@@ -437,6 +491,30 @@ var _getups := {}
 ## clamp below would otherwise lift the hips of a body lying on the turf.
 var ragdoll_active := false
 
+# Idle life (see its section). Bones are found on first use.
+var _life_bones := {}
+var _life_weight := 0.0
+var _life_clock := 0.0
+var _life_phase := Vector3.ZERO      ## breath, shift, spare
+var _look := Vector2.ZERO            ## yaw, pitch (deg), eased
+var _jelly := Vector2.ZERO           ## side, forward (deg)
+var _jelly_rate := Vector2.ZERO
+var _jelly_accel := Vector2.ZERO     ## body-space acceleration from drive() (m/s²)
+var _jelly_last_velocity := Vector3.ZERO
+var _ball_node: Node3D = null
+
+# Shepherd stance and RB intercept poses (see _apply_stance_pose): blends
+# 0-1 toward their targets at SHEPHERD_BLEND_RATE.
+var _shepherd := 0.0
+var _shepherd_on := false
+var _intercept := 0.0
+var _intercept_on := false
+var _stance_bones := {}
+## Whether every locomotion clip writes Hips' position (so lowering it
+## post-mix never stacks); -1 until checked.
+var _hips_position_animated := -1
+var _opponent_near := false
+
 
 func _ready() -> void:
 	_rig = get_node_or_null(rig_path) as Node3D
@@ -488,6 +566,7 @@ func drive(blend: Vector2, delta: float, speed := -1.0) -> void:
 	_stride_rate = _stride_rate_for(speed)
 	_tree.set(_stride_parameter, _stride_rate)
 	_update_lean(speed, delta)
+	_update_jelly_accel(delta)
 	if _carry_layer:
 		var controller := get_parent() as PlayerController
 		var holding := controller != null and controller.is_carrying()
@@ -620,6 +699,8 @@ func _process(delta: float) -> void:
 	_apply_lean()
 	_apply_press(delta)
 	_apply_contact_reaction(delta)
+	_apply_idle_life(delta)
+	_apply_stance_pose(delta)
 	_clamp_feet_to_ground()
 	_update_ball_hold()
 
@@ -718,10 +799,20 @@ func contact_reaction_active() -> bool:
 	return _sway.length() > 0.05 or _sway_rate.length() > 0.5 or _brace > 0.01
 
 
+## The trunk's sway and brace, then the fend arm on top of whatever pose
+## that left. The fend runs on its own: it used to sit inside the sway pass
+## and so was skipped whenever no contact was moving the pose, which is
+## almost every fend (playtest 2026-11-16: "still can't see the fend off").
 func _apply_contact_reaction(delta: float) -> void:
 	if ragdoll_active:
 		clear_contact_reaction()
+		_fend = 0.0
 		return
+	_apply_contact_sway(delta)
+	_apply_fend(delta)
+
+
+func _apply_contact_sway(delta: float) -> void:
 	if not contact_reaction_active() and _brace_hold <= 0.0:
 		return
 	# Semi-implicit spring: steady at physics and render rates alike.
@@ -746,11 +837,6 @@ func _apply_contact_reaction(delta: float) -> void:
 	if _lean_bone >= 0:
 		_turn_bone(skeleton, _lean_bone, Quaternion(right, -deg_to_rad(_sway.y))
 			* Quaternion(forward, deg_to_rad(_sway.x)))
-	var fending := body is PlayerController and (body as PlayerController).is_fending()
-	_fend = lerpf(_fend, 1.0 if fending else 0.0,
-		1.0 - exp(-(CONTACT_HANDS_RISE if fending else CONTACT_HANDS_FALL) * delta))
-	if _fend > 0.01:
-		_fend_arm(skeleton, body, right)
 	if _brace > 0.01:
 		var controller := body as PlayerController
 		if controller != null and controller.is_carrying():
@@ -777,6 +863,26 @@ const FEND_REACH := 0.75   ## m ahead of the shoulder when there's nobody to pus
 
 func set_fend_target(other: Node3D) -> void:
 	_fend_target = other
+
+
+## The fend arm's blend in and out, and the arm itself (_fend_arm).
+func _apply_fend(delta: float) -> void:
+	var body := get_parent() as Node3D
+	var fending := body is PlayerController and (body as PlayerController).is_fending()
+	_fend = lerpf(_fend, 1.0 if fending else 0.0,
+		1.0 - exp(-(CONTACT_HANDS_RISE if fending else CONTACT_HANDS_FALL) * delta))
+	if _fend <= 0.01 or _rig == null:
+		return
+	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
+	if skeleton == null:
+		return
+	var right := (skeleton.global_basis.orthonormalized().inverse() * body.global_basis.x).normalized()
+	_fend_arm(skeleton, body, right)
+
+
+## True while the fend arm is out at all (for checks).
+func fend_blend() -> float:
+	return _fend
 
 
 ## The fend's straight left arm (ArmIK): onto the nearest opponent's chest
@@ -842,6 +948,222 @@ func _hands_on_other(skeleton: Skeleton3D, body: Node3D, right: Vector3, _forwar
 		var pole := (right * float(side[1]) * 0.6 + Vector3.DOWN).normalized()
 		ArmIK.solve(skeleton, upper, lower, hand, to_skeleton * target_world, pole, _brace)
 	return true
+
+
+## The body's change of velocity in its own frame (x right, y forward), for
+## the jelly spring. On the physics frame, where the velocity changes.
+func _update_jelly_accel(delta: float) -> void:
+	var body := get_parent() as CharacterBody3D
+	if body == null or delta <= 0.0:
+		_jelly_accel = Vector2.ZERO
+		return
+	var velocity := Vector3(body.velocity.x, 0.0, body.velocity.z)
+	var accel := (velocity - _jelly_last_velocity) / delta
+	_jelly_last_velocity = velocity
+	if accel.length() > JELLY_ACCEL_CAP:
+		accel = Vector3.ZERO
+	_jelly_accel = Vector2(accel.dot(body.global_basis.x.normalized()), accel.dot(-body.global_basis.z.normalized()))
+
+
+## See "Idle life".
+func _apply_idle_life(delta: float) -> void:
+	if _rig == null or delta <= 0.0:
+		return
+	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
+	var body := get_parent() as Node3D
+	if skeleton == null or body == null:
+		return
+	if _life_bones.is_empty():
+		for bone_name: StringName in [&"Spine", &"Chest", &"Neck", &"Head", &"LeftUpperArm", &"RightUpperArm"]:
+			# Only bones the tree rewrites every frame, or the turns would stack.
+			_life_bones[bone_name] = _find_animated_bone(bone_name)
+			if _life_bones[bone_name] < 0:
+				# 6thbuild spells it "head" (and has no neck).
+				_life_bones[bone_name] = _find_animated_bone(StringName(String(bone_name).to_lower()))
+		var rng := RandomNumberGenerator.new()
+		rng.seed = get_instance_id()
+		_life_phase = Vector3(rng.randf() * TAU, rng.randf() * TAU, rng.randf() * TAU)
+		_life_clock = rng.randf() * 10.0
+	var controller := body as PlayerController
+	if controller != null:
+		# Every frame: at sprint pace two players close 3 m in about 0.15 s.
+		_opponent_near = SpatialQuery.nearest_opponent_distance(controller) < IDLE_LIFE_CLEAR
+	var live := idle_life_enabled and not ragdoll_active and current_state() == LOCOMOTION_STATE and not _opponent_near
+	if not live:
+		# Off at once: an action clip or a ragdoll starts from the plain pose.
+		_life_weight = 0.0
+		_look = Vector2.ZERO
+		_jelly = Vector2.ZERO
+		_jelly_rate = Vector2.ZERO
+		return
+	_life_clock += delta
+	var speed := 0.0
+	if body is CharacterBody3D:
+		var v := (body as CharacterBody3D).velocity
+		speed = Vector2(v.x, v.z).length()
+	var standing := 1.0 - smoothstep(IDLE_LIFE_SPEED * 0.3, IDLE_LIFE_SPEED, speed)
+	_life_weight = lerpf(_life_weight, standing, 1.0 - exp(-IDLE_LIFE_FADE * delta))
+
+	# Jelly: semi-implicit spring, driven against the acceleration (inertia).
+	var omega := TAU * JELLY_HZ
+	_jelly_rate += (-_jelly * omega * omega - _jelly_rate * 2.0 * JELLY_DAMPING * omega
+		- _jelly_accel * JELLY_PER_ACCEL) * delta
+	_jelly += _jelly_rate * delta
+	if _jelly.length() > JELLY_MAX_DEG:
+		_jelly = _jelly.normalized() * JELLY_MAX_DEG
+
+	var to_skeleton := skeleton.global_basis.orthonormalized().inverse()
+	var right := (to_skeleton * body.global_basis.x).normalized()
+	var forward := (to_skeleton * -body.global_basis.z).normalized()
+	var up := (to_skeleton * body.global_basis.y).normalized()
+	var w := _life_weight
+	var breath := sin(TAU * IDLE_BREATH_HZ * _life_clock + _life_phase.x)
+	var shift := sin(TAU * IDLE_SHIFT_HZ * _life_clock + _life_phase.y) \
+		+ 0.35 * sin(TAU * IDLE_SHIFT_HZ * 2.3 * _life_clock + _life_phase.z)
+	var roll := shift * IDLE_SHIFT_DEG * w
+
+	# Trunk: weight shift on the spine, breath and jelly on the chest. A
+	# negative turn about `right` tips forward (as _apply_lean), a positive
+	# one about `forward` rolls to the right.
+	var spine: int = _life_bones[&"Spine"]
+	var chest: int = _life_bones[&"Chest"]
+	if spine >= 0 and absf(roll) > 0.01:
+		_turn_bone(skeleton, spine, Quaternion(forward, deg_to_rad(roll)))
+	if chest >= 0:
+		var pitch := -breath * IDLE_BREATH_DEG * w + _jelly.y * JELLY_CHEST_SHARE
+		_turn_bone(skeleton, chest, Quaternion(right, -deg_to_rad(pitch))
+			* Quaternion(forward, deg_to_rad(_jelly.x * JELLY_CHEST_SHARE)))
+
+	# Head: level against the roll, then toward the ball.
+	var carrying := controller != null and controller.is_carrying()
+	var look_target := Vector2.ZERO
+	if not carrying:
+		if _ball_node == null or not is_instance_valid(_ball_node):
+			_ball_node = get_tree().get_first_node_in_group(&"ball") as Node3D
+		if _ball_node != null:
+			var to_ball := _ball_node.global_position - body.global_position
+			var flat := Vector3(to_ball.x, 0.0, to_ball.z)
+			if flat.length() > 0.5:
+				var body_fwd := -body.global_basis.z
+				var yaw := rad_to_deg(atan2(-flat.dot(body.global_basis.x.normalized()), flat.dot(body_fwd.normalized())))
+				var pitch_up := rad_to_deg(atan2(to_ball.y - 1.7, flat.length()))
+				var share := lerpf(IDLE_LOOK_MOVING, 1.0, w)
+				if absf(yaw) > IDLE_LOOK_MAX_DEG + 30.0:
+					# Behind him: face front again rather than whip from one
+					# shoulder to the other as it crosses.
+					yaw = 0.0
+				look_target = Vector2(clampf(yaw, -IDLE_LOOK_MAX_DEG, IDLE_LOOK_MAX_DEG),
+					clampf(pitch_up, -IDLE_LOOK_PITCH_DEG * 0.5, IDLE_LOOK_PITCH_DEG)) * share
+	_look = _look.lerp(look_target, 1.0 - exp(-IDLE_LOOK_RATE * delta))
+	var neck: int = _life_bones[&"Neck"]
+	var head: int = _life_bones[&"Head"]
+	var level := Quaternion(forward, deg_to_rad(-roll * 0.7))
+	var head_share := 0.6 if neck >= 0 else 1.0
+	if neck >= 0:
+		_turn_bone(skeleton, neck, level * Quaternion(up, deg_to_rad(_look.x * 0.4)))
+	if head >= 0:
+		_turn_bone(skeleton, head, (level if neck < 0 else Quaternion.IDENTITY)
+			* Quaternion(up, deg_to_rad(_look.x * head_share)) * Quaternion(right, deg_to_rad(_look.y)))
+
+	# Arms: drift against the roll, breathe, and swing on the jelly. A
+	# positive turn about `right` swings a hanging arm forward (as the brace).
+	if carrying or _brace > 0.01 or _fend > 0.01 or _shepherd > 0.01 or _intercept > 0.01:
+		return
+	var arm_side := -roll * IDLE_ARM_DRIFT + _jelly.x
+	var arm_fwd := breath * IDLE_ARM_BREATH_DEG * w + _jelly.y
+	for bone_name: StringName in [&"LeftUpperArm", &"RightUpperArm"]:
+		var bone: int = _life_bones[bone_name]
+		if bone >= 0:
+			_turn_bone(skeleton, bone, Quaternion(right, deg_to_rad(arm_fwd)) * Quaternion(forward, deg_to_rad(arm_side)))
+
+
+## The lower of the two feet along `up` (skeleton space).
+func _lowest_foot(skeleton: Skeleton3D, up: Vector3) -> float:
+	var low := INF
+	for side: String in ["Left", "Right"]:
+		var bone := int(_stance_bones[StringName(side + "Foot")])
+		if bone >= 0:
+			low = minf(low, skeleton.get_bone_global_pose(bone).origin.dot(up))
+	return low
+
+
+func set_shepherd(on: bool) -> void:
+	_shepherd_on = on
+
+
+func set_intercept(on: bool) -> void:
+	_intercept_on = on
+
+
+## The shepherd stance (LT) and the RB intercept, post-mix (playtest
+## 2026-11-18). Shepherd: hips and knees bent SHEPHERD_CROUCH_DEG with the
+## hips lowered to match (so the feet stay on the turf), trunk forward
+## SHEPHERD_LEAN_DEG, arms out SHEPHERD_ARMS_OUT_DEG. Intercept: the arms
+## out and forward, no crouch. Off in a ragdoll or an action clip, like the
+## other layers. Only bones every locomotion clip writes (no stacking).
+func _apply_stance_pose(delta: float) -> void:
+	var live := not ragdoll_active and current_state() == LOCOMOTION_STATE
+	var k := 1.0 - exp(-Tuning.SHEPHERD_BLEND_RATE * delta)
+	_shepherd = lerpf(_shepherd, 1.0 if _shepherd_on and live else 0.0, k)
+	_intercept = lerpf(_intercept, 1.0 if _intercept_on and live else 0.0, k)
+	if not live:
+		_shepherd = 0.0
+		_intercept = 0.0
+	if (_shepherd < 0.01 and _intercept < 0.01) or _rig == null:
+		return
+	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
+	var body := get_parent() as Node3D
+	if skeleton == null or body == null:
+		return
+	if _stance_bones.is_empty():
+		for bone_name: StringName in [&"Hips", &"Spine", &"LeftUpperLeg", &"LeftLowerLeg", &"LeftFoot",
+				&"RightUpperLeg", &"RightLowerLeg", &"RightFoot", &"LeftUpperArm", &"RightUpperArm"]:
+			_stance_bones[bone_name] = _find_animated_bone(bone_name)
+	var to_skeleton := skeleton.global_basis.orthonormalized().inverse()
+	var right := (to_skeleton * body.global_basis.x).normalized()
+	var forward := (to_skeleton * -body.global_basis.z).normalized()
+
+	if _shepherd > 0.01:
+		var bend := Tuning.SHEPHERD_CROUCH_DEG * _shepherd
+		var legs_ok := true
+		for bone_name: StringName in [&"LeftUpperLeg", &"LeftLowerLeg", &"LeftFoot", &"RightUpperLeg",
+				&"RightLowerLeg", &"RightFoot", &"Hips"]:
+			if int(_stance_bones[bone_name]) < 0:
+				legs_ok = false
+		if legs_ok:
+			# The lower foot's height (along the body's up, in the skeleton's
+			# frame) before and after the bend: the hips come down by the
+			# difference, so the planted foot stays on the turf whatever the
+			# model's proportions or axes.
+			var up_axis := (to_skeleton * body.global_basis.y).normalized()
+			var before := _lowest_foot(skeleton, up_axis)
+			# A positive turn about `right` swings a hanging bone forward
+			# (as the brace's arms): thigh forward, shin back past vertical,
+			# foot level again.
+			for side: String in ["Left", "Right"]:
+				_turn_bone(skeleton, int(_stance_bones[StringName(side + "UpperLeg")]), Quaternion(right, deg_to_rad(bend)))
+				_turn_bone(skeleton, int(_stance_bones[StringName(side + "LowerLeg")]), Quaternion(right, deg_to_rad(-2.0 * bend)))
+				_turn_bone(skeleton, int(_stance_bones[StringName(side + "Foot")]), Quaternion(right, deg_to_rad(bend)))
+			var hips := int(_stance_bones[&"Hips"])
+			if _hips_position_animated < 0:
+				_hips_position_animated = 1 if _position_animated(&"Hips") else 0
+			if _hips_position_animated == 1:
+				var drop := _lowest_foot(skeleton, up_axis) - before
+				if drop > 0.0:
+					skeleton.set_bone_pose_position(hips, skeleton.get_bone_pose_position(hips) - up_axis * drop)
+		var spine := int(_stance_bones[&"Spine"])
+		if spine >= 0:
+			_turn_bone(skeleton, spine, Quaternion(right, -deg_to_rad(Tuning.SHEPHERD_LEAN_DEG * _shepherd)))
+
+	# Arms out: a positive turn about `forward` swings a hanging arm toward
+	# the body's left, so the left arm takes +, the right -; the intercept
+	# also brings them a little forward to meet the ball.
+	var out := maxf(Tuning.SHEPHERD_ARMS_OUT_DEG * _shepherd, 70.0 * _intercept)
+	var ahead := 25.0 * _intercept
+	for pair: Array in [[&"LeftUpperArm", 1.0], [&"RightUpperArm", -1.0]]:
+		var bone := int(_stance_bones[pair[0]])
+		if bone >= 0:
+			_turn_bone(skeleton, bone, Quaternion(right, deg_to_rad(ahead)) * Quaternion(forward, deg_to_rad(out * float(pair[1]))))
 
 
 ## Turns `bone` by `turn` (a skeleton-space rotation) on top of its pose.
@@ -1446,10 +1768,32 @@ static func _relooped(anim: Animation, length: float, phase: float) -> Animation
 
 ## LEAN_BONE's index if every locomotion clip animates its rotation, else -1.
 func _find_lean_bone() -> int:
+	return _find_animated_bone(LEAN_BONE)
+
+
+## Whether the tree rewrites `bone_name`'s position every frame: the
+## AnimationTree is deterministic (the default), so a track any clip in the
+## library has is written each frame, blended toward its rest where the
+## playing clips don't key it. _clamp_feet_to_ground leans on the same for
+## Hips.
+func _position_animated(bone_name: StringName) -> bool:
+	if _tree == null or not _tree.deterministic:
+		return false
+	for clip in _player.get_animation_list():
+		var anim := _player.get_animation(clip)
+		for i in anim.get_track_count():
+			if anim.track_get_type(i) == Animation.TYPE_POSITION_3D 					and anim.track_get_path(i).get_concatenated_subnames() == String(bone_name):
+				return true
+	return false
+
+
+## `bone_name`'s index if every locomotion clip writes its rotation (so the
+## tree resets it each frame and a post-mix turn never stacks), else -1.
+func _find_animated_bone(bone_name: StringName) -> int:
 	var skeleton := _rig.get_node_or_null(^"Skeleton3D") as Skeleton3D
 	if skeleton == null:
 		return -1
-	var bone := skeleton.find_bone(LEAN_BONE)
+	var bone := skeleton.find_bone(bone_name)
 	if bone < 0:
 		return -1
 	for point: Array in BLEND_POINTS:
@@ -1460,7 +1804,7 @@ func _find_lean_bone() -> int:
 		var animated := false
 		for i in anim.get_track_count():
 			if anim.track_get_type(i) == Animation.TYPE_ROTATION_3D \
-					and anim.track_get_path(i).get_concatenated_subnames() == String(LEAN_BONE):
+					and anim.track_get_path(i).get_concatenated_subnames() == String(bone_name):
 				animated = true
 				break
 		if not animated:

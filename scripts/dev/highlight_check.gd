@@ -48,10 +48,150 @@ func _ready() -> void:
 		stage = ReplayStage.new()
 		add_child(stage)
 		await get_tree().process_frame
+	var full := _check_full_match(folder, doc)
 	for row: Dictionary in doc.moments:
 		await _check_row(folder, doc, row, stage)
+		if full != null:
+			_check_in_full(folder, row, full)
+	if full != null:
+		_check_match_video(folder)
 	print("CHECK: %s" % ("all good" if _failures == 0 else "%d FAILED" % _failures))
 	get_tree().quit(1 if _failures > 0 else 0)
+
+
+## The full-match recording (plan phase 1): match.replay reads to the end and
+## agrees with match.json and moments.json; events and segments are in range.
+## Null when the export has none.
+func _check_full_match(folder: String, doc: Dictionary) -> ReplayClip:
+	if not doc.has("full_match"):
+		print("  full match: not recorded")
+		return null
+	var info: Dictionary = doc.full_match
+	var full := ReplayClip.load_file(folder.path_join(String(info.replay)))
+	var meta: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(folder.path_join(String(info.json))))
+	var none := {"rank": 0, "type": "full_match"}
+	if full == null or meta == null:
+		_fail(none, "match.replay or match.json missing")
+		return null
+	var n := full.frame_count()
+	if n != int(meta.frame_count) or n != int(info.frames) or (meta.frame_times as Array).size() != n:
+		_fail(none, "frames: replay %d, match.json %d (%d times), moments.json %d" % [n, int(meta.frame_count),
+			(meta.frame_times as Array).size(), int(info.frames)])
+	var covered := 0
+	var last := -1
+	for seg: Dictionary in meta.segments:
+		if int(seg.from) != last + 1 or int(seg.to) < int(seg.from):
+			_fail(none, "segment %s doesn't follow frame %d" % [seg, last])
+		last = int(seg.to)
+		covered += int(seg.to) - int(seg.from) + 1
+	if covered != n:
+		_fail(none, "segments cover %d of %d frames" % [covered, n])
+	var kinds := {}
+	for ev: Dictionary in meta.events:
+		if int(ev.frame) < 0 or int(ev.frame) >= n:
+			_fail(none, "event out of range %s" % ev)
+		kinds[ev.kind] = int(kinds.get(ev.kind, 0)) + 1
+	var times: Array = meta.frame_times
+	var worst_gap := 0.0
+	for i in range(1, times.size()):
+		worst_gap = maxf(worst_gap, float(times[i]) - float(times[i - 1]))
+	print("  full match: %d frames, %.1f s, %d segments, worst frame gap %.0f ms, %.1f MB, events %s" % [n,
+		float(meta.duration_s), (meta.segments as Array).size(), worst_gap * 1000.0,
+		FileAccess.get_file_as_bytes(folder.path_join(String(info.replay))).size() / 1048576.0, kinds])
+	return full
+
+
+## match_video.json (plan phase 2): kept ranges tile the video, every marker
+## and moment lands inside it, and each part file has the frames it claims
+## (ffprobe beside ffmpeg for an .mp4, the AVI header for an .avi).
+func _check_match_video(folder: String) -> void:
+	var path := folder.path_join("match_video.json")
+	var none := {"rank": 0, "type": "match_video"}
+	if not FileAccess.file_exists(path):
+		print("  match video: not rendered")
+		return
+	var doc: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(path))
+	var n := int(doc.frames)
+	var at := 0
+	for r: Dictionary in doc.keep:
+		if int(r.video_from) != at:
+			_fail(none, "keep range %s starts at video frame %d, not %d" % [r, int(r.video_from), at])
+		at += int(r.video_frames)
+	if at != n:
+		_fail(none, "keep ranges make %d frames, json says %d" % [at, n])
+	var cut := 0
+	for m: Dictionary in doc.markers:
+		if int(m.video_frame) < 0 or int(m.video_frame) >= n:
+			_fail(none, "marker out of range %s" % m)
+		if m.cut:
+			cut += 1
+	for m: Dictionary in doc.moments:
+		if int(m.video_frame) < int(m.video_from) or int(m.video_frame) > int(m.video_to):
+			_fail(none, "moment %s isn't inside its own range" % m)
+	var counted := 0
+	for part: Dictionary in doc.parts:
+		if part.file == null:
+			continue   # joined into `video` and deleted
+		var frames := _video_frames(folder.path_join(String(part.file)))
+		counted += frames
+		if frames != int(part.frames):
+			_fail(none, "%s has %d frames, json says %d" % [part.file, frames, int(part.frames)])
+	if doc.video != null:
+		var whole := _video_frames(folder.path_join(String(doc.video)))
+		if whole != n:
+			_fail(none, "%s has %d frames, json says %d" % [doc.video, whole, n])
+	var runs: Array = doc.get("cameras", [])
+	var next := 0
+	for run: Dictionary in runs:
+		if int(run.video_from) != next or not ReplayStage.CAMERA_PRESETS.has(String(run.preset)):
+			_fail(none, "camera run %s doesn't follow frame %d" % [run, next - 1])
+		next = int(run.video_to) + 1
+	if not runs.is_empty() and next != n:
+		_fail(none, "camera runs cover %d of %d frames" % [next, n])
+	var highlight: Variant = doc.get("highlight")
+	if highlight is Dictionary:
+		var hf := _video_frames(folder.path_join(String(highlight.file)))
+		var sum := 0
+		for seg: Dictionary in highlight.segments:
+			if int(seg.highlight_from) != sum:
+				_fail(none, "highlight segment %s should start at %d" % [seg, sum])
+			sum += int(seg.video_to) - int(seg.video_from) + 1
+		if hf != int(highlight.frames) or sum != hf:
+			_fail(none, "highlight.mp4 has %d frames, json says %d, segments add to %d" % [hf, int(highlight.frames), sum])
+		print("  highlight: %d frames, %d segments, %d camera runs in the match" % [hf, (highlight.segments as Array).size(), runs.size()])
+	print("  match video: %s, %d frames (%.1f s of %.1f s recorded), %d ranges, %d parts, %d markers (%d in cut time), %d moments, complete %s" % [
+		doc.video, n, float(doc.video_s), float(doc.recorded_s), (doc.keep as Array).size(), (doc.parts as Array).size(),
+		(doc.markers as Array).size(), cut, (doc.moments as Array).size(), doc.complete])
+
+
+func _video_frames(path: String) -> int:
+	if path.ends_with(".avi"):
+		return _avi_frames(path)
+	var ffmpeg := HighlightPaths.ffmpeg()
+	if ffmpeg == "":
+		return -1
+	var probe := ffmpeg.get_base_dir().path_join("ffprobe.exe") if ffmpeg != "ffmpeg" else "ffprobe"
+	var out: Array = []
+	OS.execute(probe, ["-v", "error", "-select_streams", "v:0", "-count_packets", "-show_entries",
+		"stream=nb_read_packets", "-of", "csv=p=0", path], out)
+	return int(String(out[0]).strip_edges()) if not out.is_empty() else -1
+
+
+## A moment's clip is the full recording's frames match_from.. byte for byte.
+func _check_in_full(folder: String, row: Dictionary, full: ReplayClip) -> void:
+	if not row.has("match_from"):
+		_fail(row, "no match_from although the match was recorded")
+		return
+	var clip := ReplayClip.load_file(folder.path_join(String(row.files.replay)))
+	var from := int(row.match_from)
+	if int(row.match_to) - from + 1 != clip.frame_count():
+		_fail(row, "match_from..match_to is %d frames, clip has %d" % [int(row.match_to) - from + 1, clip.frame_count()])
+	if int(row.match_frame) - from != int(row.event_frame):
+		_fail(row, "match_frame %d - match_from %d isn't event_frame %d" % [int(row.match_frame), from, int(row.event_frame)])
+	for k in clip.frame_count():
+		if from + k >= full.frame_count() or clip.frames[k] != full.frames[from + k]:
+			_fail(row, "clip frame %d differs from full frame %d" % [k, from + k])
+			return
 
 
 func _fail(row: Dictionary, what: String) -> void:
