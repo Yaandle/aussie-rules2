@@ -217,3 +217,12 @@ Needs a real match (or the generator) and the Highlights screen. See `docs/HIGHL
 - [ ] **LT shepherd stance:** hold LT without the ball: low crouch, arms out, the body keeps facing the same way while you move any direction (no flip), at 4.2 m/s; feet stay on the turf. A tap of LT still spoils a ball in reach. Keyboard has no spoil key yet (remap one to try it).
 - [ ] **Slide sling tackler** (animation viewer CONTESTS > Slide, and a B sling in a match): quick grab-and-throw; he steps into the carrier, his trunk gives on the hit, he plants within ~0.6 m and stands where he tackled (no sliding on flat feet, no running off). The carrier's fall is unchanged. Watch the clip's last 0.3 s: its feet still slide back to stance (authored clip).
 - [ ] **Full Game pregame:** your oval behind the panels; cards show icons with no arrows (chevrons only while a card is open), padlocks over locked cards (YOUR POSITION unlocks on 1 PLAYER); the shape badge beside the board changes with FORMATION / PRESSURE; it hides while the CAMERA card shows its preview.
+
+## Build 8 player model (2026-11-20, docs/BUILD8_MODEL.md)
+
+Pick `8THBUILD` on the CHARACTER screen's MODEL row (it isn't the default).
+
+- [ ] **Look against the reference** (`docs/review/8thbuild/reference.webp`): the stronger body, the longer and looser shorts, the sash, the banded socks and the hair, close up and at match distance. Say what's still off.
+- [ ] **Sash colour:** it takes the trim colour (dark on a light guernsey, off-white on a dark one); no team has its own accent colour yet. Say if you want an accent picker on the CHARACTER screen or per-team accents.
+- [ ] **Number over the sash:** the digits get a jersey-coloured outline where the sash crosses them. Say if the number reads cleanly on your kit and the away kit.
+- [ ] **Diagonal runs and falls:** no skin should show through the shorts' hem when you run on the diagonal (a few-millimetre sliver at the inner hem is possible), in a big tackle takedown or when you're knocked back.

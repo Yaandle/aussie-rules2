@@ -18,6 +18,8 @@ Keep only the `main`, `dev` and `update` branches.
   audit (2026-10-28): what was fixed, what's left, what needs a playtest.
 - `docs/BUILD7_MODEL.md`: the Build 7 player model (6thbuild's skeleton,
   new skin): assets, export, skinning rules, replacing the mesh with a scan.
+- `docs/BUILD8_MODEL.md`: Build 8 (2026-11-20), Build 7 restyled to a
+  reference image: the sash, the accent colour, what changed.
 - `docs/ML_AI_AUDIT.md`: the ML ladder (LR, GA, MLP marking cue in §9).
 - `docs/CAREER_AUDIT.md`: Career mode audit, the user's decisions, and the
   8-phase plan (all eight phases done; see its "For review").

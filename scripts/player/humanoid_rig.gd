@@ -134,15 +134,22 @@ const COLOUR_TREAD := Color("#141513")
 
 ## The number on the back, 1-99, set before add_child by whoever spawns the
 ## player (a Career roster's number, else the team slot). Only a model with
-## the kit shader draws it (7thbuild); 0 means none was set and shows
+## the kit shader draws it (7thbuild, 8thbuild); 0 means none was set and shows
 ## DEFAULT_GUERNSEY_NUMBER, the single number the first Build 7 wore.
 @export var guernsey_number := 0
 const DEFAULT_GUERNSEY_NUMBER := 17
 
 ## Hair colour, alpha 0 = unset: then one of HAIR_COLOURS picked by the
 ## guernsey number, so a team isn't all one hair colour and a player keeps
-## theirs from match to match. Kit-shader models only (7thbuild).
+## theirs from match to match. Kit-shader models only (7thbuild, 8thbuild).
 @export var kit_hair := Color(0.0, 0.0, 0.0, 0.0)
+
+## Build 8's sash and sock-band colour, alpha 0 = unset: then the kit's own
+## "accent" if TeamKit ever gives one, else the trim colour (_resolved_kit).
+## kit_sash false gives Build 8 a plain guernsey. Kit-shader models only;
+## Build 7 has no sash or bands to colour.
+@export var kit_accent := Color(0.0, 0.0, 0.0, 0.0)
+@export var kit_sash := true
 ## Dark brown, black, brown, mid brown, dark blond, auburn, near black,
 ## sandy. Weighted to the darker shades by repetition. Unplaytested look.
 const HAIR_COLOURS := [Color("#2b1d14"), Color("#121012"), Color("#3e2a1c"), Color("#4a3322"),
@@ -175,6 +182,10 @@ const CHARACTER_MODELS := {
 	## BUILD7_MODEL.md). Same bones, so the ragdoll, mark variants and every
 	## gameplay anchor treat it exactly as 6thbuild.
 	"7thbuild": "res://assets/characters/7thbuild.glb",
+	## Build 8: Build 7's generator retuned to the 2026-11-20 reference (a
+	## stronger build, longer shorts, the sash and banded socks; docs/
+	## BUILD8_MODEL.md). Same skeleton and clips as Builds 6 and 7.
+	"8thbuild": "res://assets/characters/8thbuild.glb",
 }
 
 ## Set false by callers whose kit_* colour overrides only work on the
@@ -445,6 +456,11 @@ func _resolved_kit() -> Dictionary:
 			kit[slot] = c
 	kit["skin"] = kit_skin if kit_skin.a > 0.0 else COLOUR_SKIN
 	kit["trim"] = COLOUR_TRIM_ON_LIGHT if (kit["jersey"] as Color).get_luminance() > TRIM_LUMINANCE_SPLIT else COLOUR_TRIM
+	# Build 8's sash and sock bands. No team has its own accent colour yet,
+	# so it's the trim, which always reads against the jersey: a dark sash
+	# on a light guernsey, an off-white one on a dark guernsey.
+	if not kit.has("accent"):
+		kit["accent"] = kit_accent if kit_accent.a > 0.0 else kit["trim"]
 	return kit
 
 
@@ -515,8 +531,9 @@ func _apply_kit_shader(mi: MeshInstance3D, surface: int, kit: Dictionary) -> voi
 		_kit_material.shader = KIT_SHADER
 	mi.set_surface_override_material(surface, _kit_material)
 	_imported_has_socks = true
-	for slot: String in ["jersey", "shorts", "socks", "boot", "trim"]:
+	for slot: String in ["jersey", "shorts", "socks", "boot", "trim", "accent"]:
 		mi.set_instance_shader_parameter(&"kit_" + slot, kit[slot])
+	mi.set_instance_shader_parameter(&"kit_sash", 1 if kit_sash else 0)
 	# Unset skin keeps the model's own authored tone (the shader's default).
 	if kit_skin.a > 0.0:
 		mi.set_instance_shader_parameter(&"kit_skin", kit["skin"])

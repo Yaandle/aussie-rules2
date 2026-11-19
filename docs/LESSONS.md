@@ -298,7 +298,11 @@ change should fit them.
   before's ten surfaces cost 48 draws a player; one surface with per-face
   slots and instance shader parameters costs 5, and 36 players share one
   material. glTF flips V: a projection authored in Blender UVs reads
-  upside down in Godot.
+  upside down in Godot, and a value stored in a second UV's V (Build 8's
+  sash distance) arrives as `1 - v`.
+- **Pattern lines on a lofted mesh go in the shader**, not the faces:
+  store a planar distance per vertex and threshold it (Build 8's sash).
+  Faces cut along a diagonal come out jagged.
 - **Windowed review renders:** `scenes/dev/build_compare.tscn` (in-game
   look, takes a `res://` .glb for a before/after) and
   `scenes/dev/model_cost.tscn` (render cost, v-sync off).

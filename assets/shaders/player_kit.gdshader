@@ -15,6 +15,13 @@ render_mode cull_back, diffuse_burley, specular_schlick_ggx;
 // digits are drawn here from outlines, as a signed distance, so they're
 // crisp at any size without a texture. They fade out once a stroke is
 // under about two pixels, where they'd only shimmer.
+//
+// Build 8 (tools/blender/build_8thbuild_mesh.py) adds an accent colour: the
+// sock bands are their own slot (SLOT_ACCENT), and the sash is drawn here.
+// Each guernsey and number vertex carries its distance across the sash in
+// UV2.y, offset by 2.0 (SASH_UV_BASE in the generator), so the band is a
+// straight, crisp edge whatever the faces under it. Build 7's UV2.y is a
+// flat 0.5, below the offset, so it never shows a sash.
 
 const int SLOT_SKIN = 0;
 const int SLOT_JERSEY = 1;
@@ -28,6 +35,11 @@ const int SLOT_STUDS = 8;
 const int SLOT_HAIR = 9;
 const int SLOT_EYES = 10;
 const int SLOT_MOUTH = 11;
+const int SLOT_ACCENT = 12;
+
+/// SASH_UV_BASE and SASH_HALF_WIDTH (m) in build_8thbuild_mesh.py.
+const float SASH_UV_BASE = 2.0;
+const float SASH_HALF_WIDTH = 0.058;
 
 instance uniform vec4 kit_jersey : source_color = vec4(0.86, 0.72, 0.30, 1.0);
 instance uniform vec4 kit_shorts : source_color = vec4(0.12, 0.12, 0.14, 1.0);
@@ -40,12 +52,19 @@ instance uniform vec4 kit_trim : source_color = vec4(0.94, 0.92, 0.86, 1.0);
 instance uniform vec4 kit_hair : source_color = vec4(0.13, 0.09, 0.06, 1.0);
 /// The guernsey number, 0-99.
 instance uniform int kit_number = 17;
+/// The sash and sock bands (Build 8): HumanoidRig._resolved_kit's "accent".
+instance uniform vec4 kit_accent : source_color = vec4(0.78, 0.12, 0.12, 1.0);
+/// 1 draws the sash on a model that carries it (Build 8); 0 a plain guernsey.
+instance uniform int kit_sash = 1;
 
 /// The number box's width over its height: NUMBER_SIZE in the generator.
 const float NUMBER_BOX_ASPECT = 1.3846;
 /// A digit cell's width (its height is 1) and the gap between two digits.
 const float DIGIT_W = 0.62;
 const float DIGIT_GAP = 0.12;
+/// The outline round the digits over a sash, in box units (the box is 1
+/// high). Unplaytested look.
+const float NUMBER_OUTLINE = 0.045;
 
 // Chamfered block numerals: each digit is closed outlines (its outside,
 // then any counters) in a DIGIT_W x 1 cell, y up, as edges (x0, y0, x1, y1).
@@ -75,9 +94,21 @@ const vec4 EDGES[151] = {
 const int DIGIT_START[11] = {0, 16, 23, 41, 57, 73, 89, 105, 113, 135, 151};
 
 varying flat int v_slot;
+varying float v_sash;
 
 void vertex() {
 	v_slot = int(UV2.x);
+	// glTF's V runs top-down, Blender's bottom-up: undo the flip.
+	v_sash = 1.0 - UV2.y;
+}
+
+/// How much of this pixel the sash covers, 0..1.
+float sash_coverage(float d, float dd) {
+	if (kit_sash == 0 || d < SASH_UV_BASE - 1.0) {
+		return 0.0;
+	}
+	float edge = SASH_HALF_WIDTH - abs(d - SASH_UV_BASE);
+	return clamp(0.5 + edge / max(dd, 1e-5), 0.0, 1.0);
 }
 
 /// Signed distance from p (cell units) to digit d: negative inside.
@@ -102,7 +133,8 @@ float digit_distance(int d, vec2 p) {
 /// box; two digits sit side by side, one digit is centred. duv is
 /// fwidth(UV), taken before any branch on the slot (derivatives inside
 /// divergent control flow aren't defined).
-float number_coverage(vec2 uv, vec2 duv, int number) {
+/// grow (box units) fattens the strokes: Build 8's outline round the digits.
+float number_coverage(vec2 uv, vec2 duv, int number, float grow) {
 	int n = clamp(number, 0, 99);
 	// Box units: the box is 1 high and NUMBER_BOX_ASPECT wide.
 	vec2 p = vec2(uv.x * NUMBER_BOX_ASPECT, uv.y);
@@ -118,22 +150,30 @@ float number_coverage(vec2 uv, vec2 duv, int number) {
 		sd = digit_distance(n, p - vec2(x0, 0.0));
 	}
 	float px = max(length(duv * vec2(NUMBER_BOX_ASPECT, 1.0)), 1e-5);
-	float cover = clamp(0.5 - sd / px, 0.0, 1.0);
+	float cover = clamp(0.5 - (sd - grow) / px, 0.0, 1.0);
 	// Strokes are 0.2 high: once that's under ~2 px the digits only shimmer.
 	return cover * (1.0 - smoothstep(0.07, 0.14, px));
 }
 
 void fragment() {
 	vec2 duv = fwidth(UV);
+	// Taken before any branch on the slot, like duv.
+	float dsash = fwidth(v_sash);
 	vec3 c = kit_skin.rgb;
 	float rough = 0.62;
 	if (v_slot == SLOT_JERSEY) {
-		c = kit_jersey.rgb;
+		c = mix(kit_jersey.rgb, kit_accent.rgb, sash_coverage(v_sash, dsash));
 		rough = 0.84;
 	} else if (v_slot == SLOT_NUMBER) {
 		// glTF's V runs top-down, Blender's (and the box's) bottom-up.
 		vec2 box = vec2(UV.x, 1.0 - UV.y);
-		c = mix(kit_jersey.rgb, kit_trim.rgb, number_coverage(box, duv, kit_number));
+		vec3 ground = mix(kit_jersey.rgb, kit_accent.rgb, sash_coverage(v_sash, dsash));
+		// Over the sash the digits sit in a jersey-coloured outline, so
+		// they're one colour on it and off it (the accent is often the trim
+		// colour, and trim on trim would hide them). Off the sash the
+		// outline is jersey on jersey and doesn't show.
+		ground = mix(ground, kit_jersey.rgb, number_coverage(box, duv, kit_number, NUMBER_OUTLINE));
+		c = mix(ground, kit_trim.rgb, number_coverage(box, duv, kit_number, 0.0));
 		rough = 0.84;
 	} else if (v_slot == SLOT_TRIM) {
 		c = kit_trim.rgb;
@@ -161,6 +201,9 @@ void fragment() {
 	} else if (v_slot == SLOT_EYES) {
 		c = vec3(0.025, 0.025, 0.03);
 		rough = 0.35;
+	} else if (v_slot == SLOT_ACCENT) {
+		c = kit_accent.rgb;
+		rough = 0.9;
 	} else if (v_slot == SLOT_MOUTH) {
 		c = kit_skin.rgb * vec3(0.62, 0.52, 0.5);
 		rough = 0.6;
