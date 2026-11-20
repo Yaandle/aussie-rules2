@@ -64,7 +64,7 @@ PAIRS = [
 	("B8_Body", "B8_Shorts", ("skin",), 0.88, 1.30, ()),
 	# Build 8's guernsey is worn out over the shorts, so the shorts' top is
 	# the inner layer, under the guernsey down to its hem.
-	("B8_Shorts", "B8_Guernsey", None, 1.15, 1.30, ()),
+	("B8_Shorts", "B8_Guernsey", None, 1.12, 1.30, ()),
 	("B8_Body", "B8_Boots", ("socks",), -1.0, 0.13, ()),
 ]
 ## Pairs whose outer layer is two separate pieces, one per side: a vertex
@@ -83,6 +83,8 @@ POKE_REACH = 0.10        # only look this far for the outer surface (the hidden
 CRUSH = 0.15
 STRETCH = 3.0
 STEP = 2                 # sample every STEP frames
+## --verbose: print each poking vertex's rest position and bone.
+VERBOSE = "--verbose" in sys.argv
 
 FWD = Vector((0.0, -1.0, 0.0))
 BACK = Vector((0.0, 1.0, 0.0))
@@ -341,6 +343,9 @@ def sample(rest, tests):
 			if hit is not None and d > POKE_TOLERANCE:
 				n += 1
 				deepest = max(deepest, d)
+				if VERBOSE:
+					print("  poke %s v%d (rest %s, %s) %.1f mm" % (inner, v,
+						tuple(round(x, 3) for x in iob.data.vertices[v].co), bone, d * 1000.0))
 		if n:
 			# Reported as count + depth in mm, so a ranking still sorts by
 			# count but the depth says whether anyone would see it.

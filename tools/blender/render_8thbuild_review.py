@@ -5,7 +5,7 @@ build_8thbuild_mesh.py, without a round trip through Godot. How the model
 reads in the game (its lighting, its cameras, the kit shader) is
 scripts/dev/build_compare.gd's job.
 
-    blender assets/blender/8thbuild.blend --background --python tools/blender/render_8thbuild_review.py -- OUT.png [--wire] [--poses | --close | --audit] [--small]
+    blender assets/blender/8thbuild.blend --background --python tools/blender/render_8thbuild_review.py -- OUT.png [--wire] [--poses | --close | --audit | --idle] [--small]
     blender assets/blender/8thbuild.blend --background --python tools/blender/build_8thbuild_mesh.py --python tools/blender/render_8thbuild_review.py -- OUT.png
 
 (the second form regenerates the mesh first without saving, for iterating
@@ -68,6 +68,23 @@ AUDIT = [
 	("mark shoulder", "mark_aggressive", 7, 30.0, "upperarm.r", 0.0, 0.6),
 	("tackled neck", "tackled", 21, 90.0, "head", 0.0, 0.5),
 	("hit_out elbow", "hit_out", 7, 20.0, "lowerarm.r", 0.0, 0.55),
+]
+## The reference turnaround's views in the arms-down idle (the reference
+## stands that way, not in the A-pose rest), full body then the shoulders
+## close, for matching the 2026-11-21 turnaround. --idle.
+IDLE = [
+	("front", "idle", 1, 0.0, True),
+	("side", "idle", 1, 90.0, True),
+	("back", "idle", 1, 180.0, True),
+	("3/4", "idle", 1, 35.0, False),
+	("shoulders", "idle", 1, 0.0, 1.62, 0.80),
+	("shoulders side", "idle", 1, 90.0, 1.62, 0.80),
+	("shoulders back", "idle", 1, 180.0, 1.62, 0.80),
+	("shoulders 3/4", "idle", 1, 40.0, 1.62, 0.80),
+	("neckline", "idle", 1, 10.0, 1.78, 0.42),
+	("neckline above", "idle", 1, 0.0, 1.72, 0.42),
+	("armhole", "idle", 1, 60.0, 1.66, 0.50),
+	("thighs", "idle", 1, 20.0, 0.80, 0.70),
 ]
 POSES = [
 	("run knee", "run_fwd", 7, 70.0, False),
@@ -242,6 +259,8 @@ def main():
 		shots = CLOSE
 	elif "--audit" in argv:
 		shots = AUDIT
+	elif "--idle" in argv:
+		shots = IDLE
 	else:
 		shots = TURNAROUND + (POSES if "--poses" in argv else [])
 	cells = render_cells(scene, cam, shots, objs)

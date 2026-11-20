@@ -135,7 +135,7 @@ class Mesh:
 ## guernsey (above its hem, 1.168 m).
 SHORTS_HEM_Z = 0.86
 BOOT_TOP_Z = 0.125
-GUERNSEY_HEM_Z = 1.18
+GUERNSEY_HEM_Z = 1.15
 
 
 def _hidden(mesh, v, region):
