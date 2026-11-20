@@ -533,22 +533,18 @@ func _on_tab_gui_input(event: InputEvent, appearance: bool) -> void:
 		_toggle_customise()
 
 
-## The control legend on a slim parchment strip of its own under the card,
-## sized to whatever the current device's legend needs.
+## The control legend under the card, sized to whatever the current
+## device's legend needs. No strip behind it (2026-11-21, the user's call):
+## each key chip stands on its own over the field, so the labels take the
+## dark border colour to read on the grass, as the Full Game pregame's do.
 func _build_hints() -> void:
 	_hint_strip = Control.new()
 	_hint_strip.position = Vector2(CARD_LEFT, HINTS_TOP)
 	_hint_strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_ui.add_child(_hint_strip)
-	var strip := Panel.new()
-	strip.set_anchors_preset(Control.PRESET_FULL_RECT)
-	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var style := RetroWindow.panel_style(Color(RetroWindow.PANEL, 0.92))
-	style.set_border_width_all(2)
-	strip.add_theme_stylebox_override(&"panel", style)
-	_hint_strip.add_child(strip)
 
 	_hints = DeviceHintBar.new()
+	_hints.label_colour = RetroWindow.BORDER
 	_hints.position = HINTS_PAD
 	_hint_strip.add_child(_hints)
 	_hints.minimum_size_changed.connect(_fit_hint_strip)
