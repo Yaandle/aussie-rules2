@@ -146,6 +146,11 @@ def _hidden(mesh, v, region):
 			return True
 		if 1.70 < v.z < 1.80 and abs(v.x) < 0.10:
 			return True
+		# The skin shell under the guernsey's strap (the turnaround pass's
+		# V-neck): only the V at the front shows, and the arms' domes are
+		# on upperarm, so they don't match here.
+		if 1.70 < v.z < 1.86 and abs(v.x) > 0.10 and "upperarm" not in region:
+			return True
 	if mesh == "B8_Shorts" and v.z > GUERNSEY_HEM_Z:
 		return True
 	return False

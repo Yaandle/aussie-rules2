@@ -60,6 +60,49 @@ ragdoll and every gameplay anchor are built on, so this pass matched shapes,
 not proportions. Its skin and hair colours are per player (`kit_skin`,
 `kit_hair`), and the red comes from the kit's accent (below).
 
+## Turnaround pass (2026-11-21)
+
+Matched to a cleaner front/side/back turnaround,
+`docs/review/8thbuild/reference_turnaround.webp`. Side by side in the game's
+renderer: `turnaround_vs_build8.png` (from `reference_match.tscn`'s
+`ref_front`/`ref_side`/`ref_back`); in Blender, arms-down:
+`render_8thbuild_review.py -- OUT.png --idle` (`blender_idle_turnaround.png`).
+
+| Turnaround | Before | Now |
+|---|---|---|
+| A sleeveless guernsey, deep armholes, the whole deltoid bare | a 0.29 m cap over each deltoid; the arm came out from under it with a visible join | the strap runs down the trapezius and stops on the top of the deltoid (0.21 m out); the armhole drops straight to the armpit; the deltoid is the shoulder |
+| A real V-neck | a shallow V on a crew collar | a 12 cm V with a binding, and skin (upper chest, the neck's base) under it |
+| Round deltoids, a tapering upper arm, strong forearms | a capsule-like arm | the deltoid a near-sphere on the pivot, a step in to the biceps, the upper arm narrower from the front than the deltoid; `ARM_BULK` 1.20 |
+| Athletic, not bulky, thighs | big quads | ~12% slimmer through the quads, a smaller teardrop |
+| A boxy guernsey hanging to the top of the shorts' legs | hem at 1.168 m | hem at 1.136 m and a little fuller toward it |
+| A thick neck | Build 7's | ~7% thicker at the base |
+
+How the V works: the loft's rows above `V_FROM_Z` slide down their own
+columns so the top ring *is* the V (cutting faces out left a staircase
+edge). The skin under it is a shell `V_SHELL_INSET` under the guernsey,
+weighted by the guernsey point over it (by its own position, a raised arm
+moved them apart). Below the strap it's front-only: under the armholes a
+raised arm folds the side wall and skin there read as coming through
+(`check_8thbuild_deform.py -- --verbose` names the vertex).
+
+`torso_w`'s share of the upper arm at the armhole's top is 10% (was 30%):
+with no cap to round over the deltoid, 30% pulled the strap's end down off
+the deltoid in the idle and left a notch.
+
+Checks after the pass: `check_8thbuild_deform.py` prints the same as
+before for every clip and ragdoll pose, except the diagonal runs' hidden
+body-against-shorts crossings, down from 7 to 3 (slimmer thighs). The
+animation audit's bones and rigid parts stay 0.00. New in the audit: the
+skin ring where the V's shell meets the neck creases to 0.50-0.60x behind
+the neck with the head thrown back (`tackled`, `rd_arch`), under the back
+of the neckline; and to 0.59x at the front only in `rd_fetal_over`. The
+shell under the strap is reported as hidden. Close-ups of the worst frames:
+`audit_turnaround.png`; nothing breaks through.
+
+**Still can't match:** the turnaround's figure has shorter legs, a bigger
+head and arms hanging close to the body. Limb lengths are the skeleton's,
+and the idle clip hangs the arms out a little; neither changed.
+
 ## What changed from Build 7 (first pass)
 
 - **Legs.** Fuller quads (the outer sweep and the teardrop over the knee,
@@ -81,7 +124,8 @@ not proportions. Its skin and hair colours are per player (`kit_skin`,
   down the middle of the face and broke the mouth and brows.
 - **Kit.** The sash and the sock bands (below).
 - **Budget.** 5,258 triangles in one surface after the accuracy pass
-  (Build 7: 4,554). Still one material and one draw per player.
+  (Build 7: 4,554); 5,530 after the turnaround pass (the V's shell and
+  binding). Still one material and one draw per player.
 
 ## The sash and the accent colour
 

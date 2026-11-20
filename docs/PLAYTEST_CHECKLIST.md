@@ -229,6 +229,9 @@ Pick `8THBUILD` on the CHARACTER screen's MODEL row (it isn't the default).
 - [ ] **Smother dive:** the guernsey hem across the seat reads as a hem, not a stray line.
 - [ ] **Loose guernsey in play:** the hem stays over the shorts in sprints, marks, tackles and falls; nothing of the shorts comes through it.
 - [ ] **Diagonal runs and falls:** no skin should show through the shorts' hem when you run on the diagonal (a few-millimetre sliver at the inner hem is possible), in a big tackle takedown or when you're knocked back.
+- [ ] **Turnaround pass (2026-11-21), against `docs/review/8thbuild/turnaround_vs_build8.png`:** the shoulders read as one line (neck, strap, the round deltoid, down the arm) with no join where the arm meets the guernsey; the V-neck, the deep armholes and the longer, boxier hem; slimmer thighs. Say what's still off in front, side and back.
+- [ ] **Shoulders in play:** marks, hit-outs and handballs (arms up and across) don't open a gap or show a black sliver at the armhole's top; the strap stays on the shoulder.
+- [ ] **V-neck in tackles and falls:** with the head thrown back or the body curled, the skin in the V stays under the binding (nothing of the guernsey's inside shows).
 
 ## AI goal kicking (2026-11-21, `ai_brain.gd` shots; `scripts/dev/goal_kick_check.gd`)
 
