@@ -54,6 +54,15 @@ func kick_charge_override() -> float:
 	return -1.0
 
 
+## Where a non-human brain wants its kick to go, or null. While the stance
+## holds, PlayerController._update_kick_aim steers the aim at this point,
+## allowing for the momentum the carrier puts into the ball. A human aims
+## with the stick or mouse instead; a brain that returns null keeps the
+## aim it had at stance start (its body facing).
+func kick_aim_point() -> Variant:
+	return null
+
+
 ## Edge-triggered: true for the one frame the action should fire.
 func wants_handball() -> bool:
 	return false

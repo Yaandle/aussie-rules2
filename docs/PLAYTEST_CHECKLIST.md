@@ -229,3 +229,9 @@ Pick `8THBUILD` on the CHARACTER screen's MODEL row (it isn't the default).
 - [ ] **Smother dive:** the guernsey hem across the seat reads as a hem, not a stray line.
 - [ ] **Loose guernsey in play:** the hem stays over the shorts in sprints, marks, tackles and falls; nothing of the shorts comes through it.
 - [ ] **Diagonal runs and falls:** no skin should show through the shorts' hem when you run on the diagonal (a few-millimetre sliver at the inner hem is possible), in a big tackle takedown or when you're knocked back.
+
+## AI goal kicking (2026-11-21, `ai_brain.gd` shots; `scripts/dev/goal_kick_check.gd`)
+
+- [ ] **AI shots in range:** an unpressured AI forward inside ~40 m slows, squares up to goal and kicks; most go through, some are behinds (each player's own kicking accuracy still adds error). Say if it's now too accurate, or the square-up is too slow and gets them caught (`AI_SHOT_TURN_FRAMES` 8, `AI_SHOT_HOLD_GAIT` 0.3).
+- [ ] **AI from 45 m+:** it passes forward or runs on instead of a shot that can't make the distance.
+- [ ] **AI snap under pressure:** a quick kick at the goal's centre with the power for the distance, not a dribbled 40% kick.

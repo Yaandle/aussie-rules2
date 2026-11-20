@@ -1115,6 +1115,29 @@ func face_toward(point: Vector3) -> void:
 	rotation.y = _facing_yaw
 
 
+## The aim yaw whose launch, with the momentum this body carries into the
+## ball (_launch_from, DISPOSAL_MOMENTUM_TRANSFER), heads flat at `point`
+## at the current charge: the aim leads against a sideways run the way a
+## kicker on the run kicks across the ball. Straight at the point if the
+## run is too fast for the kick to cancel.
+func _aim_yaw_for_point(point: Vector3) -> float:
+	var to_point := point - global_position
+	to_point.y = 0.0
+	if to_point.length_squared() < 0.0001:
+		return _kick_aim_yaw
+	var d := to_point.normalized()
+	var m := Vector3(velocity.x, 0.0, velocity.z) * Tuning.DISPOSAL_MOMENTUM_TRANSFER
+	var elevation := deg_to_rad(lerpf(Tuning.KICK_MIN_ANGLE, Tuning.KICK_MAX_ANGLE, _kick_charge))
+	var s := lerpf(Tuning.KICK_MIN_SPEED, Tuning.KICK_MAX_SPEED, _kick_charge) * kick_power_scale * cos(elevation)
+	# Solve |lambda d - m| = s for the forward root: s a + m = lambda d.
+	var dm := d.dot(m)
+	var disc := dm * dm - m.length_squared() + s * s
+	var aim := d
+	if disc >= 0.0 and s > 0.001:
+		aim = (d * (dm + sqrt(disc)) - m) / s
+	return atan2(-aim.x, -aim.z)
+
+
 ## The kick charge that lands a kick from here `distance` metres away, by
 ## the same flight model the aiming line draws (KickTrajectory), for a
 ## scripted kicker (DrillBrain). A bisection on the reach: the flight gets
@@ -4581,6 +4604,12 @@ func _update_charge(delta: float) -> void:
 ## its old always-body-forward kick, unchanged by any of this.
 func _update_kick_aim(delta: float) -> void:
 	if not (_brain is HumanBrain):
+		# An AI (or drill) brain with a target: aim at it every frame of the
+		# stance. Locked to body facing at stance start, a shot or pass
+		# taken on the run went 9-12 deg off-line (goal_kick_check.gd).
+		var target: Variant = _brain.kick_aim_point()
+		if target is Vector3:
+			_kick_aim_yaw = _aim_yaw_for_point(target)
 		return
 	if _full_side_pad_aim():
 		_update_full_side_aim(delta)

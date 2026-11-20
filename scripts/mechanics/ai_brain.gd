@@ -124,6 +124,12 @@ var _call_receiver: PlayerController = null
 var _call_frames := 0
 var _call_use_kick := false
 
+## A shot at goal squaring up: physics frames left turning onto the goal
+## before the stance (Tuning.AI_SHOT_TURN_FRAMES), and the charge it will
+## take. Zero frames means no shot is lining up.
+var _shot_frames := 0
+var _shot_charge_planned := 0.0
+
 
 func update(controller: PlayerController, delta: float) -> void:
 	_handball_pressed = false
@@ -151,6 +157,7 @@ func update(controller: PlayerController, delta: float) -> void:
 		_call_frames = 0
 		_call_receiver = null
 		_call_use_kick = false
+		_shot_frames = 0
 
 	var pos := controller.global_position
 	var team := controller.team
@@ -228,6 +235,7 @@ func request_handball_to(receiver: PlayerController) -> void:
 	_pass_to(receiver, false)
 	_kick_committed = false
 	_kick_pressed = false
+	_shot_frames = 0
 
 
 ## True while an aimed disposal (a call for the ball, or the brain's own
@@ -314,6 +322,14 @@ func _think_carrying(controller: PlayerController, delta: float, pos: Vector3) -
 				_call_use_kick = false
 		return
 
+	if _shot_frames > 0:
+		_shot_frames -= 1
+		var aim := _shot_point()
+		_move_toward(aim, pos, Tuning.AI_SHOT_HOLD_GAIT)
+		if _shot_frames <= 0:
+			_commit_kick(_shot_charge_planned, aim, Tuning.AI_SHOT_HOLD_GAIT)
+		return
+
 	if _kick_committed:
 		_move_toward(_kick_aim_point, pos, _kick_hold_gait)
 		if _kick_hold_timer > 0.0:
@@ -336,13 +352,19 @@ func _think_carrying(controller: PlayerController, delta: float, pos: Vector3) -
 	# lateral-biased) aim point — otherwise a strong boundary bias would
 	# inflate this whenever the carrier isn't already over near that wing,
 	# wrongly reading as "too far to shoot" for a player well within range
-	# straight down the middle.
-	var dist := absf(attack_direction * Tuning.FIELD_HALF_LENGTH - pos.x)
+	# straight down the middle. Measured to the goal line itself
+	# (Field.GOAL_LINE_INSET inside the oval's end), not the oval's end.
+	var dist := absf(_goal_line_x() - pos.x)
 	var pressured := _nearest_opponent_distance(controller, pos) < Tuning.AI_PRESSURE_RADIUS
+	var shot_charge := _shot_charge(controller, pos) if dist <= Tuning.AI_KICK_RANGE * 1.4 else 1.5
 
-	# A runnable, unpressured shot still beats going looking for a pass.
-	if dist <= Tuning.AI_KICK_RANGE and not pressured:
-		_commit_kick(0.75, goal_point, carry_gait_scale)
+	# A runnable, unpressured shot still beats going looking for a pass, if
+	# it's one this player can reach (past full charge it falls short).
+	# Square up to the goal first (_shot_frames), then charge at a jog.
+	if dist <= Tuning.AI_KICK_RANGE and not pressured and shot_charge <= 1.0:
+		_shot_frames = Tuning.AI_SHOT_TURN_FRAMES
+		_shot_charge_planned = shot_charge
+		_move_toward(_shot_point(), pos, Tuning.AI_SHOT_HOLD_GAIT)
 		return
 
 	# Otherwise look for the best teammate to give it to (see
@@ -352,10 +374,13 @@ func _think_carrying(controller: PlayerController, delta: float, pos: Vector3) -
 		_pass_to(mate, pos.distance_to(mate.global_position) > Tuning.AI_HANDBALL_MAX)
 		return
 
-	# Nothing worth aiming at — the original blind fallback, unchanged.
+	# Nothing worth aiming at — the original blind fallback. Under pressure
+	# in range, a snap at goal: no squaring up, but at the goal's centre with
+	# the charge for the distance (it was a 0.4 charge down the carry line,
+	# which dribbled out short from anywhere past ~25 m).
 	if pressured:
 		if dist <= Tuning.AI_KICK_RANGE * 1.4:
-			_commit_kick(0.4, goal_point, carry_gait_scale)
+			_commit_kick(minf(shot_charge, 1.0), _shot_point(), carry_gait_scale)
 		else:
 			_handball_pressed = true
 
@@ -499,6 +524,38 @@ func _commit_kick(charge_fraction: float, aim_point: Vector3, hold_gait: float) 
 	_kick_hold_gait = hold_gait
 	_kick_hold_timer = Tuning.KICK_CHARGE_TIME * charge_fraction
 	_kick_pressed = true
+
+
+## The goal line this brain attacks (x).
+func _goal_line_x() -> float:
+	return attack_direction * (Tuning.FIELD_HALF_LENGTH - Field.GOAL_LINE_INSET)
+
+
+## Where a shot at goal aims: the middle of the goal, on the line. Not
+## _goal_point's lateral-biased carry line, which a team on a wing-heavy
+## Ball Movement setting would have kicked wide of the posts.
+func _shot_point() -> Vector3:
+	return Vector3(_goal_line_x(), 0.0, 0.0)
+
+
+## The charge that carries a shot from `pos` through the goal's centre to
+## Tuning.AI_SHOT_CARRY_PAST beyond the line, by the controller's own
+## flight model (charge_for_distance). 1.5 means out of reach: even a full
+## charge comes down short of the line plus a metre.
+func _shot_charge(controller: PlayerController, pos: Vector3) -> float:
+	var to_goal := _shot_point() - pos
+	to_goal.y = 0.0
+	var need := to_goal.length() * (1.0 + Tuning.AI_SHOT_CARRY_PAST / maxf(absf(to_goal.x), 1.0))
+	var charge := controller.charge_for_distance(need)
+	if charge >= 0.999 and controller.charge_for_distance(to_goal.length() + 1.0) >= 0.999:
+		return 1.5
+	return charge
+
+
+## PlayerBrain: a committed kick's target (a shot's goal centre, a pass's
+## receiver), which PlayerController steers the aim at through the stance.
+func kick_aim_point() -> Variant:
+	return _kick_aim_point if _kick_committed else null
 
 
 ## The point a carry aims at: the goal line at this player's lateral-biased

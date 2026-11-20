@@ -2435,7 +2435,7 @@ const CHARACTER_TRANSITION_TIME := 0.3  # s, pixel-wipe cover/reveal duration
 # press the opposing carrier, otherwise drift toward a kickoff slot. Not
 # a tactics system — a baseline to prove the match loop, tuned by feel
 # from here.
-const AI_KICK_RANGE := 45.0            # m from goal at which a carrier shoots
+const AI_KICK_RANGE := 45.0            # m from the goal line at which a carrier shoots (and only a shot in reach: AIBrain._shot_charge)
 const AI_PRESSURE_RADIUS := 4.0        # m opponent proximity that forces a quick disposal
 const AI_SUPPORT_PULL := 0.35          # 0..1, how far off-ball players drift toward the ball
 
@@ -2485,9 +2485,22 @@ const AI_DISPOSAL_SCORE_FLOOR := 0.35  # 0..1 — no teammate above this: keep r
 const AI_DISPOSAL_W_FORWARD := 0.50    # weight: how far toward goal the pass advances it
 const AI_DISPOSAL_W_OPEN := 0.35       # weight: how much room the receiver has (nearest opponent to them)
 const AI_DISPOSAL_W_DIST := 0.15       # weight: shorter is safer
-const AI_PASS_KICK_CHARGE := 0.55      # kick charge fraction for a pass to a teammate (vs 0.75 for a goal shot)
+const AI_PASS_KICK_CHARGE := 0.55      # kick charge fraction for a pass to a teammate (a shot is charged to its distance: AI_SHOT_CARRY_PAST)
 const AI_AIM_TURN_FRAMES_HANDBALL := 2 # physics frames the body pre-turns onto a handball target before release
 const AI_AIM_TURN_FRAMES_KICK := 6     # ditto for a kick — longer, an AI kick's aim locks to body facing at stance start
+
+# ── AI goal kicking (2026-11-21, ai_brain.gd _shot_point / _shot_charge) ──
+# The playtest note "the AI misses even within range": scripts/dev/
+# goal_kick_check.gd measured live AI shots falling short (a fixed 0.75
+# charge at any distance, a 0.4 one under pressure) and 9-12 deg off-line
+# (charged at a full sprint, the carry's momentum carried into the ball,
+# the aim locked at stance start). A shot now aims at the goal's centre
+# with the charge that carries it AI_SHOT_CARRY_PAST beyond the line,
+# squares up first and jogs while charging; PlayerController steers an AI
+# kick's aim at its target through the stance, allowing for momentum.
+const AI_SHOT_CARRY_PAST := 6.0        # m beyond the goal line a shot is charged to land. Unplaytested feel guess
+const AI_SHOT_HOLD_GAIT := 0.3         # 0..1 gait while a shot squares up and charges (was the full carry gait). Unplaytested feel guess
+const AI_SHOT_TURN_FRAMES := 8         # physics frames squaring up to goal before the stance. Unplaytested feel guess
 
 # A carrying AI bounces at this fraction of BOUNCE_INTERVAL, so it disposes
 # or bounces before ever conceding the 15 m free kick
