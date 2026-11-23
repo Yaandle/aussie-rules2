@@ -238,3 +238,8 @@ Pick `8THBUILD` on the CHARACTER screen's MODEL row (it isn't the default).
 - [ ] **AI shots in range:** an unpressured AI forward inside ~40 m slows, squares up to goal and kicks; most go through, some are behinds (each player's own kicking accuracy still adds error). Say if it's now too accurate, or the square-up is too slow and gets them caught (`AI_SHOT_TURN_FRAMES` 8, `AI_SHOT_HOLD_GAIT` 0.3).
 - [ ] **AI from 45 m+:** it passes forward or runs on instead of a shot that can't make the distance.
 - [ ] **AI snap under pressure:** a quick kick at the goal's centre with the power for the distance, not a dribbled 40% kick.
+
+## Marking cue in the world, and the marking pack (2026-11-24)
+
+- [ ] **Marking cue:** no button disc over the picture any more. A thin ring in the tier's colour sits on the turf round your player's feet, a second ring closes in across the grass and lands on it at press-now (it goes solid), and the letter (A / X / Y) floats over the head. Say if it reads in a match from the broadcast and chase cameras, and if the letter is big enough (`WORLD_*` in `mark_prompt.gd`). The (A) green ring on green grass is the one to check.
+- [ ] **Animation viewer, CONTESTS > MARK DELIVERY, CONTESTED, Opponents 2-5:** the opponents step into a pack round the drop, all leap at the ball (a beat apart), the best-placed hands take it (B or an opponent: the readout says PACK MARK when an opponent does), and the bodies that meet on the way down tumble on the ragdoll; whoever took the mark stays up. Say if the pack is too tight or the fall too violent (`PACK_*` in `animation_viewer.gd` and `tuning.gd`). Matches don't do this yet.

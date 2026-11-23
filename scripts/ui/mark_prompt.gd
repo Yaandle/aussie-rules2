@@ -70,6 +70,18 @@ extends CanvasLayer
 ## the timing assist, and nothing here feeds catch resolution: display only
 ## (RULES_REFERENCE.md §3).
 
+## In the world (playtest 2026-11-24: "it should feel inside the
+## environment, not like a button overlayed; more simple/minimal"): the cue
+## is no longer drawn over the picture. The countdown is two rings painted
+## on the turf round the player's feet (assets/shaders/mark_cue_ring.
+## gdshader): a fixed one in the tier's colour and one closing in across
+## the grass, landing on it at press-now. The tier is just its letter,
+## floating over the head as a Label3D: no disc, no panel. Both take the
+## camera's perspective and lighting depth like the players do. Every
+## timing rule above is unchanged: only the drawing moved. The 2D sizes
+## below still place the optional timing-assist graph, which stays on
+## screen.
+
 ## 6T (playtest 2026-11-08, "the X/Y/A marking cue is too large"): every
 ## size below is scaled by CUE_SCALE, about two-thirds of the old cue. One
 ## dial so the next "smaller / bigger" note is a one-number change.
@@ -111,6 +123,21 @@ const INCOMING_ALPHA := 0.7   ## 0.45 -> 0.7 (playtest 2026-11-18: see the cue e
 ## ball, often before a press there would register at all (the live cue
 ## comes up ~0.3 s out, at MARK_CONTEST_RANGE).
 const ESTIMATE_MAX_PROGRESS := 0.95
+
+## The in-world cue's sizes, in metres. The fixed ring round the feet, the
+## closing ring's starting radius (it lands on the fixed one at press-now),
+## the ring's line width, and the flash and completion pops. How high the
+## letter floats over the player's origin, and its height. Unplaytested look.
+const WORLD_RING_RADIUS := 0.62
+const WORLD_RING_START := 2.3
+const WORLD_RING_WIDTH := 0.045
+const WORLD_FLASH_GROW := 0.30
+const WORLD_CUE_GROW := 0.16
+const WORLD_RING_LIFT := 0.03          ## above the turf, to beat z-fighting
+const WORLD_LETTER_HEIGHT := Tuning.MARK_PROMPT_HEIGHT + 0.28
+const WORLD_LETTER_PIXEL := 0.0042     ## m per font pixel: ~0.27 m tall at LABEL_WORLD_SIZE
+const LABEL_WORLD_SIZE := 64
+const MARK_CUE_SHADER := preload("res://assets/shaders/mark_cue_ring.gdshader")
 
 ## Brief post-resolution flash so the result reads as clearly as the
 ## countdown did — connects directly to the player's own mark_caught/
@@ -176,6 +203,9 @@ var _to_press := NAN
 var _assist_owns_time := false
 
 var _canvas: Control
+var _ring_mesh: MeshInstance3D
+var _ring_material: ShaderMaterial
+var _letter: Label3D
 var _tier := Tuning.Action.NONE
 var _screen_pos := Vector2.ZERO
 var _visible_this_frame := false
@@ -222,6 +252,35 @@ func _ready() -> void:
 	canvas.draw.connect(_draw_badge.bind(canvas))
 	add_child(canvas)
 	_canvas = canvas
+
+	# The in-world cue. Top level, so they sit in world space wherever this
+	# CanvasLayer is in the tree.
+	_ring_material = ShaderMaterial.new()
+	_ring_material.shader = MARK_CUE_SHADER
+	_ring_mesh = MeshInstance3D.new()
+	_ring_mesh.name = "MarkCueRing"
+	var quad := PlaneMesh.new()
+	var span := (WORLD_RING_START + WORLD_FLASH_GROW + 0.3) * 2.0
+	quad.size = Vector2(span, span)
+	_ring_mesh.mesh = quad
+	_ring_mesh.material_override = _ring_material
+	_ring_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_ring_mesh.top_level = true
+	_ring_mesh.visible = false
+	add_child(_ring_mesh)
+	_letter = Label3D.new()
+	_letter.name = "MarkCueLetter"
+	_letter.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	_letter.font = SoftBrutalist.font(SoftBrutalist.WEIGHT_HEAVY)
+	_letter.font_size = LABEL_WORLD_SIZE
+	_letter.pixel_size = WORLD_LETTER_PIXEL
+	_letter.outline_size = 12
+	_letter.outline_modulate = Color(SoftBrutalist.INK, 0.6)
+	_letter.shaded = false
+	_letter.double_sided = true
+	_letter.top_level = true
+	_letter.visible = false
+	add_child(_letter)
 
 
 func _process(delta: float) -> void:
@@ -273,7 +332,53 @@ func _process(delta: float) -> void:
 		_cue_timer = CUE_DURATION
 		InputManager.rumble(Tuning.RUMBLE_MARK_TIMING_CUE)
 
+	_update_world()
 	_canvas.queue_redraw()
+
+
+## Places and colours the in-world cue for this frame from the same state
+## the 2D badge used to draw from.
+func _update_world() -> void:
+	var show_live := _visible_this_frame or _flash_sign != 0
+	var show_incoming := _incoming_this_frame and not _visible_this_frame and _flash_sign == 0
+	if not is_instance_valid(player) or not (show_live or show_incoming):
+		_ring_mesh.visible = false
+		_letter.visible = false
+		return
+	var dim := INCOMING_ALPHA if show_incoming else 1.0
+	var colour := _badge_colour(_tier)
+	var target := WORLD_RING_RADIUS
+	var target_alpha := TARGET_RING_ALPHA * dim
+	var closing := WORLD_RING_START
+	var closing_alpha := 0.0
+	if _flash_sign != 0:
+		colour = _flash_colour()
+		target += WORLD_FLASH_GROW * (_flash_timer / FLASH_DURATION)
+		target_alpha = _flash_timer / FLASH_DURATION
+	else:
+		if _cue_timer > 0.0:
+			target += WORLD_CUE_GROW * (_cue_timer / CUE_DURATION)
+		if (_ring_visible_this_frame or show_incoming) and _ring_progress > 0.0:
+			if _ring_progress < 1.0:
+				closing = lerpf(WORLD_RING_START, WORLD_RING_RADIUS, _ring_progress)
+				closing_alpha = clampf(_ring_progress * 4.0, 0.0, 1.0) * dim
+			else:
+				# Landed: the fixed ring goes solid.
+				target_alpha = 1.0
+	var feet := player.global_position
+	_ring_mesh.global_position = Vector3(feet.x, WORLD_RING_LIFT, feet.z)
+	var span := (_ring_mesh.mesh as PlaneMesh).size.x
+	_ring_material.set_shader_parameter(&"ring_colour", Color(colour, 1.0))
+	_ring_material.set_shader_parameter(&"target_radius", target / span)
+	_ring_material.set_shader_parameter(&"target_alpha", target_alpha)
+	_ring_material.set_shader_parameter(&"closing_radius", closing / span)
+	_ring_material.set_shader_parameter(&"closing_alpha", closing_alpha)
+	_ring_material.set_shader_parameter(&"width", WORLD_RING_WIDTH / span)
+	_ring_mesh.visible = true
+	_letter.global_position = feet + Vector3.UP * WORLD_LETTER_HEIGHT
+	_letter.text = _badge_label(_tier)
+	_letter.modulate = Color(colour, dim if _flash_sign == 0 else maxf(target_alpha, 0.4))
+	_letter.visible = true
 
 
 ## What the badge should show this frame: the pressed (or still-committed)
@@ -419,75 +524,9 @@ func _incoming_estimate() -> void:
 
 
 func _draw_badge(canvas: Control) -> void:
-	if _incoming_this_frame and not _visible_this_frame and _flash_sign == 0:
-		_draw_incoming(canvas)
-		return
-	if not _visible_this_frame and _flash_sign == 0:
-		return
-	if _flash_sign != 0:
-		# Post-resolution flash — a full ring regardless of where the sweep
-		# left off, since by now the attempt is already decided. Drawn
-		# independently of _ring_visible_this_frame (which is usually
-		# already false by this point — catching/missing changes player
-		# state, so live_mark_prompt() itself has typically already gone
-		# NONE) using the last-live _screen_pos held onto for exactly this.
-		var radius := RING_RADIUS + FLASH_RING_GROW * (_flash_timer / FLASH_DURATION)
-		canvas.draw_arc(_screen_pos, radius, 0.0, TAU, RING_SEGMENTS, _flash_colour(),
-			RING_THICKNESS, true)
-	elif _ring_visible_this_frame:
-		var ring_colour := _badge_colour(_tier)
-		var target_radius := RING_RADIUS
-		if _cue_timer > 0.0:
-			# The completion pop — a quick outward flick right as the ring
-			# lands, on top of the rumble fired the same instant (see
-			# _process()).
-			target_radius += CUE_RING_GROW * (_cue_timer / CUE_DURATION)
-		canvas.draw_arc(_screen_pos, target_radius, 0.0, TAU, RING_SEGMENTS,
-			Color(ring_colour, TARGET_RING_ALPHA), TARGET_RING_THICKNESS, true)
-		if _ring_progress > 0.0 and _ring_progress < 1.0:
-			var radius := lerpf(RING_CLOSE_START_RADIUS, RING_RADIUS, _ring_progress)
-			# Fades in over the first part of the countdown so it doesn't pop.
-			var alpha := clampf(_ring_progress * 4.0, 0.0, 1.0)
-			canvas.draw_arc(_screen_pos, radius, 0.0, TAU, RING_SEGMENTS,
-				Color(SoftBrutalist.INK, alpha), RING_THICKNESS + RING_OUTLINE_EXTRA, true)
-			canvas.draw_arc(_screen_pos, radius, 0.0, TAU, RING_SEGMENTS,
-				Color(ring_colour, alpha), RING_THICKNESS, true)
-		elif _ring_progress >= 1.0:
-			canvas.draw_arc(_screen_pos, target_radius, 0.0, TAU, RING_SEGMENTS,
-				ring_colour, RING_THICKNESS, true)
-
-	var font := SoftBrutalist.font(SoftBrutalist.WEIGHT_HEAVY)
-	var colour := _badge_colour(_tier)
-	canvas.draw_circle(_screen_pos, BADGE_RADIUS, colour)
-	canvas.draw_circle(_screen_pos, BADGE_RADIUS, SoftBrutalist.INK, false, 2.0, true)
-	var label := _badge_label(_tier)
-	var size := font.get_string_size(label, HORIZONTAL_ALIGNMENT_CENTER, -1, LABEL_SIZE)
-	canvas.draw_string(font, _screen_pos - size * 0.5 + Vector2(0.0, size.y * 0.5),
-		label, HORIZONTAL_ALIGNMENT_LEFT, -1, LABEL_SIZE, SoftBrutalist.PANEL)
+	# The cue itself is in the world now (_update_world); the canvas only
+	# carries the optional timing-assist graph.
 	_draw_assist(canvas)
-
-
-## The incoming cue: the live badge's drawing at INCOMING_ALPHA, the ring
-## closing on the estimate.
-func _draw_incoming(canvas: Control) -> void:
-	var colour := _badge_colour(_tier)
-	canvas.draw_arc(_screen_pos, RING_RADIUS, 0.0, TAU, RING_SEGMENTS,
-		Color(colour, TARGET_RING_ALPHA * INCOMING_ALPHA), TARGET_RING_THICKNESS, true)
-	if _ring_progress > 0.0 and _ring_progress < 1.0:
-		var radius := lerpf(RING_CLOSE_START_RADIUS, RING_RADIUS, _ring_progress)
-		var alpha := clampf(_ring_progress * 4.0, 0.0, 1.0) * INCOMING_ALPHA
-		canvas.draw_arc(_screen_pos, radius, 0.0, TAU, RING_SEGMENTS,
-			Color(SoftBrutalist.INK, alpha), RING_THICKNESS + RING_OUTLINE_EXTRA, true)
-		canvas.draw_arc(_screen_pos, radius, 0.0, TAU, RING_SEGMENTS,
-			Color(colour, alpha), RING_THICKNESS, true)
-	canvas.draw_circle(_screen_pos, BADGE_RADIUS, Color(colour, INCOMING_ALPHA))
-	canvas.draw_circle(_screen_pos, BADGE_RADIUS, Color(SoftBrutalist.INK, INCOMING_ALPHA),
-		false, 2.0, true)
-	var font := SoftBrutalist.font(SoftBrutalist.WEIGHT_HEAVY)
-	var label := _badge_label(_tier)
-	var size := font.get_string_size(label, HORIZONTAL_ALIGNMENT_CENTER, -1, LABEL_SIZE)
-	canvas.draw_string(font, _screen_pos - size * 0.5 + Vector2(0.0, size.y * 0.5),
-		label, HORIZONTAL_ALIGNMENT_LEFT, -1, LABEL_SIZE, Color(SoftBrutalist.PANEL, INCOMING_ALPHA))
 
 
 # ── Mark-timing assist (6AF) ─────────────────────────────────────────

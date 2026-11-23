@@ -3099,6 +3099,30 @@ func _bump_ragdoll(by: PlayerController, direction: Vector3) -> bool:
 	})
 
 
+## A marking pack's body contact (Tuning's "Marking pack"): this player,
+## off the ground in a contest, is knocked out of it along `push` (flat,
+## away from whoever they met) and comes down on the active ragdoll with
+## the velocity they had, the push on top. Only the animation viewer's
+## MARK DELIVERY pack calls this so far: matches don't, and an AI player
+## there never ragdolls. False if this rig can't ragdoll, or already is.
+func pack_ragdoll(push: Vector3, partner: PlayerController) -> bool:
+	if is_ragdolled():
+		return false
+	var dir := Vector3(push.x, 0.0, push.z)
+	dir = dir.normalized() if dir.length_squared() > 0.0001 else -global_transform.basis.z
+	return _begin_ragdoll({
+		"strength": Tuning.PACK_RAGDOLL_STRENGTH,
+		"impulse": (dir + Vector3.UP * Tuning.PACK_RAGDOLL_LIFT).normalized()
+			* body_mass * Tuning.PACK_RAGDOLL_PUSH_SPEED,
+		"bone": &"Chest",
+		"contact_offset": -dir * Tuning.TACKLE_RAGDOLL_CONTACT_SIDE_OFFSET,
+		"body_share": Tuning.PACK_RAGDOLL_BODY_SHARE,
+		"partner": partner,
+		"velocity": velocity,
+		"mass_kg": body_mass,
+	})
+
+
 ## The bumper's half of a clean ragdoll bump: on at the collision's common
 ## velocity along the dash and diving after the carrier — the push mostly at
 ## the chest pitches them forward over their feet (Tuning's "Hit stick"). If

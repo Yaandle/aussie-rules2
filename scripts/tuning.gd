@@ -1253,6 +1253,19 @@ const BUMP_RAGDOLL_STRENGTH := 0.15
 const BUMP_DIVE_DRIVE := 2.5               # m/s
 const BUMP_DIVE_BODY_SHARE := 0.5
 const BUMP_DIVE_STRENGTH := 0.25
+# Marking pack (2026-11-24, the animation viewer's MARK DELIVERY with
+# opponents): leapers whose bodies meet in the air, or who are still up
+# when the ball is decided, go to the active ragdoll and come down in a
+# heap (PlayerController.pack_ragdoll). Matches don't call it yet. Pushed
+# off each other at PACK_RAGDOLL_PUSH_SPEED, tipped up by LIFT, BODY_SHARE
+# on the whole body and the rest at the chest, motors at STRENGTH. Bodies
+# meet at PACK_CONTACT_DISTANCE between centres, flat. Unplaytested feel
+# guesses.
+const PACK_RAGDOLL_PUSH_SPEED := 2.2      # m/s
+const PACK_RAGDOLL_LIFT := 0.25
+const PACK_RAGDOLL_BODY_SHARE := 0.6
+const PACK_RAGDOLL_STRENGTH := 0.2
+const PACK_CONTACT_DISTANCE := 0.8        # m
 # Bump miss (playtest 2026-10-30): a human's whiffed hit-stick on a 6thbuild
 # rig is a stumble on the active ragdoll, not the canned TACKLED fall. The
 # body is still going at STUMBLE_CARRY of BUMP_DASH_SPEED, gets a
