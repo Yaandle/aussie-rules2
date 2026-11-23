@@ -1253,10 +1253,14 @@ const BUMP_RAGDOLL_STRENGTH := 0.15
 const BUMP_DIVE_DRIVE := 2.5               # m/s
 const BUMP_DIVE_BODY_SHARE := 0.5
 const BUMP_DIVE_STRENGTH := 0.25
-# Marking pack (2026-11-24, the animation viewer's MARK DELIVERY with
-# opponents): leapers whose bodies meet in the air, or who are still up
-# when the ball is decided, go to the active ragdoll and come down in a
-# heap (PlayerController.pack_ragdoll). Matches don't call it yet. Pushed
+# Marking pack (2026-11-24): two players off the ground going for a mark
+# (a Y leap, or the Safe mark's hop), whose bodies meet on the way down,
+# both go to the active ragdoll and come down in a heap
+# (PlayerController._try_pack_contact / pack_ragdoll); whoever has taken
+# the ball keeps their feet. In matches too since the same day ("it is
+# more if there are just multiple bodies going for the mark"), AI and
+# human alike, as AI-v-AI tackles are (TACKLE_RAGDOLL_AI_V_AI); off puts
+# packs back to landing on their feet. Pushed
 # off each other at PACK_RAGDOLL_PUSH_SPEED, tipped up by LIFT, BODY_SHARE
 # on the whole body and the rest at the chest, motors at STRENGTH. Bodies
 # meet at PACK_CONTACT_DISTANCE between centres, flat. Unplaytested feel
@@ -1266,6 +1270,7 @@ const PACK_RAGDOLL_LIFT := 0.25
 const PACK_RAGDOLL_BODY_SHARE := 0.6
 const PACK_RAGDOLL_STRENGTH := 0.2
 const PACK_CONTACT_DISTANCE := 0.8        # m
+const PACK_RAGDOLL_IN_MATCHES := true
 # Bump miss (playtest 2026-10-30): a human's whiffed hit-stick on a 6thbuild
 # rig is a stumble on the active ragdoll, not the canned TACKLED fall. The
 # body is still going at STUMBLE_CARRY of BUMP_DASH_SPEED, gets a
@@ -2467,6 +2472,16 @@ const AI_MARK_USE_CUE_MODEL := false
 ## the prediction ignores gravity's curve, so not right at the edge.
 ## Unplaytested feel guess.
 const AI_MARK_RUNNING_TAKE_FRACTION := 0.75
+## Marking packs in matches (2026-11-24, "bring the ragdolling pack into
+## real matches ... multiple bodies going for the mark"): with the cue
+## model flag above off, an AI still leaps (Aggressive) for a contested
+## kick, an opponent within MARK_CONTEST_RANGE of the ball, on the shipped
+## cue's countdown (MARK_CUE_SOURCE), and holds Safe otherwise, exactly as
+## before. Without it AI never left the ground (a 600 s all-AI match: 3
+## marking hops), so packs (Tuning's "Marking pack") could never form.
+## Running marks are untouched: that's the cue model flag's. A leap at a
+## ball it then can't reach is a real whiff, the risk a human takes too.
+const AI_MARK_PACK_LEAP := true
 
 ## Team Edit expansion (polish-pass brief: Ball Movement preference — see
 ## AIBrain._lateral_target_z()). How close to the actual boundary a fully

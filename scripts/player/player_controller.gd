@@ -497,6 +497,12 @@ var _turn_burst_timer := 0.0
 var _carried_ball: Ball = null
 var _gather_cooldown := 0.0
 var _carry_distance := 0.0
+## The marking pack's leap tracking (in_marking_leap): 0 grounded, 1 a
+## marking leap or hop launched this frame, 2 off the ground in it.
+var _mark_leap_state := 0
+## Who this player met in the air in a marking leap: they come down on the
+## ragdoll off them once on the way down (_try_pack_contact).
+var _pack_contact: PlayerController = null
 ## Whether run_too_far_called has already fired for the current unbroken
 ## carry — so FullGame gets one call, not one per frame past 15 m. Reset
 ## wherever _carry_distance is (see _track_carry_distance / _complete_gather
@@ -715,6 +721,7 @@ func _physics_process(delta: float) -> void:
 	_try_bump_contact()
 	_try_smother_contact()
 	_try_intercept_contact()
+	_try_pack_contact()
 
 	# The real ground speed sets how fast the legs turn over (PlayerAnimation's
 	# "Stride matching"), not just which clips blend.
@@ -3099,14 +3106,66 @@ func _bump_ragdoll(by: PlayerController, direction: Vector3) -> bool:
 	})
 
 
-## A marking pack's body contact (Tuning's "Marking pack"): this player,
-## off the ground in a contest, is knocked out of it along `push` (flat,
-## away from whoever they met) and comes down on the active ragdoll with
-## the velocity they had, the push on top. Only the animation viewer's
-## MARK DELIVERY pack calls this so far: matches don't, and an AI player
-## there never ragdolls. False if this rig can't ragdoll, or already is.
+## True while this player is off the ground going for a mark and on the
+## way down: a Y leap, or the Safe mark's hop (_maybe_safe_mark_jump), the
+## two ways a body goes up for a ball. The marking pack's contact test
+## (_try_pack_contact) is between two of these.
+##
+## Tracked by _mark_leap_state rather than the current action: a Y leap's
+## action changes the instant the catch is decided at the top of the jump,
+## so on the way down, where packs meet, few bodies still counted as
+## leaping (a 600 s all-AI match: 22 airborne contests, most with bodies
+## touching at ~0.7 m, 6 falls).
+func in_marking_leap() -> bool:
+	return _mark_leap_state == 2 and not is_ragdolled()
+
+
+## The marking pack (Tuning's "Marking pack"): two bodies off the ground
+## going for a mark that meet in the air (PACK_CONTACT_DISTANCE, flat)
+## remember it (_pack_contact), and each comes down on the ragdoll once
+## it's on the way down, pushed off the other: the ball is contested at the
+## top of the leap, the tumble follows. Whoever has the ball keeps their
+## feet (pack_ragdoll). Measured contact-and-fall on the way down alone
+## almost never fired: contested leapers meet on the way up and drift a few
+## centimetres apart by the top (a 600 s all-AI match: 15 airborne
+## contests touching at ~0.7 m, 1 fall).
+func _try_pack_contact() -> void:
+	# 1 = a marking leap or hop just launched, 2 = off the ground in it,
+	# back to 0 on landing.
+	if _mark_leap_state == 1 and not is_on_floor():
+		_mark_leap_state = 2
+	elif _mark_leap_state == 2 and is_on_floor():
+		_mark_leap_state = 0
+		_pack_contact = null
+	if not Tuning.PACK_RAGDOLL_IN_MATCHES or not in_marking_leap():
+		return
+	if _pack_contact == null:
+		for other: PlayerController in PlayerRegistry.all():
+			if other == self or not is_instance_valid(other) or not other.in_marking_leap():
+				continue
+			var d := other.global_position - global_position
+			d.y = 0.0
+			if d.length() < Tuning.PACK_CONTACT_DISTANCE:
+				_pack_contact = other
+				if other._pack_contact == null:
+					other._pack_contact = self
+				break
+	if _pack_contact != null and velocity.y < 0.0:
+		var partner := _pack_contact
+		_pack_contact = null
+		var away := global_position - partner.global_position if is_instance_valid(partner) else Vector3.ZERO
+		pack_ragdoll(away, partner if is_instance_valid(partner) else null)
+
+
+## A marking pack's body contact: this player, off the ground in a
+## contest, is knocked out of it along `push` (flat, away from whoever they
+## met) and comes down on the active ragdoll with the velocity they had,
+## the push on top. From _try_pack_contact, and from the animation
+## viewer's MARK DELIVERY pack for the bodies still up once the ball is
+## decided. False if this rig can't ragdoll, is already down, or has the
+## ball: a mark taken is kept.
 func pack_ragdoll(push: Vector3, partner: PlayerController) -> bool:
-	if is_ragdolled():
+	if is_ragdolled() or is_carrying():
 		return false
 	var dir := Vector3(push.x, 0.0, push.z)
 	dir = dir.normalized() if dir.length_squared() > 0.0001 else -global_transform.basis.z
@@ -3700,6 +3759,7 @@ func _maybe_safe_mark_jump(ball: Ball) -> void:
 		return
 	_mark_safe_jumped = true
 	_pending_jump_speed = jump_speed
+	_mark_leap_state = 1
 
 
 ## A — Ground Pickup once the ball is loose rather than in flight (design
@@ -3918,6 +3978,7 @@ func _begin_aggressive_mark() -> void:
 	if _brain is HumanBrain:
 		InputManager.rumble(Tuning.RUMBLE_MARK_PRESS)
 	_pending_jump_speed = Tuning.jump_speed(Tuning.MARK_AGGRESSIVE_JUMP_SPEED, jump_scale)
+	_mark_leap_state = 1
 	# Cosmetic, like _complete_mark's: lets the animation layer pick the
 	# contested off-balance landing. The leap is already committed.
 	_animation.note_mark_ball(_live_ball())

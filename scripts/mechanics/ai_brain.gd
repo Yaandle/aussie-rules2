@@ -414,7 +414,7 @@ func _think_loose_ball(controller: PlayerController, pos: Vector3, team: Tuning.
 		if ball.is_airborne() and pos.distance_to(ball.global_position) <= Tuning.MARK_CONTEST_RANGE:
 			if use_mark_cue_model:
 				_think_mark_tier(controller)
-			else:
+			elif not (Tuning.AI_MARK_PACK_LEAP and _think_pack_leap(controller)):
 				_mark_safe_wanted = true
 	else:
 		_move_toward(home_position + _spacing_push(controller, pos), pos, 0.5)
@@ -462,6 +462,25 @@ func _think_mark_tier(controller: PlayerController) -> void:
 		_mark_running_wanted = controller.live_mark_prompt(ball) == Tuning.Action.MARK_RUNNING
 		return
 	_mark_safe_wanted = true
+
+
+## Tuning.AI_MARK_PACK_LEAP: a contested kick (an opponent within
+## MARK_CONTEST_RANGE of the ball) is leapt for on the shipped cue's
+## countdown, _think_mark_tier's contested branch on MARK_CUE_SOURCE rather
+## than the dev-only MLP. True when it has handled this frame (leapt, or
+## is holding off Safe so the leap isn't pre-empted: a Safe hold takes the
+## ball at Safe's wider reach first); false to fall back to Safe.
+func _think_pack_leap(controller: PlayerController) -> bool:
+	if _leap_timer > 0.0:
+		return true
+	if not ball.is_kick_flight() 			or _nearest_opponent_distance_to(controller, ball.global_position) > Tuning.MARK_CONTEST_RANGE:
+		return false
+	if MarkCueModel.cue_press_now(controller, ball, Tuning.Action.MARK_AGGRESSIVE, Tuning.MARK_CUE_SOURCE):
+		_mark_aggressive_wanted = true
+		_leap_timer = Tuning.ACTION_DURATION[Tuning.Action.MARK_AGGRESSIVE]
+		return true
+	var to_ball := ball.global_position - controller.catch_point_position()
+	return to_ball.length() > Tuning.MARK_CATCH_RADIUS * Tuning.MARK_SAFE_REACH_SCALE + Tuning.MARK_ASSIST_RADIUS_BONUS
 
 
 ## Closest distance between the ball and the catch point if both carried on

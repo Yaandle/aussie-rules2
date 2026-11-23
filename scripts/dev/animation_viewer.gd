@@ -204,24 +204,24 @@ const MARK_RUN_DEFAULT := 0.0
 const MARK_VIEW_DEFAULT := 290.0
 ## The pack (playtest 2026-11-24, "when I have multiple opponents they
 ## should all jump at the ball like a pack and they all have ragdoll
-## physics"): with CONTESTED on, every opponent leaps at the ball on the
-## same countdown B's own leap uses (MarkCueModel.cue_press_now), each a
-## PACK_LEAP_STAGGER later than the last so they don't go up in unison,
-## after stepping in to a slot of their own round the drop (PACK_SLOTS,
-## PACK_SLOT_RADIUS out: beside B, then in front of B's shoulders). All
-## stepping to the drop itself put five bodies on one point and they met
-## on the way up, down before anyone reached the ball. Two leapers whose
-## bodies meet in the air (Tuning.PACK_CONTACT_DISTANCE) on the way down
-## from the leap, the ball contested at its top, both go to the active
-## ragdoll, pushed apart (PlayerController.
-## pack_ragdoll); once the ball is decided, any opponent still up spills
-## off the pack the same way, and B does too unless B took the mark. The
-## catch itself is still the real contest (MarkContest), never a roll.
+## physics"; then "in AFL the players jump forward after moving forward
+## ... players coming and starting from different positions"): with
+## CONTESTED on, each opponent starts PACK_RUN_IN[i] metres out on its own
+## line into the drop (PACK_SLOTS off the kick's line) already running, at
+## the speed that brings it to its slot PACK_SLOT_RADIUS from the drop
+## when it leaps, and keeps running through the leap, so it flies up and
+## forward into the pack. It leaps on the same countdown B's own leap uses
+## (MarkCueModel.cue_press_now), each a PACK_LEAP_STAGGER after the last.
+## Bodies that meet on the way down go to the ragdoll through the real
+## match rule (PlayerController._try_pack_contact); once the ball is
+## decided, any opponent still up spills off the pack the same way, and B
+## does too unless B took the mark. The catch itself is still the real
+## contest (MarkContest), never a roll.
 const PACK_LEAP_STAGGER := 0.04   ## s between one opponent's leap and the next
 const PACK_SLOTS := [90.0, -90.0, 40.0, -40.0, 0.0]   ## deg from the kick's line, + to B's right
 const PACK_SLOT_RADIUS := 1.0     ## m from the drop
-const PACK_SLOT_REACHED := 0.12   ## m: close enough to the slot to stop stepping
-const PACK_STEP_GAIT := 0.45
+## m each opponent starts out beyond its slot, on the same line.
+const PACK_RUN_IN := [6.0, 7.5, 5.0, 8.0, 6.5]
 
 ## CONTESTED: the opponent stands this far to B's right at the catch —
 ## well inside Tuning.MARK_CONTEST_RANGE, which is what the animation
@@ -1256,6 +1256,16 @@ func _launch_mark_preview(tier: MarkPreviewTier) -> void:
 			pack_brain.gait_value = 0.0
 		if i < count:
 			_pack.append(opponent)
+			var slot := _pack_slot(i)
+			var out := (slot - _mark_catch_spot).normalized()
+			var run_in: float = PACK_RUN_IN[i % PACK_RUN_IN.size()]
+			var speed := run_in / _pack_leap_time()
+			_place_contest_body(opponent, slot + out * run_in, -out, speed)
+			opponent.visible = true
+			if pack_brain != null:
+				pack_brain.wish_dir = -out
+				pack_brain.gait_value = _gait_for_speed(speed)
+			continue
 			var step := float(i / 2 + 1) * MARK_OPPONENT_OFFSET
 			var side := 1.0 if i % 2 == 0 else -1.0
 			_place_contest_body(opponent, _mark_catch_spot + Vector3.RIGHT * step * side, Vector3.FORWARD, 0.0)
@@ -1389,12 +1399,10 @@ func _step_pack(ball: Ball) -> void:
 		var brain := p.brain() as ContestBrain
 		if brain == null or _pack_down.has(p):
 			continue
-		var to_slot := _pack_slot(i) - p.global_position
-		to_slot.y = 0.0
-		if live and not _pack_leapt.has(p) and to_slot.length() > PACK_SLOT_REACHED:
-			brain.wish_dir = to_slot.normalized()
-			brain.gait_value = PACK_STEP_GAIT
-		else:
+		# Run on in to the drop, through the leap; stop once back on the
+		# ground after it.
+		if _pack_leapt.has(p) and float(_pack_leapt[p]) < 0.0 and p.is_on_floor() \
+				and p._action != Tuning.Action.MARK_AGGRESSIVE:
 			brain.wish_dir = Vector3.ZERO
 			brain.gait_value = 0.0
 		if live and not _pack_leapt.has(p) \
@@ -1403,21 +1411,11 @@ func _step_pack(ball: Ball) -> void:
 		if _pack_leapt.has(p) and float(_pack_leapt[p]) >= 0.0 and _mark_timer >= float(_pack_leapt[p]):
 			brain.aggressive_tap = true
 			_pack_leapt[p] = -1.0   # pressed
-	# Body contact in the air, on the way down from the leap (the ball is
-	# contested at its top): everyone off the ground, B included.
-	var up: Array[PlayerController] = []
+	# Body contact in the air is the match rule (PlayerController.
+	# _try_pack_contact): just note who it has put down.
 	for p: PlayerController in _pack + [_contest_b]:
-		if not _pack_down.has(p) and not p.is_on_floor() and not p.is_ragdolled() 				and p.velocity.y < 0.0:
-			up.append(p)
-	for a in up.size():
-		for b in range(a + 1, up.size()):
-			var pa := up[a]
-			var pb := up[b]
-			var d := pb.global_position - pa.global_position
-			d.y = 0.0
-			if d.length() < Tuning.PACK_CONTACT_DISTANCE:
-				_pack_fall(pa, -d, pb)
-				_pack_fall(pb, d, pa)
+		if p.is_ragdolled():
+			_pack_down[p] = true
 	# The ball decided: whoever of the pack is still up spills off it.
 	if _mark_result != "":
 		for p: PlayerController in _pack:
@@ -1426,6 +1424,12 @@ func _step_pack(ball: Ball) -> void:
 		if not _mark_result.begins_with("caught") and not _pack_down.has(_contest_b) \
 				and not _contest_b.is_on_floor():
 			_pack_fall(_contest_b, _contest_b.global_position - _mark_catch_spot, _pack[0])
+
+
+## When the pack leaps, seconds after the kick: the ball's flight less the
+## leap's rise to contact (the press the countdown asks for).
+func _pack_leap_time() -> float:
+	return maxf(MARK_DELIVERY_FLIGHT_TIME - Tuning.action_contact_time(Tuning.Action.MARK_AGGRESSIVE), 0.3)
 
 
 ## Opponent `i`'s place in the pack: PACK_SLOT_RADIUS from the drop at
