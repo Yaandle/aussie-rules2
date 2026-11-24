@@ -136,7 +136,9 @@ def main():
 	arm_obj = bpy.data.objects[A.ARMATURE]
 	fps = bpy.context.scene.render.fps
 	ad = arm_obj.animation_data
-	saved_action = ad.action
+	# By name: when the file's active action is the idle itself, author()
+	# deletes that datablock, and a held reference to it is dead.
+	saved_action = ad.action.name if ad.action is not None else None
 	base_action = stash_base()
 	saved_mutes = {t.name: t.mute for t in ad.nla_tracks}
 	ad.action = None
@@ -154,7 +156,7 @@ def main():
 	rig = A.Rig(arm_obj)
 	base = A.sample_action(rig, base_action, base_action.frame_range[0])
 	author(rig, base, fps)
-	ad.action = saved_action if saved_action is None or saved_action.name != NAME else None
+	ad.action = bpy.data.actions.get(saved_action) if saved_action not in (None, NAME) else None
 	for t in ad.nla_tracks:
 		t.mute = saved_mutes.get(t.name, True)
 	if save:

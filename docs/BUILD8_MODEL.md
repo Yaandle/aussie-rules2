@@ -103,6 +103,37 @@ shell under the strap is reported as hidden. Close-ups of the worst frames:
 head and arms hanging close to the body. Limb lengths are the skeleton's,
 and the idle clip hangs the arms out a little; neither changed.
 
+## Side-by-side pass (2026-11-25)
+
+Matched again against the turnaround, side by side in the game's renderer
+(`turnaround_vs_build8.png`, from `reference_match.tscn`'s `ref_front`/
+`ref_side`/`ref_back`). What changed in `build_8thbuild_mesh.py`:
+
+| Reference | Before | Now |
+|---|---|---|
+| Relaxed hands with separate fingers | a palm and four chunky two-segment fingers touching (a mitten), `HAND_SCALE` 1.12 | Build 6's rework hand: a domed palm with a thenar pad, three-phalanx fingers with knuckles, a thumb along the index finger (`FINGERS`, `CURL`, `PALM`) |
+| A defined face | a wedge nose, flat eye quads, a mouth line, box ears | `add_face`: nose with tip and wings, brow ridge, eyes with lids, lips, C-shaped ears |
+| Arms hanging straight down, standing tall | Build 7's idle: elbows ~43 degrees, knees ~30 | `author_6thbuild_idle.py` on this file: elbows ~16, knees ~6, feet planted |
+| Socks to just under the calf | sock top at mid-calf, hiding the calf | top ~55% down the shin, the calf and Achilles bare (`sock_table`, two new calf rings) |
+| Heavy deltoids, thick forearms, slim wrists | a deltoid ball on a tube (the insertion pinched in), wide wrists | the cap ~7% fuller, no pinch at the insertion, `ARM_BULK` 1.30, wrists ~10% slimmer |
+| Big quads and calves | | quads below the hem ~10% fuller, calves ~10% fuller behind |
+| Football boots, high collar | 0.41 m boots (flippers side on) | `BOOT_FRONT_SCALE` 0.80 (~0.34 m), the collar 1 cm higher, a thicker sole |
+| A bigger head, a thick textured crop | `HEAD_SCALE` 1.07, a thin cap | 1.10, ~12 mm more on top, strands all over the top |
+
+`reference_match.tscn`'s skin is a deeper tan (`#a8714c`); it still renders
+paler than the reference under that scene's sun.
+
+Checks: `check_8thbuild_deform.py` prints the same as the committed Build 8
+for every clip and ragdoll pose except: the diagonal runs' hidden
+body-in-shorts crossings 3 -> 6; one sock vertex 7 mm through the boot in
+`smother_dive` frame 11; one crushed boot face in `kick`; boot crossings in
+`tackled` 5 -> 6.
+
+**Still not the reference:** limb lengths and the shorter legs (the
+skeleton); the arms read blockier than the reference's (12 segments, flat
+shading); the deltoid still sits a little outside the guernsey's edge; the
+reference's skin and shading come from its renderer, not the mesh.
+
 ## What changed from Build 7 (first pass)
 
 - **Legs.** Fuller quads (the outer sweep and the teardrop over the knee,

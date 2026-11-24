@@ -23,7 +23,7 @@ var at := 0.3
 ## The reference's kit, read off the image.
 const KIT_JERSEY := Color("#131417")
 const KIT_ACCENT := Color("#b8191f")
-const KIT_SKIN := Color("#c8956f")
+const KIT_SKIN := Color("#a8714c")
 const KIT_HAIR := Color("#221813")
 
 ## [name, camera position, look-at target, fov]. The body stands at the

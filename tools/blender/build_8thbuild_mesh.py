@@ -474,9 +474,14 @@ def thigh_table(K):
 		# teardrop smaller, for the turnaround's athletic legs (the first
 		# pass's quads read as bulky), and a longer, straighter taper into
 		# the knee so the thigh runs into it rather than stopping on it.
-		(0.295, P(0.088, 0.085, 0.098, 0.089, ((50, 40, 0.006), (270, 35, 0.005)))),
-		(0.370, P(0.081, 0.085, 0.089, 0.079, ((135, 30, 0.008), (40, 35, 0.004)))),
-		(0.428, P(0.068, 0.078, 0.074, 0.067, ((140, 28, 0.007),))),
+		# 2026-11-25 (match the reference side by side): ~6% back on
+		# through the quads, the teardrop a little fuller.
+		# The ring just under the hem stays at the first 2026-11-25 size:
+		# fuller there, the thigh crossed the shorts' hem in every bent-hip
+		# clip (bounce, kick, marks).
+		(0.295, P(0.093, 0.090, 0.104, 0.094, ((50, 40, 0.007), (270, 35, 0.005)))),
+		(0.370, P(0.090, 0.094, 0.098, 0.087, ((135, 30, 0.012), (40, 35, 0.007)))),
+		(0.428, P(0.074, 0.086, 0.080, 0.072, ((140, 28, 0.011),))),
 		(K - 0.020, P(0.063, 0.066, 0.068, 0.061)),
 		# Knee: the kneecap's flat front, the hamstring tendons either side
 		# behind.
@@ -486,8 +491,14 @@ def thigh_table(K):
 		# Build 8: the reference's socks sit at mid-calf, so the top of the
 		# calf is bare skin: the inner head of gastrocnemius the bigger and
 		# lower one, both bulging behind.
-		(K + 0.105, P(0.071, 0.077, 0.061, 0.090, ((235, 30, 0.008), (305, 30, 0.004)))),
-		(K + 0.150, P(0.074, 0.081, 0.063, 0.093, ((235, 30, 0.010), (305, 30, 0.004)))),
+		# 2026-11-25: fuller calves behind and inside, the reference's
+		# diamond, ~10% more at the back.
+		(K + 0.105, P(0.074, 0.082, 0.062, 0.100, ((235, 30, 0.010), (305, 30, 0.005)))),
+		(K + 0.150, P(0.077, 0.086, 0.064, 0.104, ((235, 30, 0.012), (305, 30, 0.005)))),
+		# 2026-11-25: the sock now starts lower (sock_table), so the calf's
+		# lower half and the start of the Achilles taper are skin too.
+		(K + 0.205, P(0.073, 0.081, 0.061, 0.096, ((235, 30, 0.008),))),
+		(K + 0.250, P(0.064, 0.070, 0.057, 0.080)),
 	]
 
 
@@ -497,11 +508,14 @@ def sock_table(K):
 		# skin above it so the cuff has an edge, then the accent band a
 		# couple of centimetres under it (SOCK_BAND: the faces between the
 		# second and third rings), as in the reference.
-		(K + 0.166, P(0.077, 0.083, 0.066, 0.095)),   # sock top
-		(K + 0.186, P(0.075, 0.081, 0.065, 0.092)),
-		(K + 0.212, P(0.072, 0.077, 0.063, 0.087)),
-		(K + 0.250, P(0.066, 0.069, 0.058, 0.078)),
-		(K + 0.325, P(0.053, 0.054, 0.051, 0.058)),
+		# 2026-11-25 (side by side with the reference): the top at ~55% of
+		# the way down the shin, below the calf's belly, the band just under
+		# it. It was at mid-calf (K + 0.166), which hid the calf and read as
+		# long socks next to the reference's.
+		(K + 0.276, P(0.064, 0.069, 0.059, 0.078)),   # sock top
+		(K + 0.296, P(0.061, 0.065, 0.057, 0.073)),
+		(K + 0.320, P(0.057, 0.060, 0.055, 0.067)),
+		(K + 0.360, P(0.051, 0.052, 0.050, 0.058)),
 		(K + 0.410, P(0.045, 0.045, 0.045, 0.047)),
 		(K + 0.452, P(0.040, 0.040, 0.042, 0.041)),   # just above the boot's collar
 		# Inside the boot from here, and no lower than the ankle pivot: a
@@ -570,9 +584,8 @@ def build_legs(skin):
 # ── arms and hands ────────────────────────────────────────────────────
 
 ## Build 8: radius scale on the upper arm and forearm (not the elbow).
-ARM_BULK = 1.20
-## Build 8: the hands' size about the wrist (the reference's are big).
-HAND_SCALE = 1.12
+## 2026-11-25: 1.30 (was 1.20), the reference's arms side by side.
+ARM_BULK = 1.30
 
 
 def build_arms(skin):
@@ -616,10 +629,16 @@ def build_arms(skin):
 			(-0.062, P(0.020, 0.020, 0.020, 0.020)),
 			(-0.050, P(0.046, 0.040, 0.044, 0.044)),
 			(-0.030, P(0.066, 0.054, 0.062, 0.062)),
-			(-0.006, P(0.082, 0.058, 0.074, 0.072, ((0, 50, 0.005),))),
-			(0.032, P(0.092, 0.059, 0.078, 0.074, ((0, 50, 0.008), (90, 40, 0.004)))),
-			(0.080, P(0.080, 0.055, 0.070, 0.067)),
-			(0.125, P(0.050, 0.046, 0.056, 0.055)),       # the deltoid's insertion
+			# 2026-11-25: the cap ~7% fuller out and in front (the
+			# reference's round, heavy deltoids).
+			(-0.006, P(0.088, 0.060, 0.080, 0.077, ((0, 50, 0.006),))),
+			(0.032, P(0.099, 0.061, 0.085, 0.080, ((0, 50, 0.009), (90, 40, 0.005)))),
+			(0.080, P(0.084, 0.058, 0.076, 0.073)),
+			# 2026-11-25: the insertion no longer pinches in (it was 0.050
+			# out against the deltoid's 0.080, a notch that made the
+			# deltoid read as a ball stuck on a tube). The reference's
+			# deltoid runs down into the arm.
+			(0.125, P(0.058, 0.050, 0.062, 0.060)),       # the deltoid's insertion
 			# Biceps in front, the triceps behind: a long, lean upper arm.
 			# Biceps in front and triceps behind, narrower seen from the
 			# front than the deltoid, so the upper arm tapers from it.
@@ -631,9 +650,11 @@ def build_arms(skin):
 			# then a straight taper to the wrist.
 			(E + 0.090, P(0.055, 0.046, 0.053, 0.045, ((45, 40, 0.006),))),
 			(E + 0.170, P(0.044, 0.040, 0.047, 0.040)),
-			(W - 0.022, P(0.036, 0.033, 0.041, 0.034)),
-			(W, P(0.034, 0.032, 0.041, 0.034)),           # wrist: wide front-back
-			(W + 0.020, P(0.029, 0.027, 0.035, 0.031)),
+			# 2026-11-25: a slimmer wrist (~10%) under the thick forearm,
+			# as the reference's; the hand's palm starts at its size.
+			(W - 0.022, P(0.033, 0.030, 0.039, 0.032)),
+			(W, P(0.030, 0.028, 0.037, 0.031)),           # wrist: wide front-back
+			(W + 0.020, P(0.026, 0.025, 0.033, 0.028)),
 		]
 		rings = []
 		for t, prof in table:
@@ -657,75 +678,133 @@ def build_arms(skin):
 		skin.cap(lofted[-1], c1, arm_w(W + 0.034), "skin")
 
 
+## Fingers (2026-11-25, toward the reference turnaround's relaxed hands; the
+## same hand as Build 6's rework): (offset across the palm toward the thumb
+## side, knuckle distance from the wrist joint, fan in degrees toward the
+## thumb side, phalanx lengths proximal/middle/distal, radius at the
+## knuckle). Index, middle, ring, little. A real hand is ~0.19 m wrist to
+## fingertip on a 1.86 m man, ~0.215 m on this 2.15 m rig. Before this
+## pass: a palm and four chunky two-segment fingers touching, which read as
+## a mitten close up.
+FINGERS = [
+	(0.0335, 0.104, 5.0, (0.048, 0.029, 0.023), 0.0112),
+	(0.0115, 0.108, 0.5, (0.052, 0.032, 0.025), 0.0118),
+	(-0.0105, 0.104, -4.5, (0.049, 0.030, 0.024), 0.0111),
+	(-0.0305, 0.096, -10.0, (0.039, 0.023, 0.021), 0.0096),
+]
+## Relaxed curl at each finger joint (MCP, PIP, DIP), degrees toward the
+## palm; the little finger curls a touch more, as a relaxed hand does. One
+## pose reads for the hanging idle, a carry and a mark alike (there are no
+## finger bones). Unplaytested look.
+CURL = (14.0, 28.0, 18.0)
+CURL_LITTLE_EXTRA = 6.0
+FINGER_SIDES = 8
+## Palm rings along the hand bone from the wrist (m): (t, dorsal, palmar,
+## thumb-side half width, little-side half width, bulges on theta 0 = back
+## of the hand, 90 thumb side, 180 palm, 270 little side): the thenar pad,
+## the hypothenar ridge, the knuckles. The first two rings match the
+## forearm's wrist ring, so the arm runs into the hand without a cuff.
+PALM = [
+	(-0.016, 0.028, 0.026, 0.036, 0.030, ()),
+	(0.000, 0.027, 0.026, 0.037, 0.031, ()),
+	(0.024, 0.022, 0.024, 0.041, 0.036, ((140, 40, 0.007), (225, 35, 0.003))),
+	(0.054, 0.016, 0.021, 0.044, 0.040, ((140, 40, 0.006), (225, 35, 0.003))),
+	(0.084, 0.016, 0.018, 0.046, 0.041, ((0, 60, 0.002),)),
+	(0.100, 0.015, 0.015, 0.045, 0.038, ((0, 60, 0.003),)),
+	(0.112, 0.010, 0.010, 0.040, 0.032, ()),
+]
+PALM_SIDES = 12
+
+
 def build_hands(skin):
-	"""A palm, four chunky fingers that touch, and a thumb, rigid on the
-	hand bone (there are no finger bones), in a relaxed half-curl that
-	reads for a carry, a mark and a handball fist alike. The fingers are
-	thick enough to read as a hand at a few metres and close enough to
-	read as one mass beyond that. Palm faces the body's midline with the
+	"""A domed palm with a thenar pad, four fingers of three phalanges with
+	knuckles, slightly fanned and gently curled, and a thumb lying along the
+	index finger. Rigid on the hand bone (there are no finger bones), so a
+	pose can't crumple them. The palm faces the body's midline with the
 	thumb forward: the pose 6thbuild's clips were authored against."""
 	for sfx, sign in ((".l", 1.0), (".r", -1.0)):
-		first_v = len(skin.co)
 		build_hand(skin, sfx, sign)
-		w0, _ = bone("hand" + sfx)
-		for i in range(first_v, len(skin.co)):
-			skin.co[i] = w0 + (skin.co[i] - w0) * HAND_SCALE
 
 
 def build_hand(skin, sfx, sign):
-	"""One hand at Build 7's size; build_hands scales it about the wrist."""
+	"""d runs down the hand bone (wrist to knuckles), s away from the body's
+	midline (the back of a hanging hand), f forward (the thumb side)."""
 	w0, w1 = bone("hand" + sfx)
 	hd, la = "hand" + sfx, "lowerarm" + sfx
 	d, s, f = frame(w1 - w0, sign)
-	palm_n = -s   # palm faces the midline
+	palm_n = -s
+	rigid = {hd: 1.0}
+	wrist_w = {hd: 0.6, la: 0.4}
 
 	def fr(_ax):
 		return d, s, f
 
-	palm = [
-		(-0.012, P(0.022, 0.022, 0.031, 0.029)),
-		(0.002, P(0.021, 0.023, 0.034, 0.030)),
-		(0.034, P(0.020, 0.025, 0.041, 0.037)),
-		(0.068, P(0.019, 0.024, 0.045, 0.040)),
-		(0.088, P(0.017, 0.021, 0.044, 0.038)),
-	]
-	rings = [(w0 + d * t, d, prof, {hd: 0.6, la: 0.4} if t <= 0.0 else {hd: 1.0}) for t, prof in palm]
-	lofted = skin.loft(rings, "skin", 8, math.pi / 8.0, fr)
-	skin.cap(lofted[0], w0 - d * 0.02, {hd: 0.6, la: 0.4}, "skin")
-	skin.cap(lofted[-1], w0 + d * 0.094, {hd: 1.0}, "skin")
+	rings = []
+	for t, dorsal, palmar, thumb, little, bulges in PALM:
+		prof = P(dorsal, palmar, thumb, little, bulges, sq=2.6)
+		rings.append((w0 + d * t, d, prof, wrist_w if t <= 0.0 else rigid))
+	lofted = skin.loft(rings, "skin", PALM_SIDES, 0.0, fr)
+	skin.cap(lofted[0], w0 - d * 0.024, wrist_w, "skin")
+	skin.cap(lofted[-1], w0 + d * 0.116, rigid, "skin")
 
-	def finger(base, direction, lengths, curls, half):
-		"""A square-section finger, each segment bent `curls` (radians,
-		cumulative) toward the palm."""
-		pts = [base]
-		dirs = []
+	def digit(base, dirs, lengths, radius, taper=0.80):
+		"""A ring on each joint (a knuckle, a little fuller), one at each
+		phalanx's middle (a little slimmer), and a rounded tip."""
+		pts, axes, radii = [base], [dirs[0]], [radius * 1.02]
 		p = base
-		for length, curl in zip(lengths, curls):
-			dd = (direction * math.cos(curl) + palm_n * math.sin(curl)).normalized()
-			dirs.append(dd)
+		for k, (dd, length) in enumerate(zip(dirs, lengths)):
+			r0 = radius * (1.0 - (1.0 - taper) * k / len(lengths))
+			r1 = radius * (1.0 - (1.0 - taper) * (k + 1) / len(lengths))
+			pts.append(p + dd * (length * 0.5))
+			axes.append(dd)
+			radii.append((r0 + r1) * 0.5 * 0.90)
 			p = p + dd * length
 			pts.append(p)
-		rings_f = []
-		for k, c in enumerate(pts):
-			ax = dirs[min(k, len(dirs) - 1)] if k == 0 or k == len(pts) - 1 else (dirs[k - 1] + dirs[k]).normalized()
-			h = half * (0.82 if k == len(pts) - 1 else 1.0)
-			rings_f.append((c, ax, P(h, h, h * 1.08, h * 1.08), {hd: 1.0}))
+			nxt = dirs[k + 1] if k + 1 < len(dirs) else dd
+			axes.append((dd + nxt).normalized())
+			radii.append(r1 * (1.02 if k + 1 < len(dirs) else 0.92))
+		tip = dirs[-1]
+		pts += [p + tip * radii[-1] * 0.55, p + tip * radii[-1] * 0.95]
+		axes += [tip, tip]
+		radii += [radii[-1] * 0.82, radii[-1] * 0.45]
 
 		def finger_frame(ax):
-			u = (palm_n - ax * palm_n.dot(ax)).normalized()
-			return ax, u, ax.cross(u)
+			u = palm_n - ax * palm_n.dot(ax)
+			if u.length < 1e-6:
+				u = s.copy()
+			u.normalize()
+			return ax, -u, ax.cross(-u)
 
-		lf = skin.loft(rings_f, "skin", 4, math.pi / 4.0, finger_frame)
-		skin.cap(lf[0], pts[0] - dirs[0] * 0.006, {hd: 1.0}, "skin")
-		skin.cap(lf[-1], pts[-1] + dirs[-1] * 0.010, {hd: 1.0}, "skin")
+		specs = [(c, ax, P(r * 0.92, r * 0.96, r, r, sq=2.3), rigid) for c, ax, r in zip(pts, axes, radii)]
+		lf = skin.loft(specs, "skin", FINGER_SIDES, math.pi / FINGER_SIDES, finger_frame)
+		skin.cap(lf[0], pts[0] - dirs[0] * 0.004, rigid, "skin")
+		skin.cap(lf[-1], pts[-1] + tip * radii[-1] * 0.5, rigid, "skin")
 
-	knuckle = w0 + d * 0.080
-	for off, lengths in ((0.029, (0.042, 0.034)), (0.010, (0.045, 0.036)),
-			(-0.009, (0.042, 0.034)), (-0.027, (0.035, 0.028))):
-		finger(knuckle + f * off, d, lengths, (math.radians(24), math.radians(58)), 0.0108)
-	thumb_base = w0 + d * 0.024 + f * 0.028 + palm_n * 0.011
-	thumb_dir = (d * 0.60 + f * 0.62 + palm_n * 0.30).normalized()
-	finger(thumb_base, thumb_dir, (0.038, 0.032), (math.radians(10), math.radians(35)), 0.0120)
+	def bend(direction, degrees):
+		a = math.radians(degrees)
+		return (direction * math.cos(a) + palm_n * math.sin(a)).normalized()
+
+	for i, (off, knuckle_t, fan, lengths, radius) in enumerate(FINGERS):
+		fan_r = math.radians(fan)
+		along = (d * math.cos(fan_r) + f * math.sin(fan_r)).normalized()
+		extra = CURL_LITTLE_EXTRA if i == len(FINGERS) - 1 else 0.0
+		c1 = CURL[0] + extra
+		c2 = c1 + CURL[1] + extra
+		c3 = c2 + CURL[2] + extra
+		# The finger starts inside the palm, under its knuckle, so the
+		# knuckle ring stands just proud of the back of the hand.
+		base = w0 + d * (knuckle_t - 0.014) + f * off + s * 0.002
+		digit(base, [bend(along, c1), bend(along, c2), bend(along, c3)], lengths, radius)
+
+	# The thumb: its metacarpal from the wrist's thumb side through the
+	# thenar pad, the phalanges lying along the index finger.
+	base = w0 + d * 0.014 + f * 0.022 + palm_n * 0.008
+	dirs = [
+		(d * 0.72 + f * 0.42 + palm_n * 0.40).normalized(),
+		(d * 0.86 + f * 0.10 + palm_n * 0.42).normalized(),
+		(d * 0.84 - f * 0.06 + palm_n * 0.52).normalized(),
+	]
+	digit(base, dirs, (0.046, 0.036, 0.029), 0.0135, taper=0.78)
 
 
 # ── neck, head and hair ───────────────────────────────────────────────
@@ -759,7 +838,9 @@ HEAD_PHASE = 0.5
 ## Build 8: the head and hair are scaled by this about HEAD_PIVOT after
 ## they're built (features and all), for the reference's bigger head. The
 ## pivot is under the jaw, so the neck's join doesn't move.
-HEAD_SCALE = 1.07
+## 2026-11-25: 1.10 (was 1.07): side by side, the reference's head is
+## still the bigger.
+HEAD_SCALE = 1.10
 HEAD_PIVOT = (0.007, 0.0, 1.900)
 
 
@@ -841,50 +922,7 @@ def build_neck_and_head(skin, hair):
 			return Vector((x, row[1] - row[2], z)), FORWARD
 		return hit + normal * lift, normal
 
-	# Nose: a faceted wedge off the face, bridge to tip. Build 8: a longer
-	# bridge, wider wings and a stronger tip, as the reference's.
-	top, _ = on_face(HEAD_X, 2.044, 0.0)
-	bl, _ = on_face(HEAD_X - 0.020, 1.978, 0.0)
-	br, _ = on_face(HEAD_X + 0.020, 1.978, 0.0)
-	tip_base, _ = on_face(HEAD_X, 1.986, 0.0)
-	tip = tip_base + FORWARD * 0.030 + Vector((0, 0, -0.004))
-	under = (bl + br) * 0.5 + FORWARD * 0.013 + Vector((0, 0, -0.006))
-	i_top, i_bl, i_br, i_tip, i_un = (skin.v(p, head_w) for p in (top, bl, br, tip, under))
-	nose_c = (top + bl + br) / 3.0
-	for tri in ((i_top, i_tip, i_bl), (i_top, i_br, i_tip), (i_bl, i_tip, i_un), (i_tip, i_br, i_un)):
-		skin.face(list(tri), "skin", (nose_c,))
-
-	# Eyes. Build 8: an almond of white with a dark iris on it, as the
-	# reference's open, level gaze; Build 7's were a dark almond only.
-	for ex in (-0.035, 0.035):
-		corners = []
-		for dx, dz in ((-0.0145, -0.0035), (0.0, -0.0068), (0.0145, -0.0015), (0.0, 0.0062)):
-			outer = 0.002 if dx * ex > 0 else 0.0
-			p, _ = on_face(HEAD_X + ex + dx, 2.022 + dz + outer, 0.0022)
-			corners.append(skin.v(p, head_w))
-		skin.face(corners, "eyewhite", FORWARD)
-		iris = []
-		for dx, dz in ((-0.0058, 0.0), (0.0, -0.0060), (0.0058, 0.0), (0.0, 0.0058)):
-			p, _ = on_face(HEAD_X + ex * 0.97 + dx, 2.0225 + dz, 0.0032)
-			iris.append(skin.v(p, head_w))
-		skin.face(iris, "eyes", FORWARD)
-
-	# Mouth: a short darker line.
-	corners = []
-	for dx, dz in ((-0.022, 0.0), (0.022, 0.0), (0.017, 0.0045), (-0.017, 0.0045)):
-		p, _ = on_face(HEAD_X + dx, 1.944 + dz, 0.0018)
-		corners.append(skin.v(p, head_w))
-	skin.face(corners, "mouth", FORWARD)
-
-	# Ears: small slabs, angled back.
-	for side in (-1.0, 1.0):
-		row = head_row(2.0)
-		cx = HEAD_X + side * (head_radius(0.0, row) - 0.004)
-		c = Vector((cx, row[1] + 0.014, 1.998))
-		ex_ = Vector((side * 0.015, 0.004, 0.0))
-		ey_ = Vector((0.0, 0.021, 0.004))
-		ez_ = Vector((0.0, -0.004, 0.029))
-		box(skin, c + ex_ * 0.5, ex_ * 0.5, ey_, ez_, head_w, "skin")
+	add_face(skin, on_face, head_w)
 
 	build_hair(hair, on_face)
 
@@ -895,6 +933,133 @@ def build_neck_and_head(skin, hair):
 	for i in range(len(hair.co)):
 		hair.co[i] = pv + (hair.co[i] - pv) * HEAD_SCALE
 
+
+## The face (2026-11-25, the same features as Build 6's rework; they
+## replaced a wedge nose, flat eye quads, a mouth line and box ears). Nose
+## rows, root to tip: (z, ridge depth off the face, half width at the
+## ridge's shoulders, half width at the base).
+NOSE = [
+	(2.046, 0.004, 0.006, 0.011),
+	(2.026, 0.011, 0.007, 0.013),
+	(2.006, 0.019, 0.008, 0.016),
+	(1.991, 0.027, 0.010, 0.021),   # the tip's top
+	(1.982, 0.029, 0.011, 0.023),   # the tip, the wings at their widest
+]
+NOSE_UNDER_Z = 1.974                # the columella's foot, under the tip
+EYE_X = 0.036                       # eye centre from the midline
+EYE_Z = 2.022
+MOUTH_Z = 1.946
+
+
+def add_face(skin, on_face, w):
+	"""Nose, brow ridge, eyes with lids, lips and ears on the head loft.
+	Every piece is a shallow shell standing off the face, its edges tucked
+	just under the surface, rigid to the head."""
+	F = FORWARD
+	hx = HEAD_X
+
+	# Nose: a five-column shell (base, shoulder, ridge, shoulder, base),
+	# closed underneath with a columella and the nostrils' floor.
+	cols = []
+	for z, depth, ridge_w, base_w in NOSE:
+		mid, _ = on_face(hx, z, 0.0)
+		row = []
+		for dx, dd in ((-base_w, -0.002), (-ridge_w, depth * 0.72), (0.0, depth), (ridge_w, depth * 0.72), (base_w, -0.002)):
+			p, _ = on_face(hx + dx, z, 0.0)
+			y = mid.y - dd if abs(dx) < base_w else p.y + 0.002
+			row.append(skin.v(Vector((p.x, y, z)), w))
+		cols.append(row)
+	nose_c = Vector((hx, on_face(hx, 2.0, 0.0)[0].y + 0.02, 2.0))
+	for a, b in zip(cols, cols[1:]):
+		for i in range(4):
+			skin.face([a[i], a[i + 1], b[i + 1], b[i]], "skin", (nose_c,))
+	mid, _ = on_face(hx, NOSE_UNDER_Z, 0.0)
+	under = [skin.v(Vector((hx + dx, mid.y - dd, NOSE_UNDER_Z)), w)
+		for dx, dd in ((-0.019, 0.004), (-0.008, 0.012), (0.0, 0.016), (0.008, 0.012), (0.019, 0.004))]
+	for i in range(4):
+		skin.face([cols[-1][i], cols[-1][i + 1], under[i + 1], under[i]], "skin", (nose_c,))
+	back = [skin.v(on_face(hx + dx, NOSE_UNDER_Z + 0.001, -0.002)[0], w) for dx in (-0.019, -0.008, 0.0, 0.008, 0.019)]
+	for i in range(4):
+		skin.face([under[i], under[i + 1], back[i + 1], back[i]], "skin", Vector((0, 0, -1)))
+
+	for side in (-1.0, 1.0):
+		ex = hx + side * EYE_X
+		# Brow ridge: a low wedge over the eye, highest over its outer half,
+		# so the eye sits back under it.
+		brow = []
+		for dx, dz, lift in ((-0.022, 0.016, 0.001), (-0.008, 0.020, 0.005), (0.008, 0.021, 0.006), (0.022, 0.017, 0.004)):
+			p, _ = on_face(ex + side * dx, EYE_Z + dz, lift)
+			q, _ = on_face(ex + side * dx, EYE_Z + dz + 0.012, -0.001)
+			r, _ = on_face(ex + side * dx, EYE_Z + dz - 0.007, -0.001)
+			brow.append((skin.v(q, w), skin.v(p, w), skin.v(r, w)))
+		bc = Vector((ex, on_face(ex, EYE_Z + 0.02, 0.0)[0].y + 0.01, EYE_Z + 0.02))
+		for a, b in zip(brow, brow[1:]):
+			skin.face([a[0], b[0], b[1], a[1]], "skin", (bc,))
+			skin.face([a[1], b[1], b[2], a[2]], "skin", (bc,))
+		# The eye: an almond of white, an iris, an upper lid over its top
+		# edge and a thin lower lid.
+		almond = [(-0.0150, -0.0008), (-0.0070, -0.0050), (0.0040, -0.0054), (0.0150, 0.0004),
+			(0.0060, 0.0054), (-0.0060, 0.0056)]
+		skin.face([skin.v(on_face(ex + side * dx, EYE_Z + dz, 0.0010)[0], w) for dx, dz in almond], "eyewhite", F)
+		iris = []
+		for k in range(6):
+			a = 2.0 * math.pi * k / 6.0
+			iris.append(skin.v(on_face(ex + side * 0.0006 + math.cos(a) * 0.0060, EYE_Z + math.sin(a) * 0.0050, 0.0018)[0], w))
+		skin.face(iris, "eyes", F)
+		lid_lo, lid_hi = [], []
+		for dx, dz in ((-0.0165, 0.0005), (-0.006, 0.0068), (0.006, 0.0066), (0.0165, 0.0012)):
+			lid_lo.append(skin.v(on_face(ex + side * dx, EYE_Z + dz, 0.0036)[0], w))
+			lid_hi.append(skin.v(on_face(ex + side * dx, EYE_Z + dz + 0.0065, 0.0004)[0], w))
+		for i in range(3):
+			skin.face([lid_lo[i], lid_lo[i + 1], lid_hi[i + 1], lid_hi[i]], "skin", (bc,))
+		low_a, low_b = [], []
+		for dx, dz in ((-0.014, -0.0020), (-0.005, -0.0068), (0.006, -0.0070), (0.0150, -0.0010)):
+			low_a.append(skin.v(on_face(ex + side * dx, EYE_Z + dz, 0.0016)[0], w))
+			low_b.append(skin.v(on_face(ex + side * dx, EYE_Z + dz - 0.004, -0.0004)[0], w))
+		for i in range(3):
+			skin.face([low_a[i], low_a[i + 1], low_b[i + 1], low_b[i]], "skin", F)
+
+	# Lips: an upper lip with a cupid's bow, a fuller lower lip, the mouth's
+	# line between them.
+	xs = (-0.024, -0.012, -0.004, 0.0, 0.004, 0.012, 0.024)
+	rows = [[], [], [], [], []]
+	for x in xs:
+		bow = 0.0016 if abs(x) == 0.004 else 0.0
+		corner = abs(x) > 0.02
+		rows[0].append(skin.v(on_face(hx + x, MOUTH_Z + 0.0085 + bow, -0.0005)[0], w))
+		rows[1].append(skin.v(on_face(hx + x, MOUTH_Z + 0.0035, 0.0005 if corner else 0.0028)[0], w))
+		rows[2].append(skin.v(on_face(hx + x, MOUTH_Z, 0.0002 if corner else 0.0014)[0], w))
+		rows[3].append(skin.v(on_face(hx + x * 0.92, MOUTH_Z - 0.0045, 0.0005 if corner else 0.0034)[0], w))
+		rows[4].append(skin.v(on_face(hx + x * 0.85, MOUTH_Z - 0.0105, -0.0005)[0], w))
+	for r0, r1 in zip(rows, rows[1:]):
+		for i in range(len(xs) - 1):
+			skin.face([r0[i], r0[i + 1], r1[i + 1], r1[i]], "mouth", F)
+
+	# Ears: a C-shaped rim round an inner bowl, angled back off the head.
+	for side in (-1.0, 1.0):
+		row = head_row(2.0)
+		root = Vector((hx + side * (head_radius(0.0, row) - 0.006), row[1] + 0.012, 2.000))
+		out = Vector((side, 0.32, 0.0)).normalized()
+		up = Vector((0.0, 0.18, 1.0)).normalized()
+		back = up.cross(out).normalized()
+		if back.y < 0.0:
+			back = -back
+		rim, bowl, plate = [], [], []
+		for k in range(10):
+			a = 2.0 * math.pi * k / 10.0
+			hz = 0.031 if math.sin(a) > 0 else 0.026
+			hy = 0.019 if math.sin(a) > 0 else 0.014
+			e = up * (math.sin(a) * hz) + back * (math.cos(a) * hy)
+			rim.append(skin.v(root + e + out * 0.016, w))
+			bowl.append(skin.v(root + e * 0.55 + out * 0.010, w))
+			plate.append(skin.v(root + e * 0.85, w))
+		for k in range(10):
+			j = (k + 1) % 10
+			skin.face([rim[k], rim[j], bowl[j], bowl[k]], "skin", out)
+			skin.face([plate[k], plate[j], rim[j], rim[k]], "skin", (root + out * 0.008,))
+		centre = skin.v(root + out * 0.004, w)
+		for k in range(10):
+			skin.face([bowl[k], bowl[(k + 1) % 10], centre], "skin", out)
 
 ## Hairline height by angle round the head (theta as head_point: 0 the left
 ## side, 90 the front, 270 the back): a straight front edge, a little
@@ -947,7 +1112,9 @@ def build_hair(hair, on_face):
 				# on top, most of it at the front.
 				# At least 7 mm: thinner, the 16-sided skull's corners came
 				# through between the hair's 20 at the nape.
-				g = 0.007 + 0.005 * u + (0.012 + 0.016 * front) * u * u
+				# 2026-11-25: a fuller top again (the reference's thick,
+				# textured crop): +12 mm on top, +6 at the front.
+				g = 0.007 + 0.005 * u + (0.024 + 0.022 * front) * u * u
 				# Fullness over the temples and the top of the sides, so
 				# from the front the hair is as broad as the head rather
 				# than a narrow dome.
@@ -961,7 +1128,7 @@ def build_hair(hair, on_face):
 				p.z += (0.002 + 0.010 * front) * u * u
 				p.x -= 0.014 * u * u * front
 				if u >= 0.45 and i % 2:
-					p.z += 0.006 * front   # chunky strands along the front
+					p.z += 0.010 * (0.4 + 0.6 * front)   # chunky strands, all over the top
 			pts.append(p)
 		hair_rings.append(hair.ring(pts, head_w))
 	hc = Vector((HEAD_X, 0.0, 2.05))
@@ -1471,11 +1638,13 @@ def build_shorts(shorts):
 ## A low cut, like a real football boot: the collar sits just under the
 ## ankle, so a pointed foot (the tackled clip points it to 5° off the
 ## shin) has a short lever to wrench the collar round the sock.
+## 2026-11-25: the heel and ankle rows ~1 cm taller (the reference's boots
+## have a high collar and a deep heel), the sole thicker (SOLE).
 BOOT = [
-	(0.078, 0.028, 0.105, 0.020),
-	(0.062, 0.046, 0.128, 0.014),
-	(0.020, 0.054, 0.132, 0.012),
-	(-0.030, 0.054, 0.124, 0.012),
+	(0.078, 0.028, 0.114, 0.020),
+	(0.062, 0.046, 0.138, 0.014),
+	(0.020, 0.054, 0.142, 0.012),
+	(-0.030, 0.054, 0.132, 0.012),
 	(-0.090, 0.051, 0.100, 0.012),
 	(-0.150, 0.054, 0.086, 0.012),
 	(-0.210, 0.055, 0.076, 0.012),
@@ -1483,7 +1652,19 @@ BOOT = [
 	(-0.310, 0.041, 0.056, 0.020),
 	(-0.334, 0.026, 0.046, 0.028),
 ]
-SOLE = 0.018
+SOLE = 0.022
+
+
+## 2026-11-25: BOOT's toe runs 0.36 m in front of the ankle, a 0.41 m boot
+## where a real one on this 2.15 m rig is ~0.31-0.34; side on, the boots
+## read as flippers next to the reference's. Everything in front of the
+## ankle is pulled in by this (the studs too). Gameplay's BootPoint comes
+## from the skeleton, not the mesh.
+BOOT_FRONT_SCALE = 0.80
+
+
+def boot_y(y, ankle_y):
+	return ankle_y + (y - ankle_y) * BOOT_FRONT_SCALE if y < ankle_y else y
 
 
 def build_boots(boots):
@@ -1498,6 +1679,7 @@ def build_boots(boots):
 
 		rings = []
 		for y, w, zt, zs in BOOT:
+			y = boot_y(y, a0.y)
 			prof = [
 				(-w, zs), (-w, zs + SOLE), (-w * 0.98, zs + (zt - zs) * 0.45), (-w * 0.74, zt - 0.014),
 				(-w * 0.28, zt), (w * 0.28, zt), (w * 0.74, zt - 0.014), (w * 0.98, zs + (zt - zs) * 0.45),
@@ -1518,7 +1700,7 @@ def build_boots(boots):
 		# Studs: six hex frustums, four under the forefoot, two at the heel.
 		for sx, sy in ((-0.030, -0.205), (0.030, -0.205), (-0.028, -0.268), (0.028, -0.268),
 				(-0.022, 0.032), (0.022, 0.032)):
-			c = Vector((x0 + sx, sy, 0.0))
+			c = Vector((x0 + sx, boot_y(sy, a0.y), 0.0))
 			top = boots.ring([c + Vector((math.cos(k * math.pi / 3) * 0.0095, math.sin(k * math.pi / 3) * 0.0095, 0.013)) for k in range(6)], {ft: 1.0})
 			bot = boots.ring([c + Vector((math.cos(k * math.pi / 3) * 0.0062, math.sin(k * math.pi / 3) * 0.0062, 0.0)) for k in range(6)], {ft: 1.0})
 			boots.bridge(top, bot, "studs", c + Vector((0, 0, 0.013)), c)

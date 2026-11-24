@@ -263,3 +263,14 @@ Pick `6THBUILD` on the CHARACTER screen's MODEL row.
 - [ ] **Goal tails:** in highlight.mp4 each goal now runs ~1 s longer after the score (the celebration isn't cut).
 - [ ] **Match zoom:** pregame and pause CAMERA ZOOM go from WIDE 60% (50% min) to TIGHT 250% (300% max) and agree with each other; Enter in the pause menu jumps between the named presets. On Full-Side the far wing no longer shrinks players to dots: say if the far side is now too tight to see team-mates (`CAM_FULL_SIDE_MIN_SUBJECT`).
 - [ ] **3rd person at 300%:** the camera stops 2.2 m behind you (`CAM_CHASE_MIN_ARM`); say if that's too close.
+- [ ] **Ranking by camera (2026-11-25):** on the Highlights page each row shows `CAM nn` after a few seconds and the list re-sorts; the card explains the rank. Say if the order feels wrong (a clear close moment below a distant one), or the re-sort while you're browsing is annoying. Weights are `SIZE_POINTS` etc. in `highlight_visibility.gd`, `RANK_FLOOR` how much the camera can cost a moment.
+
+## Build 8 side-by-side pass (2026-11-25, docs/BUILD8_MODEL.md)
+
+Pick `8THBUILD`. Compare with `docs/review/8thbuild/turnaround_vs_build8.png`.
+
+- [ ] **Hands and face** close up on the CHARACTER screen: real fingers, a nose, lidded eyes, lips, ears.
+- [ ] **Idle:** arms straight down, standing tall; the bigger deltoids don't catch the guernsey's armhole.
+- [ ] **Socks and boots:** sock top below the calf with the band under it; shorter boots with a high collar. Say if the boots now look too short in a kick.
+- [ ] **Smother dive:** one sock vertex can show ~7 mm through the boot for a frame.
+
