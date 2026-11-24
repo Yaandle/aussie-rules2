@@ -86,6 +86,18 @@ IDLE = [
 	("armhole", "idle", 1, 60.0, 1.66, 0.50),
 	("thighs", "idle", 1, 20.0, 0.80, 0.70),
 ]
+## Arms, shoulders and elbows close, in the idle and two bent-elbow
+## frames, for the 2026-11-25 arm pass. --arms.
+ARMS = [
+	("arm front", "idle", 1, 0.0, "upperarm.l", 0.5, 0.75),
+	("arm side", "idle", 1, 90.0, "upperarm.l", 0.5, 0.75),
+	("arm back", "idle", 1, 180.0, "upperarm.l", 0.5, 0.75),
+	("arm 3/4", "idle", 1, 40.0, "upperarm.l", 0.5, 0.75),
+	("elbow run", "run_fwd", 9, 90.0, "lowerarm.l", 0.0, 0.45),
+	("elbow run front", "run_fwd", 9, 20.0, "lowerarm.l", 0.0, 0.45),
+	("elbow handball", "handball", 3, 60.0, "lowerarm.r", 0.0, 0.45),
+	("side body", "idle", 1, 90.0, "spine1", 0.0, 1.9),
+]
 POSES = [
 	("run knee", "run_fwd", 7, 70.0, False),
 	("kick", "kick", 11, 25.0, False),
@@ -259,6 +271,8 @@ def main():
 		shots = CLOSE
 	elif "--audit" in argv:
 		shots = AUDIT
+	elif "--arms" in argv:
+		shots = ARMS
 	elif "--idle" in argv:
 		shots = IDLE
 	else:

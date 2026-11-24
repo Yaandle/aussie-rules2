@@ -103,6 +103,33 @@ shell under the strap is reported as hidden. Close-ups of the worst frames:
 head and arms hanging close to the body. Limb lengths are the skeleton's,
 and the idle clip hangs the arms out a little; neither changed.
 
+## Arms, shoulders and side-on pass (2026-11-25)
+
+Playtest: the side-on view looked awkward and the elbows weren't smooth.
+`blender ... render_8thbuild_review.py -- OUT.png --arms` is the sheet for
+this (the idle arm from four sides, two bent elbows, the body side on).
+
+- **Elbows.** A ring either side of the elbow's pivot ring, the ARM_BULK'd
+  rings next to it stepped down (they were 1.45x the elbow's width, a
+  pinch that read as a hinge), the olecranon no fuller than the sides, and
+  a wider weight blend (E - 0.07 to E + 0.06). A run or handball bend now
+  rounds over five rings instead of folding to a point behind.
+- **Deltoid.** The cap's top over the joint is smaller, so the bulk sits on
+  the side of the arm under the strap rather than standing above the
+  shoulder line.
+- **Side on.** The chest ~1.4 cm and upper back ~1 cm deeper, the neck
+  deeper front to back, the thighs and calves deeper. The idle's wrist
+  hangs half a centimetre behind the shoulder joint (it was 2.2 cm in
+  front) and each hand turns 40 degrees about its own axis
+  (`author_6thbuild_idle.WRIST_TWIST`), so side on the arm hangs down the
+  middle of the torso with the palm toward the thigh. It used to hang at
+  the chest's front edge, the palm forward and the fingers curling ahead.
+- **Boots** `BOOT_FRONT_SCALE` 0.72 (~0.32 m long).
+
+`check_8thbuild_deform.py` prints the same as after the side-by-side
+pass. `author_6thbuild_idle.py` is shared with Build 6: Build 6's idle
+gets the same arm and wrist the next time it's authored and exported.
+
 ## Side-by-side pass (2026-11-25)
 
 Matched again against the turnaround, side by side in the game's renderer

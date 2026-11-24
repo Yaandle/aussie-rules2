@@ -21,18 +21,23 @@ The upper arm still turns well inside PhysicsRagdoll.BODIES' 75° swing.
 Unplaytested feel numbers.
 """
 
+import math
 import os
 import sys
 
 import bpy
-from mathutils import Vector
+from mathutils import Quaternion, Vector
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import author_7thbuild_idle as I  # noqa: E402
 import author_6thbuild_clips as A  # noqa: E402
 
-## Wrist from its own shoulder joint (m): out, forward, down.
-I.HAND = (0.042, 0.022, 0.641)
+## Wrist from its own shoulder joint (m): out, forward, down. 2026-11-25:
+## the wrist hangs ~half a centimetre behind the shoulder joint (it was 2.2
+## cm in front): side on, the reference's arm hangs down the middle of the
+## torso, the hand beside the thigh's midline, and Build 8's hung at the
+## chest's front edge with the hand ahead of the shorts.
+I.HAND = (0.040, -0.004, 0.642)
 ## Elbow pole: straight back, so the small bend points behind.
 I.ELBOW = (0.15, -1.0, -0.1)
 ## The clavicles sit a little lower, as hanging arms pull them.
@@ -66,6 +71,20 @@ def _base_pelvis_world():
 	return G @ loc
 
 
+## Turns each hand about its own long axis, degrees, palm toward the
+## thigh. The arm's swing down from the A-pose leaves the palm facing
+## forward, fingers curling ahead of the body side on (2026-11-25); a
+## hanging hand's palm faces the thigh. Positive turns the left palm in;
+## the right is mirrored. Unplaytested look.
+WRIST_TWIST = 40.0
+
+
+def _wrist(side, deg):
+	b = bpy.data.objects[A.ARMATURE].data.bones["hand." + side]
+	axis = (b.tail_local - b.head_local).normalized()
+	return Quaternion(axis, math.radians(deg if side == "l" else -deg))
+
+
 _inherited_pose_spec = I.pose_spec
 
 
@@ -76,6 +95,9 @@ def pose_spec(phase):
 	spec = _inherited_pose_spec(phase)
 	lift = HIPS_ABOVE_REST - _base_drop.z
 	spec["pelvis"]["pos"] = spec["pelvis"]["pos"] + A.P(0.0, 0.0, lift)
+	if WRIST_TWIST:
+		spec["wrist_l"] = _wrist("l", WRIST_TWIST)
+		spec["wrist_r"] = _wrist("r", WRIST_TWIST)
 	return spec
 
 

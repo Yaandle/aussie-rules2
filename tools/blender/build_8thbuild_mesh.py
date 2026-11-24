@@ -479,9 +479,11 @@ def thigh_table(K):
 		# The ring just under the hem stays at the first 2026-11-25 size:
 		# fuller there, the thigh crossed the shorts' hem in every bent-hip
 		# clip (bounce, kick, marks).
-		(0.295, P(0.093, 0.090, 0.104, 0.094, ((50, 40, 0.007), (270, 35, 0.005)))),
-		(0.370, P(0.090, 0.094, 0.098, 0.087, ((135, 30, 0.012), (40, 35, 0.007)))),
-		(0.428, P(0.074, 0.086, 0.080, 0.072, ((140, 28, 0.011),))),
+		(0.295, P(0.093, 0.090, 0.109, 0.099, ((50, 40, 0.007), (270, 35, 0.006)))),
+		# Side on (2026-11-25): deeper front to back, the quads in front
+		# and the hamstrings behind.
+		(0.370, P(0.090, 0.094, 0.106, 0.095, ((135, 30, 0.012), (40, 35, 0.007), (270, 40, 0.006)))),
+		(0.428, P(0.074, 0.086, 0.086, 0.078, ((140, 28, 0.011),))),
 		(K - 0.020, P(0.063, 0.066, 0.068, 0.061)),
 		# Knee: the kneecap's flat front, the hamstring tendons either side
 		# behind.
@@ -493,11 +495,11 @@ def thigh_table(K):
 		# lower one, both bulging behind.
 		# 2026-11-25: fuller calves behind and inside, the reference's
 		# diamond, ~10% more at the back.
-		(K + 0.105, P(0.074, 0.082, 0.062, 0.100, ((235, 30, 0.010), (305, 30, 0.005)))),
-		(K + 0.150, P(0.077, 0.086, 0.064, 0.104, ((235, 30, 0.012), (305, 30, 0.005)))),
+		(K + 0.105, P(0.074, 0.082, 0.062, 0.108, ((235, 30, 0.011), (305, 30, 0.006)))),
+		(K + 0.150, P(0.077, 0.086, 0.064, 0.114, ((235, 30, 0.013), (305, 30, 0.006)))),
 		# 2026-11-25: the sock now starts lower (sock_table), so the calf's
 		# lower half and the start of the Achilles taper are skin too.
-		(K + 0.205, P(0.073, 0.081, 0.061, 0.096, ((235, 30, 0.008),))),
+		(K + 0.205, P(0.073, 0.081, 0.061, 0.103, ((235, 30, 0.009),))),
 		(K + 0.250, P(0.064, 0.070, 0.057, 0.080)),
 	]
 
@@ -607,7 +609,7 @@ def build_arms(skin):
 
 		def arm_w(t):
 			if t < E + 0.06:
-				return blend(ua, la, ramp(t, E - 0.05, E + 0.04))
+				return blend(ua, la, ramp(t, E - 0.07, E + 0.06))
 			return blend(la, hd, ramp(t, W - 0.03, W + 0.05) * 0.5)
 
 		# A lean AFL player's arm (about 186 cm and 84 kg is the league's
@@ -627,8 +629,11 @@ def build_arms(skin):
 			# inner side tucked under the strap and the armhole. Then a
 			# straight taper to its insertion, a step in to the biceps.
 			(-0.062, P(0.020, 0.020, 0.020, 0.020)),
-			(-0.050, P(0.046, 0.040, 0.044, 0.044)),
-			(-0.030, P(0.066, 0.054, 0.062, 0.062)),
+			# 2026-11-25: the cap's top over the joint is smaller, so the
+			# deltoid's bulk sits on the arm's side under the strap rather
+			# than standing above the shoulder line as a block.
+			(-0.050, P(0.040, 0.036, 0.040, 0.040)),
+			(-0.030, P(0.060, 0.050, 0.058, 0.058)),
 			# 2026-11-25: the cap ~7% fuller out and in front (the
 			# reference's round, heavy deltoids).
 			(-0.006, P(0.088, 0.060, 0.080, 0.077, ((0, 50, 0.006),))),
@@ -643,9 +648,19 @@ def build_arms(skin):
 			# Biceps in front and triceps behind, narrower seen from the
 			# front than the deltoid, so the upper arm tapers from it.
 			(0.220, P(0.049, 0.047, 0.068, 0.064, ((90, 35, 0.006), (270, 35, 0.005)))),
-			(E - 0.044, P(0.047, 0.045, 0.050, 0.051)),
-			(E, P(0.042, 0.041, 0.042, 0.048)),           # elbow, olecranon behind
-			(E + 0.040, P(0.048, 0.044, 0.048, 0.046)),
+			# 2026-11-25: a ring either side of the elbow's pivot ring and
+			# a wider blend (arm_w), so a bend turns over five rings instead
+			# of three: it rounds instead of folding to a point behind.
+			# The rings either side step down to the elbow gradually (the
+			# ARM_BULK'd rings at E -/+ 0.044/0.040 were 1.45x the elbow's
+			# width, a pinch that read as a hinge), and the olecranon is no
+			# fuller than the sides, so a bent elbow rounds instead of
+			# coming to a point behind.
+			(E - 0.044, P(0.040, 0.038, 0.044, 0.044)),
+			(E - 0.022, P(0.044, 0.042, 0.045, 0.046)),
+			(E, P(0.043, 0.041, 0.040, 0.045)),           # elbow, olecranon behind
+			(E + 0.020, P(0.045, 0.042, 0.044, 0.045)),
+			(E + 0.040, P(0.040, 0.037, 0.040, 0.038)),
 			# Forearm: the brachioradialis bulge out-front below the elbow,
 			# then a straight taper to the wrist.
 			(E + 0.090, P(0.055, 0.046, 0.053, 0.045, ((45, 40, 0.006),))),
@@ -662,7 +677,7 @@ def build_arms(skin):
 			# Build 8: the reference's thicker biceps and forearms. The
 			# elbow and the deltoid's top, under the guernsey's cap, stay
 			# as they are.
-			k = ARM_BULK if 0.10 < t < W - 0.03 and abs(t - E) > 0.02 else 1.0
+			k = ARM_BULK if 0.10 < t < W - 0.03 and abs(t - E) > 0.03 else 1.0
 			if k != 1.0:
 				prof = dict(prof, out=prof["out"] * k, **{"in": prof["in"] * k},
 					front=prof["front"] * k, back=prof["back"] * k)
@@ -881,10 +896,13 @@ def build_neck_and_head(skin, hair):
 		(1.730, P(0.064, 0.064, 0.060, 0.068)),
 		# Build 8 (third pass): thicker through the base, toward the
 		# turnaround's neck, which runs into the trapezius.
-		(1.800, P(0.074, 0.074, 0.064, 0.071)),
-		(1.850, P(0.073, 0.073, 0.062, 0.069)),
-		(1.890, P(0.067, 0.067, 0.056, 0.071)),
-		(1.928, P(0.057, 0.057, 0.048, 0.063)),
+		# 2026-11-25 (side on): deeper front to back, the reference's
+		# neck runs from the traps to the jaw as one thick column; side on
+		# it was a thin stalk under an overhanging skull.
+		(1.800, P(0.074, 0.074, 0.072, 0.077)),
+		(1.850, P(0.073, 0.073, 0.070, 0.075)),
+		(1.890, P(0.067, 0.067, 0.064, 0.075)),
+		(1.928, P(0.058, 0.058, 0.054, 0.067)),
 	]
 	ny = COLLAR_Y
 
@@ -1214,15 +1232,18 @@ GUERNSEY = [
 	(1.178, 0.231, 0.137, 0.152, 2.6, ()),
 	(1.235, 0.222, 0.130, 0.143, 2.5, ()),     # over the shorts' waistband
 	(1.310, 0.213, 0.122, 0.129, 2.4, ()),
-	(1.400, 0.209, 0.118, 0.121, 2.4, ()),
-	(1.480, 0.211, 0.117, 0.118, 2.4, ()),
-	(1.550, 0.220, 0.116, 0.115, 2.5, LATS),
-	(1.610, 0.232, 0.121, 0.118, 2.6, LATS + PECS),   # the armpit
-	(1.665, 0.236, 0.123, 0.117, 2.7, PECS + BLADES),
+	(1.400, 0.209, 0.120, 0.123, 2.4, ()),
+	# 2026-11-25 (side on): ~1.4 cm deeper through the chest and ~1 cm
+	# through the upper back, the reference's barrel; side on the arm hung
+	# at the chest's front edge, now it hangs mid-torso.
+	(1.480, 0.211, 0.124, 0.124, 2.4, ()),
+	(1.550, 0.220, 0.128, 0.124, 2.5, LATS),
+	(1.610, 0.232, 0.135, 0.128, 2.6, LATS + PECS),   # the armpit
+	(1.665, 0.236, 0.137, 0.127, 2.7, PECS + BLADES),
 	# The armhole's side wall: straight up from the armpit, the arm in front
 	# of it from the side.
-	(1.712, 0.232, 0.115, 0.110, 2.8, BLADES),
-	(1.752, 0.224, 0.102, 0.099, 2.8, ()),
+	(1.712, 0.232, 0.127, 0.119, 2.8, BLADES),
+	(1.752, 0.224, 0.110, 0.106, 2.8, ()),
 	(1.790, 0.208, 0.088, 0.090, 2.6, ()),     # the strap's end, on the deltoid's top
 	(1.814, 0.170, 0.080, 0.084, 2.4, ()),     # trapezius slope
 	(1.832, 0.128, 0.074, 0.080, 2.2, ()),
@@ -1658,9 +1679,10 @@ SOLE = 0.022
 ## 2026-11-25: BOOT's toe runs 0.36 m in front of the ankle, a 0.41 m boot
 ## where a real one on this 2.15 m rig is ~0.31-0.34; side on, the boots
 ## read as flippers next to the reference's. Everything in front of the
-## ankle is pulled in by this (the studs too). Gameplay's BootPoint comes
-## from the skeleton, not the mesh.
-BOOT_FRONT_SCALE = 0.80
+## ankle is pulled in by this (the studs too): 0.80 first, then 0.72 (~0.32
+## m) after the side-on comparison. Gameplay's BootPoint comes from the
+## skeleton, not the mesh.
+BOOT_FRONT_SCALE = 0.72
 
 
 def boot_y(y, ankle_y):
