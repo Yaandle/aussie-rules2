@@ -39,6 +39,8 @@ const COLUMN_WIDTH := 380.0
 const ENTRY_HEIGHT := 60.0
 const VIEW_SIZE := Vector2(1280.0, 720.0)
 const SPEEDS := [1.0, 0.5, 0.25]
+## The ranking pass's share of a frame, µs (HighlightVisibility.step).
+const VISIBILITY_BUDGET_USEC := 4000
 ## A beat on the last frame before the loop starts again.
 const LOOP_HOLD := 1.0
 ## Trigger travel that counts as a press (LT/RT step the replay).
@@ -112,6 +114,12 @@ var _empty_card: PanelContainer
 var _overlay: Control
 var _ui_root: Control
 var _dialog: HighlightExportDialog
+## The ranking pass (HighlightVisibility): measures each moment's camera a
+## few milliseconds a frame after the page opens, then re-sorts the list by
+## rank_score. Again for one moment after its camera changes, and for all
+## after the export window's framing changes.
+var _visibility: HighlightVisibility
+var _measured_framing := ""
 
 # MATCH view (see the header). The full recording is loaded on first use
 # (~100 MB) and kept while the screen is open.
@@ -135,13 +143,22 @@ func _ready() -> void:
 	_exporter.stage = _stage
 	add_child(_exporter)
 	_exporter.progress.connect(_on_export_progress)
+	_visibility = HighlightVisibility.new()
+	add_child(_visibility)
+	_visibility.setup(_stage.field())
 	_build_ui()
 	_apply_filter()
+	_measure_all()
 
 
 func _process(delta: float) -> void:
 	if _exporter.busy:
 		return
+	if _visibility.pending() > 0:
+		if _visibility.step(VISIBILITY_BUDGET_USEC):
+			_reorder()
+		else:
+			_refresh()
 	if _match_mode:
 		if _playing:
 			_match_t = minf(_match_t + delta * float(SPEEDS[_speed_index]), _match_duration())
@@ -524,10 +541,17 @@ func _cycle_camera(step: int) -> void:
 					m["camera"] = next
 		else:
 			HighlightPrefs.set_match_camera(next)
+		if _match_stretch >= 0:
+			for m in _moments:
+				if m.get("id") == _plan.stretches[_match_stretch].id:
+					_visibility.measure_now(m)
+			_reorder()
 		_rebuild_plan()
 		_show_match(true)
 		return
 	_moments[_index].camera = presets[posmod(i + step, presets.size())]
+	_visibility.measure_now(_moments[_index])
+	_reorder()
 	_show_frame(true)
 
 
@@ -545,7 +569,7 @@ func _export() -> void:
 	_dialog = HighlightExportDialog.new(_moments)
 	_dialog.export_requested.connect(_run_export)
 	_dialog.cancel_requested.connect(_exporter.cancel)
-	_dialog.closed.connect(_apply_filter)
+	_dialog.closed.connect(_on_dialog_closed)
 	_ui_root.add_child(_dialog)
 
 
@@ -672,25 +696,7 @@ func _build_ui() -> void:
 		_type_labels.append(chip_text)
 
 	_moments_head = _section(_list, "MOMENTS")
-	for i in _moments.size():
-		var moment := _moments[i]
-		var panel := Panel.new()
-		panel.custom_minimum_size = Vector2(0.0, ENTRY_HEIGHT)
-		panel.mouse_filter = Control.MOUSE_FILTER_STOP
-		panel.gui_input.connect(_on_entry_input.bind(i))
-		var title := StudioStyle.text("", 14, StudioStyle.INK, StudioStyle.body_font())
-		title.position = Vector2(12.0, 8.0)
-		panel.add_child(title)
-		var caption := StudioStyle.text(String(moment.caption), 11, StudioStyle.INK_SOFT, StudioStyle.body_font())
-		caption.position = Vector2(12.0, 32.0)
-		caption.size = Vector2(COLUMN_WIDTH - 60.0, 18.0)
-		caption.clip_text = true
-		caption.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-		panel.add_child(caption)
-		_list.add_child(panel)
-		_entry_panels.append(panel)
-		_entry_titles.append(title)
-		_entry_captions.append(caption)
+	_build_entries()
 
 	_section(_list, "EXPORT")
 	_kept_label = StudioStyle.text("", 12, StudioStyle.INK, StudioStyle.body_font())
@@ -797,6 +803,76 @@ func _build_ui() -> void:
 
 ## The replay fills the space right of the column; the portrait preview is
 ## a 9:16 window centred in it.
+## The moment rows, in list order, right under the MOMENTS heading; again
+## whenever the ranking re-sorts the list.
+func _build_entries() -> void:
+	for panel in _entry_panels:
+		_list.remove_child(panel)
+		panel.queue_free()
+	_entry_panels.clear()
+	_entry_titles.clear()
+	_entry_captions.clear()
+	var at := _moments_head.get_index() + 1
+	for i in _moments.size():
+		var moment := _moments[i]
+		var panel := Panel.new()
+		panel.custom_minimum_size = Vector2(0.0, ENTRY_HEIGHT)
+		panel.mouse_filter = Control.MOUSE_FILTER_STOP
+		panel.gui_input.connect(_on_entry_input.bind(i))
+		var title := StudioStyle.text("", 14, StudioStyle.INK, StudioStyle.body_font())
+		title.position = Vector2(12.0, 8.0)
+		panel.add_child(title)
+		var caption := StudioStyle.text(String(moment.caption), 11, StudioStyle.INK_SOFT, StudioStyle.body_font())
+		caption.position = Vector2(12.0, 32.0)
+		caption.size = Vector2(COLUMN_WIDTH - 60.0, 18.0)
+		caption.clip_text = true
+		caption.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		panel.add_child(caption)
+		_list.add_child(panel)
+		_list.move_child(panel, at + i)
+		_entry_panels.append(panel)
+		_entry_titles.append(title)
+		_entry_captions.append(caption)
+
+
+## Measures every moment's camera from scratch (the page opening, or the
+## framing changed in the export window).
+func _measure_all() -> void:
+	_measured_framing = HighlightPrefs.framing()
+	_visibility.start(_moments)
+
+
+## After a measurement: re-sorts by rank_score, rebuilds the rows and the
+## timeline's index map, and keeps the same moment selected (the replay
+## isn't reloaded: it's the same clip).
+func _reorder() -> void:
+	var selected: Dictionary = _moments[_index] if _index >= 0 and _index < _moments.size() else {}
+	Highlights.rerank()
+	_build_entries()
+	_index = _moments.find(selected) if not selected.is_empty() else _index
+	if _full != null and _cut != null:
+		_moment_video.clear()
+		for i in _moments.size():
+			var m := _moments[i]
+			if m.has("match_from"):
+				_moment_video[i] = {"from": int(_cut.video_frame(int(m.match_from)).frame),
+					"to": int(_cut.video_frame(int(m.match_to)).frame),
+					"frame": int(_cut.video_frame(int(m.match_frame)).frame)}
+	for i in _entry_panels.size():
+		_entry_panels[i].visible = _shown(i)
+	if _match_mode:
+		_rebuild_plan()
+		_refresh_timeline()
+	_refresh()
+	_scroll_to(_index)
+
+
+func _on_dialog_closed() -> void:
+	if HighlightPrefs.framing() != _measured_framing:
+		_measure_all()
+	_apply_filter()
+
+
 func _layout_view() -> void:
 	var area := Rect2(Vector2(COLUMN_WIDTH, StudioStyle.HEADER_HEIGHT),
 		Vector2(VIEW_SIZE.x - COLUMN_WIDTH, VIEW_SIZE.y - StudioStyle.HEADER_HEIGHT))
@@ -867,12 +943,15 @@ func _refresh() -> void:
 		_entry_panels[i].add_theme_stylebox_override(&"panel",
 			StudioStyle.box(StudioStyle.INK if picked else StudioStyle.WHITE, StudioStyle.BORDER,
 				StudioStyle.SHADOW if picked else 0))
-		_entry_titles[i].text = "%s  %s   %s   %d" % ["■" if moment.keep else "□", String(moment.label),
-			clock_text(moment), int(round(float(moment.highlight_score)))]
+		var quality: Dictionary = moment.get("camera_quality", {})
+		_entry_titles[i].text = "%s  %s   %s   %d   %s" % ["■" if moment.keep else "□", String(moment.label),
+			clock_text(moment), int(round(float(moment.get("rank_score", moment.highlight_score)))),
+			"CAM %d" % int(quality.score) if not quality.is_empty() else "CAM …"]
 		_entry_titles[i].add_theme_color_override(&"font_color", StudioStyle.LIME if picked else StudioStyle.INK)
 		_entry_captions[i].add_theme_color_override(&"font_color",
 			StudioStyle.PAPER if picked else StudioStyle.INK_SOFT)
-	_moments_head.text = "MOMENTS  (%d of %d)" % [shown, _moments.size()]
+	_moments_head.text = "MOMENTS  (%d of %d)%s" % [shown, _moments.size(),
+		"   checking cameras: %d left" % _visibility.pending() if _visibility.pending() > 0 else ""]
 	_kept_label.text = "Kept for export: %d of %d" % [kept, shown]
 	if _match_mode:
 		_refresh_match_card()
@@ -892,10 +971,20 @@ func _refresh() -> void:
 		info.get("away", "Away"), before.away]
 	if before.home != after.home or before.away != after.away:
 		score_line += "  →  %s v %s" % [after.home, after.away]
-	_card_body.text = "%s\n%s\nScore %d  ·  %s" % [String(moment.caption), score_line,
-		int(round(float(moment.highlight_score))), "kept" if moment.keep else "not kept"]
+	_card_body.text = "%s\n%s\n%s  ·  %s" % [String(moment.caption), score_line, _rank_text(moment),
+		"kept" if moment.keep else "not kept"]
 	var duration := maxf(_stage.duration(), 0.001)
 	_bar_event.position.x = _bar_back.size.x * clampf(_stage.event_time() / duration, 0.0, 1.0) - 2.0
+
+
+## Why the moment sits where it does: the play's score, the camera's score
+## and the reasons behind it (HighlightVisibility).
+static func _rank_text(moment: Dictionary) -> String:
+	var quality: Dictionary = moment.get("camera_quality", {})
+	if quality.is_empty():
+		return "Play %d  ·  camera not checked yet" % int(round(float(moment.highlight_score)))
+	return "Rank %d = play %d × camera %d/100\nCamera: %s" % [int(round(float(moment.rank_score))),
+		int(round(float(moment.highlight_score))), int(quality.score), ", ".join(quality.reasons)]
 
 
 func _refresh_match_card() -> void:

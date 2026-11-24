@@ -258,6 +258,9 @@ change should fit them.
   reads back identity for every instance. Code that needs prop positions
   without a GPU (CameraOccluders) reads the `instance_transforms` meta the
   builders (OvalEnvironment, Field) leave on each MultiMeshInstance3D.
+- A Packed*Array read out of a Dictionary is a copy: `(d.arr as
+  PackedFloat32Array).append(x)` appends to nothing. Keep a plain Array in
+  a Dictionary that's built up in place.
 - Highlight camera changes: measure with `highlight_camera_audit.tscn` (subject
   px, ball in frame, inside/blocked scenery, in-shot jumps, goal seen) before
   and after, on several real exports, and look at `--frames` stills.

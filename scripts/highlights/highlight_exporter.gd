@@ -83,6 +83,7 @@ func export_moments(moments: Array[Dictionary], match_info: Dictionary, options 
 		var clip: ReplayClip = moment.clip
 		var base := "%02d_%s" % [n + 1, String(moment.type)]
 		var files := {"replay": base + ".replay"}
+		_ensure_quality(moment)
 		if want_land:
 			files["landscape"] = base + "_16x9.avi"
 		if want_port:
@@ -250,9 +251,32 @@ static func _row(moment: Dictionary, rank: int, files: Dictionary, camera: Strin
 		row["score_method"] = moment.get("score_method")
 		row["last_touch"] = moment.get("last_touch")
 		row["last_touch_frame"] = moment.get("last_touch_frame")
+	if moment.has("camera_quality"):
+		# The ranking pass (HighlightVisibility): how well this camera
+		# films it, and play × camera, the order the page sorts by.
+		row["camera_quality"] = moment.camera_quality
+		row["rank_score"] = moment.get("rank_score")
 	if moment.type == "mark":
 		row["contested"] = bool((moment.facts as Dictionary).get("contested", false))
 	return row
+
+
+var _visibility: HighlightVisibility
+
+
+## Measures `moment`'s camera if the page didn't (the generator), or did with
+## another camera or framing than the export's.
+func _ensure_quality(moment: Dictionary) -> void:
+	var quality: Dictionary = moment.get("camera_quality", {})
+	var camera := String(moment.get("camera", HighlightPrefs.camera_for(String(moment.type))))
+	if not quality.is_empty() and String(quality.get("camera", "")) == camera \
+			and String(quality.get("framing", "")) == HighlightPrefs.framing():
+		return
+	if _visibility == null:
+		_visibility = HighlightVisibility.new()
+		add_child(_visibility)
+		_visibility.setup(stage.field())
+	_visibility.measure_now(moment)
 
 
 func _viewport(size: Vector2i) -> Dictionary:

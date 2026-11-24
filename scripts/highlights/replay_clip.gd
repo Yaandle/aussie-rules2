@@ -175,3 +175,17 @@ func decode(index: int) -> Dictionary:
 		bodies.append(entry)
 	out.bodies = bodies
 	return out
+
+
+## Frame `index` with positions only: {index, clock, ball_pos, ball_rot
+## (identity), bodies: [{pos}]}. What ReplayStage's `light` mode poses from:
+## the camera needs where everyone is, not how their bones bend, and this
+## skips decoding ~40 skeletons a frame (HighlightVisibility).
+func decode_light(index: int) -> Dictionary:
+	var buf := frames[clampi(index, 0, frames.size() - 1)]
+	var bodies: Array = []
+	for body in (meta.bodies as Array).size():
+		var at := _offset_of(body)
+		bodies.append({"pos": Vector3(buf.decode_float(at), buf.decode_float(at + 4), buf.decode_float(at + 8))})
+	return {"clock": buf.decode_float(0), "ball_pos": ball_position(index), "ball_rot": Quaternion.IDENTITY,
+		"bodies": bodies}

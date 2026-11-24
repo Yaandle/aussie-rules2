@@ -63,10 +63,13 @@ new. "px" is the main subject's on-screen height at 1080 lines.
 
 ## Plan for what's left (priority order, effort)
 
-1. **Visibility ranking on the Highlights page** (M, 1 day): run the audit's
-   measure (subject px, ball in frame, occlusion) per moment at match end,
-   add `camera_quality` to moments.json and a small "why" line per moment on
-   the page. The measuring code exists (`highlight_camera_audit.gd`).
+1. ~~Visibility ranking on the Highlights page~~ done 2026-11-25
+   (`HighlightVisibility`; HIGHLIGHTS.md "Ranking by camera"). Measured on
+   the 11-21 export: 43 moments in ~1.6 s (~38 ms each, spread over frames on
+   the page). The 15-of-43 re-sort was measured on the page with every
+   moment on auto. With the export's own cameras, the two third-person
+   goals that lose the ball at the posts score 67 and 71/100, against
+   89-97 for the rest.
 2. **Slow motion around the key frame** (M): a time-remap per moment
    (0.5x/0.25x ramps over the kick, catch or impact) in the full-match
    render, recorded in match_video.json `cameras` runs as `speed`. Changes

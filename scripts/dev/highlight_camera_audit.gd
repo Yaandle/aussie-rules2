@@ -8,6 +8,7 @@ extends Node
 ##       --folder=<export folder> [--presets=moment|broadcast,close,end,third,auto] \
 ##       [--types=goal,mark] [--ranks=1,5] [--limit=N] [--report=<file.json>] [--field=classic|oval1]
 ##   (windowed, no --headless) ... -- --folder=<dir> --frames=<out dir> [--size=1280x720]
+##   --visibility scores every moment as the Highlights page does (HighlightVisibility)
 ##   --portrait shoots 9:16 (the size is swapped; px are then of 1920 lines)
 ##
 ## For every moment's own .replay and each preset asked for it walks the
@@ -77,6 +78,10 @@ func _ready() -> void:
 	_stage.add_child(_view)
 	await get_tree().process_frame
 	await get_tree().process_frame
+	if args.has("visibility"):
+		_audit_visibility(doc, folder, String(args.get("presets", "auto")).split(",")[0])
+		get_tree().quit()
+		return
 	if args.has("full"):
 		await _audit_full(folder, String(args.get("presets", "broadcast")).split(",")[0])
 		get_tree().quit()
@@ -252,3 +257,30 @@ func _audit_full(folder: String, preset: String) -> void:
 	runs.sort_custom(func(a: Array, b: Array) -> bool: return a[1] > b[1])
 	print("AUDIT FULL %s frames %d  inside %d  blocked %d  player-at-ball px median %d  longest inside runs %s" % [
 		preset, n, inside, blocked, roundi(px[px.size() / 2]), str(runs.slice(0, 5))])
+
+
+## --visibility: the Highlights page's ranking pass (HighlightVisibility) on
+## every moment of the export, with `preset` ("moment" = each row's own
+## camera), timed, then the list re-sorted by rank_score.
+func _audit_visibility(doc: Dictionary, folder: String, preset: String) -> void:
+	var vis := HighlightVisibility.new()
+	add_child(vis)
+	vis.setup(_stage.field())
+	var moments: Array[Dictionary] = []
+	for row: Dictionary in doc.moments:
+		var clip := ReplayClip.load_file(folder.path_join(String((row.files as Dictionary).get("replay", ""))))
+		if clip == null:
+			continue
+		moments.append({"id": row.id, "type": row.type, "clip": clip, "highlight_score": float(row.highlight_score),
+			"camera": String(row.get("camera", "auto")) if preset == "moment" else preset})
+	var t0 := Time.get_ticks_usec()
+	vis.start(moments)
+	while not vis.step(1_000_000):
+		pass
+	var ms := float(Time.get_ticks_usec() - t0) / 1000.0
+	moments.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a.rank_score) > float(b.rank_score))
+	for m in moments:
+		var q: Dictionary = m.camera_quality
+		print("VIS %-9s play %5.1f  cam %3d  rank %5.1f  %s" % [m.type, m.highlight_score, int(q.score), m.rank_score,
+			", ".join(q.reasons)])
+	print("VIS %d moments measured in %.0f ms (%.1f ms each)" % [moments.size(), ms, ms / maxf(1.0, moments.size())])

@@ -151,3 +151,11 @@ func _retick(type: String) -> void:
 	for m in moments:
 		if m.type == type:
 			m.keep = allowed
+
+
+## Re-orders the moments by `rank_score` (play × camera, HighlightVisibility)
+## once the page has measured them; a moment not measured yet keeps its plain
+## highlight_score. The export numbers its rows in this order.
+func rerank() -> void:
+	moments.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a.get("rank_score", a.highlight_score)) > float(b.get("rank_score", b.highlight_score)))

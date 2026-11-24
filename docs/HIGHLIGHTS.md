@@ -26,6 +26,17 @@ ranking number is in `highlight_table.gd`; they are unplaytested feel guesses.
   moment on the page and on the MATCH timeline; defaults in
   `ReplayStage.DEFAULT_PRESET`.
 - The choices are saved in `user://highlights.cfg` (`HighlightPrefs`).
+- **Ranking by camera** (2026-11-25, `HighlightVisibility`): as the page
+  opens it checks how well each moment is filmed by the camera it will be
+  exported with (a few seconds, "checking cameras: N left" in the MOMENTS
+  heading), then sorts the list by `rank_score` = the play's score ×
+  (0.6 + 0.4 × camera score / 100). Each row shows the rank score and `CAM`
+  (0-100); the card says why: "Rank 93 = play 94 × camera 98/100" and the
+  reasons (players' size on screen, ball in frame, anything in the way, the
+  key moment in frame). Changing a moment's camera re-checks it and re-sorts;
+  changing the framing in the export window re-checks them all. Space / X
+  still leaves any moment out: the ranking only orders them. Contrast and
+  colour aren't judged (that needs rendered pixels).
 
 ## The export window (simplified 2026-11-17)
 
@@ -133,6 +144,8 @@ Added 2026-11-24 (still version 2, fields only):
 | `score_method` | goals/behinds: `kick`, `handball`, `carried` (gathered or marked then carried through) or `unknown` |
 | `last_touch`, `last_touch_frame` | goals/behinds: the last player to kick, handball, bounce, gather or mark it (the one to credit when `kicker` is null), and the clip frame (null if before the clip) |
 | `contested` | marks: an opponent within 2 m at the catch (same as `facts.contested`) |
+| `camera_quality` | 2026-11-25: `{score (0-100), subject_px (median height of the main player(s) at 1080 lines, null when the ball is the only subject), ball_vis, blocked (share of frames with scenery or another player in the way), key_seen, camera, framing, reasons: [strings]}` for the camera it was exported with |
+| `rank_score` | `highlight_score` × (0.6 + 0.4 × camera score / 100): the order the page sorts by, so `rank` follows it |
 
 A score the field trigger reported twice (the ball clipping it again as it
 settled) no longer makes a second moment with `score_before` a goal too high.

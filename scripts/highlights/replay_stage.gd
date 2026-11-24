@@ -74,6 +74,12 @@ const CAMERA_SMOOTHING := 4.0
 const TARGET_SMOOTHING := 6.0
 
 var clip: ReplayClip
+## Light mode (HighlightVisibility): no ground, sky, ball or puppets of its
+## own; it frames cameras from positions only, on `shared_field` (another
+## stage's Field: the goal lines and the scenery to keep out of). Set both
+## before adding it to the tree.
+var light := false
+var shared_field: Field = null
 
 var _field: Field
 var _ball: Node3D
@@ -114,6 +120,9 @@ var _shots: Array[Dictionary] = []
 
 
 func _ready() -> void:
+	if light:
+		_field = shared_field
+		return
 	var environment := WorldEnvironment.new()
 	environment.environment = ENVIRONMENT
 	add_child(environment)
@@ -160,7 +169,7 @@ func load_clip(new_clip: ReplayClip) -> void:
 	var same := clip != null and _puppets.size() == (new_clip.meta.bodies as Array).size()
 	clip = new_clip
 	_decoded.clear()
-	if not same:
+	if not same and not light:
 		_build_puppets()
 	_cameras.clear()
 	_context = {}
@@ -228,7 +237,7 @@ func _frame(index: int) -> Dictionary:
 	if not _decoded.has(index):
 		if _decoded.size() > 8:
 			_decoded.clear()
-		var decoded := clip.decode(index)
+		var decoded := clip.decode_light(index) if light else clip.decode(index)
 		decoded["index"] = index
 		_decoded[index] = decoded
 	return _decoded[index]
@@ -248,9 +257,12 @@ func apply(t: float) -> void:
 	_cur_a = a
 	_cur_b = b
 	_cur_w = w
-	_ball.global_transform = Transform3D(Basis((a.ball_rot as Quaternion).slerp(b.ball_rot, w)),
-		(a.ball_pos as Vector3).lerp(b.ball_pos, w))
-	_ball_point = _ball.global_position
+	if light:
+		_ball_point = (a.ball_pos as Vector3).lerp(b.ball_pos, w)
+	else:
+		_ball.global_transform = Transform3D(Basis((a.ball_rot as Quaternion).slerp(b.ball_rot, w)),
+			(a.ball_pos as Vector3).lerp(b.ball_pos, w))
+		_ball_point = _ball.global_position
 	for i in _puppets.size():
 		var puppet := _puppets[i]
 		var node: Node3D = puppet.node
@@ -275,8 +287,8 @@ func apply(t: float) -> void:
 				skeleton.set_bone_pose_position(int(pos_bones[k]), pos_a[k].lerp(pos_b[k], w))
 	if _occluders != null:
 		_occluders.bodies.clear()
-		for i in _puppets.size():
-			if _puppets[i].kind == "player":
+		for i in (clip.meta.bodies as Array).size():
+			if String(clip.meta.bodies[i].kind) == "player":
 				_occluders.bodies.append((a.bodies[i].pos as Vector3).lerp(b.bodies[i].pos, w))
 	_follow_ball = _followed_ball(a)
 	_focus_point = _compute_focus(a, b, w)
@@ -382,6 +394,10 @@ func _update_main(f: float, a: Dictionary, b: Dictionary, w: float) -> void:
 
 
 ## The ground dressing as camera keep-out boxes (see CameraOccluders).
+func field() -> Field:
+	return _field
+
+
 func occluders() -> CameraOccluders:
 	if _occluders == null:
 		_occluders = CameraOccluders.build(_field)
