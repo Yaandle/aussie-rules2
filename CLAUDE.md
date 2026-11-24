@@ -20,6 +20,8 @@ Keep only the `main`, `dev` and `update` branches.
   new skin): assets, export, skinning rules, replacing the mesh with a scan.
 - `docs/BUILD8_MODEL.md`: Build 8 (2026-11-20), Build 7 restyled to a
   reference image: the sash, the accent colour, what changed.
+- `docs/BUILD6_REWORK.md`: Build 6 (the user's own model) reworked
+  2026-11-24: new hands, face, weights, idle, kit-shader export.
 - `docs/ML_AI_AUDIT.md`: the ML ladder (LR, GA, MLP marking cue in §9).
 - `docs/CAREER_AUDIT.md`: Career mode audit, the user's decisions, and the
   8-phase plan (all eight phases done; see its "For review").

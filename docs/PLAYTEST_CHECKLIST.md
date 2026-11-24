@@ -244,3 +244,14 @@ Pick `8THBUILD` on the CHARACTER screen's MODEL row (it isn't the default).
 - [ ] **Marking cue:** no button disc over the picture any more. A thin ring in the tier's colour sits on the turf round your player's feet, a second ring closes in across the grass and lands on it at press-now (it goes solid), and the letter (A / X / Y) floats over the head. Say if it reads in a match from the broadcast and chase cameras, and if the letter is big enough (`WORLD_*` in `mark_prompt.gd`). The (A) green ring on green grass is the one to check.
 - [ ] **Animation viewer, CONTESTS > MARK DELIVERY, CONTESTED, Opponents 2-5:** the opponents start 5-8 m out from different sides, run in, and leap up and forward into the pack a beat apart; the best-placed hands take it (B or an opponent: the readout says PACK MARK), and the bodies that met in the air tumble on the ragdoll as they come down; whoever took the mark stays up. Say if the run-ins, the pack or the fall look wrong (`PACK_*` in `animation_viewer.gd` and `tuning.gd`).
 - [ ] **Marking packs in matches:** an AI now leaps (Y) for a contested mark (an opponent near the ball) instead of only holding A (`AI_MARK_PACK_LEAP`). Two bodies that meet in the air going for a mark, yours included, both tumble on the ragdoll as they come down; the one who marked it keeps their feet. About one pack fall every two minutes in an all-AI match. Say if it's too often, too rare, or the AI's leaps cost it too many marks (`PACK_RAGDOLL_IN_MATCHES` turns the falls off).
+
+## Build 6 rework (2026-11-24, docs/BUILD6_REWORK.md)
+
+Pick `6THBUILD` on the CHARACTER screen's MODEL row.
+
+- [ ] **Your design kept:** it should still read as your model (shirt caps, shorts, boots, head, the shoulder flow), with the new hands, face, hair, sash, number and sock bands on top. Say anything that changed more than you wanted.
+- [ ] **Hands:** close up in the idle and in a mark; the wrist join reads as one arm into one hand.
+- [ ] **Idle:** arms hang straight down beside the thighs, standing tall; nothing pokes when the character screen loops it.
+- [ ] **Shoulder cap in play:** the shirt's cap folds out a little behind the shoulder with the arms down; say if it shows at match distance.
+- [ ] **Tackles and falls:** no skin through the shorts; a centimetre of shoulder may show past the cap in a tackle.
+

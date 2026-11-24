@@ -245,6 +245,13 @@ change should fit them.
   `_brain` defaults to `HumanBrain`, so a bot needs a brain before its
   first physics frame or it runs off the shared input.
 
+- **Check a hand-modelled mesh's normals before blaming its weights.**
+  Half of 6thbuild's original forearm and shin faces pointed inward, so
+  with back faces culled those limbs drew as strips with a hole, which
+  looked like a deformation bug. `bmesh.ops.recalc_face_normals` fixed the
+  body; don't run it on meshes with zero-area faces (6thbuild's shorts):
+  it flips the wrong way there.
+
 ## Verification that works here
 
 - The Godot binary is
