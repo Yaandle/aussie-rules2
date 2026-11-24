@@ -35,6 +35,12 @@ static var _ffmpeg := ""
 ## The camera for the full match outside every moment's stretch
 ## (MatchCameraPlan): set on the Highlights screen's MATCH view.
 static var _match_camera := ""
+## How tight the highlight cameras frame (HighlightTable.FRAMINGS).
+static var _framing := HighlightTable.DEFAULT_FRAMING
+## 2 since the director (ReplayStage "auto") became every type's default:
+## a .cfg without it saved every type's camera whether picked or not, so a
+## camera equal to the old default there is read as "not picked".
+const CAMERA_VERSION := 2
 
 
 static func _ensure() -> void:
@@ -44,13 +50,19 @@ static func _ensure() -> void:
 	var config := ConfigFile.new()
 	if config.load(PATH) != OK:
 		return
+	var old_cameras := int(config.get_value(SECTION, "camera_version", 1)) < CAMERA_VERSION
 	for type: String in HighlightTable.TYPE_ORDER:
 		if config.has_section_key(SECTION, "on_" + type):
 			_types[type] = bool(config.get_value(SECTION, "on_" + type))
 		if config.has_section_key(SECTION, "camera_" + type):
 			var preset := String(config.get_value(SECTION, "camera_" + type))
+			if old_cameras and preset == String(ReplayStage.OLD_DEFAULT_PRESET.get(type, "")):
+				continue
 			if ReplayStage.CAMERA_PRESETS.has(preset):
 				_cameras[type] = preset
+	_framing = String(config.get_value(SECTION, "framing", HighlightTable.DEFAULT_FRAMING))
+	if not HighlightTable.FRAMINGS.has(_framing):
+		_framing = HighlightTable.DEFAULT_FRAMING
 	_full_video = bool(config.get_value(SECTION, "full_video", true))
 	_clip_files = bool(config.get_value(SECTION, "clip_files", false))
 	_ffmpeg = String(config.get_value(SECTION, "ffmpeg", ""))
@@ -78,6 +90,8 @@ static func _save() -> void:
 	config.set_value(SECTION, "clip_files", _clip_files)
 	config.set_value(SECTION, "ffmpeg", _ffmpeg)
 	config.set_value(SECTION, "match_camera", match_camera())
+	config.set_value(SECTION, "camera_version", CAMERA_VERSION)
+	config.set_value(SECTION, "framing", _framing)
 	config.save(PATH)
 
 
@@ -164,4 +178,16 @@ static func set_aspect(value: String) -> void:
 	_ensure()
 	if HighlightTable.ASPECTS.has(value):
 		_aspect = value
+		_save()
+
+
+static func framing() -> String:
+	_ensure()
+	return _framing
+
+
+static func set_framing(value: String) -> void:
+	_ensure()
+	if HighlightTable.FRAMINGS.has(value):
+		_framing = value
 		_save()

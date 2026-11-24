@@ -254,6 +254,14 @@ change should fit them.
 
 ## Verification that works here
 
+- Headless runs use a dummy renderer: `MultiMesh.get_instance_transform()`
+  reads back identity for every instance. Code that needs prop positions
+  without a GPU (CameraOccluders) reads the `instance_transforms` meta the
+  builders (OvalEnvironment, Field) leave on each MultiMeshInstance3D.
+- Highlight camera changes: measure with `highlight_camera_audit.tscn` (subject
+  px, ball in frame, inside/blocked scenery, in-shot jumps, goal seen) before
+  and after, on several real exports, and look at `--frames` stills.
+
 - The Godot binary is
   `D:\Downloads\Godot_v4.6-stable_win64.exe\Godot_v4.6-stable_win64_console.exe`
   (not on PATH).

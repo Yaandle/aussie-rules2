@@ -29,13 +29,17 @@ static func from_moments(moments: Array[Dictionary], default_preset: String) -> 
 		var clip: ReplayClip = m.get("clip")
 		var meta: Dictionary = clip.meta if clip != null else {}
 		var type := String(m.type)
+		# The director needs the scoring kick, in match frames like the rest.
+		var kick: Variant = null
+		if m.get("kick_frame") != null:
+			kick = int(m.match_from) + int(m.kick_frame)
 		plan.stretches.append({
 			"id": m.get("id"), "label": String(m.get("label", type)),
 			"from": int(m.match_from), "to": int(m.match_to),
 			"preset": String(m.get("camera", HighlightPrefs.camera_for(type))),
 			"context": {"type": type, "focus": meta.get("focus", []),
 				"attack_dir": meta.get("attack_dir", 1.0), "event_frame": int(m.match_frame),
-				"hold_until": int(m.match_to)},
+				"hold_until": int(m.match_to), "kick_frame": kick},
 		})
 	return plan
 

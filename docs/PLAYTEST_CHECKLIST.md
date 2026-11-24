@@ -255,3 +255,11 @@ Pick `6THBUILD` on the CHARACTER screen's MODEL row.
 - [ ] **Shoulder cap in play:** the shirt's cap folds out a little behind the shoulder with the arms down; say if it shows at match distance.
 - [ ] **Tackles and falls:** no skin through the shorts; a centimetre of shoulder may show past the cap in a tackle.
 
+## Highlight cameras and the match zoom (2026-11-24, docs/HIGHLIGHTS_AUDIT.md)
+
+- [ ] **Auto camera, goals:** export a match: each goal shows the kick side-on, the flight, then cuts behind the posts with the ball coming through. Say if the cut is too early or late (`POSTS_CUT_DIST`, `POSTS_LEAD_FRAMES` in `replay_stage.gd`) or a high kick is mostly sky.
+- [ ] **Auto camera, marks/tackles/bumps:** low and side-on, players big; nobody standing in front of the contest. Say if it's too tight or too wide (the export window's CAMERA FRAMING row: WIDE/STANDARD/CLOSE/TIGHT).
+- [ ] **No jank:** no jolts inside a shot, no camera inside a tree or a player, no cut that feels random.
+- [ ] **Goal tails:** in highlight.mp4 each goal now runs ~1 s longer after the score (the celebration isn't cut).
+- [ ] **Match zoom:** pregame and pause CAMERA ZOOM go from WIDE 60% (50% min) to TIGHT 250% (300% max) and agree with each other; Enter in the pause menu jumps between the named presets. On Full-Side the far wing no longer shrinks players to dots: say if the far side is now too tight to see team-mates (`CAM_FULL_SIDE_MIN_SUBJECT`).
+- [ ] **3rd person at 300%:** the camera stops 2.2 m behind you (`CAM_CHASE_MIN_ARM`); say if that's too close.

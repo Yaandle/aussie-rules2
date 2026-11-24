@@ -69,6 +69,9 @@ func export_moments(moments: Array[Dictionary], match_info: Dictionary, options 
 	var want_port := clips and aspect != "16x9"
 	var folder := HighlightPaths.match_folder(String(match_info.get("home", "Home")),
 		String(match_info.get("away", "Away")), String(options.get("subfolder", "")))
+	_write_status(folder, "running", 0.0, "starting")
+	var on_progress := func(text: String, fraction: float) -> void: _status_tick(folder, text, fraction)
+	progress.connect(on_progress)
 	var land := _viewport(HighlightTable.EXPORT_LANDSCAPE) if want_land else {}
 	var port := _viewport(HighlightTable.EXPORT_PORTRAIT) if want_port else {}
 	var rows: Array = []
@@ -164,6 +167,8 @@ func export_moments(moments: Array[Dictionary], match_info: Dictionary, options 
 		"footage": footage,
 		"match": match_doc,
 		"exported_at": Time.get_datetime_string_from_system(),
+		"time_convention": HighlightRecorder.TIME_CONVENTION,
+		"quarter_length_s": Tuning.QUARTER_LENGTH,
 		"output": {
 			"folder": folder,
 			"video": "MJPEG AVI, %d fps, %s" % [fps, " and ".join(shapes)] if clips else "no separate clips (in highlight.mp4)",
@@ -189,6 +194,8 @@ func export_moments(moments: Array[Dictionary], match_info: Dictionary, options 
 	if doc.has("full_match") and not _cancel and bool(options.get("full_video", true)):
 		# The exported moments set the cameras and make highlight.mp4.
 		await export_full_match(folder, MatchCameraPlan.from_moments(moments, HighlightPrefs.match_camera()))
+	progress.disconnect(on_progress)
+	_write_status(folder, "cancelled" if _cancel else "complete", 1.0, "done")
 	busy = false
 	finished.emit(folder, not _cancel)
 	return folder
@@ -200,6 +207,7 @@ func export_moments(moments: Array[Dictionary], match_info: Dictionary, options 
 static func _row(moment: Dictionary, rank: int, files: Dictionary, camera: String, written: int) -> Dictionary:
 	var clip: ReplayClip = moment.clip
 	var elapsed := float(moment.quarter_elapsed_s)
+	var left := maxf(0.0, Tuning.QUARTER_LENGTH - elapsed)
 	var row := {
 		"id": moment.id, "rank": rank, "type": moment.type, "label": moment.label,
 		"caption": moment.caption,
@@ -223,6 +231,11 @@ static func _row(moment: Dictionary, rank: int, files: Dictionary, camera: Strin
 		"replay_frames": clip.frame_count(),
 		"complete": written >= clip.frame_count(),
 		"events": moment.get("events", []),
+		# 2026-11-24, fields only: the clock as time left in the quarter
+		# (see the top-level time_convention), and the camera framing.
+		"quarter_left_s": snappedf(left, 0.1),
+		"game_clock_left": "Q%d %d:%02d left" % [int(moment.quarter), int(ceil(left)) / 60, int(ceil(left)) % 60],
+		"framing": HighlightPrefs.framing(),
 	}
 	if moment.has("match_from"):
 		# Where the clip sits in match.replay (full-match frames).
@@ -233,6 +246,12 @@ static func _row(moment: Dictionary, rank: int, files: Dictionary, camera: Strin
 		row["kick_frame"] = moment.get("kick_frame")
 		row["kicker"] = moment.get("kicker")
 		row["kick_distance"] = moment.get("kick_distance")
+		row["set_shot"] = moment.get("set_shot")
+		row["score_method"] = moment.get("score_method")
+		row["last_touch"] = moment.get("last_touch")
+		row["last_touch_frame"] = moment.get("last_touch_frame")
+	if moment.type == "mark":
+		row["contested"] = bool((moment.facts as Dictionary).get("contested", false))
 	return row
 
 
@@ -273,6 +292,11 @@ func _run_ffmpeg(args: PackedStringArray, output: String) -> bool:
 const MATCH_VIDEO := "match_16x9.mp4"
 const MATCH_VIDEO_JSON := "match_video.json"
 const HIGHLIGHT_VIDEO := "highlight.mp4"
+const HIGHLIGHT_PARTIAL := "highlight.partial.mp4"
+## Written as the export runs ({state, fraction, step, updated}); state ends
+## "complete" or "cancelled". The video tool can wait on it instead of
+## guessing from file sizes.
+const STATUS_FILE := "export_status.json"
 
 
 ## Renders `folder`'s match.replay to one 16:9 video with the dead time cut
@@ -304,7 +328,11 @@ func export_full_match(folder: String, plan: MatchCameraPlan = null) -> bool:
 		return false
 	progress.emit("Full match: finding the dead time", 0.0)
 	await get_tree().process_frame
-	var cut := FullMatchCut.build(clip, doc)
+	# Never cut inside an exported moment (or its lead-in and tail).
+	var moments_doc: Variant = JSON.parse_string(FileAccess.get_file_as_string(folder.path_join("moments.json")))
+	var rows: Array = (moments_doc as Dictionary).get("moments", []) if moments_doc is Dictionary else []
+	var cut := FullMatchCut.build(clip, doc,
+		FullMatchCut.protect_moments(rows, float(doc.get("fps", HighlightTable.RECORD_FPS))))
 	var ffmpeg := HighlightPaths.ffmpeg()
 	var size := HighlightTable.EXPORT_LANDSCAPE
 	var fps := HighlightTable.EXPORT_FPS
@@ -431,7 +459,10 @@ func _cut_highlight(folder: String, cut: FullMatchCut) -> Dictionary:
 		segments.append({"video_from": span.from, "video_to": span.to, "highlight_from": at, "moments": span.ids})
 		at += int(span.to) - int(span.from) + 1
 	progress.emit("Cutting highlight.mp4 (%d stretches)" % merged.size(), 1.0)
-	var out := folder.path_join(HIGHLIGHT_VIDEO)
+	# Written under a partial name; export_full_match renames it beside
+	# match_video.json at the very end, so the two appear together.
+	var out := folder.path_join(HIGHLIGHT_PARTIAL)
+	DirAccess.remove_absolute(folder.path_join(HIGHLIGHT_VIDEO))
 	var ok: bool = await _run_ffmpeg(["-y", "-loglevel", "error", "-i", folder.path_join(MATCH_VIDEO),
 		"-vf", "select='%s',setpts=N/(%d*TB)" % ["+".join(terms), HighlightTable.EXPORT_FPS], "-an",
 		"-r", str(HighlightTable.EXPORT_FPS), "-fps_mode", "cfr",
@@ -517,12 +548,44 @@ func _write_match_video(folder: String, doc: Dictionary, cut: FullMatchCut, part
 		"recorded_s": snappedf(float(summary.recorded_s), 0.01),
 		"video_s": snappedf(float(summary.video_s), 0.01),
 		"trim": {"dead_min": HighlightTable.DEAD_MIN, "keep_after": HighlightTable.DEAD_KEEP_AFTER,
-			"keep_before": HighlightTable.DEAD_KEEP_BEFORE},
+			"keep_before": HighlightTable.DEAD_KEEP_BEFORE,
+			"protect_lead": HighlightTable.MOMENT_PROTECT_LEAD, "protect_tail": HighlightTable.MOMENT_PROTECT_TAIL,
+			"protected": cut.protected.map(func(v: Vector2i) -> Array: return [v.x, v.y])},
+		"framing": HighlightPrefs.framing(),
 		"keep": keep,
 		"markers": markers,
 		"moments": moments,
 	}
-	var file := FileAccess.open(folder.path_join(MATCH_VIDEO_JSON), FileAccess.WRITE)
+	# match_video.json and highlight.mp4 go in together: both are written
+	# under partial names and renamed one after the other here, so a reader
+	# never finds one without the other (or a half-written video).
+	var partial := folder.path_join(MATCH_VIDEO_JSON + ".partial")
+	var file := FileAccess.open(partial, FileAccess.WRITE)
 	if file != null:
 		file.store_string(JSON.stringify(out, "  ", false))
 		file.close()
+		if FileAccess.file_exists(folder.path_join(HIGHLIGHT_PARTIAL)):
+			DirAccess.rename_absolute(folder.path_join(HIGHLIGHT_PARTIAL), folder.path_join(HIGHLIGHT_VIDEO))
+		DirAccess.remove_absolute(folder.path_join(MATCH_VIDEO_JSON))
+		DirAccess.rename_absolute(partial, folder.path_join(MATCH_VIDEO_JSON))
+
+
+var _status_next := 0
+
+
+## Progress to STATUS_FILE, at most every 2 s.
+func _status_tick(folder: String, text: String, fraction: float) -> void:
+	var now := Time.get_ticks_msec()
+	if now < _status_next:
+		return
+	_status_next = now + 2000
+	_write_status(folder, "running", fraction, text)
+
+
+func _write_status(folder: String, state: String, fraction: float, step: String) -> void:
+	var file := FileAccess.open(folder.path_join(STATUS_FILE), FileAccess.WRITE)
+	if file == null:
+		return
+	file.store_string(JSON.stringify({"state": state, "fraction": snappedf(fraction, 0.001), "step": step,
+		"updated": Time.get_datetime_string_from_system()}, "  "))
+	file.close()

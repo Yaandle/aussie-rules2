@@ -719,6 +719,8 @@ func _tree_multimesh(node_name: String, mesh: PrimitiveMesh, albedo: Color,
 	var node := MultiMeshInstance3D.new()
 	node.name = node_name
 	node.multimesh = multimesh
+	# Readable without the renderer, for CameraOccluders (see OvalEnvironment).
+	node.set_meta(&"instance_transforms", transforms.duplicate())
 	# The trees stand 90-120m out, well past anything the play happens
 	# near, so their shadows would only ever fall on empty park — and
 	# casting them would spend a slice of the directional shadow atlas on

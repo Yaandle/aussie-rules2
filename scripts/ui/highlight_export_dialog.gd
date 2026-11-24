@@ -162,6 +162,7 @@ func _rebuild() -> void:
 	_cameras.clear()
 	for type: String in HighlightTable.TYPE_ORDER:
 		_add_entry(_list, {"kind": "type", "type": type})
+	_add_entry(_list, {"kind": "framing"})
 	if has_full_match():
 		_add_entry(_list, {"kind": "clips"})
 	for kind in ["export", "close"]:
@@ -249,6 +250,13 @@ func _refresh() -> void:
 				_labels[i].text = "%s  %s" % ["■" if ticked else "□", String(spec.plural)]
 				(_amounts[i] as Label).text = amount if ticked else ("%d held" % held if held > 0 else "none this match")
 				(_cameras[i] as Label).text = "camera  ◂ %s ▸" % _camera_label(HighlightPrefs.camera_for(type))
+			"framing":
+				# The highlight cameras' own zoom (HighlightTable.FRAMINGS):
+				# how tall a player is at least, on every camera.
+				var framing := HighlightPrefs.framing()
+				_labels[i].text = "CAMERA FRAMING  ◂ %s ▸   players at least %d%% of the frame's height" % [
+					String(HighlightTable.FRAMING_LABELS[framing]),
+					roundi(float(HighlightTable.FRAMING_FRACTION[framing]) * 100.0)]
 			"clips":
 				_labels[i].text = "%s  Also save each clip as its own file (old format, for the current video tool)" % [
 					"■" if HighlightPrefs.clip_files() else "□"]
@@ -326,6 +334,8 @@ func _sideways(step: int) -> void:
 			for m in _moments:
 				if m.type == type:
 					m.erase("camera")
+		"framing":
+			HighlightPrefs.set_framing(_cycled(HighlightTable.FRAMINGS, HighlightPrefs.framing(), step))
 		"clips":
 			pass
 		_:
@@ -347,6 +357,8 @@ func _activate(index: int) -> void:
 				_rebuild()
 		"clips":
 			HighlightPrefs.set_clip_files(not HighlightPrefs.clip_files())
+		"framing":
+			HighlightPrefs.set_framing(_cycled(HighlightTable.FRAMINGS, HighlightPrefs.framing(), 1))
 		"export":
 			_start()
 		_:

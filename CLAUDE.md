@@ -26,7 +26,8 @@ Keep only the `main`, `dev` and `update` branches.
 - `docs/CAREER_AUDIT.md`: Career mode audit, the user's decisions, and the
   8-phase plan (all eight phases done; see its "For review").
 - `docs/HIGHLIGHTS.md`: the highlights recorder, replay and exporter, and
-  the `moments.json` format.
+  the `moments.json` format. `docs/HIGHLIGHTS_AUDIT.md`: the 2026-11-24
+  capture audit, the camera director and the plan for what's left.
 - `docs/PLAYTEST_CHECKLIST.md`: one-line checks for everything that needs
   the user to play it. Add to it whenever you ship something like that.
 - Code comments carry the "why". Read a script's header before changing it.

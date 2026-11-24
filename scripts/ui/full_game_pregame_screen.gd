@@ -1007,7 +1007,7 @@ func _on_zoom_arrow_input(event: InputEvent, step: int) -> void:
 	# for the same "confirm activates a focused control" shape.
 	if not (clicked or event.is_action_pressed(&"confirm")):
 		return
-	Settings.camera_zoom += step * Tuning.CAM_ZOOM_STEP
+	Settings.camera_zoom = CameraZoom.stepped(Settings.camera_zoom, step)
 	Settings.save()
 	_sync_camera_preview()
 
@@ -1413,7 +1413,7 @@ func _sync_camera_preview() -> void:
 		else BroadcastCamera.Mode.CHASE
 	_camera_preview_live.zoom = Settings.camera_zoom
 	if is_instance_valid(_zoom_value_label):
-		_zoom_value_label.text = "%d%%" % roundi(Settings.camera_zoom * 100.0)
+		_zoom_value_label.text = CameraZoom.label(Settings.camera_zoom)
 
 
 ## Pushes the live settings into the preview window. All three board dials

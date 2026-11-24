@@ -98,19 +98,14 @@ func _formation_options() -> Array[String]:
 	return options
 
 
-## CAMERA ZOOM's steps, CAM_ZOOM_MIN..CAM_ZOOM_MAX by CAM_ZOOM_STEP, as
-## "100%" labels.
+## CAMERA ZOOM's steps (CameraZoom.STEPS, shared with Full Game's pregame
+## screen and the pause menu), labelled with their preset names.
 func _zoom_options() -> Array[String]:
-	var options: Array[String] = []
-	var steps := roundi((Tuning.CAM_ZOOM_MAX - Tuning.CAM_ZOOM_MIN) / Tuning.CAM_ZOOM_STEP)
-	for i in steps + 1:
-		options.append("%d%%" % roundi((Tuning.CAM_ZOOM_MIN + i * Tuning.CAM_ZOOM_STEP) * 100.0))
-	return options
+	return CameraZoom.labels()
 
 
 func _zoom_index(zoom: float) -> int:
-	return clampi(roundi((zoom - Tuning.CAM_ZOOM_MIN) / Tuning.CAM_ZOOM_STEP),
-		0, _zoom_options().size() - 1)
+	return CameraZoom.index_of(zoom)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -163,7 +158,7 @@ func _set_camera_mode(index: int) -> void:
 
 
 func _set_camera_zoom(index: int) -> void:
-	Settings.camera_zoom = Tuning.CAM_ZOOM_MIN + index * Tuning.CAM_ZOOM_STEP
+	Settings.camera_zoom = float(CameraZoom.STEPS[clampi(index, 0, CameraZoom.STEPS.size() - 1)])
 	Settings.save()
 
 
@@ -520,7 +515,7 @@ func _sync_camera_preview() -> void:
 	_camera_heading.text = "FULL-SIDE" if full_side else "3RD PERSON"
 	_camera_preview.mode = BroadcastCamera.Mode.FULL_SIDE if full_side else BroadcastCamera.Mode.CHASE
 	_camera_preview.zoom = Settings.camera_zoom
-	_zoom_value_label.text = "%d%%" % roundi(Settings.camera_zoom * 100.0)
+	_zoom_value_label.text = CameraZoom.label(Settings.camera_zoom)
 	var zoom_selected := _selected == CAMERA_ZOOM_ROW
 	_zoom_value_label.add_theme_color_override(&"font_color",
 		CareerTheme.POSITIVE if zoom_selected else CareerTheme.PANEL_TEXT)

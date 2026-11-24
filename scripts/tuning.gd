@@ -612,10 +612,11 @@ const CAM_DISTANCE := 4.5              # m behind the focus point
 ## "zoom" means the same visual thing in both modes. Exposed first in the
 ## Full Game / Career pregame screens' CAMERA preview (user ask: "basic
 ## ways to adjust the camera settings... just start with zoom in/out").
-## 7 steps either side of the 1.0 (unzoomed) default, same stepped-options
-## shape every other pregame row already cycles through.
-const CAM_ZOOM_MIN := 0.8
-const CAM_ZOOM_MAX := 1.4
+## Widened 0.8-1.4 -> 0.5-3.0 (2026-11-24 highlights audit: "much closer and
+## much further"); the steps and named presets are CameraZoom's, which every
+## screen uses. CAM_ZOOM_STEP is kept for anything still stepping linearly.
+const CAM_ZOOM_MIN := 0.5
+const CAM_ZOOM_MAX := 3.0
 const CAM_ZOOM_STEP := 0.1
 const CAM_ZOOM_DEFAULT := 1.0
 
@@ -733,6 +734,17 @@ const CAM_FULL_SIDE_FOV_FAR := 26.0
 const CAM_FULL_SIDE_ZOOM_NEAR_DIST := 25.0                          # m
 const CAM_FULL_SIDE_ZOOM_FAR_DIST := 180.0                          # m — far corner at full width/length spread
 const CAM_FULL_SIDE_FOLLOW_RATE := 2.2     # slower than CAM_FOLLOW_RATE — a deliberate pan, not a chase
+## Smart framing on Full-Side (2026-11-24): the lens never goes wider than
+## keeps a player this share of the frame's height at the zoom's 1.0 (scaled
+## by the zoom), so the far side never shrinks play to dots, and the cap
+## eases rather than snaps (it's just a narrower target for the same FOV
+## lerp). 0.045 is ~49 px at 1080: about what the near-side lens already gives
+## at mid-wing, double what the far corner did (~25 px). Unplaytested.
+const CAM_FULL_SIDE_MIN_SUBJECT := 0.045
+const CAM_FULL_SIDE_FOV_MIN := 10.0        # deg; the narrowest the cap may go
+## 3rd person: the spring arm never comes closer than this, whatever the zoom
+## (3.0 would put the lens 1.5 m off the player's back). Unplaytested.
+const CAM_CHASE_MIN_ARM := 2.2
 
 # Player-switch reorient. The soft version of this (0.6s / rate 5.0, with
 # position left to _update_focus()'s own lerp) was reported as not reading

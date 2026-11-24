@@ -17,8 +17,11 @@ ranking number is in `highlight_table.gd`; they are unplaytested feel guesses.
   ALL its moments (`TYPES[type].keep` no longer limits it); Space / X on the
   page leaves a single moment out. Each type has its own memory cap
   (`TYPES[type].cap`), so goals can't push every tackle out.
-- **Cameras**: `broadcast`, `close`, `end` and `third` (the in-game chase
-  camera behind the moment's main player). Per type in the export window
+- **Cameras**: `auto` (the director, every type's default since 2026-11-24:
+  it picks and cuts shots by moment type, see "Cameras" below), `broadcast`,
+  `close`, `end` and `third` (the in-game chase camera behind the moment's
+  main player). A camera saved before the director came in, equal to the old
+  default, is read as "not picked" (`camera_version` 2 in highlights.cfg). Per type in the export window
   (changing a type's camera there resets that type's per-moment picks), per
   moment on the page and on the MATCH timeline; defaults in
   `ReplayStage.DEFAULT_PRESET`.
@@ -37,6 +40,31 @@ rows and no format row: the clip files, when asked for, are 16:9.
 A match that wasn't recorded in full has nothing to cut the videos from: the
 window says so and the export saves each clip as its own file instead.
 
+## Cameras (2026-11-24, docs/HIGHLIGHTS_AUDIT.md)
+
+Highlights are re-shot from the recorded poses on `ReplayStage`; the match's
+own camera and zoom (Settings.camera_zoom) never reach them, so changing the
+zoom mid-match can't affect a recording or its frame alignment.
+
+- **auto** (the director): goal/behind = the kick side-on from a little
+  behind the kicker, the flight, then a cut behind the posts before the ball
+  gets there (it always crosses in frame); mark = the flight, then a low
+  side-on two-shot just before the catch; tackle/bump/ruck = side-on to the
+  pair, from the side with fewer bystanders in the way; long kick = kick then
+  flight; general and the match camera = the follow shot. A new shot is a
+  cut; within a shot the lens eases and never moves over 14 m/s.
+- **broadcast** is the follow shot on its own (as close as the framing allows,
+  widening to hold kicker and ball while the ball is up).
+- **Framing** (export window row, `framing` in highlights.cfg): WIDE,
+  STANDARD (default), CLOSE, TIGHT = the main player at least 10/16/22/30% of
+  the frame's height on every camera (`HighlightTable.FRAMING_FRACTION`).
+- **Scenery**: no camera sits inside or looks through a tree, prop, stand or
+  scoreboard (`CameraOccluders`), or sits in a player: it lifts, then pulls in.
+- Measure any change with `scenes/dev/highlight_camera_audit.tscn`
+  (`-- --folder=<export> --presets=auto,broadcast`; windowed with
+  `--frames=<dir>` for stills, `--portrait` for 9:16, `--full` for the whole
+  match on the match camera).
+
 ## Output
 
 `highlights/<date>_<time>_<Home>-v-<Away>/` (the generator's go in
@@ -54,6 +82,9 @@ window says so and the export saves each clip as its own file instead.
                                      again skips finished parts); deleted once
                                      joined
     moments.json
+    export_status.json               {state: running | complete | cancelled,
+                                     fraction, step, updated}; written as the
+                                     export runs
 
 ## moments.json (version 2)
 
@@ -91,6 +122,21 @@ Per moment (v1 fields: `id`, `rank`, `type`, `label`, `caption`, `quarter`,
 `facts.own_goal` is set when the scoring kick was taken by the other side
 (a defender kicking through his own goal): `kicker` is that defender.
 
+Added 2026-11-24 (still version 2, fields only):
+
+| field | meaning |
+|---|---|
+| top-level `time_convention`, `quarter_length_s` | `quarter_elapsed_s` and `game_clock` count up from the bounce; the new `quarter_left_s` / `game_clock_left` count down (time left, the broadcast way) |
+| `quarter_left_s`, `game_clock_left` | e.g. `103.2`, `"Q2 1:44 left"` |
+| `framing` | the highlight framing the export used |
+| `set_shot` | goals/behinds: true for a set shot (after a mark or free), false on the run, null with no kick |
+| `score_method` | goals/behinds: `kick`, `handball`, `carried` (gathered or marked then carried through) or `unknown` |
+| `last_touch`, `last_touch_frame` | goals/behinds: the last player to kick, handball, bounce, gather or mark it (the one to credit when `kicker` is null), and the clip frame (null if before the clip) |
+| `contested` | marks: an opponent within 2 m at the catch (same as `facts.contested`) |
+
+A score the field trigger reported twice (the ball clipping it again as it
+settled) no longer makes a second moment with `score_before` a goal too high.
+
 Frame numbers are clip frames at 30 fps; the video and the `.replay` line up
 one to one.
 
@@ -110,6 +156,16 @@ frames are sampled on a timer and a hitch spaces them unevenly), `segments`
 (`{quarter, from, to, t_from, t_to}`, a new one at each quarter or pause),
 and `events` (every `kick`, `handball`, `mark`, `tackle`, `bump`, `bounce`,
 `goal`, `behind`, `siren` of the match: `{frame, t, kind, player, team}`).
+Since 2026-11-24 a `goal`/`behind` event also has `kicker`, `kick_frame`,
+`kick_distance`, `set_shot`, `method` (as `score_method`) and `last_touch`, and
+a `mark` event has `contested`. Top level adds `time_convention` and
+`full_time`: the team box score exactly as the FULL TIME screen shows it
+(`home`/`away`: `name, goals, behinds, points, score, kicks, handballs,
+disposals, marks, tackles`, read from the same MatchState the screen reads,
+plus `quarter`, `quarter_length_s`, `source`) and `event_counts` (`{kind:
+{home, away, none}}` of `events`). The screen's `marks` counts every take, legal
+or not, so it's higher than the legal `mark` events: use `full_time` to match
+the screen.
 
 moments.json adds (still version 2, fields only added) a top-level
 `full_match` (`replay`, `json`, `frames`, `fps`) and per moment
@@ -143,7 +199,11 @@ default) an export also renders the whole recording, 16:9 1920x1080 at
 30 fps from `HighlightTable.FULL_MATCH_CAMERA` (broadcast, following the
 ball), with breaks and dead time cut (`FullMatchCut`: a stopped match clock
 of `DEAD_MIN` s or more is cut, keeping `DEAD_KEEP_AFTER` s after it stops and
-`DEAD_KEEP_BEFORE` s before play restarts; unplaytested guesses). The camera
+`DEAD_KEEP_BEFORE` s before play restarts; unplaytested guesses), except
+that every exported moment's stretch, plus `MOMENT_PROTECT_LEAD` (0.5 s)
+before and `MOMENT_PROTECT_TAIL` (1 s) after, is never cut (a goal used to
+lose ~0.9 s of its celebration). The Highlights MATCH view cuts the same way
+(from the ticked moments when it loads). The camera
 snaps at each cut. Frames are resampled by `frame_times`, so the video's
 timing is even even when the recording's wasn't.
 
@@ -164,7 +224,11 @@ each exported moment), `cameras` (`{video_from, video_to, preset, moment}`:
 which camera is on screen for each run of the video, `moment` an id or null
 for the match camera) and `highlight` (`{file, frames, segments: [{video_from,
 video_to, highlight_from, moments}]}` for highlight.mp4, or null). This is the
-timeline the video tool reads.
+timeline the video tool reads. Added 2026-11-24: `trim.protect_lead`,
+`trim.protect_tail`, `trim.protected` (recording-frame ranges never cut) and
+`framing`. `match_video.json` and `highlight.mp4` are written under partial
+names (`match_video.json.partial`, `highlight.partial.mp4`) and renamed
+together at the very end, so a reader never sees one without the other.
 
 ## Checking an export
 

@@ -236,7 +236,10 @@ func _load_full() -> bool:
 	if not (doc is Dictionary) or _full == null or _full.frame_count() == 0:
 		_full = null
 		return false
-	_cut = FullMatchCut.build(_full, doc)
+	# The same protected stretches the export uses, so the timeline and
+	# the exported video agree frame for frame.
+	_cut = FullMatchCut.build(_full, doc,
+		FullMatchCut.protect_moments(Highlights.kept(), float(doc.get("fps", HighlightTable.RECORD_FPS))))
 	var quarters: Array = []
 	var seen := {}
 	for r in _cut.keep:

@@ -150,6 +150,26 @@ const FULL_MATCH_CAMERA := "broadcast"
 ## frames.
 const FULL_MATCH_CRF := 20
 const FULL_MATCH_PRESET := "veryfast"
+## Highlight camera framing (2026-11-24): how big the main subject must be on
+## screen at least, as a fraction of the frame's height. Every replay camera
+## comes in until a player (SUBJECT_HEIGHT m) is that tall; the old fixed
+## broadcast offset left them ~70 px of 1080 (0.065). The highlight cameras'
+## own setting, not the match's Settings.camera_zoom: a replay is re-shot from
+## the recorded poses, so it never sees the in-game camera, and a zoom picked
+## for playing (seeing team-mates) is the wrong zoom for a phone video.
+## Unplaytested feel guesses.
+const FRAMINGS := ["wide", "standard", "close", "tight"]
+const FRAMING_LABELS := {"wide": "WIDE", "standard": "STANDARD", "close": "CLOSE", "tight": "TIGHT"}
+const FRAMING_FRACTION := {"wide": 0.10, "standard": 0.16, "close": 0.22, "tight": 0.30}
+const DEFAULT_FRAMING := "standard"
+
+## Lead-in and tail kept around every exported moment when the full match's
+## dead time is cut (FullMatchCut protects them): a goal's celebration used to
+## lose ~0.9 s to the cut (2026-11-24 audit: moment 9 kept 77 of its 104
+## post-goal frames). Seconds; unplaytested.
+const MOMENT_PROTECT_LEAD := 0.5
+const MOMENT_PROTECT_TAIL := 1.0
+
 ## Which shapes an export renders. "both" draws every frame twice, so 16:9
 ## or 9:16 alone is half the render.
 const ASPECTS := ["both", "16x9", "9x16"]

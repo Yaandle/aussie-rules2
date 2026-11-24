@@ -105,6 +105,17 @@ var _chain_count := 0
 ## The last kick anyone took that nobody has gathered since: the kick a score
 ## is credited to. A handball, bounce or gather puts it out.
 var _flight := {}
+## The last player to kick, handball, bounce, gather or mark the ball
+## ({player, kind, t}): who a score with no kick in flight (carried or
+## handballed through, or a rush) is put down to (moment `last_touch`).
+var _last_touch := {}
+## Each team's goals and behinds as of the last score this recorder counted.
+## Field's `scored` can fire twice for one score (the ball clips the trigger
+## again while it settles; FullGame ignores the second, it runs first), and
+## the recorder used to make a second moment of it with a score_before one
+## goal too high (2026-11-24 audit). A score is real only if MatchState's
+## count moved.
+var _score_counts := {}
 ## The passage of play the chain above is part of (general play).
 var _chain_bounces := 0
 var _chain_start_t := 0.0
@@ -135,6 +146,8 @@ func setup(game: Node) -> void:
 	else:
 		_team_names = {Tuning.Team.HOME: "Home", Tuning.Team.AWAY: "Away"}
 
+	for team: Tuning.Team in [Tuning.Team.HOME, Tuning.Team.AWAY]:
+		_score_counts[team] = {"goals": int(MatchState.goals[team]), "behinds": int(MatchState.behinds[team])}
 	_build_body_table()
 	var frames := int(ceil(HighlightTable.BUFFER_SECONDS * HighlightTable.RECORD_FPS))
 	_ring.resize(frames)
@@ -390,6 +403,10 @@ func _finish(moment: Dictionary) -> void:
 		moment["kick_frame"] = _nearest_frame(times, float(moment._t_kick))
 		clip.meta["kick_frame"] = moment.kick_frame
 		moment.erase("_t_kick")
+	if moment.has("_t_touch"):
+		moment["last_touch_frame"] = _nearest_frame(times, float(moment._t_touch)) \
+			if float(moment._t_touch) >= times[0] else null
+		moment.erase("_t_touch")
 	moment.clip = clip
 	moment.duration_s = clip.duration()
 	moment.erase("_t_event")
@@ -457,6 +474,15 @@ func _close_full() -> void:
 			"kind": ev.kind, "player": String(_meta.bodies[who].name) if who >= 0 else ""}
 		if who >= 0:
 			entry["team"] = "home" if int(_meta.bodies[who].team) == int(Tuning.Team.HOME) else "away"
+		# Added 2026-11-24 (fields only): goals/behinds carry the kick
+		# (kicker, kick_frame, kick_distance, set_shot, method, last_touch),
+		# marks carry contested.
+		var extra: Dictionary = ev.get("extra", {})
+		for key: String in extra:
+			if key.ends_with("_t"):
+				entry[key.trim_suffix("_t") + "_frame"] = _full_frame_at(float(extra[key])) if extra[key] != null else null
+			else:
+				entry[key] = extra[key]
 		events.append(entry)
 	var times: Array = []
 	for t in _full_times:
@@ -470,6 +496,8 @@ func _close_full() -> void:
 		"segments": _segments(),
 		"events": events,
 		"frame_times": times,
+		"full_time": _full_time_stats(),
+		"time_convention": TIME_CONVENTION,
 	}
 	var json := FileAccess.open(_full_dir.path_join(HighlightPaths.MATCH_JSON), FileAccess.WRITE)
 	if json != null:
@@ -480,6 +508,38 @@ func _close_full() -> void:
 		"json": _full_dir.path_join(HighlightPaths.MATCH_JSON),
 		"frames": frames, "fps": HighlightTable.RECORD_FPS,
 	})
+
+
+const TIME_CONVENTION := "quarter_elapsed_s and game_clock count UP from 0 at the bounce; quarter_left_s and game_clock_left count DOWN (time left in the quarter, the way a broadcast shows it). Quarter length: full_time.quarter_length_s."
+
+
+## The team box score exactly as the FULL TIME screen shows it: the same
+## MatchState dictionaries MatchEndScreen reads (one source of truth). Its
+## `marks` counts every take, legal or not (full_game.gd records one per
+## mark_caught), so it is higher than the legal `mark` events in `events`;
+## `event_counts` has those, so the two can be told apart.
+func _full_time_stats() -> Dictionary:
+	var out := {"source": "MatchState (the FULL TIME screen)", "quarter": MatchState.quarter,
+		"quarter_length_s": Tuning.QUARTER_LENGTH}
+	for side: String in ["home", "away"]:
+		var team := Tuning.Team.HOME if side == "home" else Tuning.Team.AWAY
+		out[side] = {"name": team_name(team), "goals": int(MatchState.goals[team]),
+			"behinds": int(MatchState.behinds[team]), "points": MatchState.points(team),
+			"score": MatchState.scoreline(team), "kicks": int(MatchState.kicks[team]),
+			"handballs": int(MatchState.handballs[team]),
+			"disposals": int(MatchState.kicks[team]) + int(MatchState.handballs[team]),
+			"marks": int(MatchState.marks[team]), "tackles": int(MatchState.tackles[team])}
+	var counts := {}
+	for ev in _full_events:
+		var who := int(ev.player)
+		var side := "none"
+		if who >= 0:
+			side = "home" if int(_meta.bodies[who].team) == int(Tuning.Team.HOME) else "away"
+		var row: Dictionary = counts.get(String(ev.kind), {"home": 0, "away": 0, "none": 0})
+		row[side] = int(row[side]) + 1
+		counts[String(ev.kind)] = row
+	out["event_counts"] = counts
+	return out
 
 
 ## The full-match frame nearest recorder time `t`.
@@ -538,8 +598,10 @@ func _connect_events() -> void:
 
 
 ## Adds to the rolling log; what a moment's clip lists as `events`.
-func _log(kind: String, player: PlayerController = null) -> void:
+func _log(kind: String, player: PlayerController = null, extra := {}) -> void:
 	_events.append({"t": _t, "kind": kind, "player": _players.find(player) if player != null else -1})
+	if not extra.is_empty():
+		_events[-1]["extra"] = extra
 	if _full != null:
 		_full_events.append(_events[-1])
 	while not _events.is_empty() and _t - float(_events[0].t) > HighlightTable.BUFFER_SECONDS:
@@ -566,6 +628,7 @@ func _on_disposed(action: Tuning.Action, player: PlayerController) -> void:
 		_:
 			return
 	_log(kind, player)
+	_last_touch = {"player": player, "kind": kind, "t": _t}
 	_note_passage(action, player)
 	if action != Tuning.Action.KICK:
 		_flight = {}
@@ -585,6 +648,7 @@ func _on_disposed(action: Tuning.Action, player: PlayerController) -> void:
 
 
 func _on_gathered(_ball_ref: Ball, player: PlayerController) -> void:
+	_last_touch = {"player": player, "kind": "gather", "t": _t}
 	if _active_kick.get("player") != player or _t - float(_active_kick.get("t", 0.0)) > 0.3:
 		_end_kick()
 		_flight = {}
@@ -686,6 +750,14 @@ func _end_kick() -> void:
 func _on_scored(team: Tuning.Team, is_goal: bool) -> void:
 	if not is_instance_valid(_ball):
 		return
+	# FullGame's handler runs first (it connected in its _ready): a real
+	# score has moved MatchState's count, a re-trigger has not.
+	var counted: Dictionary = _score_counts.get(team, {"goals": 0, "behinds": 0})
+	if int(MatchState.goals[team]) == int(counted.goals) and int(MatchState.behinds[team]) == int(counted.behinds):
+		return
+	var team_goals_before := int(counted.goals)
+	var team_behinds_before := int(counted.behinds)
+	_score_counts[team] = {"goals": int(MatchState.goals[team]), "behinds": int(MatchState.behinds[team])}
 	# The kick that scored: the last one nobody gathered, whoever took it.
 	# (The scoring team's last kick was often an earlier one: the ball had
 	# been gathered, handballed, carried or turned over since.)
@@ -739,16 +811,40 @@ func _on_scored(team: Tuning.Team, is_goal: bool) -> void:
 			score += HighlightTable.GOAL_CLOSE_BONUS
 		score += minf(HighlightTable.CHAIN_CAP,
 			HighlightTable.CHAIN_PER_DISPOSAL * maxi(0, int(facts.chain) - HighlightTable.CHAIN_FREE))
+	# How it went through, and who touched it last: a score with no kick in
+	# flight was carried or handballed through, or rushed.
+	var touch: PlayerController = _last_touch.get("player") if not _last_touch.is_empty() else null
+	var method := "kick"
+	if kicker == null:
+		match String(_last_touch.get("kind", "")):
+			"handball":
+				method = "handball"
+			"gather", "mark", "bounce":
+				method = "carried"
+			_:
+				method = "unknown"
+	var extra := {"kicker": _name_of(kicker) if kicker != null else null,
+		"kick_t": float(kick.t) if kicker != null else null,
+		"kick_distance": snappedf(dist, 0.1) if kicker != null else null,
+		"set_shot": bool(kick.get("set_shot", false)) if kicker != null else null,
+		"method": method,
+		"last_touch": _name_of(touch) if is_instance_valid(touch) else null}
 	var players: Array = [kicker] if kicker != null else []
 	var moment := _new_moment(type, _t, score, players, ["kicker"], facts)
 	# The passage that ended in the score has its goal clip already.
 	_reset_chain()
-	_log(type, kicker)
+	_log(type, kicker, extra)
 	if moment.is_empty():
 		return
 	var points_before := {team: own_before, other: other_pts}
-	var goals_before := {team: MatchState.goals[team] - (1 if is_goal else 0), other: MatchState.goals[other]}
-	var behinds_before := {team: MatchState.behinds[team] - (0 if is_goal else 1), other: MatchState.behinds[other]}
+	var goals_before := {team: team_goals_before, other: MatchState.goals[other]}
+	var behinds_before := {team: team_behinds_before, other: MatchState.behinds[other]}
+	points_before[team] = team_goals_before * MatchState.GOAL_POINTS + team_behinds_before * MatchState.BEHIND_POINTS
+	moment["set_shot"] = extra.set_shot
+	moment["score_method"] = method
+	moment["last_touch"] = extra.last_touch
+	if is_instance_valid(touch):
+		moment["_t_touch"] = float(_last_touch.t)
 	moment.score_before = _scoreline(goals_before, behinds_before, points_before)
 	if kicker != null:
 		moment.lead = clampf(_t - float(kick.t) + HighlightTable.GOAL_KICK_RUNUP,
@@ -768,7 +864,7 @@ func _on_scored(team: Tuning.Team, is_goal: bool) -> void:
 func _on_marked(tier: Tuning.Action, legal_mark: bool, player: PlayerController) -> void:
 	if not legal_mark:
 		return
-	_log("mark", player)
+	_last_touch = {"player": player, "kind": "mark", "t": _t}
 	_set_shot_player = player
 	_end_kick()
 	_flight = {}
@@ -793,6 +889,7 @@ func _on_marked(tier: Tuning.Action, legal_mark: bool, player: PlayerController)
 		score += HighlightTable.MARK_HIGH_PER_METRE * (catch_height - HighlightTable.MARK_HIGH_FROM)
 	if inside_50:
 		score += HighlightTable.MARK_INSIDE_50
+	_log("mark", player, {"contested": contested})
 	var players: Array = [player]
 	var roles: Array = ["marker"]
 	if contested:
@@ -804,6 +901,7 @@ func _on_marked(tier: Tuning.Action, legal_mark: bool, player: PlayerController)
 		"tier": ["safe", "running", "aggressive"][clampi(tier - Tuning.Action.MARK_SAFE, 0, 2)],
 	})
 	if not moment.is_empty():
+		moment["contested"] = contested
 		_queue(moment)
 
 

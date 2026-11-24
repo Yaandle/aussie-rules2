@@ -72,9 +72,11 @@ func _ready() -> void:
 	layer = 100
 	_rows = [Row.new("RESUME", resume)]
 	if show_camera_zoom:
-		# Enter / a click steps it up, wrapping, for a mouse or one button.
-		_rows.append(Row.new("CAMERA ZOOM", _step_zoom.bind(1, true), _step_zoom.bind(false),
-			func() -> String: return "%d%%" % roundi(Settings.camera_zoom * 100.0)))
+		# Enter / a click jumps to the next named preset (WIDE, STANDARD,
+		# CLOSE, TIGHT, round again), for a mouse or one button; left /
+		# right step the free zoom between them (CameraZoom).
+		_rows.append(Row.new("CAMERA ZOOM", _next_zoom_preset, _step_zoom,
+			func() -> String: return CameraZoom.label(Settings.camera_zoom)))
 	_rows.append(Row.new("QUIT TO MENU", _quit_to_menu))
 	# Derived from content (rows + the hint bar under them) rather than a
 	# fixed constant, same reason settings_screen.gd/remap_screen.gd compute
@@ -191,14 +193,16 @@ func _adjust(step: int) -> void:
 		row.adjust.call(step)
 
 
-## One CAM_ZOOM_STEP. `wrap` (Enter, a click) goes back to the minimum past
-## the maximum; the arrows stop at either end. Saved straight away, as the
-## pregame screens' zoom arrows do, so the next match starts on it too.
-func _step_zoom(step: int, wrap: bool) -> void:
-	var zoom := Settings.camera_zoom + step * Tuning.CAM_ZOOM_STEP
-	if wrap and zoom > Tuning.CAM_ZOOM_MAX + 0.001:
-		zoom = Tuning.CAM_ZOOM_MIN
-	Settings.camera_zoom = zoom
+## One CameraZoom step; the arrows stop at either end. Saved straight away,
+## as the pregame screens' zoom arrows do, so the next match starts on it too.
+func _step_zoom(step: int) -> void:
+	Settings.camera_zoom = CameraZoom.stepped(Settings.camera_zoom, step)
+	Settings.save()
+	_refresh()
+
+
+func _next_zoom_preset() -> void:
+	Settings.camera_zoom = CameraZoom.next_preset(Settings.camera_zoom)
 	Settings.save()
 	_refresh()
 

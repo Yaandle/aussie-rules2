@@ -41,7 +41,7 @@ var zoom := Tuning.CAM_ZOOM_DEFAULT:
 	set(value):
 		zoom = clampf(value, Tuning.CAM_ZOOM_MIN, Tuning.CAM_ZOOM_MAX)
 		if is_instance_valid(_arm):
-			_arm.spring_length = distance / zoom
+			_arm.spring_length = _chase_arm()
 
 @onready var _yaw_pivot: Node3D = $Yaw
 @onready var _pitch_pivot: Node3D = $Yaw/Pitch
@@ -81,8 +81,14 @@ var _goal_kick_saved_mode: Mode = Mode.CHASE
 var _goal_kick_active := false
 
 
+## CHASE's spring-arm length at the current zoom, never under
+## CAM_CHASE_MIN_ARM.
+func _chase_arm() -> float:
+	return maxf(distance / zoom, Tuning.CAM_CHASE_MIN_ARM)
+
+
 func _ready() -> void:
-	_arm.spring_length = distance / zoom
+	_arm.spring_length = _chase_arm()
 	_camera.fov = Tuning.CAM_FOV_BASE
 	recenter()
 
@@ -200,7 +206,7 @@ func recenter() -> void:
 	# was left mid-lerp — recenter() is the one path every camera state
 	# funnels back through (exit_dialogue included), so it's the one place
 	# that has to restore both rather than just rotation/focus.
-	_arm.spring_length = distance / zoom
+	_arm.spring_length = _chase_arm()
 	_camera.fov = Tuning.CAM_FOV_BASE
 
 
@@ -399,7 +405,7 @@ func _is_target_aiming() -> bool:
 ## and back once it's over. Every other time the target length is the
 ## plain distance / zoom, which this leaves exactly where it is.
 func _update_arm_length(delta: float) -> void:
-	var length := distance / zoom
+	var length := _chase_arm()
 	if _is_target_ruck_contesting():
 		length *= Tuning.CAM_RUCK_SIDE_DISTANCE_MULT
 	_arm.spring_length = lerpf(_arm.spring_length, length,
@@ -528,6 +534,14 @@ func _update_full_side(delta: float) -> void:
 	# the near/far spread at high zoom.
 	var target_fov := lerpf(
 		Tuning.CAM_FULL_SIDE_FOV_NEAR, Tuning.CAM_FULL_SIDE_FOV_FAR, zoom_t) / zoom
+	# Smart framing: never so wide that the player at the ball is smaller
+	# than CAM_FULL_SIDE_MIN_SUBJECT of the frame (times the zoom). The
+	# distance is the real lens-to-play one, height included.
+	var lens_dist := Vector3(global_position.x - focus_point.x, global_position.y,
+		global_position.z - focus_point.z).length()
+	var min_frac := Tuning.CAM_FULL_SIDE_MIN_SUBJECT * zoom
+	var cap := rad_to_deg(2.0 * atan(1.9 / (2.0 * min_frac * maxf(lens_dist, 1.0))))
+	target_fov = clampf(minf(target_fov, cap), Tuning.CAM_FULL_SIDE_FOV_MIN, 110.0)
 	_camera.fov = lerpf(_camera.fov, target_fov, 1.0 - exp(-Tuning.CAM_FOV_RATE * delta))
 
 

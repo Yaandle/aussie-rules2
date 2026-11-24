@@ -187,6 +187,7 @@ func clear_broadcast_side() -> void:
 		removed += multimesh.instance_count - kept.size()
 		# Resizing wipes the buffer, tints included, so both go back in.
 		multimesh.instance_count = kept.size()
+		layer.set_meta(&"instance_transforms", kept)
 		for i in kept.size():
 			multimesh.set_instance_transform(i, kept[i])
 			if multimesh.use_colors:
@@ -292,6 +293,10 @@ func _add_multimesh(layer_name: String, mi: MeshInstance3D, transforms: Array[Tr
 	var layer := MultiMeshInstance3D.new()
 	layer.name = layer_name
 	layer.multimesh = multimesh
+	# The placements again, readable without the renderer (a headless run's
+	# dummy server keeps no instance data): CameraOccluders reads them so a
+	# replay camera keeps out of the trees.
+	layer.set_meta(&"instance_transforms", transforms.duplicate())
 	layer.material_override = mi.material_override
 	layer.cast_shadow = mi.cast_shadow
 	add_child(layer)

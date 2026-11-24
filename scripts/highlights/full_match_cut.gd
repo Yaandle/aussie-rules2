@@ -26,12 +26,18 @@ var times := PackedFloat64Array()
 ## the recording, inclusive, in order.
 var keep: Array[Dictionary] = []
 var video_frames := 0
+## Recording frames never cut, inclusive Vector2i(from, to): each exported
+## moment's stretch plus HighlightTable.MOMENT_PROTECT_LEAD/TAIL (2026-11-24:
+## a goal's last ~0.9 s fell in a dead-time cut, so highlight.mp4 ended before
+## the celebration). Dead time outside them is cut as before.
+var protected: Array[Vector2i] = []
 
 
 ## `clip` is the full match (ReplayClip.load_file of match.replay), `doc` its
 ## match.json.
-static func build(clip: ReplayClip, doc: Dictionary) -> FullMatchCut:
+static func build(clip: ReplayClip, doc: Dictionary, protect: Array[Vector2i] = []) -> FullMatchCut:
 	var cut := FullMatchCut.new()
+	cut.protected = protect
 	cut.fps = float(doc.get("fps", HighlightTable.RECORD_FPS))
 	for t in doc.get("frame_times", []):
 		cut.times.append(float(t))
@@ -87,7 +93,8 @@ func _cut_segment(clip: ReplayClip, from: int, to: int, quarter: int) -> void:
 		var a := _first_at_or_after(drop_from, s, e)
 		var b := _last_at_or_before(drop_to, s, e)
 		if a <= b:
-			cuts.append(Vector2i(a, b))
+			for piece in _minus_protected(Vector2i(a, b)):
+				cuts.append(piece)
 	var start := from
 	for c in cuts:
 		if c.x > start:
@@ -95,6 +102,36 @@ func _cut_segment(clip: ReplayClip, from: int, to: int, quarter: int) -> void:
 		start = c.y + 1
 	if start <= to:
 		_add_keep(start, to, quarter)
+
+
+## `c` with every protected range taken out of it (0, 1 or more pieces).
+func _minus_protected(c: Vector2i) -> Array[Vector2i]:
+	var pieces: Array[Vector2i] = [c]
+	for p in protected:
+		var next: Array[Vector2i] = []
+		for q in pieces:
+			if p.y < q.x or p.x > q.y:
+				next.append(q)
+				continue
+			if p.x > q.x:
+				next.append(Vector2i(q.x, p.x - 1))
+			if p.y < q.y:
+				next.append(Vector2i(p.y + 1, q.y))
+		pieces = next
+	return pieces
+
+
+## The protected ranges for `moments` (moments.json rows or Highlights'
+## dictionaries: anything with match_from/match_to), padded by
+## MOMENT_PROTECT_LEAD before and MOMENT_PROTECT_TAIL after, in frames at `fps`.
+static func protect_moments(moments: Array, fps: float) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	var lead := roundi(HighlightTable.MOMENT_PROTECT_LEAD * fps)
+	var tail := roundi(HighlightTable.MOMENT_PROTECT_TAIL * fps)
+	for m: Dictionary in moments:
+		if m.has("match_from") and m.has("match_to"):
+			out.append(Vector2i(maxi(0, int(m.match_from) - lead), int(m.match_to) + tail))
+	return out
 
 
 func _add_keep(a: int, b: int, quarter: int) -> void:
