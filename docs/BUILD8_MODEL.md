@@ -103,6 +103,44 @@ shell under the strap is reported as hidden. Close-ups of the worst frames:
 head and arms hanging close to the body. Limb lengths are the skeleton's,
 and the idle clip hangs the arms out a little; neither changed.
 
+## Side-on and joints pass (2026-11-25, third)
+
+Playtest: side on still looked odd; calves, wrists and biceps too big; the
+shoulder-to-biceps and neck-to-head joins weak; the guernsey should fit
+like a singlet; the arms looked placed on the sides. Compared side on in
+the game's light with `reference_match.tscn`'s new `side_close` shot
+(`side_close_vs_build8.png`) and in Blender with
+`render_8thbuild_review.py -- OUT.png --side`.
+
+- **Arms joined to the body.** The dome over the shoulder joint and the
+  deltoid's top take a share of the clavicle (`CLAV_SHARE` 0.22 at the
+  dome, none 8 cm down the arm). Rigid to the upper arm, the dome swung
+  out as a ball when the arm hung, pulling away from the trapezius and the
+  chest. 0.35 was tried first and pressed the dome's top flat.
+- **Deltoid and upper arm, side on.** The deltoid deeper front to back and
+  the upper arm below it ~20% shallower: posed in the idle the deltoid
+  ring is 0.178 m deep and the mid upper arm 0.116 (it was one slab).
+  `ARM_BULK` 1.22, the biceps' front 0.058.
+- **Wrists** ~10% slimmer again, the forearm tapering into them; the palm
+  starts at the wrist's size.
+- **Calves** back under the first pass's size.
+- **Neck.** Leans forward 3 cm as it rises (`NECK_LEAN`), ~12% deeper front
+  to back, and its top rings reach up under the skull at the back.
+  The jaw's angle sits higher than the chin (narrower sides on the two
+  rows under the mouth), so the jawline slopes up to the ear instead of a
+  flat shelf.
+- **Guernsey.** Fitted: ~1 cm in round the waist and chest, the second
+  pass's extra depth taken back out, the hem eased at the front only as
+  far as the shorts need (a narrower hem put the shorts 5 mm through it at
+  rest). The armhole's top cut in to 0.196 m and the trapezius slope
+  gentler, so the shoulder line runs from the collar out to the deltoid.
+
+`check_8thbuild_deform.py`: rest pose clean, every clip and ragdoll pose
+as before this pass. `audit_8thbuild_anim.py` flags the new
+clavicle-to-arm blend at the top of the deltoid (strain 0.53-1.88x,
+volume to 0.06 in `mark_aggressive`), right under the strap's end;
+rendered close up in the mark it stays one continuous shoulder.
+
 ## Arms, shoulders and side-on pass (2026-11-25)
 
 Playtest: the side-on view looked awkward and the elbows weren't smooth.

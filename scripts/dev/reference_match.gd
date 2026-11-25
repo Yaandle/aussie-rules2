@@ -34,6 +34,9 @@ const SHOTS := [
 	["face", Vector3(0.0, 1.98, -1.0), Vector3(0.0, 1.98, 0.0), 26.0],
 	["three_quarter", Vector3(-3.4, 1.30, -3.9), Vector3(0.0, 1.06, 0.0), 30.0],
 	["side", Vector3(-5.2, 1.30, 0.0), Vector3(0.0, 1.06, 0.0), 30.0],
+	## Side on, head to hips, for the shoulder, arm and neck joins
+	## (2026-11-25); compare with the reference turnaround's side view.
+	["side_close", Vector3(-2.2, 1.62, 0.0), Vector3(0.0, 1.55, 0.0), 30.0],
 	["back", Vector3(0.0, 1.30, 5.2), Vector3(0.0, 1.06, 0.0), 30.0],
 	["head_back", Vector3(0.6, 2.05, 1.0), Vector3(0.0, 2.0, 0.0), 30.0],
 ]

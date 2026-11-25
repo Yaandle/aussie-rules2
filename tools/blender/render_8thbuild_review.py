@@ -98,6 +98,18 @@ ARMS = [
 	("elbow handball", "handball", 3, 60.0, "lowerarm.r", 0.0, 0.45),
 	("side body", "idle", 1, 90.0, "spine1", 0.0, 1.9),
 ]
+## Side on and the upper body close, in the idle, framed like the
+## reference turnaround's crops, for matching it side by side. --side.
+SIDE = [
+	("side full", "idle", 1, 90.0, True),
+	("side upper", "idle", 1, 90.0, 1.62, 0.70),
+	("side neck", "idle", 1, 90.0, 1.86, 0.40),
+	("side legs", "idle", 1, 90.0, 0.55, 1.00),
+	("front upper", "idle", 1, 0.0, 1.62, 0.80),
+	("back upper", "idle", 1, 180.0, 1.62, 0.80),
+	("3/4 upper", "idle", 1, 40.0, 1.62, 0.80),
+	("armpit", "idle", 1, 70.0, 1.55, 0.45),
+]
 POSES = [
 	("run knee", "run_fwd", 7, 70.0, False),
 	("kick", "kick", 11, 25.0, False),
@@ -271,6 +283,8 @@ def main():
 		shots = CLOSE
 	elif "--audit" in argv:
 		shots = AUDIT
+	elif "--side" in argv:
+		shots = SIDE
 	elif "--arms" in argv:
 		shots = ARMS
 	elif "--idle" in argv:

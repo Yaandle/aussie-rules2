@@ -495,11 +495,13 @@ def thigh_table(K):
 		# lower one, both bulging behind.
 		# 2026-11-25: fuller calves behind and inside, the reference's
 		# diamond, ~10% more at the back.
-		(K + 0.105, P(0.074, 0.082, 0.062, 0.108, ((235, 30, 0.011), (305, 30, 0.006)))),
-		(K + 0.150, P(0.077, 0.086, 0.064, 0.114, ((235, 30, 0.013), (305, 30, 0.006)))),
+		# Third 2026-11-25 pass: back down from 0.108/0.114 behind ("the
+		# calves are too big"), a little under the first pass.
+		(K + 0.105, P(0.072, 0.079, 0.061, 0.096, ((235, 30, 0.009), (305, 30, 0.004)))),
+		(K + 0.150, P(0.074, 0.082, 0.062, 0.098, ((235, 30, 0.010), (305, 30, 0.004)))),
 		# 2026-11-25: the sock now starts lower (sock_table), so the calf's
 		# lower half and the start of the Achilles taper are skin too.
-		(K + 0.205, P(0.073, 0.081, 0.061, 0.103, ((235, 30, 0.009),))),
+		(K + 0.205, P(0.070, 0.077, 0.060, 0.090, ((235, 30, 0.007),))),
 		(K + 0.250, P(0.064, 0.070, 0.057, 0.080)),
 	]
 
@@ -587,7 +589,12 @@ def build_legs(skin):
 
 ## Build 8: radius scale on the upper arm and forearm (not the elbow).
 ## 2026-11-25: 1.30 (was 1.20), the reference's arms side by side.
-ARM_BULK = 1.30
+## Third 2026-11-25 pass: 1.22 ("the biceps are too big").
+ARM_BULK = 1.22
+## The clavicle's share of the dome over the shoulder joint (build_arms'
+## arm_w). 0.35 first: hanging, the dome's top stayed so high it pressed
+## flat into one bright facet; 0.22 keeps it round.
+CLAV_SHARE = 0.22
 
 
 def build_arms(skin):
@@ -607,7 +614,20 @@ def build_arms(skin):
 				return sh + ua_dir * t, ua_dir
 			return elbow + la_dir * (t - E), la_dir
 
+		clav = "shoulder" + sfx
+
 		def arm_w(t):
+			# Third 2026-11-25 pass: the dome over the joint and the top of
+			# the deltoid take a share of the clavicle (CLAV_SHARE at the dome,
+			# none by 8 cm down the arm). Rigid to the upper arm, the dome
+			# swung out with the arm as a ball: hanging, it pulled away from
+			# the trapezius and the chest and the arm read as stuck on the
+			# side. Now the top of the shoulder stays where the shoulder is
+			# and the deltoid stretches down over the joint into the arm.
+			if t < 0.08:
+				share = CLAV_SHARE * ramp(t, 0.08, -0.04)
+				if share > 0.0:
+					return {clav: share, ua: 1.0 - share}
 			if t < E + 0.06:
 				return blend(ua, la, ramp(t, E - 0.07, E + 0.06))
 			return blend(la, hd, ramp(t, W - 0.03, W + 0.05) * 0.5)
@@ -636,18 +656,30 @@ def build_arms(skin):
 			(-0.030, P(0.060, 0.050, 0.058, 0.058)),
 			# 2026-11-25: the cap ~7% fuller out and in front (the
 			# reference's round, heavy deltoids).
-			(-0.006, P(0.088, 0.060, 0.080, 0.077, ((0, 50, 0.006),))),
-			(0.032, P(0.099, 0.061, 0.085, 0.080, ((0, 50, 0.009), (90, 40, 0.005)))),
-			(0.080, P(0.084, 0.058, 0.076, 0.073)),
+			# Third 2026-11-25 pass: deeper front to back (side on, the
+			# reference's deltoid is the arm's widest part and then tapers
+			# in a third of the way down; ours was no wider than the arm
+			# below it, so the arm read as a tube under the guernsey).
+			(-0.006, P(0.088, 0.060, 0.088, 0.086, ((0, 50, 0.006),))),
+			(0.032, P(0.099, 0.061, 0.096, 0.093, ((0, 50, 0.009), (90, 40, 0.005)))),
+			(0.080, P(0.084, 0.058, 0.084, 0.082)),
 			# 2026-11-25: the insertion no longer pinches in (it was 0.050
 			# out against the deltoid's 0.080, a notch that made the
 			# deltoid read as a ball stuck on a tube). The reference's
 			# deltoid runs down into the arm.
-			(0.125, P(0.058, 0.050, 0.062, 0.060)),       # the deltoid's insertion
+			# Third 2026-11-25 pass, side on: the upper arm below the
+			# deltoid ~20% shallower front to back (with ARM_BULK it was
+			# ~0.14 m deep, as deep as the deltoid, so side on the arm was
+			# one thick slab from shoulder to elbow; the reference's is
+			# ~0.10 below a deltoid that stands out).
+			(0.125, P(0.058, 0.050, 0.051, 0.050)),       # the deltoid's insertion
 			# Biceps in front, the triceps behind: a long, lean upper arm.
 			# Biceps in front and triceps behind, narrower seen from the
 			# front than the deltoid, so the upper arm tapers from it.
-			(0.220, P(0.049, 0.047, 0.068, 0.064, ((90, 35, 0.006), (270, 35, 0.005)))),
+			# Third 2026-11-25 pass: the biceps' front 0.058 (was 0.068),
+			# so side on the arm tapers from the deltoid instead of
+			# swelling again below it.
+			(0.220, P(0.049, 0.047, 0.046, 0.050, ((90, 35, 0.004), (270, 35, 0.005)))),
 			# 2026-11-25: a ring either side of the elbow's pivot ring and
 			# a wider blend (arm_w), so a bend turns over five rings instead
 			# of three: it rounds instead of folding to a point behind.
@@ -656,7 +688,7 @@ def build_arms(skin):
 			# width, a pinch that read as a hinge), and the olecranon is no
 			# fuller than the sides, so a bent elbow rounds instead of
 			# coming to a point behind.
-			(E - 0.044, P(0.040, 0.038, 0.044, 0.044)),
+			(E - 0.044, P(0.040, 0.038, 0.039, 0.041)),
 			(E - 0.022, P(0.044, 0.042, 0.045, 0.046)),
 			(E, P(0.043, 0.041, 0.040, 0.045)),           # elbow, olecranon behind
 			(E + 0.020, P(0.045, 0.042, 0.044, 0.045)),
@@ -664,12 +696,14 @@ def build_arms(skin):
 			# Forearm: the brachioradialis bulge out-front below the elbow,
 			# then a straight taper to the wrist.
 			(E + 0.090, P(0.055, 0.046, 0.053, 0.045, ((45, 40, 0.006),))),
-			(E + 0.170, P(0.044, 0.040, 0.047, 0.040)),
+			(E + 0.170, P(0.039, 0.035, 0.042, 0.036)),
 			# 2026-11-25: a slimmer wrist (~10%) under the thick forearm,
 			# as the reference's; the hand's palm starts at its size.
-			(W - 0.022, P(0.033, 0.030, 0.039, 0.032)),
-			(W, P(0.030, 0.028, 0.037, 0.031)),           # wrist: wide front-back
-			(W + 0.020, P(0.026, 0.025, 0.033, 0.028)),
+			# Third 2026-11-25 pass: ~10% slimmer again ("the wrists are
+			# too big"), and the forearm tapers into them from E + 0.17.
+			(W - 0.022, P(0.030, 0.027, 0.036, 0.029)),
+			(W, P(0.027, 0.025, 0.034, 0.028)),           # wrist: wide front-back
+			(W + 0.020, P(0.024, 0.023, 0.030, 0.026)),
 		]
 		rings = []
 		for t, prof in table:
@@ -720,8 +754,8 @@ FINGER_SIDES = 8
 ## the hypothenar ridge, the knuckles. The first two rings match the
 ## forearm's wrist ring, so the arm runs into the hand without a cuff.
 PALM = [
-	(-0.016, 0.028, 0.026, 0.036, 0.030, ()),
-	(0.000, 0.027, 0.026, 0.037, 0.031, ()),
+	(-0.016, 0.025, 0.023, 0.033, 0.028, ()),
+	(0.000, 0.025, 0.024, 0.035, 0.030, ()),
 	(0.024, 0.022, 0.024, 0.041, 0.036, ((140, 40, 0.007), (225, 35, 0.003))),
 	(0.054, 0.016, 0.021, 0.044, 0.040, ((140, 40, 0.006), (225, 35, 0.003))),
 	(0.084, 0.016, 0.018, 0.046, 0.041, ((0, 60, 0.002),)),
@@ -834,8 +868,12 @@ def build_hand(skin, sfx, sign):
 ## chin a touch further forward.
 HEAD = [
 	(1.872, -0.042, 0.032, 0.031, 0.032, 0.030, 0.026),
-	(1.888, -0.034, 0.067, 0.063, 0.058, 0.050, 0.040),   # under the chin
-	(1.914, -0.021, 0.086, 0.080, 0.074, 0.067, 0.058),   # chin and the jaw's line
+	# Third 2026-11-25 pass, side on: the jaw's angle sits higher than the
+	# chin (narrower sides and back on the two rows under the mouth), so the
+	# jawline slopes up from the chin to under the ear; it was a flat shelf
+	# from the chin straight back to the neck.
+	(1.888, -0.034, 0.067, 0.058, 0.044, 0.038, 0.032),   # under the chin
+	(1.914, -0.021, 0.086, 0.076, 0.062, 0.055, 0.050),   # chin and the jaw's line
 	(1.952, -0.008, 0.094, 0.091, 0.088, 0.082, 0.078),   # mouth, the jaw's corner
 	(1.990, 0.000, 0.100, 0.098, 0.092, 0.094, 0.097),    # cheekbones
 	(2.024, 0.002, 0.102, 0.092, 0.088, 0.098, 0.104),    # eyes
@@ -845,6 +883,8 @@ HEAD = [
 	(2.141, 0.008, 0.042, 0.042, 0.042, 0.050, 0.054),
 ]
 HEAD_X = 0.007
+## How far (m) the neck's top sits forward of its base (build_neck_and_head).
+NECK_LEAN = -0.030
 ## Build 8: 16, turned half a segment (HEAD_PHASE) so the middle of the
 ## face is a flat facet, not a ridge (a ridge there broke the mouth and the
 ## brows). Build 7 has 14 with no turn.
@@ -899,20 +939,32 @@ def build_neck_and_head(skin, hair):
 		# 2026-11-25 (side on): deeper front to back, the reference's
 		# neck runs from the traps to the jaw as one thick column; side on
 		# it was a thin stalk under an overhanging skull.
-		(1.800, P(0.074, 0.074, 0.072, 0.077)),
-		(1.850, P(0.073, 0.073, 0.070, 0.075)),
-		(1.890, P(0.067, 0.067, 0.064, 0.075)),
-		(1.928, P(0.058, 0.058, 0.054, 0.067)),
+		(1.800, P(0.074, 0.074, 0.068, 0.076)),
+		# ~12% deeper front to back over the visible part: side on it was
+		# a thin column next to the bigger head (HEAD_SCALE 1.10).
+		(1.850, P(0.072, 0.072, 0.071, 0.082)),
+		(1.890, P(0.066, 0.066, 0.065, 0.085)),
+		# The top rings reach up under the skull at the back (the
+		# occiput), so the back of the neck runs into the head in one curve
+		# instead of stopping on a shelf under it.
+		(1.928, P(0.060, 0.060, 0.057, 0.086)),
+		(1.952, P(0.052, 0.052, 0.046, 0.082)),
 	]
 	ny = COLLAR_Y
 
 	def neck_w(p):
 		return blend("spine2", "head", ramp(p.z, 1.78, 1.90))
 
-	rings = [(Vector((HEAD_X, ny, z)), UP, prof, neck_w(Vector((0, 0, z)))) for z, prof in neck]
+	def neck_y(z):
+		"""Third 2026-11-25 pass: the neck leans forward as it rises, as
+		the reference's does side on (from the trapezius behind up to the
+		jaw in front); it stood straight up as a post under the skull."""
+		return ny + NECK_LEAN * (ramp(z, 1.73, 1.93) - 0.3)
+
+	rings = [(Vector((HEAD_X, neck_y(z), z)), UP, prof, neck_w(Vector((0, 0, z)))) for z, prof in neck]
 	lofted = skin.loft(rings, "skin", 10, math.radians(18.0), lambda ax: (UP, SIDE, FORWARD))
-	skin.cap(lofted[0], Vector((HEAD_X, ny, 1.72)), {"spine2": 1.0}, "skin")
-	skin.cap(lofted[-1], Vector((HEAD_X, ny, 1.94)), {"head": 1.0}, "skin")
+	skin.cap(lofted[0], Vector((HEAD_X, neck_y(1.72), 1.72)), {"spine2": 1.0}, "skin")
+	skin.cap(lofted[-1], Vector((HEAD_X, neck_y(1.96), 1.96)), {"head": 1.0}, "skin")
 
 	head_w = {"head": 1.0}
 	n = HEAD_SEGMENTS
@@ -1228,25 +1280,34 @@ GUERNSEY = [
 	# Third pass: longer and a little fuller toward the hem, as the
 	# turnaround's hangs (boxy, to the top of the shorts' legs), and still
 	# above the shorts' row a lifted thigh shoves up most (SHORTS_HIPS row 3).
-	(1.136, 0.236, 0.141, 0.157, 2.6, ()),     # hem, over the seat
-	(1.178, 0.231, 0.137, 0.152, 2.6, ()),
-	(1.235, 0.222, 0.130, 0.143, 2.5, ()),     # over the shorts' waistband
-	(1.310, 0.213, 0.122, 0.129, 2.4, ()),
-	(1.400, 0.209, 0.120, 0.123, 2.4, ()),
-	# 2026-11-25 (side on): ~1.4 cm deeper through the chest and ~1 cm
-	# through the upper back, the reference's barrel; side on the arm hung
-	# at the chest's front edge, now it hangs mid-torso.
-	(1.480, 0.211, 0.124, 0.124, 2.4, ()),
-	(1.550, 0.220, 0.128, 0.124, 2.5, LATS),
-	(1.610, 0.232, 0.135, 0.128, 2.6, LATS + PECS),   # the armpit
-	(1.665, 0.236, 0.137, 0.127, 2.7, PECS + BLADES),
+	# Third 2026-11-25 pass: fitted like a singlet ("bring the jersey in a
+	# little"): ~1 cm in round the waist and hem, the chest and back
+	# closer to the body than the second pass's (which went 1.4 cm deeper)
+	# but still a touch deeper than before it, so side on the arm hangs
+	# mid-torso. The hem stays clear of the shorts (the checker's pair).
+	(1.136, 0.231, 0.140, 0.150, 2.6, ()),     # hem, over the seat
+	(1.178, 0.226, 0.135, 0.145, 2.6, ()),
+	(1.235, 0.215, 0.125, 0.137, 2.5, ()),     # over the shorts' waistband
+	(1.310, 0.206, 0.117, 0.124, 2.4, ()),
+	(1.400, 0.202, 0.115, 0.118, 2.4, ()),
+	(1.480, 0.205, 0.118, 0.118, 2.4, ()),
+	(1.550, 0.215, 0.121, 0.118, 2.5, LATS),
+	(1.610, 0.228, 0.127, 0.121, 2.6, LATS + PECS),   # the armpit
+	(1.665, 0.233, 0.129, 0.120, 2.7, PECS + BLADES),
 	# The armhole's side wall: straight up from the armpit, the arm in front
 	# of it from the side.
-	(1.712, 0.232, 0.127, 0.119, 2.8, BLADES),
-	(1.752, 0.224, 0.110, 0.106, 2.8, ()),
-	(1.790, 0.208, 0.088, 0.090, 2.6, ()),     # the strap's end, on the deltoid's top
-	(1.814, 0.170, 0.080, 0.084, 2.4, ()),     # trapezius slope
-	(1.832, 0.128, 0.074, 0.080, 2.2, ()),
+	# Third 2026-11-25 pass: the armhole cut further in at the top (the
+	# strap's end 0.196 out, was 0.208), so side on the deltoid's top
+	# shows above the armhole as the reference's does, instead of the
+	# guernsey covering the shoulder and the arm starting under it.
+	(1.712, 0.222, 0.119, 0.112, 2.8, BLADES),
+	(1.752, 0.210, 0.104, 0.101, 2.8, ()),
+	(1.790, 0.196, 0.088, 0.090, 2.6, ()),     # the strap's end, on the deltoid's top
+	# Third 2026-11-25 pass: the trapezius slope a little gentler (wider
+	# just above the strap's end), so side on and in front the shoulder
+	# line runs out from the collar to the deltoid instead of dropping.
+	(1.814, 0.180, 0.080, 0.084, 2.4, ()),     # trapezius slope
+	(1.832, 0.140, 0.074, 0.080, 2.2, ()),
 	(1.848, 0.088, 0.071, 0.082, 2.0, ()),     # the neckline, close round the neck
 ]
 GUERNSEY_SEGMENTS = 24

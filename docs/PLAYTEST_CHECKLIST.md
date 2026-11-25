@@ -275,4 +275,6 @@ Pick `8THBUILD`. Compare with `docs/review/8thbuild/turnaround_vs_build8.png`.
 - [ ] **Smother dive:** one sock vertex can show ~7 mm through the boot for a frame.
 - [ ] **Elbows (arms pass):** in runs, handballs and marks the elbow rounds over, no point or pinch behind it.
 - [ ] **Side on (arms pass):** the arm hangs down the middle of the torso, palm to the thigh; the chest, neck and calves read as deep as the reference's.
+- [ ] **Side on (third pass), against `docs/review/8thbuild/side_close_vs_build8.png`:** the shoulder reads as one piece from neck to deltoid to arm, the neck runs into the head, the guernsey fits like a singlet. Say what's still off.
+- [ ] **Marks and hit-outs:** the top of the shoulder (now partly on the clavicle) stays round with the arms up; no crease under the strap's end.
 
