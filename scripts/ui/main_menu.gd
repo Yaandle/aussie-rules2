@@ -90,7 +90,7 @@ const VERSION_FALLBACK := "dev"
 ## Utility row below the mode cards — navigable via ↓/↑ (or d-pad),
 ## left/right to cycle, Enter/A to enter. The Character shortcut (C) still
 ## jumps there directly. TEAM left this row in 6AC (playtest 2026-11-11):
-## it's now a step of FULL GAME (side select -> TEAM -> match setup).
+## it's now a step of FULL GAME (team select, with its squad table -> match setup).
 const UTIL_ENTRIES := [
 	{"label": "CHARACTER", "scene": "res://scenes/ui/character_screen.tscn"},
 ]

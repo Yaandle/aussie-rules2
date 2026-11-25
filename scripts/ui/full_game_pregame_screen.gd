@@ -145,7 +145,7 @@ const PREVIEW_HEIGHT := DESIGN_HEIGHT - SCREEN_MARGIN_Y * 2.0 - HEADER_HEIGHT \
 ## half-width over half-length) fitted to the height it is given, plus its
 ## own MARGIN inset on every side — so this is the panel width at which
 ## the board exactly fills the window rather than sitting in a band of
-## empty parchment. Same derivation as TeamListScreen.BOARD_PANEL_WIDTH.
+## empty parchment. Same derivation the old TEAM page used for its board panel.
 const BOARD_ASPECT := 0.818
 const PREVIEW_WIDTH := (PREVIEW_HEIGHT - FormationWhiteboard.MARGIN * 2.0) * BOARD_ASPECT \
 	+ FormationWhiteboard.MARGIN * 2.0
@@ -209,9 +209,10 @@ const SUBTITLE_TEXT := "18-a-side, real clock, quarters, scoring"
 const START_TEXT := "START MATCH"
 
 const MATCH_SCENE := "res://scenes/modes/full_game.tscn"
-## Back goes to the TEAM page, the step before this one since 6AC
-## (FULL GAME -> side select -> TEAM -> here -> match).
-const MENU_SCENE := "res://scenes/ui/team_list_screen.tscn"
+## Back goes to the team select, the step before this one since the TEAM
+## page was folded into it (2026-11-26: FULL GAME -> team select -> here ->
+## match).
+const MENU_SCENE := "res://scenes/ui/side_select_screen.tscn"
 
 ## Selection animation, matching main_menu.gd's card row: a back-out
 ## overshoot on the scale (a plain ease never reads as a "pop", see that
@@ -236,10 +237,20 @@ const CAMERA_CARD_INDEX := 1
 ## Index of the YOUR POSITION card — locked whenever PLAYER CONTROL is FULL TEAM.
 const YOUR_POSITION_CARD_INDEX := 5
 
+## Index of the DEFENSIVE PRESSURE card. While the cursor is on it the board
+## shows the opposition's 18 outlined dots and the marking links (playtest
+## 2026-11-26: "when I am changing the defensive pressure it should show
+## the opponents dots to help visualise how the players adjust relative to
+## their player"). Pressure pulls your markers toward or away from their
+## mirrored opponent (FormationWhiteboard.PRESSURE_GAP), which only reads
+## with the opponent drawn. Off on every other card, so the board stays as
+## clean as it was.
+const DEFENSIVE_PRESSURE_CARD_INDEX := 4
+
 
 ## One setting tile. `row` is SettingsScreen.Row — the project's
 ## established cycling-value shape, reused rather than re-declared
-## (team_list_screen.gd already reuses it the same way). `locked` is what
+## (settings_screen.gd owns it). `locked` is what
 ## separates the four inert placeholder cards from the five real ones: a
 ## locked card has a single-option Row with no on_change (settings_
 ## screen.gd's SCREEN SHAKE pattern) AND never opens a picker at all.
@@ -649,7 +660,7 @@ func _build_header(parent: Control) -> void:
 
 ## The preview window: a RetroWindow shell holding a live
 ## FormationWhiteboard (the project's existing tactics board — the same
-## component team_list_screen.gd stages, driven by the same three
+## component the old TEAM page staged, driven by the same three
 ## Settings dials) plus an overlaid readout strip.
 ##
 ## The board alone can only reflect three of the five real settings —
@@ -657,7 +668,7 @@ func _build_header(parent: Control) -> void:
 ## PRESSURE, but it has no concept of
 ## who is holding the controller or where the camera is. Rather than
 ## teach it two settings that have nothing to do with formation geometry
-## (it is shared with TeamListScreen, which must not change), the two
+## (it is a pure formation-geometry component), the two
 ## remaining settings are shown in the readout strip below the board, and
 ## FORMATION is echoed there as well so its change is unambiguous rather
 ## than "some dots moved a bit".
@@ -1420,9 +1431,10 @@ func _sync_camera_preview() -> void:
 ## are set every time even when only one changed — cheap (see
 ## FormationWhiteboard._retarget()) and it keeps every caller from having
 ## to know which of them the board actually reacts to, same as
-## team_list_screen.gd's own _sync_whiteboard().
+## the old TEAM page's _sync_whiteboard() did.
 func _sync_preview() -> void:
 	if is_instance_valid(_whiteboard):
+		_whiteboard.show_opposition = _index == DEFENSIVE_PRESSURE_CARD_INDEX
 		_whiteboard.formation_index = Settings.home_formation_index
 		_whiteboard.ball_movement = Settings.home_ball_movement
 		_whiteboard.defensive_pressure = Settings.home_defensive_pressure

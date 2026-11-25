@@ -145,9 +145,9 @@ var home_human_slot := 1:
 
 
 ## The currently-selected preset's slot indices into TeamFormation.SLOTS —
-## the one thing FullGame._kickoff_slot() and TeamListScreen's whiteboard
+## the one thing FullGame._kickoff_slot() and the pregame screen's whiteboard
 ## highlight both actually need, so neither has to know the preset table's
-## own shape. Display names live in TeamListScreen's own Row definition
+## own shape. Display names live in the pregame screen's FORMATION card
 ## (same convention settings_screen.gd's rows already use), not here.
 func home_formation_slots() -> Array:
 	return FORMATION_PRESETS[home_formation_index]["slots"]

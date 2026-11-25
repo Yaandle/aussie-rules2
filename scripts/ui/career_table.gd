@@ -4,7 +4,7 @@ extends RefCounted
 ## A tan Career card holding a minimal spreadsheet: a header row over a
 ## 2px rule, one row per entry on a faint zebra stripe, your row tinted
 ## green, and an optional green cut line under the first N rows — the same
-## language team_list_screen.gd's squad sheet uses, in CareerTheme's
+## language SquadSheet (squad_sheet.gd) uses, in CareerTheme's
 ## colours. Shared by the ladder (CareerLadderTable), the season stats
 ## page and, from Phase 4, the roster, so they can't drift apart.
 ##
@@ -61,7 +61,7 @@ static func build(columns: Array, rows: Array, width: float, cut_after := 0,
 	return card
 
 
-## team_list_screen.gd's _line_divider, in CareerTheme ink.
+## SquadSheet._line_divider, in CareerTheme ink.
 static func _divider(text: String, colour: Color, row_height: float) -> Control:
 	var row := HBoxContainer.new()
 	row.custom_minimum_size.y = row_height + 4.0

@@ -28,7 +28,7 @@ extends Control
 ## lines: a simple, slightly blocky "indie pixel screen" read rather than
 ## a photoreal field.
 ##
-## ── Public surface (driven by TeamListScreen) ──────────────────────────
+## ── Public surface (driven by FullGamePregameScreen) ──────────────────────────
 ## `formation_index`/`ball_movement`/`defensive_pressure` mirror Settings'
 ## own three tactics dials; setting any of them retargets the board (see
 ## _retarget()) and animates there via Tween rather
@@ -114,7 +114,7 @@ var show_opposition := false:
 
 ## Adds a "DEFEND ↓" caption under the oval to balance "ATTACK ↑" (the
 ## Full Game pregame's match setup reference). Off by default so
-## TeamListScreen's board is unchanged.
+## other boards stay unchanged.
 var show_defend_caption := false:
 	set(value):
 		show_defend_caption = value

@@ -226,7 +226,7 @@ change should fit them.
 - **`RetroWindow.card()` doesn't grow with its content.** The wrapper is a
   plain Control sized only by `minimum`. Inside a ScrollContainer that gives
   a scroll range of ~0; set the wrapper's minimum height from
-  `inner.get_combined_minimum_size()` after filling it (team_list_screen.gd).
+  `inner.get_combined_minimum_size()` after filling it (side_select_screen.gd).
 - **`ConfigFile.get_value(section, key, null)` errors when the key is
   missing.** A null default means "required". Probe optional or
   new-version keys with `has_section_key()` first (career_profile.gd's
