@@ -385,3 +385,7 @@ change should fit them.
   holds the steering frame while the move stick is steady
   (`BroadcastCamera.steer_forward`); keep that if the auto view changes.
   Measure the chase camera with `scenes/dev/chase_camera_audit.tscn`.
+- Use `Ball.predicted_drop(height)` (drag, the landing shadow's model) for
+  anything that picks players by where a kick comes down.
+  `predicted_landing_position` ignores drag and was ~6 m out on kicks over
+  15 m (`scenes/dev/switch_audit.tscn`).

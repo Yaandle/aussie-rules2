@@ -119,6 +119,13 @@ var _probe: PhysicsShapeQueryParameters3D
 ## held while the automatic swing turns and the stick doesn't.
 var _steer_yaw := 0.0
 var _steer_move := Vector2.ZERO
+## A switch to a nearby player glides there (CAM_SWITCH_GLIDE_*) instead
+## of cutting: the seconds of quick focus spring left.
+var _glide_timer := 0.0
+## FULL_SIDE's point of play, on its own spring (CAM_FULL_SIDE_SMOOTH_TIME);
+## INF until the mode first runs.
+var _side_focus := Vector3.INF
+var _side_focus_vel := Vector3.ZERO
 
 
 ## CHASE's spring-arm length at the current zoom, never under
@@ -198,6 +205,7 @@ func set_mode(new_mode: Mode) -> void:
 	if mode == new_mode:
 		return
 	mode = new_mode
+	_side_focus = Vector3.INF
 	if mode == Mode.FULL_SIDE:
 		# The rig's wing of the ground loses the trees between it and the
 		# fence (OvalEnvironment.clear_broadcast_side).
@@ -294,11 +302,18 @@ func switch_target(new_target: Node3D) -> void:
 		# then zooms out". Just retargeting and letting the existing pan
 		# carry the transition is the smooth/subtle version asked for.
 		return
-	_focus = _target_focus()
-	_focus_vel = Vector3.ZERO
 	_yaw_vel = 0.0
-	global_position = _focus
 	_switch_timer = Tuning.CAM_SWITCH_PAN_DURATION
+	_vel_smooth = Vector3.ZERO
+	var goal := _target_focus()
+	if _focus.distance_to(goal) <= Tuning.CAM_SWITCH_GLIDE_MAX_DIST:
+		# 2026-11-26: a quick glide reads as a switch without the jump cut
+		# (auto-switches made the cut frequent). Far switches still cut.
+		_glide_timer = Tuning.CAM_SWITCH_GLIDE_TIME
+		return
+	_focus = goal
+	_focus_vel = Vector3.ZERO
+	global_position = _focus
 
 
 ## A transient FOV nudge on a key moment — §6's "tightens on contests and
@@ -421,10 +436,6 @@ func _update_rotation(delta: float) -> void:
 		recenter()
 		return
 
-	if _switch_timer > 0.0:
-		_ease_toward_switch_target(delta)
-		return
-
 	if hold_look:
 		InputManager.take_mouse_look()
 		_yaw_vel = 0.0
@@ -432,8 +443,18 @@ func _update_rotation(delta: float) -> void:
 
 	var stick := InputManager.get_look_vector()
 	var mouse := InputManager.take_mouse_look()
+	var looking := stick.length() > 0.05 or mouse.length_squared() > 0.25
 
-	if stick.length() > 0.05 or mouse.length_squared() > 0.25:
+	# The swing round after a switch gives way to a look at once (playtest
+	# 2026-11-26: "it locks a bit too much, sometimes I cannot move the
+	# camera"; with auto-switching the swing came often).
+	if _switch_timer > 0.0 and not looking:
+		_ease_toward_switch_target(delta)
+		return
+	if looking:
+		_switch_timer = 0.0
+
+	if looking:
 		# The player is looking: theirs at once, the automatic view out.
 		_look_idle = 0.0
 		_auto = 0.0
@@ -677,8 +698,23 @@ func _update_dialogue_framing(delta: float) -> void:
 func _update_full_side(delta: float) -> void:
 	var focus_point := target.global_position
 	if is_instance_valid(ball):
-		focus_point = focus_point.lerp(ball.global_position, 0.5)
+		# 2026-11-26: the ball's end of the frame leads toward where a kick
+		# comes down (the shadow's drop), so the pan gets there with the
+		# ball rather than chasing it, and the whole point rides a damped
+		# spring: a switch (the midpoint jumps) or a bounce is a smooth pan.
+		var play := ball.global_position
+		if ball.is_kick_flight():
+			play = play.lerp(ball.predicted_drop(), Tuning.CAM_FULL_SIDE_DROP_LEAD)
+		focus_point = focus_point.lerp(play, 0.5)
 	focus_point.y = 0.0
+	if _side_focus == Vector3.INF:
+		_side_focus = focus_point
+		_side_focus_vel = Vector3.ZERO
+	var fx := _damp(_side_focus.x, _side_focus_vel.x, focus_point.x, Tuning.CAM_FULL_SIDE_SMOOTH_TIME, delta)
+	var fz := _damp(_side_focus.z, _side_focus_vel.z, focus_point.z, Tuning.CAM_FULL_SIDE_SMOOTH_TIME, delta)
+	_side_focus = Vector3(fx.x, 0.0, fz.x)
+	_side_focus_vel = Vector3(fx.y, 0.0, fz.y)
+	focus_point = _side_focus
 
 	# A fixed mount, permanently outside the field (see Tuning.CAM_FULL_
 	# SIDE_SIDE_OFFSET's own comment — earlier passes here reactively
@@ -756,9 +792,12 @@ func _update_focus(delta: float) -> void:
 	# A critically damped spring (smooth position and speed: no step when
 	# the player stops or turns), slower vertically so a leap or a tackle
 	# doesn't bob the view.
-	var x := _damp(_focus.x, _focus_vel.x, desired.x, Tuning.CAM_FOCUS_SMOOTH_TIME, delta)
-	var y := _damp(_focus.y, _focus_vel.y, desired.y, Tuning.CAM_FOCUS_SMOOTH_TIME_Y, delta)
-	var z := _damp(_focus.z, _focus_vel.z, desired.z, Tuning.CAM_FOCUS_SMOOTH_TIME, delta)
+	_glide_timer = maxf(0.0, _glide_timer - delta)
+	var across := Tuning.CAM_SWITCH_GLIDE_SMOOTH if _glide_timer > 0.0 else Tuning.CAM_FOCUS_SMOOTH_TIME
+	var x := _damp(_focus.x, _focus_vel.x, desired.x, across, delta)
+	var y := _damp(_focus.y, _focus_vel.y, desired.y,
+		Tuning.CAM_SWITCH_GLIDE_SMOOTH if _glide_timer > 0.0 else Tuning.CAM_FOCUS_SMOOTH_TIME_Y, delta)
+	var z := _damp(_focus.z, _focus_vel.z, desired.z, across, delta)
 	_focus = Vector3(x.x, y.x, z.x)
 	_focus_vel = Vector3(x.y, y.y, z.y)
 	global_position = _focus

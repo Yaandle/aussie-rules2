@@ -17,6 +17,8 @@ var _game: Node
 var _camera: BroadcastCamera
 var _player: PlayerController
 var _seconds := 90.0
+## --mode=side measures the FULL_SIDE (broadcast) rig instead.
+var _mode := BroadcastCamera.Mode.CHASE
 var _sim := 0.0
 var _pos: Array[Vector3] = []
 var _fwd: Array[Vector3] = []
@@ -33,6 +35,8 @@ func _ready() -> void:
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--seconds="):
 			_seconds = float(arg.get_slice("=", 1))
+		if arg == "--mode=side":
+			_mode = BroadcastCamera.Mode.FULL_SIDE
 	HighlightPrefs.transient = true
 	GameState.career_active = false
 	Settings.player_control_mode = Settings.PlayerControlMode.SINGLE_PLAYER
@@ -43,7 +47,7 @@ func _ready() -> void:
 	_player.set_brain(_game.call("_configure_ai_brain", AIBrain.new(), Tuning.Team.HOME, 1.0,
 		_game.call("_kickoff_slot", slot, 1.0, Tuning.Team.HOME)))
 	_camera = _game.get("_camera") as BroadcastCamera
-	_camera.set_mode(BroadcastCamera.Mode.CHASE)
+	_camera.set_mode(_mode)
 	var sphere := SphereShape3D.new()
 	sphere.radius = 0.1
 	_probe.shape = sphere
@@ -53,7 +57,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_sim += delta
 	if _camera.mode != BroadcastCamera.Mode.CHASE:
-		_camera.set_mode(BroadcastCamera.Mode.CHASE)
+		_camera.set_mode(_mode)
 	if _camera.target != _player:
 		_camera.target = _player
 	var cam := _camera.camera()

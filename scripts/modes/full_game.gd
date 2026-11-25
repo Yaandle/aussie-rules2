@@ -120,6 +120,9 @@ var _switch_button_lost := 0
 ## Auto-switch on a kick the human didn't take (Settings.auto_switch): the
 ## kicked ball's countdown to the hand-over, or < 0 with nothing pending.
 var _auto_switch_timer := -1.0
+## Seconds since the player last switched by hand (button, flick, LB): an
+## auto-switch never undoes a pick that fresh (AUTO_SWITCH_MANUAL_GRACE).
+var _manual_switch_age := 99.0
 ## The small ring under the player a switch press would pick.
 var _switch_marker: SwitchTargetMarker
 
@@ -905,7 +908,7 @@ func _on_home_kick_disposed(kicker: PlayerController) -> void:
 	if kicker.team != Tuning.Team.HOME \
 			or ControlMode.controlled_player(Tuning.Team.HOME) != kicker:
 		return
-	var landing := _ball.predicted_landing_position()
+	var landing := _ball.predicted_drop()
 	if _is_shot_at_goal(_ball.global_position, landing, 1):
 		return
 	_kick_switch_from = kicker
@@ -930,7 +933,8 @@ func _update_kick_switch(delta: float) -> void:
 	_kick_switch_from = null
 	if not is_instance_valid(kicker) or ControlMode.controlled_player(Tuning.Team.HOME) != kicker:
 		return
-	var target := _ball.global_position if _ball.is_held else _ball.predicted_landing_position()
+	var target := _ball.global_position if _ball.is_held \
+		else _ball.predicted_drop(Tuning.AUTO_SWITCH_DROP_HEIGHT)
 	_assign_human_to(ControlMode.next_in_roster(Tuning.Team.HOME, kicker, target))
 
 
@@ -1603,6 +1607,7 @@ func _switch_human_player() -> void:
 	_switch_cycle_timer = Tuning.SWITCH_CYCLE_WINDOW
 	if next == previous or not _can_take_control(next):
 		return
+	_manual_switch_age = 0.0
 	_assign_human_to(next)
 
 
@@ -1682,6 +1687,7 @@ func _set_camera_look_hold(on: bool) -> void:
 ## FULL_SIDE.
 func _update_switch_input(delta: float) -> void:
 	_switch_cycle_timer = maxf(0.0, _switch_cycle_timer - delta)
+	_manual_switch_age += delta
 	# A release this node never saw (the pause menu took it) mustn't leave
 	# the camera holding its look. A few ticks' grace: the polled state can
 	# run a tick ahead of the release event reaching _unhandled_input.
@@ -1711,6 +1717,7 @@ func _update_switch_input(delta: float) -> void:
 		_switch_button_flicked = true
 	var next := _teammate_toward(current, _flick_world_direction(flick))
 	if next != null:
+		_manual_switch_age = 0.0
 		_assign_human_to(next)
 		_switch_cycle_timer = 0.0
 
@@ -1830,13 +1837,25 @@ func _update_auto_switch(delta: float) -> void:
 		_auto_switch_timer = 0.0   # try again next tick
 		return
 	_auto_switch_timer = -1.0
-	var target := auto_switch_target(human, _ball.predicted_landing_position())
+	# Never undo a pick the player just made by hand.
+	if _manual_switch_age < Tuning.AUTO_SWITCH_MANUAL_GRACE:
+		return
+	var target := auto_switch_target(human, _ball.predicted_drop(Tuning.AUTO_SWITCH_DROP_HEIGHT))
 	if target != null and target != human:
 		_assign_human_to(target)
 
 
 ## Who the auto-switch would hand to for a drop at `landing`, or `human` to
 ## stay. Public so a scratch check can read the pick without a kick.
+##
+## 2026-11-26 playtest: "I'm controlling the player closest to the marking
+## contest, then it switches back to the player near the opponent that
+## kicked it". The drop it used ignored drag (Ball.predicted_drop now, the
+## shadow's estimate, at hand height), and nothing protected a player the
+## human was already steering at the ball. Now the human also stays when
+## they are running for it (stick held, moving within
+## AUTO_SWITCH_RUN_CONE_DEG of the drop) and no more than
+## AUTO_SWITCH_RUNNING_MARGIN further than the best.
 func auto_switch_target(human: PlayerController, landing: Vector3) -> PlayerController:
 	var flat := Vector3(landing.x, 0.0, landing.z)
 	var best: PlayerController = null
@@ -1853,6 +1872,12 @@ func auto_switch_target(human: PlayerController, landing: Vector3) -> PlayerCont
 	var human_d := Vector3(human.global_position.x, 0.0, human.global_position.z).distance_to(flat)
 	if human_d <= Tuning.AUTO_SWITCH_CONTEST_RADIUS \
 			or human_d <= best_d + Tuning.AUTO_SWITCH_KEEP_MARGIN:
+		return human
+	var run := Vector3(human.velocity.x, 0.0, human.velocity.z)
+	var to_drop := flat - Vector3(human.global_position.x, 0.0, human.global_position.z)
+	if human.brain() is HumanBrain and InputManager.get_move_vector().length() > 0.3 \
+			and run.length() > 2.0 and run.angle_to(to_drop) < deg_to_rad(Tuning.AUTO_SWITCH_RUN_CONE_DEG) \
+			and human_d <= best_d + Tuning.AUTO_SWITCH_RUNNING_MARGIN:
 		return human
 	return best
 

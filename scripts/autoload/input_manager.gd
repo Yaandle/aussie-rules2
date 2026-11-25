@@ -41,6 +41,9 @@ var _flick_neutral_since := -1.0
 var _flick_armed := true
 var _flick_clock := 0.0
 var _pending_flick := Vector2.ZERO
+## The last strong deflection and when the stick left it (rebound filter).
+var _flick_last_dir := Vector2.ZERO
+var _flick_released_at := -99.0
 
 ## Diagnostic only (see last_joy_button_debug()/last_joy_axis_debug(),
 ## surfaced on DebugHud) — the most recent raw gamepad button/axis Godot
@@ -215,7 +218,15 @@ func _update_flick(delta: float) -> void:
 	_flick_clock += delta
 	var raw := Input.get_vector(&"camera_left", &"camera_right", &"camera_down", &"camera_up", 0.0)
 	var magnitude := raw.length()
+	# Read before this frame's deflection updates them (rebound filter below).
+	var since_release := _flick_clock - _flick_released_at
+	var last_dir := _flick_last_dir
 
+	if magnitude >= Tuning.FLICK_MIN_MAGNITUDE:
+		_flick_last_dir = raw.normalized()
+		_flick_released_at = INF
+	elif magnitude < Tuning.FLICK_NEUTRAL_MAGNITUDE and _flick_released_at == INF:
+		_flick_released_at = _flick_clock
 	if magnitude < Tuning.FLICK_NEUTRAL_MAGNITUDE:
 		_flick_neutral_since = _flick_clock
 		_flick_armed = true
@@ -225,6 +236,16 @@ func _update_flick(delta: float) -> void:
 		return
 	if magnitude >= Tuning.FLICK_MIN_MAGNITUDE and _flick_neutral_since >= 0.0 \
 			and _flick_clock - _flick_neutral_since <= Tuning.FLICK_WINDOW:
+		# A stick let go snaps back through neutral and can swing past it the
+		# other way: that rebound read as a flick the opposite way, and in
+		# FULL_SIDE (where a bare flick switches) as a switch nobody asked
+		# for (playtest 2026-11-26, "switching spontaneously").
+		# Pads only: a key can't spring back.
+		var rebound := device == Device.GAMEPAD and since_release <= Tuning.FLICK_REBOUND_WINDOW \
+			and raw.normalized().dot(last_dir) < cos(deg_to_rad(Tuning.FLICK_REBOUND_ANGLE))
+		_flick_armed = false
+		if rebound:
+			return
 		_pending_flick = raw.normalized()
 		_flick_armed = false   # one flick per neutral->full sweep; re-arms once the stick returns to neutral
 

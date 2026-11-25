@@ -748,7 +748,7 @@ const CAM_CHASE_MIN_ARM := 2.2
 
 ## The automatic 3rd-person view (2026-11-25, BroadcastCamera's header):
 ## all unplaytested feel guesses.
-const CAM_AUTO_RETURN_DELAY := 1.0         # s after the last look before the automatic view comes back
+const CAM_AUTO_RETURN_DELAY := 1.6         # s after the last look before the automatic view comes back
 const CAM_AUTO_BLEND_TIME := 0.8           # s for it to blend fully back in (smoothstep)
 const CAM_AUTO_MIN_SPEED := 1.5            # m/s; slower than this the view holds still
 const CAM_AUTO_BACKPEDAL_ANGLE := 130.0    # deg; running more than this toward the lens: hold
@@ -769,6 +769,15 @@ const CAM_COLLISION_RADIUS := 0.25         # m, the lens's keep-out sphere
 const CAM_COLLIDE_IN_RATE := 14.0          # 1/s arm in toward scenery
 const CAM_COLLIDE_OUT_RATE := 2.0          # 1/s arm back out
 const CAM_COLLIDE_SLACK := 0.5             # m the eased arm may run deeper than safe
+## 2026-11-26, unplaytested feel guesses. A switch to a player this near
+## glides on a quick spring for CAM_SWITCH_GLIDE_TIME instead of cutting.
+const CAM_SWITCH_GLIDE_MAX_DIST := 30.0    # m
+const CAM_SWITCH_GLIDE_TIME := 0.5         # s
+const CAM_SWITCH_GLIDE_SMOOTH := 0.12      # s spring smooth time while gliding
+## FULL_SIDE: the point of play's spring, and how far the ball's end of it
+## leads toward a kick's drop.
+const CAM_FULL_SIDE_SMOOTH_TIME := 0.45    # s
+const CAM_FULL_SIDE_DROP_LEAD := 0.5       # 0 = the ball, 1 = where it comes down
 
 # Player-switch reorient. The soft version of this (0.6s / rate 5.0, with
 # position left to _update_focus()'s own lerp) was reported as not reading
@@ -1786,6 +1795,11 @@ const KICK_BANANA_ELEVATION_DROP := 3.0
 const KICK_CURVE_BACKSPIN_KEEP := 0.3
 const FLICK_MIN_MAGNITUDE := 0.75      # deflection that counts as "the flick landed"
 const FLICK_NEUTRAL_MAGNITUDE := 0.30  # deflection below this counts as "was neutral"
+## A flick within this long of letting a strong deflection go, more than
+## FLICK_REBOUND_ANGLE away from it, is the stick springing back, not a
+## flick (InputManager._update_flick). Unplaytested guesses.
+const FLICK_REBOUND_WINDOW := 0.25     # s
+const FLICK_REBOUND_ANGLE := 110.0     # deg
 
 
 # ── Marking / aerial contests ────────────────────────────────────────
@@ -2661,6 +2675,16 @@ const AUTO_SWITCH_DELAY := 0.35           # s after the kick (ASSISTED)
 const AUTO_SWITCH_DELAY_FULL := 0.2       # s after the kick (FULL)
 const AUTO_SWITCH_CONTEST_RADIUS := 8.0   # m from the predicted drop
 const AUTO_SWITCH_KEEP_MARGIN := 4.0      # m
+## Hand height the auto-switch predicts the drop at (Ball.predicted_drop):
+## where a marking contest happens, not where the ball would bounce.
+const AUTO_SWITCH_DROP_HEIGHT := 1.8      # m
+## 2026-11-26 (FullGame.auto_switch_target), unplaytested feel guesses: a
+## hand-picked player is never auto-switched away from for this long, and
+## a player the human is running at the drop is kept unless someone else
+## is more than this much closer.
+const AUTO_SWITCH_MANUAL_GRACE := 2.5     # s
+const AUTO_SWITCH_RUN_CONE_DEG := 50.0    # deg between the run and the drop
+const AUTO_SWITCH_RUNNING_MARGIN := 12.0  # m
 
 
 # ── Training coaches ────────────────────────────────────────────────

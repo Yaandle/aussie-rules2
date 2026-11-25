@@ -381,6 +381,32 @@ func is_airborne() -> bool:
 ## drop is a body length further on (playtest 2026-10-30, the AI's mark
 ## rate). A ball that won't come down through `height` again (already below
 ## it, or never that high) falls back to the ground landing.
+## Where the ball comes down through `height` (returned on the ground under
+## that point), stepping the flight with gravity and the same air drag
+## LandingShadow draws its marker with, so the auto-switch and the shadow
+## the player reads agree. predicted_landing_position below ignores drag and
+## overshoots a long kick by 10 m or more (2026-11-26 switching audit,
+## scenes/dev/switch_audit.tscn): the auto-switch picked from that, so it
+## handed control to someone past the real drop. Magnus is left out (small).
+## A ball already below `height` and falling gives where it is now.
+func predicted_drop(height := 0.0) -> Vector3:
+	var pos := global_position
+	var vel := linear_velocity
+	var step := 1.0 / 60.0
+	for i in 900:
+		var speed := vel.length()
+		if speed > 0.05:
+			vel += (-vel * speed * Tuning.BALL_DRAG_COEFF / Tuning.BALL_MASS) * step
+		vel.y -= Tuning.GRAVITY * step
+		var next := pos + vel * step
+		if vel.y < 0.0 and next.y <= height:
+			pos = pos.lerp(next, clampf((pos.y - height) / maxf(pos.y - next.y, 0.0001), 0.0, 1.0))
+			break
+		pos = next
+	pos.y = 0.0
+	return pos
+
+
 func predicted_landing_position(height := 0.0) -> Vector3:
 	var y0 := global_position.y
 	var vy := linear_velocity.y
