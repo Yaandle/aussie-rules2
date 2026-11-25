@@ -103,6 +103,32 @@ shell under the strap is reported as hidden. Close-ups of the worst frames:
 head and arms hanging close to the body. Limb lengths are the skeleton's,
 and the idle clip hangs the arms out a little; neither changed.
 
+## Armhole pass (2026-11-25, fourth)
+
+Playtest: "the shoulders still look like they are only just touching,
+they should be joined and coming out of the upper body". The cause was the
+armhole: its binding ran round the seam where the arm left the guernsey,
+so the cloth went right up to the arm all round and the arm hung beside a
+box of shirt. The reference's singlet is cut in: its armhole curves from
+the strap's end down and in to the armpit, and the shoulder outside it is
+skin.
+
+`build_armholes` now does that. `ARMHOLE_EDGE` gives, by height, how far
+out (|x|) the guernsey stays cloth (0.167 m at the strap, 0.183 at
+mid-chest, the full width at the armpit); everything further out, front,
+side and back, is a skin shell `ARMHOLE_SHELL_LIFT` (4 mm) over the
+guernsey, and the binding runs up the front edge, over the shoulder and
+down the back. Shell and binding take `torso_w` like the guernsey under
+them, so they never separate, and the arm goes through the shell as it did
+through the cloth: side on, skin now runs from the binding into the
+deltoid. At 1.6 mm the guernsey's curve came up between the shell's flat
+faces (red flecks under the sash). The pecs and shoulder blades are also a
+little fuller (`PECS`, `BLADES`).
+
+Checks: `check_8thbuild_deform.py` unchanged except `rd_fetal_over`'s
+crushed guernsey faces (4 -> 8, a stress pose past any clip). The shell
+adds ~530 triangles (7,830 in all, one surface).
+
 ## Side-on and joints pass (2026-11-25, third)
 
 Playtest: side on still looked odd; calves, wrists and biceps too big; the

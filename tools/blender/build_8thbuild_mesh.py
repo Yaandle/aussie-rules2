@@ -1241,9 +1241,11 @@ def box(part, c, ex, ey, ez, w, slot):
 ## 0 / 180 the sides; pecs either side of the sternum, lats and the
 ## shoulder blades behind.
 ## Build 8: fuller pecs and lats than Build 7's (the reference's chest).
-PECS = ((62, 26, 0.011), (118, 26, 0.011))
+## Fourth 2026-11-25 pass: the pecs and shoulder blades fuller (side on the
+## reference's upper chest and back are the deepest part of the torso).
+PECS = ((62, 26, 0.016), (118, 26, 0.016))
 LATS = ((222, 30, 0.012), (318, 30, 0.012))
-BLADES = ((246, 22, 0.007), (294, 22, 0.007))
+BLADES = ((246, 22, 0.011), (294, 22, 0.011))
 ##
 ## The shape follows Build 6's: a narrow waist, a chest no deeper than
 ## the shoulders need, and square shoulders that run straight out to a cap
@@ -1506,74 +1508,134 @@ def build_guernsey(shirt, skin, arm_trees):
 ## it, and how many points round each armhole.
 ARMHOLE_WIDTH = 0.022
 ARMHOLE_LIFT = 0.0035
-ARMHOLE_SEGMENTS = 16
+## The armhole (2026-11-25, fourth pass: "the shoulders still look like
+## they are only just touching, they should be joined and coming out of the
+## upper body"). Before, the armhole's binding ran round the seam where the
+## arm leaves the guernsey, so the cloth went all the way out to the arm
+## and from the front the arm hung beside a box of shirt. The reference's
+## singlet is cut in: from the front, its armhole curves from the strap's
+## end down and in across the upper chest to the armpit, and outside that
+## curve the shoulder (the deltoid's front and the top of the pec) is skin
+## that the arm grows out of.
+##
+## So: ARMHOLE_EDGE gives, by height, how far out (|x|, m) the guernsey
+## stays cloth; every part of its surface further out, front, side and back,
+## is covered by a skin shell lying ARMHOLE_SHELL_LIFT over it, and a
+## binding runs along that edge (up the front, over the shoulder at the
+## top row, down the back). Shell and binding are weighted as the guernsey
+## under them (torso_w), so they move as one; the arm goes through the
+## shell exactly as it went through the cloth. Unplaytested look.
+ARMHOLE_EDGE = [
+	(1.540, 0.216), (1.575, 0.205), (1.615, 0.193), (1.660, 0.183),
+	(1.705, 0.176), (1.750, 0.171), (1.790, 0.168), (1.812, 0.167),
+]
+ARMHOLE_ROWS = 13
+ARMHOLE_ARC_POINTS = 9
+## 4 mm: at 1.6 the guernsey's curve came up between the shell's flat
+## faces (red fragments through the skin under the sash).
+ARMHOLE_SHELL_LIFT = 0.004
+## The binding stands this far off the guernsey, over the shell.
+ARMHOLE_BIND_LIFT = 0.006
+
+
+def armhole_edge_x(z):
+	for (z0, x0), (z1, x1) in zip(ARMHOLE_EDGE, ARMHOLE_EDGE[1:]):
+		if z <= z1:
+			return lerp(x0, x1, ramp(z, z0, z1))
+	return ARMHOLE_EDGE[-1][1]
+
+
+def _resample(poly, count):
+	"""count points evenly by arc length along a polyline."""
+	lengths = [0.0]
+	for a, b in zip(poly, poly[1:]):
+		lengths.append(lengths[-1] + (b - a).length)
+	total = lengths[-1]
+	out = []
+	for k in range(count):
+		target = total * k / (count - 1)
+		for j in range(len(poly) - 1):
+			if lengths[j + 1] >= target or j == len(poly) - 2:
+				seg = max(lengths[j + 1] - lengths[j], 1e-9)
+				out.append(poly[j].lerp(poly[j + 1], clamp01((target - lengths[j]) / seg)))
+				break
+	return out
 
 
 def build_armholes(shirt, tree, arm_trees):
-	"""A band of trim round each armhole, like the collar: without it the
-	arm just went into the side of a coloured torso, and nothing said the
-	guernsey was a garment with the arm coming out of it.
-
-	The seam is traced, not guessed: for each angle round the arm, walk out
-	along the arm's own surface (a ray from its axis onto the arm mesh)
-	until that surface leaves the guernsey. The band's inner edge sits on
-	that seam, its outer edge ARMHOLE_WIDTH further out across the
-	guernsey's surface, away from the arm. It stands a few millimetres
-	proud, and both edges turn down into the guernsey, so it has depth and
-	no gap at grazing angles. Weighted as the guernsey under it (torso_w),
-	so it moves with it and the arm turns under it as under a real
-	armhole."""
-	n = ARMHOLE_SEGMENTS
-	lift = ARMHOLE_LIFT
-
-	def outside(p):
-		hit, nrm, _, _ = tree.find_nearest(p)
-		return (p - hit).dot(nrm) > 0.0
-
-	for sfx, sign in ((".l", 1.0), (".r", -1.0)):
-		sh, elbow = bone("upperarm" + sfx)
-		a, s, f = frame((elbow - sh).normalized(), sign)
-		arm = arm_trees[sfx]
-		inner, outer = [], []
-		for i in range(n):
-			phi = math.radians(18.0) + 2.0 * math.pi * i / n
-			radial = s * math.cos(phi) + f * math.sin(phi)
-			seam = None
-			prev = None
-			for k in range(80):
-				t = -0.02 + k * 0.003
-				c = sh + a * t
-				hit, _, _, _ = arm.ray_cast(c, radial, 0.2)
-				if hit is None:
-					continue
-				if outside(hit):
-					seam = hit if prev is None else (hit + prev) * 0.5
-					break
-				prev = hit
-			if seam is None:
-				raise RuntimeError("armhole: no seam at %.0f deg on %s" % (math.degrees(phi), sfx))
-			p_in, n_in, _, _ = tree.find_nearest(seam)
-			d = radial - n_in * radial.dot(n_in)
-			d = (d + a * 0.35 - n_in * a.dot(n_in) * 0.35).normalized()
-			p_out, n_out, _, _ = tree.find_nearest(p_in + d * ARMHOLE_WIDTH)
-			inner.append((p_in, n_in.normalized(), d))
-			outer.append((p_out, n_out.normalized(), d))
-		rings = []
-		for edge, depth in ((inner, -lift), (inner, lift), (outer, lift), (outer, -lift)):
-			rings.append(shirt.ring([p + nm * depth for p, nm, _ in edge], torso_w))
-		# Lip, top, lip: the top faces out of the guernsey, the inner lip
-		# toward the arm and the outer one away from it.
-		for k, (ra, rb) in enumerate(zip(rings, rings[1:])):
+	"""The skin shell outside ARMHOLE_EDGE and the binding along it, each
+	side. Rows run up the side of the guernsey; each row is the arc of the
+	guernsey's ring outside the edge, from where the ring crosses the edge
+	behind to where it crosses it in front (resampled evenly), projected onto
+	the guernsey itself and lifted off it."""
+	n = GUERNSEY_SEGMENTS
+	grid = guernsey_grid(n)
+	z0, z1 = ARMHOLE_EDGE[0][0], ARMHOLE_EDGE[-1][0]
+	m = ARMHOLE_ARC_POINTS
+	for sign in (1.0, -1.0):
+		rows = []
+		for r in range(ARMHOLE_ROWS):
+			z = lerp(z0, z1, r / (ARMHOLE_ROWS - 1))
+			X = armhole_edge_x(z)
+			pts = [column_at(grid, i, z) for i in range(n)]
+			sx = [sign * (p.x - 0.004) - X for p in pts]
+			start = None
 			for i in range(n):
 				j = (i + 1) % n
-				quad = [ra[i], ra[j], rb[j], rb[i]]
-				if k == 1:
-					out = inner[i][1] + inner[j][1]
-				else:
-					out = inner[i][2] + inner[j][2]
-					if k == 0:
-						out = -out
-				shirt.face(quad, TRIM_SLOT, out)
+				if sx[i] < 0.0 <= sx[j]:
+					start = i
+			if start is None:
+				continue
+			t = -sx[start] / (sx[(start + 1) % n] - sx[start])
+			poly = [pts[start].lerp(pts[(start + 1) % n], t)]
+			i = (start + 1) % n
+			while sx[i] >= 0.0:
+				poly.append(pts[i])
+				nxt = (i + 1) % n
+				if sx[nxt] < 0.0:
+					t = sx[i] / (sx[i] - sx[nxt])
+					poly.append(pts[i].lerp(pts[nxt], t))
+					break
+				i = nxt
+			row = []
+			for p in _resample(poly, m):
+				hit, nh, _, _ = tree.find_nearest(p)
+				row.append((hit, nh.normalized()))
+			rows.append((z, row))
+		if len(rows) < 2:
+			continue
+		# The shell.
+		idx = [shirt.ring([p + nm * ARMHOLE_SHELL_LIFT for p, nm in row], torso_w) for _, row in rows]
+		for (za, _), ra, rb in zip(rows, idx, idx[1:]):
+			c = Vector((0.004, spine_y(za), za))
+			for k in range(m - 1):
+				shirt.face([ra[k], ra[k + 1], rb[k + 1], rb[k]], "skin", (c,))
+		# The binding: up one edge, over the top row, down the other, closed
+		# at the bottom where the edges meet.
+		chain = [row[0] for _, row in rows] + rows[-1][1][1:-1] + [row[-1] for _, row in reversed(rows)]
+		count = len(chain)
+		half = ARMHOLE_WIDTH * 0.5
+		lo_a, hi_a, hi_b, lo_b, across = [], [], [], [], []
+		for k in range(count):
+			p, nm = chain[k]
+			tang = (chain[(k + 1) % count][0] - chain[k - 1][0]).normalized()
+			side = nm.cross(tang).normalized()
+			across.append(side)
+			pa, na, _, _ = tree.find_nearest(p + side * half)
+			pb, nb, _, _ = tree.find_nearest(p - side * half)
+			na, nb = na.normalized(), nb.normalized()
+			lo_a.append(pa - na * ARMHOLE_LIFT)
+			hi_a.append(pa + na * ARMHOLE_BIND_LIFT)
+			hi_b.append(pb + nb * ARMHOLE_BIND_LIFT)
+			lo_b.append(pb - nb * ARMHOLE_LIFT)
+		rings = [shirt.ring(r, torso_w) for r in (lo_a, hi_a, hi_b, lo_b)]
+		for k in range(count):
+			j = (k + 1) % count
+			nm = chain[k][1] + chain[j][1]
+			sd = across[k] + across[j]
+			shirt.face([rings[0][k], rings[0][j], rings[1][j], rings[1][k]], TRIM_SLOT, sd)
+			shirt.face([rings[1][k], rings[1][j], rings[2][j], rings[2][k]], TRIM_SLOT, nm)
+			shirt.face([rings[2][k], rings[2][j], rings[3][j], rings[3][k]], TRIM_SLOT, -sd)
 
 
 # ── shorts ────────────────────────────────────────────────────────────
