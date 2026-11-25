@@ -17,6 +17,20 @@ extends Node3D
 ## in §6, in the smallest honest form it can take before there is a
 ## second team to have a play focus between.
 
+## 2026-11-25, "a camera the player never notices" (CHASE only): the rig
+## now drives itself. When the player isn't looking around it swings in
+## behind where they're running, and toward where a kick in the air will
+## come down, on a critically damped spring (no snaps, no wobble); a look
+## on the right stick or mouse takes over at once, and CAM_AUTO_RETURN_DELAY
+## after letting go the automatic view eases back in. The focus is a damped
+## spring on a smoothed velocity, so steps, tackles and jumps don't shake
+## it. The arm no longer snaps in for anything between the lens and the
+## player (posts, fences, players pass through the shot); it only keeps the
+## lens out of solid things and out from behind big scenery, easing in fast
+## and out slowly. While the automatic swing is turning the view and the
+## move stick is held steady, the stick keeps the direction it had
+## (steer_forward), so a run doesn't curl as the camera comes round.
+
 ## CHASE is the rig described above — this is Full Game's "3rd Person"
 ## option. FULL_SIDE is a real broadcast full-ground rig: mounted outside
 ## the boundary and elevated, panning to track play rather than orbiting
@@ -42,6 +56,7 @@ var zoom := Tuning.CAM_ZOOM_DEFAULT:
 		zoom = clampf(value, Tuning.CAM_ZOOM_MIN, Tuning.CAM_ZOOM_MAX)
 		if is_instance_valid(_arm):
 			_arm.spring_length = _chase_arm()
+			_arm_len = _arm.spring_length
 
 @onready var _yaw_pivot: Node3D = $Yaw
 @onready var _pitch_pivot: Node3D = $Yaw/Pitch
@@ -80,6 +95,31 @@ var _goal_kick_start_pitch := 0.0
 var _goal_kick_saved_mode: Mode = Mode.CHASE
 var _goal_kick_active := false
 
+## The automatic view (see the header). Seconds since the last manual look;
+## how far the automatic swing is blended in (0-1); its yaw speed, rad/s.
+var _look_idle := 99.0
+var _auto := 1.0
+var _yaw_vel := 0.0
+## Seconds the player has kept running at the lens (CAM_AUTO_TURN_AROUND_TIME).
+var _toward_time := 0.0
+## True on a frame the automatic swing turned the view (steer_forward).
+var _auto_driving := false
+## The target's ground velocity, low-passed: what the look-ahead, the swing
+## and the sprint FOV read, so a stutter step doesn't move the camera.
+var _vel_smooth := Vector3.ZERO
+var _focus_vel := Vector3.ZERO
+## The arm length before scenery is accounted for (zoom, ruck pull-back).
+var _arm_len := -1.0
+## The ground's big scenery (trees, stands, sheds) as boxes, from the
+## Field once (CameraOccluders, shared with the highlight cameras).
+var _occluders: CameraOccluders = null
+var _occluders_looked := false
+var _probe: PhysicsShapeQueryParameters3D
+## The move stick's frame of reference (steer_forward): the camera's yaw,
+## held while the automatic swing turns and the stick doesn't.
+var _steer_yaw := 0.0
+var _steer_move := Vector2.ZERO
+
 
 ## CHASE's spring-arm length at the current zoom, never under
 ## CAM_CHASE_MIN_ARM.
@@ -89,6 +129,16 @@ func _chase_arm() -> float:
 
 func _ready() -> void:
 	_arm.spring_length = _chase_arm()
+	_arm_len = _arm.spring_length
+	# The arm's own collision snapped the lens in front of anything on the
+	# world layer between it and the player, a goal post included, for one
+	# frame at a time. _update_arm_length does it now (see the header).
+	_arm.collision_mask = 0
+	_probe = PhysicsShapeQueryParameters3D.new()
+	var sphere := SphereShape3D.new()
+	sphere.radius = Tuning.CAM_COLLISION_RADIUS
+	_probe.shape = sphere
+	_probe.collision_mask = 1
 	_camera.fov = Tuning.CAM_FOV_BASE
 	recenter()
 
@@ -97,6 +147,10 @@ func _process(delta: float) -> void:
 	if not is_instance_valid(target):
 		return
 	_switch_timer = maxf(0.0, _switch_timer - delta)
+	_auto_driving = false
+	if target is CharacterBody3D:
+		var v := (target as CharacterBody3D).velocity
+		_vel_smooth = _vel_smooth.lerp(Vector3(v.x, 0.0, v.z), 1.0 - exp(-Tuning.CAM_VEL_SMOOTH_RATE * delta))
 	# Safety net for the set-shot override: it only makes sense while its
 	# target is still lining the kick up. PlayerController hands it back on
 	# every path it knows about, but a full-team focus switch nulls the old
@@ -133,6 +187,7 @@ func _process(delta: float) -> void:
 		_update_fov(delta)
 		_update_arm_length(delta)
 	_clamp_camera_height()
+	_update_steer()
 
 
 ## Switches the rig's behaviour. Safe to call at any time, including
@@ -198,6 +253,10 @@ func recenter() -> void:
 	_yaw = atan2(-forward.x, -forward.z)
 	_pitch = deg_to_rad(Tuning.CAM_PITCH_DEFAULT)
 	_ball_weight = 0.0
+	_yaw_vel = 0.0
+	_focus_vel = Vector3.ZERO
+	_look_idle = 99.0
+	_auto = 1.0
 	_focus = _target_focus()
 	global_position = _focus
 	_yaw_pivot.rotation.y = _yaw
@@ -207,6 +266,7 @@ func recenter() -> void:
 	# funnels back through (exit_dialogue included), so it's the one place
 	# that has to restore both rather than just rotation/focus.
 	_arm.spring_length = _chase_arm()
+	_arm_len = _arm.spring_length
 	_camera.fov = Tuning.CAM_FOV_BASE
 
 
@@ -235,6 +295,8 @@ func switch_target(new_target: Node3D) -> void:
 		# carry the transition is the smooth/subtle version asked for.
 		return
 	_focus = _target_focus()
+	_focus_vel = Vector3.ZERO
+	_yaw_vel = 0.0
 	global_position = _focus
 	_switch_timer = Tuning.CAM_SWITCH_PAN_DURATION
 
@@ -365,13 +427,24 @@ func _update_rotation(delta: float) -> void:
 
 	if hold_look:
 		InputManager.take_mouse_look()
+		_yaw_vel = 0.0
 		return
 
 	var stick := InputManager.get_look_vector()
 	var mouse := InputManager.take_mouse_look()
 
-	_yaw -= stick.x * deg_to_rad(Tuning.CAM_YAW_SPEED) * delta + deg_to_rad(mouse.x)
-	_pitch += stick.y * deg_to_rad(Tuning.CAM_PITCH_SPEED) * delta - deg_to_rad(mouse.y)
+	if stick.length() > 0.05 or mouse.length_squared() > 0.25:
+		# The player is looking: theirs at once, the automatic view out.
+		_look_idle = 0.0
+		_auto = 0.0
+		_yaw_vel = 0.0
+		_yaw -= stick.x * deg_to_rad(Tuning.CAM_YAW_SPEED) * delta + deg_to_rad(mouse.x)
+		_pitch += stick.y * deg_to_rad(Tuning.CAM_PITCH_SPEED) * delta - deg_to_rad(mouse.y)
+	else:
+		_look_idle += delta
+		if _look_idle >= Tuning.CAM_AUTO_RETURN_DELAY:
+			_auto = minf(1.0, _auto + delta / Tuning.CAM_AUTO_BLEND_TIME)
+		_auto_view(delta)
 	_pitch = clampf(_pitch,
 		deg_to_rad(Tuning.CAM_PITCH_MIN), deg_to_rad(Tuning.CAM_PITCH_MAX))
 
@@ -385,6 +458,81 @@ func _update_rotation(delta: float) -> void:
 ## target's facing (recenter()'s own formula for "behind them looking
 ## forward") instead of toward stick/mouse input, and at the slower,
 ## deliberately cinematic CAM_SWITCH_YAW_RATE rather than CAM_ROTATE_RATE.
+## The automatic view: yaw on a critically damped spring toward where the
+## play is going, pitch back to its default. Where it looks:
+## - where the player is running, once they're moving properly
+##   (CAM_AUTO_MIN_SPEED), harder the faster they go; not when they run at
+##   the lens (past CAM_AUTO_BACKPEDAL_ANGLE): swinging 180° round a player
+##   who turned back for a moment is the camera being noticed; after
+##   CAM_AUTO_TURN_AROUND_TIME of it, though, they mean it, and it comes
+##   round (AI-v-AI audit: players run up and back a lot);
+## - where a ball in the air comes down, when that's CAM_AUTO_BALL_MIN_DIST
+##   away, not behind the view, and the player isn't running away from
+##   it: chasing a kick, contesting a mark.
+## A soft CAM_AUTO_DEAD_ZONE keeps it off small heading changes, and the
+## spring always bleeds off its own speed, so it never overshoots or rocks.
+func _auto_view(delta: float) -> void:
+	var weight := smoothstep(0.0, 1.0, _auto)
+	var desired := _yaw
+	var strength := 0.0
+	var speed := Vector2(_vel_smooth.x, _vel_smooth.z).length()
+	if speed > Tuning.CAM_AUTO_MIN_SPEED:
+		var heading := atan2(-_vel_smooth.x, -_vel_smooth.z)
+		var toward := absf(angle_difference(_yaw, heading)) >= deg_to_rad(Tuning.CAM_AUTO_BACKPEDAL_ANGLE)
+		_toward_time = _toward_time + delta if toward else 0.0
+		if not toward or _toward_time >= Tuning.CAM_AUTO_TURN_AROUND_TIME:
+			desired = heading
+			strength = clampf((speed - Tuning.CAM_AUTO_MIN_SPEED)
+				/ (Tuning.SPRINT_SPEED - Tuning.CAM_AUTO_MIN_SPEED), 0.25, 1.0)
+	if is_instance_valid(ball) and ball.is_airborne():
+		var to := ball.predicted_landing_position(Tuning.CAM_FOCUS_HEIGHT) - target.global_position
+		to.y = 0.0
+		if to.length() > Tuning.CAM_AUTO_BALL_MIN_DIST:
+			var ball_yaw := atan2(-to.x, -to.z)
+			# Not when the player is running hard away from it (getting back
+			# to defend): the view stays with the run, not over the shoulder.
+			var with_run := speed <= Tuning.CAM_AUTO_MIN_SPEED 				or absf(angle_difference(atan2(-_vel_smooth.x, -_vel_smooth.z), ball_yaw)) < PI * 0.5
+			if with_run and absf(angle_difference(_yaw, ball_yaw)) < deg_to_rad(Tuning.CAM_AUTO_BALL_MAX_ANGLE):
+				desired = lerp_angle(desired, ball_yaw, Tuning.CAM_AUTO_BALL_WEIGHT)
+				strength = maxf(strength, Tuning.CAM_AUTO_BALL_WEIGHT)
+	var diff := angle_difference(_yaw, desired)
+	var dead := deg_to_rad(Tuning.CAM_AUTO_DEAD_ZONE)
+	diff = signf(diff) * maxf(0.0, absf(diff) - dead)
+	if speed <= Tuning.CAM_AUTO_MIN_SPEED:
+		_toward_time = 0.0
+	var omega := Tuning.CAM_AUTO_YAW_OMEGA * strength * weight
+	var damping := maxf(omega, Tuning.CAM_AUTO_YAW_MIN_DAMPING)
+	_yaw_vel += (omega * omega * diff - 2.0 * damping * _yaw_vel) * delta
+	var cap := deg_to_rad(Tuning.CAM_AUTO_YAW_MAX_SPEED)
+	_yaw_vel = clampf(_yaw_vel, -cap, cap)
+	_yaw += _yaw_vel * delta
+	_pitch = lerpf(_pitch, deg_to_rad(Tuning.CAM_PITCH_DEFAULT),
+		(1.0 - exp(-Tuning.CAM_AUTO_PITCH_RATE * delta)) * weight)
+	_auto_driving = weight > 0.0 and absf(_yaw_vel) > 0.01
+
+
+## The forward the move stick is read against (HumanBrain). Normally the
+## camera's. While the automatic swing is turning the view and the stick
+## is held within CAM_STEER_RELOCK_ANGLE of where it was, it keeps the
+## direction it had: holding right, the player keeps running the way they
+## were going as the camera comes round behind them, instead of curling
+## round with it. Letting go, turning the stick, or looking resyncs it.
+func steer_forward() -> Vector3:
+	return Vector3(-sin(_steer_yaw), 0.0, -cos(_steer_yaw))
+
+
+func _update_steer() -> void:
+	var flat := -_camera.global_transform.basis.z
+	var cam_yaw := atan2(-flat.x, -flat.z) if Vector2(flat.x, flat.z).length_squared() > 0.000001 else _steer_yaw
+	var move := InputManager.get_move_vector()
+	var held := mode == Mode.CHASE and _auto_driving and move.length() > 0.3 \
+		and _steer_move.length() > 0.3 \
+		and absf(_steer_move.angle_to(move)) < deg_to_rad(Tuning.CAM_STEER_RELOCK_ANGLE)
+	if not held:
+		_steer_yaw = cam_yaw
+		_steer_move = move
+
+
 func _ease_toward_switch_target(delta: float) -> void:
 	var forward := -target.global_transform.basis.z
 	var desired_yaw := atan2(-forward.x, -forward.z)
@@ -404,12 +552,59 @@ func _is_target_aiming() -> bool:
 ## little bit more"), so both ruckmen and the leap fit the side-on frame,
 ## and back once it's over. Every other time the target length is the
 ## plain distance / zoom, which this leaves exactly where it is.
+##
+## Then scenery (2026-11-25): the lens comes in only as far as it must to
+## stay out of anything solid (a CAM_COLLISION_RADIUS sphere on the world
+## layer) and out from behind the ground's big scenery (CameraOccluders:
+## trees, stands, sheds; thin things like posts and fences aren't in it).
+## In at CAM_COLLIDE_IN_RATE, out at the slower CAM_COLLIDE_OUT_RATE, and
+## never more than CAM_COLLIDE_SLACK deeper than safe.
 func _update_arm_length(delta: float) -> void:
 	var length := _chase_arm()
 	if _is_target_ruck_contesting():
 		length *= Tuning.CAM_RUCK_SIDE_DISTANCE_MULT
-	_arm.spring_length = lerpf(_arm.spring_length, length,
-		1.0 - exp(-Tuning.CAM_RUCK_SIDE_EASE_RATE * delta))
+	if _arm_len < 0.0:
+		_arm_len = _arm.spring_length
+	_arm_len = lerpf(_arm_len, length, 1.0 - exp(-Tuning.CAM_RUCK_SIDE_EASE_RATE * delta))
+	var safe := _safe_arm_length(_arm_len)
+	var rate := Tuning.CAM_COLLIDE_IN_RATE if safe < _arm.spring_length else Tuning.CAM_COLLIDE_OUT_RATE
+	var eased := lerpf(_arm.spring_length, safe, 1.0 - exp(-rate * delta))
+	_arm.spring_length = minf(eased, safe + Tuning.CAM_COLLIDE_SLACK)
+
+
+static func _find_field(node: Node) -> Field:
+	if node == null or node is Field:
+		return node as Field
+	for child in node.get_children():
+		var found := _find_field(child)
+		if found != null:
+			return found
+	return null
+
+
+## The longest arm up to `want` with the lens clear (see _update_arm_length).
+func _safe_arm_length(want: float) -> float:
+	if not _occluders_looked:
+		_occluders_looked = true
+		var field := _find_field(get_tree().current_scene)
+		if field != null:
+			_occluders = CameraOccluders.build(field)
+	var origin := _arm.global_position
+	var dir := _arm.global_transform.basis.z.normalized()
+	var space := get_world_3d().direct_space_state
+	var length := want
+	if _occluders != null:
+		var hit := _occluders.first_hit(origin, origin + dir * want)
+		if hit < 1.0:
+			length = minf(length, want * hit - Tuning.CAM_COLLISION_RADIUS)
+	while length > Tuning.CAM_CHASE_MIN_ARM * 0.5:
+		var p := origin + dir * length
+		p.y = maxf(p.y, MIN_CAMERA_HEIGHT)
+		_probe.transform = Transform3D(Basis.IDENTITY, p)
+		if space.intersect_shape(_probe, 1).is_empty() and (_occluders == null or not _occluders.inside(p)):
+			return length
+		length -= 0.25
+	return maxf(length, 0.3)
 
 
 func _is_target_ruck_contesting() -> bool:
@@ -558,8 +753,26 @@ func _update_focus(delta: float) -> void:
 	if _ball_weight > 0.001 and is_instance_valid(ball):
 		desired = desired.lerp(ball.global_position, _ball_weight)
 
-	_focus = _focus.lerp(desired, 1.0 - exp(-Tuning.CAM_FOLLOW_RATE * delta))
+	# A critically damped spring (smooth position and speed: no step when
+	# the player stops or turns), slower vertically so a leap or a tackle
+	# doesn't bob the view.
+	var x := _damp(_focus.x, _focus_vel.x, desired.x, Tuning.CAM_FOCUS_SMOOTH_TIME, delta)
+	var y := _damp(_focus.y, _focus_vel.y, desired.y, Tuning.CAM_FOCUS_SMOOTH_TIME_Y, delta)
+	var z := _damp(_focus.z, _focus_vel.z, desired.z, Tuning.CAM_FOCUS_SMOOTH_TIME, delta)
+	_focus = Vector3(x.x, y.x, z.x)
+	_focus_vel = Vector3(x.y, y.y, z.y)
 	global_position = _focus
+
+
+## One step of a critically damped spring (Game Programming Gems 4 §1.10,
+## the "SmoothDamp" form): returns (value, speed).
+static func _damp(value: float, speed: float, goal: float, smooth_time: float, delta: float) -> Vector2:
+	var omega := 2.0 / maxf(smooth_time, 0.0001)
+	var x := omega * delta
+	var decay := 1.0 / (1.0 + x + 0.48 * x * x + 0.235 * x * x * x)
+	var change := value - goal
+	var temp := (speed + omega * change) * delta
+	return Vector2(goal + (change + temp) * decay, (speed - omega * temp) * decay)
 
 
 ## Where on the player the rig points, led by where they are going. The
@@ -567,10 +780,8 @@ func _update_focus(delta: float) -> void:
 ## dragged along behind you.
 func _target_focus() -> Vector3:
 	var point := target.global_position + Vector3.UP * Tuning.CAM_FOCUS_HEIGHT
-	var velocity := Vector3.ZERO
-	if target is CharacterBody3D:
-		velocity = (target as CharacterBody3D).velocity
-	var lead := Vector3(velocity.x, 0.0, velocity.z) * Tuning.CAM_LOOKAHEAD_TIME
+	# The smoothed velocity: the raw one flicks with every step and stop.
+	var lead := _vel_smooth * Tuning.CAM_LOOKAHEAD_TIME
 	if lead.length() > Tuning.CAM_LOOKAHEAD_MAX:
 		lead = lead.normalized() * Tuning.CAM_LOOKAHEAD_MAX
 	return point + lead
@@ -578,10 +789,7 @@ func _target_focus() -> Vector3:
 
 func _update_fov(delta: float) -> void:
 	_punch = lerpf(_punch, 0.0, 1.0 - exp(-Tuning.CAM_PUNCH_DECAY * delta))
-	var speed := 0.0
-	if target is CharacterBody3D:
-		var v := (target as CharacterBody3D).velocity
-		speed = Vector3(v.x, 0.0, v.z).length()
+	var speed := _vel_smooth.length()
 	var desired := Tuning.CAM_FOV_BASE + _punch \
 		+ Tuning.CAM_FOV_SPRINT_GAIN * clampf(speed / Tuning.SPRINT_SPEED, 0.0, 1.0)
 	_camera.fov = lerpf(_camera.fov, desired, 1.0 - exp(-Tuning.CAM_FOV_RATE * delta))

@@ -746,6 +746,30 @@ const CAM_FULL_SIDE_FOV_MIN := 10.0        # deg; the narrowest the cap may go
 ## (3.0 would put the lens 1.5 m off the player's back). Unplaytested.
 const CAM_CHASE_MIN_ARM := 2.2
 
+## The automatic 3rd-person view (2026-11-25, BroadcastCamera's header):
+## all unplaytested feel guesses.
+const CAM_AUTO_RETURN_DELAY := 1.0         # s after the last look before the automatic view comes back
+const CAM_AUTO_BLEND_TIME := 0.8           # s for it to blend fully back in (smoothstep)
+const CAM_AUTO_MIN_SPEED := 1.5            # m/s; slower than this the view holds still
+const CAM_AUTO_BACKPEDAL_ANGLE := 130.0    # deg; running more than this toward the lens: hold
+const CAM_AUTO_TURN_AROUND_TIME := 1.2     # s of that before the view comes round anyway
+const CAM_AUTO_YAW_OMEGA := 2.0            # rad/s spring stiffness at sprint (higher = swings round faster)
+const CAM_AUTO_YAW_MIN_DAMPING := 3.0      # rad/s; how quickly a swing settles when nothing pulls
+const CAM_AUTO_YAW_MAX_SPEED := 80.0       # deg/s cap on the swing
+const CAM_AUTO_DEAD_ZONE := 4.0            # deg of heading the view ignores
+const CAM_AUTO_PITCH_RATE := 1.2           # 1/s back to CAM_PITCH_DEFAULT
+const CAM_AUTO_BALL_MIN_DIST := 8.0        # m; a ball coming down nearer isn't looked toward
+const CAM_AUTO_BALL_MAX_ANGLE := 100.0     # deg; nor one coming down behind the view
+const CAM_AUTO_BALL_WEIGHT := 0.7          # share of the look a ball in the air takes
+const CAM_STEER_RELOCK_ANGLE := 35.0       # deg the move stick turns before it re-reads the camera
+const CAM_VEL_SMOOTH_RATE := 4.0           # 1/s low-pass on the target's velocity
+const CAM_FOCUS_SMOOTH_TIME := 0.22        # s, focus spring across the ground
+const CAM_FOCUS_SMOOTH_TIME_Y := 0.45      # s, and up and down
+const CAM_COLLISION_RADIUS := 0.25         # m, the lens's keep-out sphere
+const CAM_COLLIDE_IN_RATE := 14.0          # 1/s arm in toward scenery
+const CAM_COLLIDE_OUT_RATE := 2.0          # 1/s arm back out
+const CAM_COLLIDE_SLACK := 0.5             # m the eased arm may run deeper than safe
+
 # Player-switch reorient. The soft version of this (0.6s / rate 5.0, with
 # position left to _update_focus()'s own lerp) was reported as not reading
 # as a switch at all — the view just drifted. BroadcastCamera.switch_target()

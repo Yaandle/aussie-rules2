@@ -380,3 +380,8 @@ change should fit them.
 - Nobody in this project's history has had a live GUI session during an
   agent run. Anything about feel, framing or camera needs the user's eyes:
   say so rather than claiming it.
+- Movement is camera-relative (HumanBrain), so any camera that turns by
+  itself curls the player's run as it turns. The chase rig's automatic view
+  holds the steering frame while the move stick is steady
+  (`BroadcastCamera.steer_forward`); keep that if the auto view changes.
+  Measure the chase camera with `scenes/dev/chase_camera_audit.tscn`.

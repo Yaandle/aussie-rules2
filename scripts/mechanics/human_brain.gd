@@ -41,7 +41,12 @@ func _camera_relative(controller: PlayerController, input: Vector2) -> Vector3:
 	var forward := Vector3.FORWARD
 	var right := Vector3.RIGHT
 	var camera := controller.camera
-	if is_instance_valid(camera):
+	if is_instance_valid(controller.camera_rig):
+		# The rig's steering frame: the camera's, except while its automatic
+		# swing turns and the stick holds steady (BroadcastCamera.steer_forward).
+		forward = controller.camera_rig.steer_forward()
+		right = Vector3(-forward.z, 0.0, forward.x)
+	elif is_instance_valid(camera):
 		var flat := -camera.global_transform.basis.z
 		flat.y = 0.0
 		if flat.length_squared() > 0.000001:
