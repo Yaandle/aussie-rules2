@@ -3154,7 +3154,42 @@ func _try_pack_contact() -> void:
 		var partner := _pack_contact
 		_pack_contact = null
 		var away := global_position - partner.global_position if is_instance_valid(partner) else Vector3.ZERO
-		pack_ragdoll(away, partner if is_instance_valid(partner) else null)
+		if is_instance_valid(partner) and pack_knock(partner) < Tuning.PACK_KEEP_FEET_KNOCK:
+			pack_jostle(away)
+		else:
+			pack_ragdoll(away, partner if is_instance_valid(partner) else null)
+
+
+## How hard a marking-pack contact knocks this player (m/s-like units),
+## from the physics of the meeting, never a roll (RULES_REFERENCE §3):
+## the speed the two close at along the line between them, this player's
+## share of it by mass (the lighter one takes more), how high off the turf
+## they still are (further to fall, less chance to get a foot down), and
+## how fast they were travelling themselves (balance). Under
+## Tuning.PACK_KEEP_FEET_KNOCK they keep their feet (pack_jostle); over it,
+## down they go (pack_ragdoll). 2026-11-26: "the player does not always need
+## to hit the ground, some might keep their feet, others might fall over".
+func pack_knock(partner: PlayerController) -> float:
+	var line := global_position - partner.global_position
+	line.y = 0.0
+	line = line.normalized() if line.length_squared() > 0.0001 else -global_transform.basis.z
+	var flat_mine := Vector3(velocity.x, 0.0, velocity.z)
+	var flat_theirs := Vector3(partner.velocity.x, 0.0, partner.velocity.z)
+	var closing := maxf((flat_theirs - flat_mine).dot(line), 0.0)
+	var share := partner.body_mass / maxf(body_mass + partner.body_mass, 1.0)
+	var height := maxf(global_position.y, 0.0)
+	return closing * share * 2.0 		+ height * Tuning.PACK_KNOCK_PER_METRE_UP 		+ flat_mine.length() * Tuning.PACK_KNOCK_PER_OWN_SPEED
+
+
+## A soft marking-pack contact: knocked a step off the line along `push`
+## and lands on their feet (the leap or hop clip plays out).
+func pack_jostle(push: Vector3) -> void:
+	var dir := Vector3(push.x, 0.0, push.z)
+	if dir.length_squared() < 0.0001:
+		return
+	dir = dir.normalized()
+	velocity.x += dir.x * Tuning.PACK_JOSTLE_SPEED
+	velocity.z += dir.z * Tuning.PACK_JOSTLE_SPEED
 
 
 ## A marking pack's body contact: this player, off the ground in a

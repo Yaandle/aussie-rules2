@@ -79,6 +79,11 @@ ACTION_TIMING = {
 	"smothered": (0.45, 0.12),
 	"smother_dive": (0.55, 0.38),
 	"tackle_sling": (1.0, 0.12),
+	# Get-ups (2026-11-26): not Actions either; PlayerRagdoll plays them
+	# from the lying pose after a ragdoll fall. Lengths are unplaytested
+	# feel guesses (contact unused).
+	"getup_face_down": (1.10, 0.0),
+	"getup_face_up": (1.15, 0.0),
 	# Not an Action: the held pose PlayerAnimation's carry layer lays over
 	# the arms while a player has the ball. Any length works; it's static.
 	"carry": (0.5, 0.0),
@@ -1337,6 +1342,163 @@ def clip_tackle_sling():
 	])
 
 
+# ── Get-ups (2026-11-26) ───────────────────────────────────────────────
+# Playtest: "the players [should] get up off the ground more naturally
+# instead of clipping up. They should put their hands on the ground and
+# push up and naturally stand up from the ground." Before, the get-up was
+# the back half of `tackled` (face down) and `knocked_back` (face up), whose
+# rise is short and barely uses the hands. These are whole clips of their
+# own: PlayerAnimation plays one when the clip exists (GETUP_STATES), from
+# where its hips leave the ground. Each starts lying still for a beat, so
+# PlayerRagdoll's hand-off finds that lying pose, and ends standing on the
+# rest feet so locomotion takes over without a slide. Hands are placed in
+# armature space (on the turf), not the chest frame, so they stay planted
+# while the body moves over them. Unplaytested look and timing.
+#
+# The prone feet sit a leg's length (~1.0 m) behind the hips, or the IK
+# folds the knees and the shins stick up. Heights: the pelvis bone's head
+# is 1.143 m up at rest; lying on the front
+# or back its head is ~0.12 m off the turf (half the body's depth), so its
+# "pos" drop is about -1.02. The rest ankle is at fwd -0.024, up 0.082.
+GROUND = 0.05      # wrist height with the palm flat on the turf
+## Both get-ups end standing with the arms hanging, as the arms-down idle
+## (author_6thbuild_idle.py) has them, not the base's A-pose arms.
+GETUP_END = {
+	"hands_in": "chest", "elbow_hinge": True,
+	"hand_l": P(0.042, 0.0, -0.635), "hand_r": P(-0.042, 0.0, -0.635),
+	"elbow_l": P(0.15, -1.0, -0.1), "elbow_r": P(-0.15, -1.0, -0.1),
+}
+
+
+def clip_getup_face_down():
+	length, _ = ACTION_TIMING["getup_face_down"]
+	plant = 0.74            # hands, forward of the origin, under the shoulders
+	return Clip("getup_face_down", [
+		# Lying on the front, cheek just off the turf, hands already under
+		# the shoulders (the ragdoll lands with the arms anywhere; the
+		# hand-off blend carries them here), toes tucked.
+		(0.0, {
+			"pelvis": {"pos": P(0, 0.26, -1.02), "rot": lean(fwd=86)},
+			"spine1": lean(fwd=2), "spine2": lean(fwd=0), "head": lean(fwd=-28),
+			"hand_l": P(0.27, plant + 0.06, GROUND), "hand_r": P(-0.27, plant + 0.06, GROUND),
+			"elbow_l": P(0.6, -0.2, 1.0), "elbow_r": P(-0.6, -0.2, 1.0),
+			"foot_l": {"pos": P(0.0, -0.76, 0.04), "pitch": 70}, "foot_r": {"pos": P(0.0, -0.76, 0.04), "pitch": 70},
+			"knee_l": P(0.0, -1.0, -1.4), "knee_r": P(0.0, -1.0, -1.4),
+		}),
+		(0.10, {
+			"pelvis": {"pos": P(0, 0.26, -1.02), "rot": lean(fwd=86)},
+			"spine1": lean(fwd=2), "spine2": lean(fwd=0), "head": lean(fwd=-30),
+			"hand_l": P(0.27, plant + 0.06, GROUND), "hand_r": P(-0.27, plant + 0.06, GROUND),
+			"elbow_l": P(0.6, -0.2, 1.0), "elbow_r": P(-0.6, -0.2, 1.0),
+			"foot_l": {"pos": P(0.0, -0.76, 0.04), "pitch": 70}, "foot_r": {"pos": P(0.0, -0.76, 0.04), "pitch": 70},
+			"knee_l": P(0.0, -1.0, -1.4), "knee_r": P(0.0, -1.0, -1.4),
+		}),
+		# The push-up: arms straightening, chest off the turf, hips still
+		# down.
+		(0.30, {
+			"pelvis": {"pos": P(0, 0.22, -0.96), "rot": lean(fwd=68)},
+			"spine1": lean(fwd=4), "spine2": lean(fwd=2), "head": lean(fwd=-18),
+			"hand_l": P(0.26, plant, GROUND), "hand_r": P(-0.26, plant, GROUND),
+			"elbow_l": P(0.4, -0.6, 0.6), "elbow_r": P(-0.4, -0.6, 0.6),
+			"foot_l": {"pos": P(0.0, -0.70, 0.04), "pitch": 70}, "foot_r": {"pos": P(0.0, -0.70, 0.04), "pitch": 70},
+			"knee_l": P(0.0, -1.0, -1.4), "knee_r": P(0.0, -1.0, -1.4),
+		}),
+		# Hips back and up over the knees: the left knee drawn under the
+		# hips onto the turf, the right foot stepped through beside the
+		# hands. Arms straight, taking the weight.
+		(0.55, {
+			"pelvis": {"pos": P(0, 0.08, -0.74), "rot": lean(fwd=62)},
+			"spine1": lean(fwd=8), "spine2": lean(fwd=4), "head": lean(fwd=-10),
+			"hand_l": P(0.25, plant - 0.08, GROUND), "hand_r": P(-0.25, plant - 0.08, GROUND),
+			"elbow_l": P(0.3, -1.0, 0.2), "elbow_r": P(-0.3, -1.0, 0.2),
+			"foot_l": {"pos": P(0.0, -0.40, 0.0), "pitch": 55},
+			"knee_l": P(0.0, 0.0, -1.2),
+			"foot_r": {"pos": P(0.0, 0.22, 0.0), "pitch": 0},
+		}),
+		# Weight onto the front foot, hands pushing off and lifting, the
+		# back foot coming up level: a deep squat over both feet.
+		(0.76, {
+			"pelvis": {"pos": P(0, 0.02, -0.46), "rot": lean(fwd=40)},
+			"spine1": lean(fwd=10), "spine2": lean(fwd=4), "head": lean(fwd=-8),
+			"hands_in": "chest",
+			"hand_l": P(0.14, 0.34, -0.44), "hand_r": P(-0.14, 0.34, -0.44),
+			"elbow_l": P(1.0, 0.0, -0.4), "elbow_r": P(-1.0, 0.0, -0.4),
+			"foot_l": {"pos": P(0.0, -0.06, 0.0), "pitch": 0},
+			"foot_r": {"pos": P(0.0, 0.06, 0.0), "pitch": 0},
+		}),
+		# Rising through the legs, chest coming up.
+		(0.92, {
+			"pelvis": {"pos": P(0, 0.0, -0.18), "rot": lean(fwd=16)},
+			"spine1": lean(fwd=6), "spine2": lean(fwd=2), "head": lean(fwd=-2),
+			"foot_l": {"pos": P(0.0, -0.02, 0.0)}, "foot_r": {"pos": P(0.0, 0.02, 0.0)},
+			"hands_in": "chest", "elbow_hinge": True,
+			"hand_l": P(0.042, 0.0, -0.62), "hand_r": P(-0.042, 0.0, -0.62),
+			"elbow_l": P(0.15, -1.0, -0.1), "elbow_r": P(-0.15, -1.0, -0.1),
+		}),
+		(length, GETUP_END),
+	])
+
+
+def clip_getup_face_up():
+	length, _ = ACTION_TIMING["getup_face_up"]
+	return Clip("getup_face_up", [
+		# On the back, knees up, palms flat beside the hips, head off the
+		# turf.
+		(0.0, {
+			"pelvis": {"pos": P(0, -0.56, -1.02), "rot": lean(fwd=-86)},
+			"spine1": lean(fwd=2), "spine2": lean(fwd=2), "head": lean(fwd=22),
+			"hand_l": P(0.36, -0.66, GROUND), "hand_r": P(-0.36, -0.66, GROUND),
+			"elbow_l": P(1.0, 0.0, 0.4), "elbow_r": P(-1.0, 0.0, 0.4),
+			"foot_l": {"pos": P(0.0, -0.06, 0.0), "pitch": -10}, "foot_r": {"pos": P(0.0, 0.02, 0.0), "pitch": -10},
+			"knee_l": P(0.0, -0.3, 1.3), "knee_r": P(0.0, -0.3, 1.3),
+		}),
+		(0.10, {
+			"pelvis": {"pos": P(0, -0.56, -1.02), "rot": lean(fwd=-86)},
+			"spine1": lean(fwd=2), "spine2": lean(fwd=2), "head": lean(fwd=24),
+			"hand_l": P(0.36, -0.66, GROUND), "hand_r": P(-0.36, -0.66, GROUND),
+			"elbow_l": P(1.0, 0.0, 0.4), "elbow_r": P(-1.0, 0.0, 0.4),
+			"foot_l": {"pos": P(0.0, -0.06, 0.0), "pitch": -10}, "foot_r": {"pos": P(0.0, 0.02, 0.0), "pitch": -10},
+			"knee_l": P(0.0, -0.3, 1.3), "knee_r": P(0.0, -0.3, 1.3),
+		}),
+		# Sitting up on the hands, planted behind the hips.
+		(0.32, {
+			"pelvis": {"pos": P(0, -0.52, -1.00), "rot": lean(fwd=-30)},
+			"spine1": lean(fwd=12), "spine2": lean(fwd=8), "head": lean(fwd=6),
+			"hand_l": P(0.30, -0.80, GROUND), "hand_r": P(-0.30, -0.80, GROUND),
+			"elbow_l": P(0.5, -1.0, 0.0), "elbow_r": P(-0.5, -1.0, 0.0),
+			"foot_l": {"pos": P(0.0, -0.10, 0.0)}, "foot_r": {"pos": P(0.0, -0.02, 0.0)},
+			"knee_l": P(0.0, 0.0, 1.0), "knee_r": P(0.0, 0.0, 1.0),
+		}),
+		# Pushing off the hands, the hips lift and rock forward over the
+		# feet into a squat.
+		(0.56, {
+			"pelvis": {"pos": P(0, -0.26, -0.62), "rot": lean(fwd=22)},
+			"spine1": lean(fwd=14), "spine2": lean(fwd=6), "head": lean(fwd=-4),
+			"hand_l": P(0.30, -0.62, GROUND + 0.10), "hand_r": P(-0.30, -0.62, GROUND + 0.10),
+			"elbow_l": P(0.5, -1.0, 0.0), "elbow_r": P(-0.5, -1.0, 0.0),
+			"foot_l": {"pos": P(0.0, -0.08, 0.0)}, "foot_r": {"pos": P(0.0, 0.0, 0.0)},
+		}),
+		# Squat over the feet, arms forward for balance.
+		(0.76, {
+			"pelvis": {"pos": P(0, -0.10, -0.44), "rot": lean(fwd=36)},
+			"spine1": lean(fwd=10), "spine2": lean(fwd=4), "head": lean(fwd=-8),
+			"hands_in": "chest",
+			"hand_l": P(0.12, 0.36, -0.40), "hand_r": P(-0.12, 0.36, -0.40),
+			"elbow_l": P(1.0, 0.0, -0.4), "elbow_r": P(-1.0, 0.0, -0.4),
+			"foot_l": {"pos": P(0.0, -0.04, 0.0)}, "foot_r": {"pos": P(0.0, 0.0, 0.0)},
+		}),
+		(0.93, {
+			"pelvis": {"pos": P(0, -0.02, -0.16), "rot": lean(fwd=14)},
+			"spine1": lean(fwd=6), "spine2": lean(fwd=2), "head": lean(fwd=-2),
+			"foot_l": {"pos": P(0.0, -0.02, 0.0)},
+			"hands_in": "chest", "elbow_hinge": True,
+			"hand_l": P(0.042, 0.0, -0.62), "hand_r": P(-0.042, 0.0, -0.62),
+			"elbow_l": P(0.15, -1.0, -0.1), "elbow_r": P(-0.15, -1.0, -0.1),
+		}),
+		(length, GETUP_END),
+	])
+
+
 CLIPS = {
 	"mark_safe": clip_mark_safe,
 	"mark_running": clip_mark_running,
@@ -1352,6 +1514,8 @@ CLIPS = {
 	"smother_dive": clip_smother_dive,
 	"tackle_sling": clip_tackle_sling,
 	"carry": clip_carry,
+	"getup_face_down": clip_getup_face_down,
+	"getup_face_up": clip_getup_face_up,
 }
 
 
@@ -1364,7 +1528,9 @@ def base_action():
 def main():
 	argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 	save = "--no-save" not in argv
-	names = [a for a in argv if not a.startswith("--")] or list(CLIPS.keys())
+	# Clip names only: other scripts chained in the same Blender run take
+	# their own arguments (an output path) from the same list.
+	names = [a for a in argv if a in CLIPS] or list(CLIPS.keys())
 
 	arm_obj = bpy.data.objects[ARMATURE]
 	fps = bpy.context.scene.render.fps

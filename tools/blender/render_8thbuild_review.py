@@ -110,6 +110,8 @@ SIDE = [
 	("3/4 upper", "idle", 1, 40.0, 1.62, 0.80),
 	("armpit", "idle", 1, 70.0, 1.55, 0.45),
 ]
+## The two get-up clips (2026-11-26) side on, frame by frame. --getup.
+GETUP = [("down %d" % f, "getup_face_down", f, 90.0, True) for f in (1, 6, 9, 14, 19, 23, 27)] + 	[("up %d" % f, "getup_face_up", f, 90.0, True) for f in (1, 9, 14, 19, 23, 28)] + 	[("down 14 front", "getup_face_down", 14, 20.0, True), ("up 14 front", "getup_face_up", 14, 20.0, True), ("up 19 3/4", "getup_face_up", 19, 40.0, True)]
 POSES = [
 	("run knee", "run_fwd", 7, 70.0, False),
 	("kick", "kick", 11, 25.0, False),
@@ -283,6 +285,8 @@ def main():
 		shots = CLOSE
 	elif "--audit" in argv:
 		shots = AUDIT
+	elif "--getup" in argv:
+		shots = GETUP
 	elif "--side" in argv:
 		shots = SIDE
 	elif "--arms" in argv:

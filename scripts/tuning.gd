@@ -1316,6 +1316,20 @@ const PACK_RAGDOLL_BODY_SHARE := 0.6
 const PACK_RAGDOLL_STRENGTH := 0.2
 const PACK_CONTACT_DISTANCE := 0.8        # m
 const PACK_RAGDOLL_IN_MATCHES := true
+# Keep your feet or go down (2026-11-26: "in a marking contest the player
+# does not always need to hit the ground, some might keep their feet,
+# others might fall over"). PlayerController.pack_knock scores the contact
+# from its physics: twice the closing speed along the line between the
+# bodies times this player's mass share, plus PER_METRE_UP for each metre
+# still off the turf, plus PER_OWN_SPEED of their own run speed. Under
+# KEEP_FEET_KNOCK they land on their feet, pushed JOSTLE_SPEED off the
+# line; over it, the pack ragdoll above. Equal bodies meeting at ~2.5 m/s
+# from a standing leap stay up; a running pack collision goes down. The
+# heavier of two usually keeps their feet. Unplaytested feel guesses.
+const PACK_KEEP_FEET_KNOCK := 3.0
+const PACK_KNOCK_PER_METRE_UP := 2.0
+const PACK_KNOCK_PER_OWN_SPEED := 0.25
+const PACK_JOSTLE_SPEED := 1.2           # m/s
 # Bump miss (playtest 2026-10-30): a human's whiffed hit-stick on a 6thbuild
 # rig is a stumble on the active ragdoll, not the canned TACKLED fall. The
 # body is still going at STUMBLE_CARRY of BUMP_DASH_SPEED, gets a
@@ -1612,7 +1626,18 @@ const INTERCEPT_REACH := 1.3           # m, arms spread: wider than a catch
 const SHEPHERD_SPEED := 4.2            # m/s
 const SHEPHERD_CROUCH_DEG := 32.0      # hip and knee bend
 const SHEPHERD_LEAN_DEG := 14.0        # trunk forward
-const SHEPHERD_ARMS_OUT_DEG := 62.0    # arms out from the sides
+# 2026-11-26: "the players hands should be more like a T pose, reaching
+# their arms and hands out as far as they can sideways ... when they are
+# moving make their feet stances wider and their elbow joints straight".
+# The arms are now set straight out (shoulder, elbow and wrist in one line)
+# SHEPHERD_ARMS_DROP_DEG below horizontal and SHEPHERD_ARMS_AHEAD_DEG
+# forward, whatever the run clip's arms were doing (it was 62° added on top
+# of the clip's swinging, bent arms). Moving, the thighs spread a further
+# SHEPHERD_STANCE_SPREAD_DEG at full SHEPHERD_SPEED.
+const SHEPHERD_ARMS_OUT_DEG := 62.0    # (the intercept's arms; the shepherd now uses the T below)
+const SHEPHERD_ARMS_DROP_DEG := 8.0
+const SHEPHERD_ARMS_AHEAD_DEG := 6.0
+const SHEPHERD_STANCE_SPREAD_DEG := 11.0
 const SHEPHERD_BLEND_RATE := 10.0      # 1/s in and out
 
 

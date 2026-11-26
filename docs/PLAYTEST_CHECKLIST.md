@@ -285,3 +285,10 @@ Pick `8THBUILD`. Compare with `docs/review/8thbuild/turnaround_vs_build8.png`.
 - [ ] **Auto-switching (2026-11-26):** on an opposition kick, control goes to whoever is nearest where the shadow says it comes down, not someone near the kicker. If you're already running at the drop (stick held), or you switched by hand in the last 2.5 s, it leaves you alone. Try it on ASSISTED and FULL, in 3rd person and broadcast. Tunables: `AUTO_SWITCH_*` in tuning.gd.
 - [ ] **Broadcast flick switching (2026-11-26):** let the right stick go hard: the rebound must not switch you the other way; a deliberate flick still switches. `FLICK_REBOUND_*`.
 - [ ] **Cameras on a switch (2026-11-26):** 3rd person glides to a nearby new player (cuts only past 30 m), and moving the right stick during the swing round takes the camera straight away. The view now waits 1.6 s after your look before it comes back. Broadcast pans smoothly on a switch and leads a kick toward its drop.
+
+## Get-ups, marking packs, LT shepherd (2026-11-26)
+
+- [ ] **Get-ups (Builds 6, 7, 8):** after a tackle or fall, face down the player plants both hands, pushes up, brings a knee through and stands; face up they sit up on their hands, rock onto their feet and stand (`docs/review/getup/getups_build8.png`). No clipping up through the turf. They take ~1 s to get up now (was ~0.5 s): say if that's too long in play.
+- [ ] **Marking packs:** soft contacts in the air (a standing pack, the heavier player) land on their feet with a nudge; hard ones (running into the pack, high up) still go down. Say if too many or too few fall (`Tuning.PACK_KEEP_FEET_KNOCK`).
+- [ ] **LT shepherd:** arms straight out like a T, elbows straight, standing and moving; feet wider once moving (`docs/review/getup/shepherd_t_build8.png`).
+

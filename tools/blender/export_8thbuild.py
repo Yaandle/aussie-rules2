@@ -110,6 +110,10 @@ CLIP_RENAME = {
 	"tackle_sling": "tackle_sling",
 	# The two-hand ball carry PlayerAnimation lays over the arms.
 	"carry": "carry",
+	# Ragdoll get-ups (2026-11-26, author_6thbuild_clips.py): hands down,
+	# push up, stand. PlayerAnimation plays them when they exist.
+	"getup_face_down": "getup_face_down",
+	"getup_face_up": "getup_face_up",
 }
 
 

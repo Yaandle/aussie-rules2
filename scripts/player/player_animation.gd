@@ -114,8 +114,11 @@ const MARK_MISS_BLEND := 0.08
 const MARK_CONTEXT_FRAMES := 2
 
 ## ── Ragdoll get-ups (PlayerRagdoll) ─────────────────────────────────
-## The second half of the two canned falls, entered straight from a landed
-## ragdoll: state -> source clip. TACKLED lands face down, KNOCKED_BACK face
+## A model with a clip named after the state itself (getup_face_down,
+## getup_face_up: 2026-11-26, hands planted, push up, stand; authored by
+## tools/blender/author_6thbuild_clips.py) plays that whole clip from its
+## lying point. Otherwise, the second half of the two canned falls, entered
+## straight from a landed ragdoll: state -> source clip. TACKLED lands face down, KNOCKED_BACK face
 ## up. Each starts where its clip stops lying still — the last frame the
 ## Hips are within GETUP_LYING_TOLERANCE of their lowest — found from the
 ## clip's own Hips track at build time, so a re-authored clip moves it.
@@ -1117,7 +1120,8 @@ func _apply_stance_pose(delta: float) -> void:
 		return
 	if _stance_bones.is_empty():
 		for bone_name: StringName in [&"Hips", &"Spine", &"LeftUpperLeg", &"LeftLowerLeg", &"LeftFoot",
-				&"RightUpperLeg", &"RightLowerLeg", &"RightFoot", &"LeftUpperArm", &"RightUpperArm"]:
+				&"RightUpperLeg", &"RightLowerLeg", &"RightFoot", &"LeftUpperArm", &"RightUpperArm",
+				&"LeftLowerArm", &"RightLowerArm", &"LeftHand", &"RightHand"]:
 			_stance_bones[bone_name] = _find_animated_bone(bone_name)
 	var to_skeleton := skeleton.global_basis.orthonormalized().inverse()
 	var right := (to_skeleton * body.global_basis.x).normalized()
@@ -1144,6 +1148,15 @@ func _apply_stance_pose(delta: float) -> void:
 				_turn_bone(skeleton, int(_stance_bones[StringName(side + "UpperLeg")]), Quaternion(right, deg_to_rad(bend)))
 				_turn_bone(skeleton, int(_stance_bones[StringName(side + "LowerLeg")]), Quaternion(right, deg_to_rad(-2.0 * bend)))
 				_turn_bone(skeleton, int(_stance_bones[StringName(side + "Foot")]), Quaternion(right, deg_to_rad(bend)))
+			# Moving: the feet go wider (2026-11-26), each thigh turned out
+			# about `forward` (a positive turn swings a hanging bone toward
+			# the body's left) and the foot turned back level.
+			var spread := Tuning.SHEPHERD_STANCE_SPREAD_DEG * _shepherd * _stance_speed_share(body)
+			if spread > 0.01:
+				for pair: Array in [[&"Left", 1.0], [&"Right", -1.0]]:
+					var turn := deg_to_rad(spread * float(pair[1]))
+					_turn_bone(skeleton, int(_stance_bones[StringName(String(pair[0]) + "UpperLeg")]), Quaternion(forward, turn))
+					_turn_bone(skeleton, int(_stance_bones[StringName(String(pair[0]) + "Foot")]), Quaternion(forward, -turn))
 			var hips := int(_stance_bones[&"Hips"])
 			if _hips_position_animated < 0:
 				_hips_position_animated = 1 if _position_animated(&"Hips") else 0
@@ -1158,12 +1171,44 @@ func _apply_stance_pose(delta: float) -> void:
 	# Arms out: a positive turn about `forward` swings a hanging arm toward
 	# the body's left, so the left arm takes +, the right -; the intercept
 	# also brings them a little forward to meet the ball.
-	var out := maxf(Tuning.SHEPHERD_ARMS_OUT_DEG * _shepherd, 70.0 * _intercept)
+	var out := 70.0 * _intercept
 	var ahead := 25.0 * _intercept
-	for pair: Array in [[&"LeftUpperArm", 1.0], [&"RightUpperArm", -1.0]]:
-		var bone := int(_stance_bones[pair[0]])
-		if bone >= 0:
-			_turn_bone(skeleton, bone, Quaternion(right, deg_to_rad(ahead)) * Quaternion(forward, deg_to_rad(out * float(pair[1]))))
+	if out > 0.01:
+		for pair: Array in [[&"LeftUpperArm", 1.0], [&"RightUpperArm", -1.0]]:
+			var bone := int(_stance_bones[pair[0]])
+			if bone >= 0:
+				_turn_bone(skeleton, bone, Quaternion(right, deg_to_rad(ahead)) * Quaternion(forward, deg_to_rad(out * float(pair[1]))))
+	# Shepherd (2026-11-26): a T. Each arm aimed straight out sideways,
+	# a touch down and forward, and the forearm and hand lined up behind it
+	# so the elbow and wrist are straight, whatever the clip's arms did.
+	if _shepherd > 0.01:
+		var up := (to_skeleton * body.global_basis.y).normalized()
+		var drop := deg_to_rad(Tuning.SHEPHERD_ARMS_DROP_DEG)
+		var fwd_tilt := deg_to_rad(Tuning.SHEPHERD_ARMS_AHEAD_DEG)
+		for side: Array in [[&"Left", -1.0], [&"Right", 1.0]]:
+			var aim := (right * float(side[1]) * cos(drop) * cos(fwd_tilt) - up * sin(drop) + forward * sin(fwd_tilt)).normalized()
+			var chain: Array[int] = [int(_stance_bones[StringName(String(side[0]) + "UpperArm")]),
+				int(_stance_bones[StringName(String(side[0]) + "LowerArm")]),
+				int(_stance_bones[StringName(String(side[0]) + "Hand")])]
+			if chain.has(-1):
+				continue
+			for link in 2:
+				var a_pos := skeleton.get_bone_global_pose(chain[link]).origin
+				var b_pos := skeleton.get_bone_global_pose(chain[link + 1]).origin
+				var now := b_pos - a_pos
+				if now.length_squared() < 1e-8:
+					continue
+				var full := Quaternion(now.normalized(), aim)
+				_turn_bone(skeleton, chain[link], Quaternion.IDENTITY.slerp(full, _shepherd))
+
+
+## 0..1: the body's flat speed against the shepherd's (the stance widens
+## with it).
+static func _stance_speed_share(body: Node3D) -> float:
+	var mover := body as CharacterBody3D
+	if mover == null:
+		return 0.0
+	return clampf(Vector2(mover.velocity.x, mover.velocity.z).length() / Tuning.SHEPHERD_SPEED, 0.0, 1.0)
 
 
 ## Turns `bone` by `turn` (a skeleton-space rotation) on top of its pose.
@@ -1915,7 +1960,7 @@ func _build_state_machine() -> AnimationNodeStateMachine:
 	# only — they're the only ones that ragdoll.
 	var rig := _rig as HumanoidRig
 	for state: StringName in GETUP_STATES:
-		var source: StringName = GETUP_STATES[state]
+		var source: StringName = state if _player.has_animation(state) else GETUP_STATES[state]
 		if rig == null or not rig.is_imported() or not _player.has_animation(source):
 			continue
 		var info := _getup_point(_player.get_animation(source))
